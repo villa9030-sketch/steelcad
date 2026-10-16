@@ -25,8 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH'}
-NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST'}
+NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
+        'structure': 'Struttura'}
 
 
 @dataclass
@@ -47,6 +48,7 @@ class FeatureResult:
 class RebuildResult:
     features: list = field(default_factory=list)
     body: NamedShape | None = None
+    structures: list = field(default_factory=list)     # StructureResult
     rebuilt: int = 0
     cached: int = 0
     seconds: float = 0.0
@@ -89,7 +91,7 @@ class Document:
         return sk
 
     def add_feature(self, ftype: str, name: str = '', **fields) -> str:
-        if ftype not in BUILDERS:
+        if ftype not in BUILDERS and ftype != 'structure':
             raise FeatureError(f'Tipo di feature "{ftype}" sconosciuto.')
         fid = self._new_id(ftype)
         self.features.append({'id': fid, 'type': ftype, 'name': name, **fields})
@@ -143,6 +145,8 @@ class Document:
         out = set()
         if f.get('sketch'):
             out.add(f['sketch'])
+        if f.get('type') == 'structure':
+            out |= Document._sketch_refs(f)
         for ref in f.get('edges') or []:
             out.update(n.split('/')[0] for n in ref['faces'])
         return out
@@ -210,6 +214,28 @@ class Document:
                                                   solved.status.to_dict()))
                 continue
             ftype = f['type']
+            if ftype == 'structure':
+                usati = sorted(self._sketch_refs(f))
+                h = _hash(f, self._used(f, params), [sketch_hash.get(x, 'manca') for x in usati])
+                cached = self._cache.get(h)
+                if cached is not None:
+                    res.cached += 1
+                    st_res, from_cache = cached, True
+                else:
+                    try:
+                        from .structures import build as build_structure
+                        st_res = build_structure(f, params, ctx_sketches)
+                    except SteelCADError as ex:
+                        if not ex.feature:
+                            ex.feature = fid
+                        res.features.append(FeatureResult(fid, ftype, False, ex.message))
+                        continue
+                    res.rebuilt += 1
+                    from_cache = False
+                nuova_cache[h] = st_res
+                res.structures.append(st_res)
+                res.features.append(FeatureResult(fid, ftype, True, '', from_cache))
+                continue
             if blocked_by:
                 res.features.append(FeatureResult(fid, ftype, False,
                                                   f'Non costruita: prima va sistemato l\'errore in {blocked_by}.'))
@@ -247,12 +273,30 @@ class Document:
         self._sketch_results = dict(ctx_sketches)
         return res
 
+    @staticmethod
+    def _sketch_refs(f) -> set:
+        out = set()
+        for v in (f.get('points') or {}).values():
+            if isinstance(v, dict) and v.get('sketch'):
+                out.add(v['sketch'])
+        for m in f.get('members') or []:
+            if m.get('sketch'):
+                out.add(m['sketch'])
+        return out
+
     def _used(self, f, params: dict) -> dict:
         nomi: set[str] = set()
         if isinstance(f, Sketch):
             for c in f.constraints.values():
                 if c['type'] in DIMENSIONS:
                     nomi |= names_in(c.get('value'))
+        elif f['type'] == 'structure':
+            for v in (f.get('points') or {}).values():
+                for c in (v.get('offset') or [] if isinstance(v, dict) else v):
+                    nomi |= names_in(c)
+            for m in f.get('members') or []:
+                for c in m.get('offset') or []:
+                    nomi |= names_in(c)
         else:
             for k in VALUE_FIELDS.get(f['type'], ()):
                 nomi |= names_in(f.get(k))

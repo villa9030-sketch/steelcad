@@ -36,3 +36,34 @@ def verify(path, expected_volume: float | None = None) -> dict:
             raise ExportError(f'Lo STEP riletto ha volume {vol:.3f} mm³ invece di {expected_volume:.3f} mm³: '
                               'il file non è affidabile.')
     return out
+
+
+def export_project(doc, result, path) -> dict:
+    """Tutto il progetto in uno STEP: il pezzo e ogni asta delle strutture, ognuno col suo nome."""
+    from ..features.base import volume as vol
+    figli, totale = [], 0.0
+    if result.body is not None:
+        b = bd.Shape.cast(result.body.shape)
+        b.label = doc.meta.get('name', 'Pezzo')
+        figli.append(b)
+        totale += vol(result.body.shape)
+    for st in result.structures:
+        for m in st.members:
+            s = m.solid.copy() if hasattr(m.solid, 'copy') else m.solid
+            s.label = f'{st.name} - {m.group or "asta"} {m.id} - {m.profile.name} L={m.length:.1f}'
+            figli.append(s)
+            totale += m.solid.volume
+    if not figli:
+        raise ExportError("Il progetto è vuoto: non c'è niente da esportare.")
+    asm = bd.Compound(children=figli)
+    asm.label = doc.meta.get('name', 'Progetto')
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    if not bd.export_step(asm, str(tmp), unit=bd.Unit.MM):
+        tmp.unlink(missing_ok=True)
+        raise ExportError(f'Lo STEP non è stato scritto in {path}.')
+    tmp.replace(path)
+    out = verify(path, totale)
+    if out['solids'] != len(figli):
+        raise ExportError(f'Lo STEP riletto ha {out["solids"]} solidi invece di {len(figli)}.')
+    return out
