@@ -9,6 +9,7 @@ from __future__ import annotations
 from .analysis import properties
 from .errors import SteelCADError
 from .structures.cutlist import cut_list
+from .units import fmt_mm
 
 
 def bom(doc, result) -> list[dict]:
@@ -18,14 +19,22 @@ def bom(doc, result) -> list[dict]:
         size = sorted(p['bbox_mm']['size'], reverse=True)
         spessore = None
         tipo = 'parte'
-        try:
-            from .exporters.dxf import flat_reference
-            spessore = flat_reference(result.body.shape)[2]
-            tipo = 'piastra'
-        except SteelCADError:
-            pass
+        descr = doc.meta.get('name', 'Parte')
+        sheet = getattr(result.body, 'sheet', None)
+        if sheet is not None:                       # lamiera piegata: dimensioni dello sviluppo
+            tipo, spessore = 'lamiera', sheet.thickness
+            size = list(sheet.flat_size)
+            descr = (f'{descr}, {len(sheet.flanges)} pieghe, sviluppo '
+                     f'{" × ".join(fmt_mm(round(v, 1)) for v in size)}')
+        else:
+            try:
+                from .exporters.dxf import flat_reference
+                spessore = flat_reference(result.body.shape)[2]
+                tipo = 'piastra'
+            except SteelCADError:
+                pass
         righe.append({
-            'code': doc.meta.get('code') or 'P1', 'description': doc.meta.get('name', 'Parte'), 'qty': 1,
+            'code': doc.meta.get('code') or 'P1', 'description': descr, 'qty': 1,
             'type': tipo, 'profile': None, 'material': doc.material, 'thickness_mm': spessore, 'length_mm': None,
             'dims_mm': [round(v, 1) for v in size], 'kg_each': p['mass_kg'], 'kg_total': p['mass_kg'],
         })

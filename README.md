@@ -3,7 +3,7 @@
 CAD parametrico verticale per carpenteria metallica: piastre, telai in
 tubolare, lamiera piegata. Pensato per chi conosce l'officina, non il CAD.
 
-**Stato: Milestone 2 completata (strutture in tubolare e prima interfaccia).**
+**Stato: Milestone 3 completata (lamiera piegata con sviluppo e DXF).**
 Vedi `docs/ROADMAP.md`.
 
 ## Cosa c'è
@@ -25,6 +25,7 @@ Vedi `docs/ROADMAP.md`.
 - Strutture in tubolare da uno scheletro: profili a catalogo (quadro,
   rettangolare, tondo, piatto, angolare, U, C, IPE, HEA, HEB), giunti a 45° e
   di testa, cut list con lunghezze e tagli, distinta, avvisi di interferenza.
+- Lamiera piegata: flange sui lati con quota esterna, K-factor / DIN 6935 / deduzione a 90° (nessun valore inventato), fori sulle ali, sviluppo esatto e DXF con le pieghe sul layer BEND (`docs/SHEETMETAL.md`).
 - Interfaccia desktop: viewer 3D, albero, parametri, quote modificabili sul
   modello, proprietà dell'asta, distinta/cut list, palette Ctrl+K.
 

@@ -49,6 +49,13 @@ def _feature_label(doc, f, fr) -> str:
             return f'{nome or "Raccordo"} R{f.get("radius")}'
         if t == 'chamfer':
             return f'{nome or "Smusso"} {f.get("distance")} mm'
+        if t == 'sheet':
+            sp = f.get('thickness')
+            try:
+                sp = fmt_mm(evaluate(sp, doc.resolved_parameters(), 'spessore'))
+            except SteelCADError:
+                pass
+            return f'Lamiera sp. {sp}'
     except (KeyError, ValueError):
         pass
     return nome or f['id']
@@ -80,6 +87,14 @@ def project_tree(doc, result) -> dict:
             if f in solid_feats:
                 part['children'].append(_n(_feature_label(doc, f, fr), f['type'], fid,
                                            status=None if fr and fr.ok else 'errore'))
+                if f['type'] == 'sheet':
+                    sk = doc.sketch(f['sketch']) if f.get('sketch') else None
+                    for fl in f.get('flanges') or []:
+                        lato = sk.describe(fl.get('edge')) if sk else fl.get('edge')
+                        verso = 'su' if fl.get('direction', 'up') == 'up' else 'giù'
+                        ang = fl.get('angle', 90)
+                        part['children'].append(_n(f'{fl["id"]}: flangia {fl.get("length")} a {ang}° {verso}, {lato}',
+                                                   'flange', f'{fid}/{fl["id"]}'))
         root['children'].append(part)
     # le strutture, per gruppo e per misura
     for st in result.structures:

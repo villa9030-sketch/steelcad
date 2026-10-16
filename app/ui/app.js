@@ -129,6 +129,7 @@ function paint() {
     o.mesh.material.emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, 0);
   }
   if (sel && sel.face != null && objs.has(sel.id)) faceOverlay(objs.get(sel.id), sel.face, C_SEL);
+  if (sel && sel.hl && objs.has('body')) for (const i of sel.hl) faceOverlay(objs.get('body'), i, C_SEL);
   if (hover && hover.face != null && objs.has(hover.id) && !(sel && sel.id === hover.id && sel.face === hover.face))
     faceOverlay(objs.get(hover.id), hover.face, C_HOVER);
   ridisegna();
@@ -344,7 +345,7 @@ async function loadScene() {
   else if (objs.size && raggio() > prima * 1.15) goTo(null, true);   // il modello è cresciuto: si riadatta
   buildDims();
   buildNodes();
-  const esiste = id => objs.has(id) || nodes.some(n => n.id === id);
+  const esiste = id => objs.has(id) || nodes.some(n => n.id === id) || id.startsWith('flange=');
   if (sel) {
     if ((sel.ids || [sel.id]).every(esiste)) await select(sel.id, sel.face, sel.ids, true);
     else clearSelection();
@@ -352,7 +353,7 @@ async function loadScene() {
 }
 
 function renderPanels() {
-  renderTop(); renderTree(); renderParams(); renderBottom();
+  renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet();
 }
 
 function renderTop() {
@@ -370,13 +371,14 @@ function renderTop() {
     'sinistro ruota, destro sposta, rotella ingrandisce';
 }
 
-const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole: '◯', fillet: '◜', chamfer: '◿',
+const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole: '◯', fillet: '◜', chamfer: '◿', sheet: '▱', flange: '⌐',
   structure: '⌗', group: '▾', members: '│' };
 function renderTree() {
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
     const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? membersOf(n.ref)
-      : ['part', 'sketch', 'extrude', 'hole', 'fillet', 'chamfer'].includes(n.kind) ? ['body'] : null;
+      : n.kind === 'flange' ? ['flange=' + n.ref]
+      : ['part', 'sketch', 'extrude', 'hole', 'fillet', 'chamfer', 'sheet'].includes(n.kind) ? ['body'] : null;
     const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
       ids && ids.length && ids.every(i => selIds.has(i)) && n.kind !== 'structure' && !(n.kind !== 'part' && ids[0] === 'body') ? 'sel' : ''];
@@ -433,6 +435,7 @@ async function select(id, face = null, ids = null, silenzioso = false) {
   paint(); renderTree(); paintNodes();
   const r = await call('select', id, face);
   if (!r.ok) { if (!silenzioso) toast(r.message, 'err'); return; }
+  if (r.selection.highlight) { sel.hl = r.selection.highlight; paint(); }
   renderProps(r.selection);
 }
 function clearSelection() {
@@ -458,6 +461,14 @@ async function renderProps(s) {
       <button class="btn" id="p-rot" title="Ruota il profilo attorno al suo asse">Ruota di 90° (ora ${num(s.rotate)}°)</button>
       <button class="btn" id="p-flip" title="Scambia il lato da cui è appoggiato il profilo">Inverti</button></div>
       <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Elimina ${sel?.ids?.length > 1 ? sel.ids.length + ' aste' : 'asta'}</button></div>`;
+  } else if (s.kind === 'flange') {
+    $('#props').innerHTML = h + flangePanel(s);
+    wireFlange(s);
+    return;
+  } else if (s.kind === 'body' && s.flange_form) {
+    $('#props').innerHTML = h + newFlangePanel(s.flange_form);
+    wireNewFlange(s.flange_form);
+    return;
   } else if (s.kind === 'node') {
     $('#props').innerHTML = h + nodePanel(s);
     wireNode(s);
@@ -478,10 +489,107 @@ async function renderProps(s) {
 }
 
 function deleteSelected() {
+  if (sel?.id?.startsWith('flange=')) {
+    const [fid, flid] = sel.id.slice(7).split('/');
+    clearSelection();
+    inCoda(async () => apply(await call('delete_flange', fid, flid)));
+    return;
+  }
   if (!sel || !(sel.ids || [sel.id]).every(id => id.includes('/'))) return;
   const ids = sel.ids || [sel.id];
   clearSelection();
   inCoda(async () => apply(await call('delete_members', ids)));
+}
+
+// --------------------------------------------------------------- lamiera: flange
+const opts = (o, cur) => Object.entries(o).map(([k, v]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
+let ultimaFlangia = { length: '30', angle: '90', direction: 'up', position: 'inside' };
+function flangeFields(d, dirs, pos) {
+  return `<div class="xyz"><label>Lunghezza (esterna)<input class="field" id="f-len" value="${esc(String(d.length ?? '').replace('.', ','))}"></label>
+    <label>Angolo (°)<input class="field" id="f-ang" value="${esc(String(d.angle ?? 90).replace('.', ','))}"></label>
+    <label>Verso<select class="field" id="f-dir">${opts(dirs, d.direction || 'up')}</select></label></div>
+    <label class="lbl" style="display:block;margin-top:6px">Posizione<select class="field" id="f-pos">${opts(pos, d.position || 'inside')}</select></label>`;
+}
+const VERSI_UI = { up: 'su', down: 'giù' };
+const POS_UI = { inside: 'quota esterna sul contorno', outside: 'piega dal bordo, flangia fuori' };
+function readFlange() {
+  return { length: $('#f-len').value.trim(), angle: $('#f-ang').value.trim(), direction: $('#f-dir').value, position: $('#f-pos').value };
+}
+function newFlangePanel(ff) {
+  return `<div class="sub">Flangia su questo lato</div><p class="hint" style="margin:0 0 6px">${esc(ff.label)}: lunghezza dallo spigolo esterno alla punta.</p>
+    ${flangeFields(ultimaFlangia, VERSI_UI, POS_UI)}
+    <div class="row-btns"><button class="btn primary" id="f-add">Aggiungi flangia</button></div>`;
+}
+function wireNewFlange(ff) {
+  const vai = () => {
+    ultimaFlangia = readFlange();
+    inCoda(async () => { const r = await call('add_flange', ff.feature, ff.edge, ultimaFlangia); if (await apply(r)) await select(r.select); });
+  };
+  $('#f-add').onclick = vai;
+  ['#f-len', '#f-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+}
+function flangePanel(s) {
+  const fori = s.holes.map((h, i) => `<div class="h">Ø${esc(h.d)} a u ${esc(h.u)}, v ${esc(h.v)}<button class="btn" data-hdel="${i}" title="Togli il foro">×</button></div>`).join('')
+    || '<p class="hint" style="margin:0">Nessun foro.</p>';
+  return `<div class="sub">Flangia</div>${flangeFields(s.def, s.directions, s.positions)}
+    <label class="lbl" style="display:block;margin-top:6px">Fessura d’angolo (mm)<input class="field" id="f-gap" value="${esc(String(s.def.gap ?? 0).replace('.', ','))}"></label>
+    <div class="row-btns"><button class="btn primary" id="f-apply">Applica</button><button class="btn danger" id="f-del">Elimina flangia</button></div>
+    <div class="sub">Fori sulla flangia</div><div class="holes">${fori}</div>
+    <p class="hint" style="margin:6px 0 4px">u lungo il lato, v dallo spigolo esterno verso la punta.</p>
+    <div class="xyz"><label>u<input class="field" id="h-u" value="50"></label><label>v<input class="field" id="h-v" value="15"></label>
+    <label>Ø<input class="field" id="h-d" value="8"></label></div>
+    <div class="row-btns"><button class="btn" id="h-add">Aggiungi foro</button></div>`;
+}
+function wireFlange(s) {
+  const applica = () => inCoda(async () => apply(await call('edit_flange', s.feature, s.flange, { ...readFlange(), gap: $('#f-gap').value.trim() })));
+  $('#f-apply').onclick = applica;
+  ['#f-len', '#f-ang', '#f-gap'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') applica(); }; });
+  $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); };
+  $('#h-add').onclick = () => inCoda(async () => apply(await call('add_flange_hole', s.feature, s.flange, $('#h-u').value, $('#h-v').value, $('#h-d').value)));
+  document.querySelectorAll('[data-hdel]').forEach(b => { b.onclick = () => inCoda(async () => apply(await call('delete_flange_hole', s.feature, s.flange, +b.dataset.hdel))); });
+}
+
+// --------------------------------------------------------------- scheda Lamiera
+function renderSheet() {
+  const sh = S.sheet;
+  $('#tab-btn-sheet').hidden = !sh;
+  if (!sh) { if (!$('#tab-sheet').hidden) document.querySelector('.tabs button[data-tab="bom"]').click(); return; }
+  const d = sh.def, manca = new Set(sh.missing || []);
+  const campo = (k, label, miss) => `<label for="t-${k}">${label}</label><input class="field${miss ? ' missing' : ''}" id="t-${k}" data-tech="${k}"
+      value="${esc(d[k] == null ? '' : String(d[k]).replace('.', ','))}" placeholder="${miss ? 'manca: dato della piegatrice' : ''}">`;
+  const tech = `<div class="tech">${campo('thickness', 'Spessore (mm)', false)}${campo('radius', 'Raggio interno (mm)', manca.has('raggio interno'))}
+    <label for="t-method">Calcolo della piega</label><select class="field" id="t-method">${opts(sh.methods, d.method || 'k')}</select>
+    ${d.method === 'bd90' ? campo('bd90', 'Deduzione a 90° (mm)', manca.has('deduzione a 90°')) : d.method === 'din6935' ? '' : campo('k', 'K-factor', manca.has('K-factor'))}</div>
+    ${manca.size ? `<div class="msg err">Mancano: ${esc([...manca].join(', '))}. Sono dati della tua piegatrice: senza, le flange non si possono calcolare.</div>` : ''}
+    ${sh.after.length ? `<div class="msg warn">Dopo la lamiera ci sono altre lavorazioni (${esc(sh.after.join(', '))}): lo sviluppo non le contiene.</div>` : ''}`;
+  const data = sh.data;
+  const pieghe = data && data.bends.length ? `<table class="grid"><thead><tr><th>Flangia</th><th>Lato</th><th class="n">L</th><th class="n">Angolo</th><th>Verso</th>
+    <th class="n">R</th><th class="n">K</th><th class="n">BA</th><th class="n">BD</th></tr></thead><tbody>${data.bends.map(b => `<tr data-fl="${esc(b.flange)}">
+    <td>${esc(b.flange)}</td><td>${esc(b.edge)}</td><td class="n">${num(b.length, 2)}</td><td class="n">${num(b.angle, 2)}°</td><td>${b.direction === 'up' ? 'su' : 'giù'}</td>
+    <td class="n">${num(b.r, 2)}</td><td class="n">${num(b.k, 3)}</td><td class="n">${num(b.ba, 3)}</td><td class="n">${num(b.bd, 3)}</td></tr>`).join('')}</tbody></table>`
+    : '<p class="empty">Nessuna piega. Clicca un fianco della lamiera nel modello per aggiungere una flangia.</p>';
+  let flat = '<p class="empty">Lo sviluppo compare quando la lamiera è costruita.</p>';
+  if (data && data.outline.length) {
+    const xs = data.outline.flatMap(p => p.filter((_, i) => i % 2 === 0)), ys = data.outline.flatMap(p => p.filter((_, i) => i % 2 === 1));
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), m = Math.max(x1 - x0, y1 - y0) * 0.04;
+    const path = data.outline.map(p => 'M' + p.map((v, i) => i % 2 ? (-v).toFixed(2) : v.toFixed(2)).join(' ').replace(/(\S+) (\S+)/g, '$1,$2 ') + 'Z').join(' ');
+    const linee = data.bend_lines.map(([a, b]) => `<line class="bend" x1="${a[0]}" y1="${-a[1]}" x2="${b[0]}" y2="${-b[1]}"/>`).join('');
+    flat = `<svg id="flat-svg" viewBox="${x0 - m} ${-y1 - m} ${x1 - x0 + 2 * m} ${y1 - y0 + 2 * m}" preserveAspectRatio="xMidYMid meet">
+      <path class="cut" fill-rule="evenodd" d="${path}"/>${linee}</svg>
+      <div class="kv"><span>Sviluppo</span><span>${num(data.flat_size[0], 2)} × ${num(data.flat_size[1], 2)} mm</span>
+      <span>Area</span><span>${num(data.flat_area / 1e6, 4)} m²</span></div>
+      <div class="row-btns"><button class="btn primary" data-cmd="export_dxf">Esporta sviluppo DXF…</button></div>`;
+  }
+  $('#tab-sheet').innerHTML = `<div class="sheet-cols"><div><h4>Dati di piega</h4>${tech}</div><div><h4>Pieghe</h4>${pieghe}</div><div><h4>Sviluppo</h4>${flat}</div></div>`;
+  $('#sheet-badge').textContent = manca.size ? '!' : '';
+  const salva = fields => inCoda(async () => apply(await call('set_sheet_tech', sh.feature, fields)));
+  document.querySelectorAll('[data-tech]').forEach(i => {
+    const ora = d[i.dataset.tech] == null ? '' : String(d[i.dataset.tech]).replace('.', ',');
+    i.onkeydown = ev => { if (ev.key === 'Enter') salva({ [i.dataset.tech]: i.value }); };
+    i.onblur = () => { if (i.value.trim() !== ora) salva({ [i.dataset.tech]: i.value }); };
+  });
+  $('#t-method').onchange = () => salva({ method: $('#t-method').value });
+  document.querySelectorAll('#tab-sheet tr[data-fl]').forEach(tr => { tr.onclick = () => select(`flange=${sh.feature}/${tr.dataset.fl}`); });
 }
 
 let ultimaAsta = { length: '500', profile: null, group: '' };
@@ -597,7 +705,7 @@ document.querySelector('.tabs').addEventListener('click', ev => {
   const b = ev.target.closest('button[data-tab]');
   if (!b) return;
   for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x === b);
-  for (const t of ['bom', 'cut', 'info']) $('#tab-' + t).hidden = t !== b.dataset.tab;
+  for (const t of ['bom', 'cut', 'sheet', 'info']) $('#tab-' + t).hidden = t !== b.dataset.tab;
 });
 
 // ===================================================================== comandi
@@ -623,6 +731,9 @@ function newDialog() {
     telaio: { titolo: 'Telaio / tavolo', nota: 'Telaio sopra e 4 gambe in tubolare',
       campi: [['L', 'Lunghezza', 2000], ['P', 'Profondità', 1000], ['H', 'Altezza', 900], ['profilo', 'Profilo telaio', '40x40x3'], ['gambe', 'Profilo gambe', '40x40x3']] },
     vuoto: { titolo: 'Struttura libera', nota: 'Parti da un nodo e tira le aste', campi: [] },
+    lamiera: { titolo: 'Lamiera', nota: 'Base piegata: poi clic su un lato per la flangia',
+      campi: [['larghezza', 'Larghezza', 500], ['profondita', 'Profondità', 300], ['spessore', 'Spessore', 2],
+        ['raggio', 'Raggio interno di piega', ''], ['k', 'K-factor', '']] },
     piastra: { titolo: 'Piastra', nota: 'Lamiera piana con foro, per DXF',
       campi: [['larghezza', 'Larghezza', 300], ['altezza', 'Altezza', 200], ['spessore', 'Spessore', 5], ['foro', 'Diametro foro', 30]] },
   };
@@ -631,7 +742,7 @@ function newDialog() {
     const m = MODELLI[kind];
     return `<h3>Nuovo progetto</h3>
       <div class="choice">${Object.entries(MODELLI).map(([k, v]) => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${esc(v.titolo)}<small>${esc(v.nota)}</small></button>`).join('')}</div>
-      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura' }[kind]}"></label>
+      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura', lamiera: 'Lamiera' }[kind]}"></label>
       ${m.campi.map(([k, l, v]) => `<label>${esc(l)}<input class="field" data-f="${k}" value="${esc(v)}"></label>`).join('')}</div>
       ${S?.dirty ? '<div class="msg warn">Le modifiche non salvate del progetto aperto andranno perse (resta il salvataggio automatico).</div>' : ''}
       <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea</button></div>`;

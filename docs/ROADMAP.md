@@ -76,6 +76,24 @@ sviluppo → DXF. K-factor, raggio interno, bend allowance/deduction, scarichi;
 parametri tecnologici obbligatori (nessun valore inventato). Confronto con un
 pezzo di riferimento con sviluppo noto.
 
+**Fatta (16/10).** Gate `tests/test_milestone3.py`:
+- U 500×300, sp. 2, R2, K 0,4 → sviluppo 500 × 352,796, uguale al conto a mano 300 + 2·(30 − BD);
+- volume del solido uguale al conto a mano, compresi i fori;
+- DXF con 3 contorni, fori Ø8 e Ø20, 2 linee di piega;
+- portando W da 500 a 600 tutto si rigenera, e l'annulla funziona.
+
+Verifica incrociata con K 0,5: area dello sviluppo × spessore = volume 3D, a 1e-9.
+
+Metodi di piega: K-factor, DIN 6935, deduzione a 90°, nessun default.
+
+Interfaccia: modello Lamiera, flangia con un clic sul fianco, pannello della flangia (con i fori),
+scheda Lamiera (dati di piega, pieghe, anteprima dello sviluppo, export).
+
+Pezzi di riferimento in `test_parts/`: simple_frame_2000x1000, table_frame, sheetmetal_u_2mm
+(`tools/test_parts.py`). Dettagli e limiti in `docs/SHEETMETAL.md`.
+
+Manca solo il confronto con un pezzo piegato davvero sulla pressa: vedi `sheetmetal_u_2mm/expected.json`.
+
 ## Milestone 4 — Uso in azienda
 Configuratori (tavolo, basamento, telaio, cancello, piedistallo, armadio,
 carter) sullo stesso motore, ottimizzazione barre da 6 m, componenti

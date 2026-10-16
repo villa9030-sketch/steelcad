@@ -67,6 +67,24 @@ class Api:
     def move_node(self, st_id, key, values):
         return self._call(self._svc.move_node, st_id, key, values)
 
+    def add_flange(self, fid, edge, fields):
+        return self._call(self._svc.add_flange, fid, edge, fields)
+
+    def edit_flange(self, fid, flid, fields):
+        return self._call(self._svc.edit_flange, fid, flid, fields)
+
+    def delete_flange(self, fid, flid):
+        return self._call(self._svc.delete_flange, fid, flid)
+
+    def add_flange_hole(self, fid, flid, u, v, d):
+        return self._call(self._svc.add_flange_hole, fid, flid, u, v, d)
+
+    def delete_flange_hole(self, fid, flid, index):
+        return self._call(self._svc.delete_flange_hole, fid, flid, index)
+
+    def set_sheet_tech(self, fid, fields):
+        return self._call(self._svc.set_sheet_tech, fid, fields)
+
     def undo(self):
         return self._call(self._svc.undo)
 

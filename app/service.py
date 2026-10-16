@@ -23,6 +23,7 @@ from cad_engine.sketch.model import DIMENSIONS  # noqa: E402
 from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS  # noqa: E402
+from cad_engine.sheetmetal import METODI, POSIZIONI, VERSI  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
@@ -92,6 +93,7 @@ class Service:
         cl = cut_list(r.structures)
         righe = bom(doc, r)
         avvisi = [w for st in r.structures for w in (st.warnings or [])]
+        sheet = self._sheet_state()
         return {
             'name': doc.meta.get('name'), 'path': str(self.path) if self.path else None,
             'dirty': self.history.dirty, 'undo': self.history.labels()['undo'][:1],
@@ -99,7 +101,7 @@ class Service:
             'tree': project_tree(doc, r), 'parameters': self._parameters(),
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
-            'dimensions': self._dimensions(), 'scene_version': self.scene_version,
+            'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
         }
 
     def _parameters(self):
@@ -178,11 +180,23 @@ class Service:
                                     'area': bd.Face(f).area}
                     dati['rows'].append(['Faccia', dati['face']['label']])
                     dati['rows'].append(['Area faccia', f'{dati["face"]["area"]:.1f} mm²'])
+                    nome = dati['face']['name'] or ''
+                    parti = nome.split('/')
+                    sm = self._sheet_def(parti[0]) if parti else None
+                    if sm is not None and len(parti) == 3 and parti[1] == 'lato':
+                        dati['flange_form'] = {'feature': parti[0], 'edge': parti[2],
+                                               'label': self.doc.sketch(sm['sketch']).describe(parti[2])}
+                    elif sm is not None and len(parti) == 3 and parti[1].startswith('FL'):
+                        fs = self._flange_selection(parti[0], parti[1])
+                        fs['face_label'] = dati['face']['label']
+                        return _ok(selection=fs)
                 dati['commands'] = [{'id': 'export_dxf', 'label': 'Esporta DXF di taglio'},
                                     {'id': 'export_step', 'label': 'Esporta STEP'}]
                 return _ok(selection=dati)
             if ':' in obj_id:
                 return _ok(selection=self._node_selection(obj_id))
+            if obj_id.startswith('flange='):
+                return _ok(selection=self._flange_selection(*obj_id[7:].split('/')))
             st_id, mid = obj_id.split('/')
             st = next(s for s in self.result.structures if s.id == st_id)
             m = next(x for x in st.members if x.id == mid)
@@ -202,6 +216,120 @@ class Service:
             })
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+    # ---------------------------------------------------------------- lamiera
+    def _sheet_def(self, fid: str):
+        try:
+            f = self.doc.feature(fid)
+        except SteelCADError:
+            return None
+        return f if not isinstance(f, Sketch) and f.get('type') == 'sheet' else None
+
+    def _sheet_state(self):
+        sm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet'), None)
+        if sm is None:
+            return None
+        out = {'feature': sm['id'], 'def': {k: sm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')},
+               'methods': METODI, 'data': None, 'flanges': len(sm.get('flanges') or []),
+               'after': [f['id'] for f in self.doc.features[self.doc.features.index(sm) + 1:]
+                         if not isinstance(f, Sketch) and f.get('type') != 'structure']}
+        data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+        if data is not None:
+            out['data'] = data.summary()
+            out['missing'] = data.tech['missing']
+        else:
+            out['missing'] = [m for m, k in (('raggio interno', 'radius'),) if sm.get(k) in (None, '')]
+        return out
+
+    def _face_indices(self, prefix: str) -> list[int]:
+        from cad_engine.topology.naming import _faces_of
+        facce = _faces_of(self.result.body.shape)
+        out = []
+        for nome, fs in self.result.body.names.items():
+            if nome == prefix or nome.startswith(prefix + '/'):
+                out += [i for i, f in enumerate(facce) if any(f.IsSame(g) for g in fs)]
+        return sorted(set(out))
+
+    def _flange_selection(self, fid: str, flid: str) -> dict:
+        sm = self._sheet_def(fid)
+        fl = next(x for x in sm['flanges'] if x['id'] == flid)
+        data = getattr(self.result.body, 'sheet', None)
+        geo = next((g for g in data.flanges if g.fid == flid), None) if data else None
+        rows = [['Lato', self.doc.sketch(sm['sketch']).describe(fl['edge'])]]
+        if geo:
+            b = geo.bend
+            rows += [['Piega', f'{fmt_mm(b.angle)}° {"su" if geo.direction == "up" else "giù"}, R{fmt_mm(b.r)}, K {b.k:.3f}'.replace('.', ',')],
+                     ['Larghezza', f'{fmt_mm(round(geo.u1 - geo.u0, 2))} mm'],
+                     ['BA / BD', f'{b.ba:.3f} / {b.bd:.3f} mm'.replace('.', ',')]]
+        return {'kind': 'flange', 'feature': fid, 'flange': flid, 'title': f'Flangia {flid}', 'rows': rows,
+                'def': {k: fl.get(k, d) for k, d in (('length', None), ('angle', 90), ('direction', 'up'),
+                                                      ('position', 'inside'), ('gap', 0))},
+                'holes': fl.get('holes') or [], 'directions': VERSI, 'positions': POSIZIONI,
+                'highlight': self._face_indices(f'{fid}/{flid}') if self.result.body is not None else []}
+
+    def _edit_sheet(self, fid: str, label: str, fn) -> dict:
+        def wrap():
+            sm = self._sheet_def(fid)
+            if sm is None:
+                raise SteelCADError('Questa lamiera non esiste più.', code='lamiera')
+            fn(sm)
+        return self._change(label, wrap)
+
+    def add_flange(self, fid: str, edge: str, fields: dict) -> dict:
+        nuovo = {}
+
+        def fn(sm):
+            fls = sm.setdefault('flanges', [])
+            if any(x['edge'] == edge for x in fls):
+                raise SteelCADError('Su questo lato c’è già una flangia: cliccala per cambiarla.', code='doppia')
+            flid = self._free_id(sm, 'FL', {x['id'] for x in fls})
+            fl = {'id': flid, 'edge': edge}
+            fl.update(_flange_fields(fields))
+            fl.setdefault('length', 30)
+            fl.setdefault('angle', 90)
+            fls.append(fl)
+            nuovo['flange'] = flid
+        r = self._edit_sheet(fid, f'Flangia su {edge}', fn)
+        if r['ok']:
+            r['select'] = f'flange={fid}/{nuovo["flange"]}'
+        return r
+
+    def edit_flange(self, fid: str, flid: str, fields: dict) -> dict:
+        def fn(sm):
+            fl = next(x for x in sm['flanges'] if x['id'] == flid)
+            fl.update(_flange_fields(fields))
+        return self._edit_sheet(fid, f'{flid}: modifica', fn)
+
+    def delete_flange(self, fid: str, flid: str) -> dict:
+        def fn(sm):
+            sm['flanges'] = [x for x in sm['flanges'] if x['id'] != flid]
+        return self._edit_sheet(fid, f'Elimina {flid}', fn)
+
+    def add_flange_hole(self, fid: str, flid: str, u, v, d) -> dict:
+        def fn(sm):
+            fl = next(x for x in sm['flanges'] if x['id'] == flid)
+            fl.setdefault('holes', []).append({'u': _number(u), 'v': _number(v), 'd': _number(d)})
+        return self._edit_sheet(fid, f'Foro su {flid}', fn)
+
+    def delete_flange_hole(self, fid: str, flid: str, index: int) -> dict:
+        def fn(sm):
+            fl = next(x for x in sm['flanges'] if x['id'] == flid)
+            del fl['holes'][int(index)]
+        return self._edit_sheet(fid, f'Togli foro da {flid}', fn)
+
+    def set_sheet_tech(self, fid: str, fields: dict) -> dict:
+        # spessore, raggio interno, metodo, K-factor, deduzione: i dati della piegatrice
+        def fn(sm):
+            for k in ('thickness', 'radius', 'k', 'bd90'):
+                if k in fields:
+                    v = fields[k]
+                    sm[k] = None if v is None or str(v).strip() == '' else _number(v)
+            if 'method' in fields:
+                if fields['method'] not in METODI:
+                    raise SteelCADError('Metodo di piega sconosciuto.', code='metodo')
+                sm['method'] = fields['method']
+        # qui una modifica può lasciare la lamiera senza un dato: va bene, la scheda lo dice
+        return self._change('Dati di piega', lambda: fn(self._sheet_def(fid)), keep_broken=True)
 
     def profile_suggestions(self) -> list[str]:
         out = ['30x30x2', '40x40x3', '50x50x3', '60x60x3', '70x70x4', '80x80x4', '60x40x3', '80x40x3',
@@ -425,7 +553,7 @@ class Service:
         try:
             values = {k: _number(v) for k, v in (values or {}).items()}
             doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
-                   'vuoto': templates.struttura_vuota}[kind](**values)
+                   'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera}[kind](**values)
             self._set(doc)
             self.path = None
             return _ok(state=self.state())
@@ -475,6 +603,19 @@ class Service:
 
     def export_dxf(self, path: str) -> dict:
         try:
+            sheet = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+            stato = self._sheet_state()
+            if sheet is not None:
+                rep = dxf.export_flat_pattern(sheet, path)
+                return _ok(message=f'Sviluppo salvato: {fmt_mm(round(rep["size_mm"][0], 2))} × '
+                                   f'{fmt_mm(round(rep["size_mm"][1], 2))} mm, {rep["contours"]} contorni, '
+                                   f'{rep["bend_lines"]} pieghe sul layer BEND. Controlli superati.', path=path)
+            if stato is not None and stato['after']:
+                return {'ok': False, 'message': 'Dopo la lamiera ci sono altre lavorazioni ('
+                        + ', '.join(stato['after']) + '): lo sviluppo non le conterrebbe. I fori sulla base vanno '
+                        'nello sketch, quelli sulle flange nel pannello della flangia.'}
+            if stato is not None:
+                return {'ok': False, 'message': 'La lamiera non è costruita: guarda la scheda Lamiera.'}
             if self.result.body is None:
                 return {'ok': False, 'message': 'Il DXF di taglio si fa per un pezzo piano (una piastra): questo '
                                                 'progetto ha solo strutture. Per i tubolari c’è la cut list.'}
@@ -484,6 +625,19 @@ class Service:
                                'Controlli superati.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+
+def _flange_fields(fields: dict) -> dict:
+    out = {}
+    for k in ('length', 'angle', 'gap'):
+        if k in fields and str(fields[k]).strip() != '':
+            out[k] = _number(fields[k])
+    for k, ok in (('direction', VERSI), ('position', POSIZIONI)):
+        if k in fields:
+            if fields[k] not in ok:
+                raise SteelCADError(f'Valore "{fields[k]}" non valido.', code='campo')
+            out[k] = fields[k]
+    return out
 
 
 def _cut_text(a: float) -> str:

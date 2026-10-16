@@ -25,9 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
-        'structure': 'Struttura'}
+        'structure': 'Struttura', 'sheet': 'Lamiera'}
 
 
 @dataclass
@@ -300,6 +300,12 @@ class Document:
         else:
             for k in VALUE_FIELDS.get(f['type'], ()):
                 nomi |= names_in(f.get(k))
+            for fl in f.get('flanges') or []:             # lamiera: valori delle flange e dei loro fori
+                for k in ('length', 'angle', 'gap'):
+                    nomi |= names_in(fl.get(k))
+                for h in fl.get('holes') or []:
+                    for k in ('u', 'v', 'd'):
+                        nomi |= names_in(h.get(k))
         return {n: params.get(n) for n in sorted(nomi)}
 
     def _plane(self, sk: Sketch, body: NamedShape | None):
@@ -327,7 +333,13 @@ class Document:
                 ent = parti[2]
             return f'il fianco sul {ent} di {nome_f}' if ent.startswith('lato') else f'il fianco su {ent} di {nome_f}'
         testi = {'fine': 'la faccia finale', 'inizio': 'la faccia iniziale', 'foro': 'la parete del foro',
-                 'fondo': 'il fondo del foro', 'raccordo': 'il raccordo', 'smusso': 'lo smusso'}
+                 'fondo': 'il fondo del foro', 'raccordo': 'il raccordo', 'smusso': 'lo smusso',
+                 'sopra': 'la faccia di sopra', 'sotto': 'la faccia di sotto'}
+        flangia = {'esterno': 'la faccia esterna', 'interno': 'la faccia interna', 'punta': 'la punta',
+                   'fianco': 'il fianco', 'piega_esterna': 'la piega (fuori)', 'piega_interna': 'la piega (dentro)'}
+        if len(parti) == 3 and (parti[2] in flangia or parti[2].startswith('foro')):
+            cosa = flangia.get(parti[2]) or f'il {parti[2].replace("foro", "foro ")}'
+            return f'{cosa} della flangia {parti[1]} di {nome_f}'
         if len(parti) >= 2 and parti[1] in testi:
             return f'{testi[parti[1]]} di {nome_f}'
         return f'"{name}"'

@@ -1,10 +1,12 @@
 from . import dress, extrude, hole
+from .. import sheetmetal
 
 BUILDERS = {
     'extrude': extrude.build,
     'hole': hole.build,
     'fillet': dress.build,
     'chamfer': dress.build,
+    'sheet': sheetmetal.build,
 }
 
 # campi che contengono valori (numeri o espressioni sui parametri)
@@ -13,4 +15,5 @@ VALUE_FIELDS = {
     'hole': ('diameter', 'depth'),
     'fillet': ('radius',),
     'chamfer': ('distance',),
+    'sheet': ('thickness', 'radius', 'k', 'bd90'),
 }

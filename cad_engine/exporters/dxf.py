@@ -7,7 +7,8 @@ sovrapposizioni, niente microsegmenti, unità in mm. Un DXF che non passa i
 controlli non viene lasciato su disco.
 
 Layer: CUT (taglio), BEND (pieghe), MARK (marcatura), ENGRAVE (incisione).
-Per i pezzi piani della Milestone 1 si usa solo CUT; gli altri esistono già nel file.
+Per i pezzi piani si usa solo CUT; lo sviluppo della lamiera mette le pieghe su BEND
+(linea tratteggiata + scritta "FL1 SU 90° R2"). I controlli sui contorni guardano solo il taglio.
 """
 from __future__ import annotations
 
@@ -67,14 +68,58 @@ def flat_reference(shape):
 
 def export_flat(shape, path, *, name: str = '') -> dict:
     ref, plane, spessore = flat_reference(shape)
-    path = Path(path)
+    doc = _new_doc()
+    msp = doc.modelspace()
+    avvisi = _write_face(msp, ref, plane)
+    return _finish(doc, path, avvisi, spessore)
+
+
+def _new_doc():
     doc = ezdxf.new('R2010', setup=True)
     doc.header['$INSUNITS'] = 4        # millimetri
     doc.header['$MEASUREMENT'] = 1     # metrico
     for nome, col in LAYERS.items():
         if nome not in doc.layers:
             doc.layers.add(nome, color=col)
+    return doc
+
+
+def _finish(doc, path, avvisi, spessore, extra=None) -> dict:
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    doc.saveas(tmp)
+    report = check(tmp)
+    report['thickness_mm'] = spessore
+    report['warnings'] = avvisi + report['warnings']
+    report.update(extra or {})
+    if report['problems']:
+        tmp.unlink(missing_ok=True)
+        raise ExportError('Il DXF non è pronto per il taglio: ' + '; '.join(report['problems']) + '.')
+    tmp.replace(path)
+    report['path'] = str(path)
+    return report
+
+
+def export_flat_pattern(sheet, path) -> dict:
+    """Lo sviluppo di una lamiera piegata: contorno e fori su CUT, linee di piega su BEND con la scritta."""
+    if sheet.flat is None:
+        raise ExportError('La lamiera non ha uno sviluppo.')
+    doc = _new_doc()
     msp = doc.modelspace()
+    avvisi = _write_face(msp, sheet.flat, sheet.plane)
+    h = max(2.5, min(8.0, sheet.thickness * 2))
+    for a, b, testo in sheet.bend_lines:
+        msp.add_line(a, b, dxfattribs={'layer': 'BEND', 'linetype': 'DASHED'})
+        m = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        ang = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+        if ang > 90 or ang <= -90:
+            ang -= 180
+        msp.add_text(testo, height=h, rotation=ang, dxfattribs={'layer': 'BEND'}).set_placement(
+            (m[0], m[1] + h * 0.4), align=ezdxf.enums.TextEntityAlignment.BOTTOM_CENTER)
+    return _finish(doc, path, avvisi, sheet.thickness, {'bend_lines': len(sheet.bend_lines)})
+
+
+def _write_face(msp, ref, plane) -> list:
     loc = lambda v: plane.to_local_coords(v)  # noqa: E731
     avvisi = []
     for e in ref.edges():
@@ -99,17 +144,7 @@ def export_flat(shape, path, *, name: str = '') -> dict:
             pts = [loc(p) for p in e.positions([i / 64 for i in range(65)])]
             msp.add_lwpolyline([(p.X, p.Y) for p in pts], dxfattribs={'layer': 'CUT'})
             avvisi.append(f'Una curva ({gt.name.lower()}) è stata approssimata con 64 segmenti.')
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    doc.saveas(tmp)
-    report = check(tmp)
-    report['thickness_mm'] = spessore
-    report['warnings'] = avvisi + report['warnings']
-    if report['problems']:
-        tmp.unlink(missing_ok=True)
-        raise ExportError('Il DXF non è pronto per il taglio: ' + '; '.join(report['problems']) + '.')
-    tmp.replace(path)
-    report['path'] = str(path)
-    return report
+    return avvisi
 
 
 def _ccw_contains(t0: float, t1: float, tm: float) -> bool:
@@ -126,8 +161,12 @@ def check(path) -> dict:
         problemi.append('le unità del file non sono millimetri')
     segmenti = []       # (tipo, dati, estremo a, estremo b)
     cerchi = []
+    pieghe = 0
     for ent in msp:
         t = ent.dxftype()
+        if ent.dxf.layer in ('BEND', 'MARK', 'ENGRAVE'):
+            pieghe += ent.dxf.layer == 'BEND' and t == 'LINE'
+            continue
         if t == 'LINE':
             a, b = (ent.dxf.start.x, ent.dxf.start.y), (ent.dxf.end.x, ent.dxf.end.y)
             lung = math.dist(a, b)
@@ -195,7 +234,7 @@ def check(path) -> dict:
     size = [max(xs) - min(xs), max(ys) - min(ys)] if xs else [0, 0]
     return {'ok': not problemi, 'problems': problemi, 'warnings': avvisi, 'contours': contorni,
             'entities': len(segmenti) + len(cerchi), 'circles': len(cerchi), 'size_mm': size,
-            'circle_diameters': sorted(round(2 * c[1], 6) for c in cerchi)}
+            'circle_diameters': sorted(round(2 * c[1], 6) for c in cerchi), 'bend_lines_found': pieghe}
 
 
 def _same(s1, s2) -> bool:

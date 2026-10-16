@@ -1,0 +1,23 @@
+{
+  "_nota": "Tavolo: telaio sopra all’altezza H = 900 (asse), gambe sotto il telaio: 900 − 20 = 880.",
+  "cut_list": [
+    {
+      "lunghezza_mm": 880.0,
+      "tagli": "dritto/dritto",
+      "pezzi": 4
+    },
+    {
+      "lunghezza_mm": 1040.0,
+      "tagli": "45°/45°",
+      "pezzi": 2
+    },
+    {
+      "lunghezza_mm": 2040.0,
+      "tagli": "45°/45°",
+      "pezzi": 2
+    }
+  ],
+  "metri_totali": 9.68,
+  "volume_mm3": 4006234.9756782,
+  "peso_kg": 31.448944559073865
+}

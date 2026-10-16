@@ -1,0 +1,189 @@
+{
+ "format": "steelcad",
+ "version": 1,
+ "meta": {
+  "name": "Telaio 2000x1000",
+  "created": "2026-10-16T14:56:31",
+  "modified": "2026-10-16T14:56:31"
+ },
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "mass": "kg"
+ },
+ "parameters": {},
+ "material": "S235",
+ "features": [
+  {
+   "id": "S1",
+   "type": "sketch",
+   "name": "Scheletro",
+   "plane": "XY",
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P2": {
+     "kind": "point",
+     "x": 1900.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P3": {
+     "kind": "point",
+     "x": 1900.0,
+     "y": 950.0,
+     "construction": false
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 950.0,
+     "construction": false
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P3",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P4",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P1",
+     "construction": false,
+     "label": "lato sinistro"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "horizontal",
+     "refs": [
+      "L1"
+     ],
+     "auto": true
+    },
+    "K2": {
+     "type": "vertical",
+     "refs": [
+      "L2"
+     ],
+     "auto": true
+    },
+    "K3": {
+     "type": "horizontal",
+     "refs": [
+      "L3"
+     ],
+     "auto": true
+    },
+    "K4": {
+     "type": "vertical",
+     "refs": [
+      "L4"
+     ],
+     "auto": true
+    },
+    "K5": {
+     "type": "coincident",
+     "refs": [
+      "P1",
+      "O"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "length",
+     "refs": [
+      "L1"
+     ],
+     "value": 2000
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L4"
+     ],
+     "value": 1000
+    }
+   }
+  },
+  {
+   "id": "ST1",
+   "type": "structure",
+   "name": "Telaio",
+   "points": {
+    "P0": {
+     "sketch": "S1",
+     "point": "P1"
+    },
+    "P1": {
+     "sketch": "S1",
+     "point": "P2"
+    },
+    "P2": {
+     "sketch": "S1",
+     "point": "P3"
+    },
+    "P3": {
+     "sketch": "S1",
+     "point": "P4"
+    }
+   },
+   "members": [
+    {
+     "id": "M1",
+     "group": "Telaio",
+     "from": "P0",
+     "to": "P1",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "M2",
+     "group": "Telaio",
+     "from": "P1",
+     "to": "P2",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "M3",
+     "group": "Telaio",
+     "from": "P2",
+     "to": "P3",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "M4",
+     "group": "Telaio",
+     "from": "P3",
+     "to": "P0",
+     "profile": "40x40x3"
+    }
+   ]
+  }
+ ]
+}

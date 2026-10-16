@@ -50,3 +50,21 @@ def struttura_vuota(name: str = 'Struttura', material='S235') -> Document:
     doc = Document(name, material)
     doc.add_feature('structure', 'Struttura', points={'A': [0, 0, 0]}, members=[], material=material)
     return doc
+
+
+def lamiera(name: str = 'Lamiera', larghezza=500, profondita=300, spessore=2, raggio=None, k=None,
+            material='S235') -> Document:
+    """Base rettangolare in lamiera. Raggio e K-factor non hanno default: se non li dai tu, la scheda
+    Lamiera li chiede prima della prima flangia."""
+    doc = Document(name, material)
+    for kk, v in (('W', larghezza), ('P', profondita), ('sp', spessore)):
+        doc.set_parameter(kk, v)
+    sk = doc.add_sketch('XY', 'Base')
+    r = sk.rectangle(0, 0, float(larghezza) * 0.97, float(profondita) * 0.97)
+    sk.constrain('coincident', r['corners'][0], 'O')
+    sk.dimension('length', r['bottom'], value='W')
+    sk.dimension('length', r['left'], value='P')
+    vuoto = lambda v: v is None or str(v).strip() == ''  # noqa: E731
+    doc.add_feature('sheet', name, sketch=sk.id, thickness='sp', radius=None if vuoto(raggio) else raggio,
+                    method='k', k=None if vuoto(k) else k, flanges=[])
+    return doc

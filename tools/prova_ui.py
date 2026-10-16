@@ -134,6 +134,48 @@ def main():
     return 0 if all(e for _, e in esiti) else 1
 
 
+def lamiera(pg, ok):
+    """Milestone 3 dall'interfaccia: base 500x300 sp. 2, dati di piega, due flange, foro, sviluppo, DXF."""
+    pg.keyboard.press('Escape')
+    pg.keyboard.press('Control+N')
+    pg.click('.choice button[data-k="lamiera"]')
+    pg.fill('#n-name', 'Canalina')
+    pg.click('#n-ok')
+    pg.wait_for_function("window.__steelcad.state.name === 'Canalina' && window.__steelcad.state.sheet")
+    pg.click('.tabs button[data-tab="sheet"]')
+    ok('scheda Lamiera: mancano raggio e K', 'Mancano' in pg.inner_text('#tab-sheet'))
+    pg.fill('#t-radius', '2')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("window.__steelcad.state.sheet.def.radius === 2")
+    pg.fill('#t-k', '0,4')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("window.__steelcad.state.sheet.def.k === 0.4 && !window.__steelcad.state.sheet.missing.length")
+    ok('dati di piega inseriti', True)
+    for lato in ('L1', 'L3'):
+        pg.evaluate("""(lato) => { const o = window.__steelcad.objs.get('body');
+            const f = o.data.faces.find(x => x.name === 'SM1/lato/' + lato); window.__steelcad.select('body', f.index); }""", lato)
+        pg.wait_for_selector('#f-add')
+        pg.fill('#f-len', '30')
+        pg.click('#f-add')
+        pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
+        pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+    size = pg.evaluate('window.__steelcad.state.sheet.data.flat_size')
+    ok(f'U: sviluppo {size}', abs(size[0] - 500) < 1e-6 and abs(size[1] - 352.7964594) < 1e-5)
+    pg.fill('#h-u', '100')
+    pg.fill('#h-v', '18')
+    pg.fill('#h-d', '8')
+    pg.click('#h-add')
+    pg.wait_for_function("document.querySelectorAll('.holes .h').length === 1")
+    ok('foro sulla flangia', True)
+    pg.click('.tabs button[data-tab="sheet"]')
+    pg.wait_for_selector('#flat-svg')
+    time.sleep(0.3)
+    pg.screenshot(path=str(SHOTS_G / '6_lamiera.png'))
+    pg.click('#tab-sheet [data-cmd="export_dxf"]')
+    pg.wait_for_selector('.toast:has-text("Sviluppo salvato")')
+    ok('export sviluppo: ' + pg.inner_text('.toast:has-text("Sviluppo salvato")')[:90], True)
+
+
 def cancello(pg, ok, errori):
     if True:
         if True:
@@ -186,6 +228,7 @@ def cancello(pg, ok, errori):
             pg.fill('[data-xyz="2"]', '0'); pg.click('#n-move')
             pg.wait_for_selector('.toast.err:has-text("Non applicato")')
             ok('nodo sopra un altro: ' + pg.inner_text('.toast.err:has-text("Non applicato")')[:80], pg.evaluate("window.__steelcad.state.cutlist.pieces") == 4)
+            lamiera(pg, ok)
             ok('nessun errore in console', not errori)
 
 if __name__ == '__main__':

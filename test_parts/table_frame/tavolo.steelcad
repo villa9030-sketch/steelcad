@@ -1,0 +1,258 @@
+{
+ "format": "steelcad",
+ "version": 1,
+ "meta": {
+  "name": "Tavolo 2000x1000x900",
+  "created": "2026-10-16T14:56:31",
+  "modified": "2026-10-16T14:56:31"
+ },
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "mass": "kg"
+ },
+ "parameters": {
+  "L": 2000,
+  "P": 1000,
+  "H": 900
+ },
+ "material": "S235",
+ "features": [
+  {
+   "id": "S1",
+   "type": "sketch",
+   "name": "Scheletro",
+   "plane": "XY",
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P2": {
+     "kind": "point",
+     "x": 1940.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P3": {
+     "kind": "point",
+     "x": 1940.0,
+     "y": 970.0,
+     "construction": false
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 970.0,
+     "construction": false
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P3",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P4",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P1",
+     "construction": false,
+     "label": "lato sinistro"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "horizontal",
+     "refs": [
+      "L1"
+     ],
+     "auto": true
+    },
+    "K2": {
+     "type": "vertical",
+     "refs": [
+      "L2"
+     ],
+     "auto": true
+    },
+    "K3": {
+     "type": "horizontal",
+     "refs": [
+      "L3"
+     ],
+     "auto": true
+    },
+    "K4": {
+     "type": "vertical",
+     "refs": [
+      "L4"
+     ],
+     "auto": true
+    },
+    "K5": {
+     "type": "coincident",
+     "refs": [
+      "P1",
+      "O"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "length",
+     "refs": [
+      "L1"
+     ],
+     "value": "L"
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L4"
+     ],
+     "value": "P"
+    }
+   }
+  },
+  {
+   "id": "ST1",
+   "type": "structure",
+   "name": "Telaio",
+   "points": {
+    "T0": {
+     "sketch": "S1",
+     "point": "P1",
+     "offset": [
+      0,
+      0,
+      "H"
+     ]
+    },
+    "T1": {
+     "sketch": "S1",
+     "point": "P2",
+     "offset": [
+      0,
+      0,
+      "H"
+     ]
+    },
+    "T2": {
+     "sketch": "S1",
+     "point": "P3",
+     "offset": [
+      0,
+      0,
+      "H"
+     ]
+    },
+    "T3": {
+     "sketch": "S1",
+     "point": "P4",
+     "offset": [
+      0,
+      0,
+      "H"
+     ]
+    },
+    "F0": {
+     "sketch": "S1",
+     "point": "P1"
+    },
+    "F1": {
+     "sketch": "S1",
+     "point": "P2"
+    },
+    "F2": {
+     "sketch": "S1",
+     "point": "P3"
+    },
+    "F3": {
+     "sketch": "S1",
+     "point": "P4"
+    }
+   },
+   "members": [
+    {
+     "id": "M1",
+     "group": "Telaio superiore",
+     "from": "T0",
+     "to": "T1",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "M2",
+     "group": "Telaio superiore",
+     "from": "T1",
+     "to": "T2",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "M3",
+     "group": "Telaio superiore",
+     "from": "T2",
+     "to": "T3",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "M4",
+     "group": "Telaio superiore",
+     "from": "T3",
+     "to": "T0",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "G1",
+     "group": "Gambe",
+     "from": "F0",
+     "to": "T0",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "G2",
+     "group": "Gambe",
+     "from": "F1",
+     "to": "T1",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "G3",
+     "group": "Gambe",
+     "from": "F2",
+     "to": "T2",
+     "profile": "40x40x3"
+    },
+    {
+     "id": "G4",
+     "group": "Gambe",
+     "from": "F3",
+     "to": "T3",
+     "profile": "40x40x3"
+    }
+   ],
+   "material": "S235"
+  }
+ ]
+}

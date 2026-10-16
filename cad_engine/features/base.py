@@ -41,7 +41,7 @@ class Context:
 
 
 def label(fdef: dict) -> str:
-    nomi = {'extrude': 'estrusione', 'hole': 'foro', 'fillet': 'raccordo', 'chamfer': 'smusso'}
+    nomi = {'extrude': 'estrusione', 'hole': 'foro', 'fillet': 'raccordo', 'chamfer': 'smusso', 'sheet': 'lamiera'}
     base = nomi.get(fdef.get('type'), fdef.get('type', 'feature'))
     return f'{base} "{fdef["name"]}"' if fdef.get('name') else f'{base} {fdef["id"]}'
 

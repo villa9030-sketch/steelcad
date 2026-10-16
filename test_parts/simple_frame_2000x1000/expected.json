@@ -1,0 +1,20 @@
+{
+  "_nota": "Asse 2000 × 1000, tubo 40×40×3 EN 10219 (ro = 2t). Volume a mano: area sezione × (lunghezza esterna − 40) perché i tagli a 45° tolgono due triangoli.",
+  "cut_list": [
+    {
+      "profilo": "40×40×3",
+      "lunghezza_mm": 2040,
+      "tagli": "45°/45°",
+      "pezzi": 2
+    },
+    {
+      "profilo": "40×40×3",
+      "lunghezza_mm": 1040,
+      "tagli": "45°/45°",
+      "pezzi": 2
+    }
+  ],
+  "area_sezione_mm2": 420.82300164692447,
+  "volume_mm3": 2524938.0098810196,
+  "peso_kg": 19.820763377566003
+}

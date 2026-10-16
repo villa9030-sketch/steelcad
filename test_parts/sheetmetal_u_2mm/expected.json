@@ -1,0 +1,26 @@
+{
+  "_nota": "U 500 × 300, sp. 2, R interno 2, K 0,4 (dati scelti per il riferimento, non default). BA = π/2 · (R + K·T); setback = R + T; BD = 2·setback − BA; sviluppo = 300 + 2·(30 − BD). Volume = piano (300 − 2·setback) + 2 quarti di corona (π/4·((R+T)² − R²)) + 2 tratti dritti (30 − setback) − fori Ø20 e Ø8, tutto × spessore × 500.",
+  "ba_mm": 4.39822971502571,
+  "bd_mm": 3.6017702849742896,
+  "setback_mm": 4.0,
+  "sviluppo_mm": [
+    500,
+    352.7964594300514
+  ],
+  "volume_mm3": 352695.9284651365,
+  "peso_kg": 2.7686630384513213,
+  "ingombro_mm": [
+    500,
+    300,
+    30
+  ],
+  "dxf": {
+    "contorni": 3,
+    "fori": [
+      8.0,
+      20.0
+    ],
+    "pieghe": 2
+  },
+  "da_confermare": "Confrontare con un pezzo piegato davvero sulla tua pressa: misura lo sviluppo tagliato e l’altezza delle ali, e scrivi qui raggio e K reali."
+}
