@@ -43,3 +43,10 @@ def piastra(name: str = 'Piastra', larghezza=300, altezza=200, spessore=5, foro=
     sk.constrain('symmetric', r['corners'][0], r['corners'][2], sk.entities[c]['center'])
     doc.add_feature('extrude', 'Piastra', sketch=sk.id, distance='spessore', operation='new')
     return doc
+
+
+def struttura_vuota(name: str = 'Struttura', material='S235') -> Document:
+    """Un nodo nell'origine: da lì si tirano le aste (direzione + lunghezza) e si collegano i nodi."""
+    doc = Document(name, material)
+    doc.add_feature('structure', 'Struttura', points={'A': [0, 0, 0]}, members=[], material=material)
+    return doc

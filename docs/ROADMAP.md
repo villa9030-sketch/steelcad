@@ -54,9 +54,21 @@ Prove: `pytest` (67 test, compreso lo strato applicativo) e
 `tools/prova_ui.py` (browser invisibile: 17 controlli dal clic alla quota
 all'export, nessun errore in console).
 
-Ancora da fare in M2+: disegnare lo scheletro con il mouse (per ora dai
-modelli o dal file), aggiungere/togliere aste dall'interfaccia, scegliere il
-tipo di giunto per nodo dal pannello.
+Scheletro dall'interfaccia (16/10, seconda parte):
+- i nodi si vedono sul modello come pallini; cliccandone uno si apre il pannello del nodo;
+- "Nuova asta da qui": lunghezza (anche un parametro), profilo, gruppo e direzione X±/Y±/Z±.
+  Il nodo nuovo resta legato a quello di partenza (`{"from": "A", "offset": [...]}`): se sposti
+  il primo, gli altri lo seguono. Dopo l'asta si continua dal nodo nuovo, come una polilinea;
+- "Collega a un altro nodo": clic sul nodo d'arrivo;
+- giunto per nodo: automatico (si vede cosa ha scelto), 45°, a battuta (con chi passa),
+  dritto, ad angolo;
+- posizione del nodo modificabile; Canc elimina le aste selezionate e i nodi rimasti soli;
+- progetto "Struttura libera": si parte da un nodo nell'origine;
+- regola generale: una modifica che rompe una parte che prima funzionava viene annullata e il
+  motivo si spiega ("Non applicato: l'asta M1 ha lunghezza zero…").
+
+Prove: 70 test; `tools/prova_ui.py` con 22 controlli, compreso un cancello costruito da zero
+coi clic.
 
 ## Milestone 3 — Lamiera
 Rettangolo → lamiera sp. 2 → flangia 30 a 90° → seconda flangia → fori →

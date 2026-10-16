@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / '.venv' / 'Scripts' / 'python.exe'
 SHOTS = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
 PORTA = 5079
+SHOTS_G = SHOTS
 
 
 def main():
@@ -119,13 +120,73 @@ def main():
             pg.keyboard.press('Control+S')
             pg.wait_for_function('window.__steelcad.state.path && !window.__steelcad.state.dirty')
             ok('salvataggio', any(cart.glob('*.steelcad')))
-            ok('nessun errore in console', not errori)
+            try:
+                cancello(pg, ok, errori)
+            except Exception:
+                pg.screenshot(path=str(SHOTS / 'errore.png'))
+                print('ERRORI CONSOLE', errori, '| PROPS', pg.inner_text('#props')[:300], '| NODI',
+                      pg.evaluate('window.__steelcad.nodes.map(n => n.id)'), flush=True)
+                raise
             b.close()
     finally:
         srv.kill()
     print(json.dumps({'errori_console': errori, 'screenshot': str(SHOTS)}, ensure_ascii=False))
     return 0 if all(e for _, e in esiti) else 1
 
+
+def cancello(pg, ok, errori):
+    if True:
+        if True:
+            # cancello da zero: nodo, aste tirate con direzione e lunghezza, chiusura con un clic sul nodo
+            pg.keyboard.press('Control+N')
+            pg.click('.choice button[data-k="vuoto"]')
+            pg.fill('#n-name', 'Cancello')
+            pg.click('#n-ok')
+            pg.wait_for_function("window.__steelcad.state.name === 'Cancello' && document.querySelectorAll('.node-dot').length === 1")
+            pg.click('.node-dot')
+            pg.wait_for_selector('#n-len')
+            pg.fill('#n-len', '1000'); pg.fill('#n-group', 'Montanti')
+            pg.click('[data-dir="Z+"]')
+            pg.wait_for_function("window.__steelcad.state.cutlist.rows.length === 1 && document.querySelector('#props h3')?.innerText.includes('N1')")
+            pg.fill('#n-len', '1500'); pg.fill('#n-group', 'Traversi')
+            pg.click('[data-dir="X+"]')
+            pg.wait_for_function("document.querySelector('#props h3')?.innerText.includes('N2')")
+            pg.fill('#n-len', '1000'); pg.fill('#n-group', 'Montanti')
+            pg.click('[data-dir="Z-"]')
+            pg.wait_for_function("document.querySelector('#props h3')?.innerText.includes('N3')")
+            pg.fill('#n-group', 'Traversi')
+            pg.click('#n-link')
+            pg.click('.node-dot[data-id="ST1:A"]')
+            pg.wait_for_function("window.__steelcad.state.cutlist.pieces === 4 && window.__steelcad.objs.size === 4 && document.querySelector('#props h3')?.innerText.includes('M4')"); time.sleep(0.4)
+            righe = pg.evaluate("window.__steelcad.state.cutlist.rows.map(r => [r.length_mm, r.cuts.join('/'), r.qty])")
+            ok(f'cancello chiuso 1540/1040 a 45° ({righe})', sorted(righe) == [[1040, '45°/45°', 2], [1540, '45°/45°', 2]])
+            pg.screenshot(path=str(SHOTS_G / '4_cancello.png'))
+            # giunto a battuta in N1: il traverso passa
+            pg.click('.node-dot[data-id="ST1:N1"]')
+            pg.wait_for_selector('#n-joint')
+            pg.select_option('#n-joint', 'butt')
+            pg.check('[data-th="M2"]')
+            pg.click('#n-joint-ok')
+            pg.wait_for_function("window.__steelcad.state.cutlist.rows.some(r => r.cuts.includes('dritto'))")
+            ok('giunto a battuta in N1', True)
+            pg.screenshot(path=str(SHOTS_G / '5_nodo.png'))
+            # elimina un'asta con Canc, poi annulla
+            pg.keyboard.press('Escape')
+            pg.click('#tree .node:has-text("Traversi") + ul .node >> nth=0')
+            pg.wait_for_selector('#p-del')
+            pg.keyboard.press('Delete')
+            pg.wait_for_function("window.__steelcad.state.cutlist.pieces < 4")
+            ok('Canc elimina', True)
+            pg.keyboard.press('Control+Z')
+            pg.wait_for_function("window.__steelcad.state.cutlist.pieces === 4")
+            ok('annulla rimette le aste', True)
+            # spostare un nodo sopra un altro: rifiutato con il motivo
+            pg.click('.node-dot[data-id="ST1:N1"]')
+            pg.wait_for_selector('[data-xyz="2"]')
+            pg.fill('[data-xyz="2"]', '0'); pg.click('#n-move')
+            pg.wait_for_selector('.toast.err:has-text("Non applicato")')
+            ok('nodo sopra un altro: ' + pg.inner_text('.toast.err:has-text("Non applicato")')[:80], pg.evaluate("window.__steelcad.state.cutlist.pieces") == 4)
+            ok('nessun errore in console', not errori)
 
 if __name__ == '__main__':
     sys.exit(main())

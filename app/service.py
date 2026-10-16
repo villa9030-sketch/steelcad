@@ -22,10 +22,12 @@ from cad_engine.sketch import Sketch  # noqa: E402
 from cad_engine.sketch.model import DIMENSIONS  # noqa: E402
 from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
+from cad_engine.structures.frame import JOINT_LABELS  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
 
+DIREZIONI = {'X+': (0, 1), 'X-': (0, -1), 'Y+': (1, 1), 'Y-': (1, -1), 'Z+': (2, 1), 'Z-': (2, -1)}
 ANCORAGGI = {'center': 'centro', 'top': 'sopra', 'bottom': 'sotto', 'left': 'sinistra', 'right': 'destra',
              'top-left': 'sopra a sinistra', 'top-right': 'sopra a destra', 'bottom-left': 'sotto a sinistra',
              'bottom-right': 'sotto a destra'}
@@ -58,11 +60,23 @@ class Service:
         self.result = self.doc.rebuild()
         self.scene_version += 1
 
-    def _change(self, label: str, fn):
+    def _change(self, label: str, fn, keep_broken: bool = False):
+        """Applica una modifica. Se rompe qualcosa che prima funzionava, la annulla e dice perché:
+        il progetto non resta mai rotto per un clic (keep_broken=True per lasciarla comunque)."""
         try:
+            prima = {f.id for f in self.result.errors}
+            n = len(self.history.done)
             with self.history.change(label):
                 fn()
+            if len(self.history.done) == n:
+                return _ok(state=self.state())          # nessun cambiamento vero
             self._rebuild()
+            nuovi = [f for f in self.result.errors if f.id not in prima]
+            if nuovi and not keep_broken:
+                self.history.undo()
+                self.history.undone.pop()
+                self._rebuild()
+                return {'ok': False, 'code': 'rompe', 'message': f'Non applicato: {nuovi[0].message}'}
             return _ok(state=self.state())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
@@ -142,7 +156,9 @@ class Service:
                 objs.append({'id': f'{st.id}/{mem.id}', 'kind': 'member',
                              'name': f'{mem.group or "Asta"} {mem.id} — {mem.profile.name} L={fmt_mm(round(mem.length, 1))}',
                              'group': mem.group, **m})
-        return {'version': self.scene_version, 'objects': objs}
+        nodi = [{'id': f'{st.id}:{k}', 'structure': st.id, 'key': k, **v}
+                for st in r.structures for k, v in (st.nodes or {}).items()]
+        return {'version': self.scene_version, 'objects': objs, 'nodes': nodi}
 
     def select(self, obj_id: str, face_index: int | None = None) -> dict:
         """Cosa mostrare nel pannello proprietà e quali comandi hanno senso per ciò che è stato cliccato."""
@@ -165,6 +181,8 @@ class Service:
                 dati['commands'] = [{'id': 'export_dxf', 'label': 'Esporta DXF di taglio'},
                                     {'id': 'export_step', 'label': 'Esporta STEP'}]
                 return _ok(selection=dati)
+            if ':' in obj_id:
+                return _ok(selection=self._node_selection(obj_id))
             st_id, mid = obj_id.split('/')
             st = next(s for s in self.result.structures if s.id == st_id)
             m = next(x for x in st.members if x.id == mid)
@@ -225,8 +243,167 @@ class Service:
                             x['flip'] = not x.get('flip', False)
                         else:
                             x[k] = v
-        etichetta = ', '.join(f'{k} {v}' for k, v in fields.items())
+        nomi = {'profile': 'profilo', 'rotate_by': 'ruota', 'toggle_flip': 'inverti', 'anchor': 'asse'}
+        etichetta = ', '.join(nomi.get(k, k) + ('' if k == 'toggle_flip' else f' {v}') for k, v in fields.items())
         return self._change(f'{mid}: {etichetta}', fn)
+
+    # ---------------------------------------------------------------- scheletro
+    def _node_selection(self, node_id: str) -> dict:
+        st_id, key = node_id.split(':', 1)
+        st = next(s for s in self.result.structures if s.id == st_id)
+        info = st.nodes[key]
+        pdef = (self.doc.feature(st_id).get('points') or {}).get(key)
+        if isinstance(pdef, dict) and 'from' in pdef:
+            pos = {'mode': 'from', 'base': pdef['from'], 'values': list(pdef.get('offset') or [0, 0, 0])}
+        elif isinstance(pdef, dict) and 'sketch' in pdef:
+            pos = {'mode': 'sketch', 'base': f'{pdef["sketch"]}.{pdef.get("point")}',
+                   'values': list(pdef.get('offset') or [0, 0, 0])}
+        elif isinstance(pdef, (list, tuple)):
+            pos = {'mode': 'abs', 'values': list(pdef)}
+        else:
+            pos = {'mode': 'fixed', 'values': []}       # punto preso da una linea di sketch
+        tipo = info['joint'].get('type', 'auto')
+        n = len(info['members'])
+        possibili = ['auto', 'square'] + (['miter'] if n == 2 else []) + (['butt'] if n >= 2 else []) + ['angle']
+        profilo = '40x40x3'
+        for m in self.doc.feature(st_id).get('members') or []:
+            if m['id'] in info['members'] or not info['members']:
+                profilo = m.get('profile', profilo)
+                break
+        return {
+            'kind': 'node', 'id': node_id, 'structure': st_id, 'key': key, 'title': f'Nodo {key}',
+            'rows': [['Posizione', ' ; '.join(fmt_mm(round(c, 1)) for c in info['xyz']) + ' mm'],
+                     ['Aste', ', '.join(info['members']) or 'nessuna'],
+                     ['Giunto', JOINT_LABELS[tipo] + (f' (ora: {info["auto"]})' if tipo == 'auto' and info['auto'] else '')]],
+            'position': pos, 'joint': info['joint'], 'joint_types': {k: JOINT_LABELS[k] for k in possibili},
+            'members': info['members'], 'default_profile': profilo,
+        }
+
+    def _free_id(self, fdef, prefix: str, used) -> str:
+        i = 1
+        while f'{prefix}{i}' in used:
+            i += 1
+        return f'{prefix}{i}'
+
+    def add_member(self, st_id: str, from_key: str, to_key: str | None = None, direction: str | None = None,
+                   length=None, profile: str | None = None, group: str | None = None) -> dict:
+        """Una nuova asta: dal nodo a un altro nodo, oppure dal nodo in una direzione per una lunghezza
+        (il nodo nuovo resta legato a quello di partenza: se sposti quello, lo segue)."""
+        try:
+            if profile:
+                parse(str(profile))
+            if to_key is None:
+                if direction not in DIREZIONI:
+                    raise SteelCADError('Scegli la direzione della nuova asta.', code='direzione')
+                lung = _number(length if length not in (None, '') else 500)
+                if isinstance(lung, (int, float)) and lung <= 0:
+                    raise SteelCADError('La lunghezza della nuova asta deve essere maggiore di zero.', code='lunghezza')
+            elif to_key == from_key:
+                raise SteelCADError("Un'asta deve unire due nodi diversi.", code='stesso_nodo')
+        except SteelCADError as ex:
+            return _err(ex)
+        nuovo = {}
+
+        def fn():
+            fdef = self.doc.feature(st_id)
+            punti = fdef.setdefault('points', {})
+            aste = fdef.setdefault('members', [])
+            arrivo = to_key
+            if arrivo is None:
+                asse, segno = DIREZIONI[direction]
+                comp = lung if segno > 0 else (-lung if isinstance(lung, (int, float)) else f'-({lung})')
+                off = [0, 0, 0]
+                off[asse] = comp
+                arrivo = self._free_id(fdef, 'N', punti)
+                punti[arrivo] = {'from': from_key, 'offset': off}
+            for m in aste:
+                if {m.get('from'), m.get('to')} == {from_key, arrivo}:
+                    raise SteelCADError(f'Tra {from_key} e {arrivo} c’è già l’asta {m["id"]}.', code='doppia')
+            mid = self._free_id(fdef, 'M', {m['id'] for m in aste})
+            prof = profile or self._node_selection(f'{st_id}:{from_key}')['default_profile']
+            m = {'id': mid, 'from': from_key, 'to': arrivo, 'profile': prof}
+            if group:
+                m['group'] = group
+            aste.append(m)
+            nuovo['id'] = f'{st_id}/{mid}'
+            nuovo['node'] = f'{st_id}:{arrivo}'
+        r = self._change(f'Nuova asta da {from_key}', fn)
+        if r['ok']:
+            r['select'] = nuovo.get('id')
+            r['node'] = nuovo.get('node')
+        return r
+
+    def delete_members(self, obj_ids: list[str]) -> dict:
+        """Toglie le aste; i nodi rimasti senza aste spariscono, se nessun altro nodo parte da loro."""
+        def fn():
+            for st_id in {o.split('/')[0] for o in obj_ids}:
+                fdef = self.doc.feature(st_id)
+                via = {o.split('/')[1] for o in obj_ids if o.startswith(st_id + '/')}
+                fdef['members'] = [m for m in fdef.get('members') or [] if m['id'] not in via]
+                for j in (fdef.get('joints') or {}).values():
+                    if 'through' in j:
+                        j['through'] = [t for t in j['through'] if t not in via]
+                for k, j in list((fdef.get('joints') or {}).items()):
+                    if j.get('type') == 'butt' and not j.get('through'):
+                        del fdef['joints'][k]
+                punti = fdef.get('points') or {}
+                while True:
+                    usati = {m.get(x) for m in fdef['members'] for x in ('from', 'to')}
+                    usati |= {v['from'] for v in punti.values() if isinstance(v, dict) and 'from' in v}
+                    orfani = [k for k in punti if k not in usati]
+                    if not orfani or len(punti) <= 1:
+                        break
+                    for k in orfani[:len(punti) - 1]:
+                        del punti[k]
+                        (fdef.get('joints') or {}).pop(k, None)
+        nomi = ', '.join(o.split('/')[1] for o in obj_ids)
+        return self._change(f'Elimina {nomi}', fn)
+
+    def set_joint(self, st_id: str, key: str, spec: dict) -> dict:
+        tipo = spec.get('type', 'auto')
+        try:
+            membri = self.result_node(st_id, key)['members']
+            if tipo == 'butt' and not spec.get('through'):
+                raise SteelCADError('Per il giunto a battuta scegli quale asta passa: le altre ci battono contro.',
+                                    code='giunto')
+            if tipo == 'butt' and set(spec['through']) >= set(membri):
+                raise SteelCADError('Almeno un’asta deve battere contro le altre: non possono passare tutte.',
+                                    code='giunto')
+            if tipo == 'miter' and len(membri) != 2:
+                raise SteelCADError(f'Il taglio a 45° vale per due aste; nel nodo {key} ce ne sono {len(membri)}.',
+                                    code='giunto')
+        except SteelCADError as ex:
+            return _err(ex)
+
+        def fn():
+            fdef = self.doc.feature(st_id)
+            joints = fdef.setdefault('joints', {})
+            if tipo == 'auto':
+                joints.pop(key, None)
+            else:
+                pulito = {'type': tipo}
+                if tipo == 'butt':
+                    pulito['through'] = list(spec['through'])
+                if tipo == 'angle':
+                    pulito['angle'] = _number(spec.get('angle', 0))
+                joints[key] = pulito
+        return self._change(f'Giunto {key}: {JOINT_LABELS[tipo]}', fn)
+
+    def result_node(self, st_id: str, key: str) -> dict:
+        st = next(s for s in self.result.structures if s.id == st_id)
+        return st.nodes[key]
+
+    def move_node(self, st_id: str, key: str, values: list) -> dict:
+        vals = [_number(v) if str(v).strip() != '' else 0 for v in values]
+
+        def fn():
+            punti = self.doc.feature(st_id)['points']
+            d = punti[key]
+            if isinstance(d, dict):
+                d['offset'] = vals
+            else:
+                punti[key] = vals
+        return self._change(f'Sposta {key}', fn)
 
     def undo(self) -> dict:
         try:
@@ -247,7 +424,8 @@ class Service:
     def new_project(self, kind: str, values: dict | None = None) -> dict:
         try:
             values = {k: _number(v) for k, v in (values or {}).items()}
-            doc = templates.telaio(**values) if kind == 'telaio' else templates.piastra(**values)
+            doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
+                   'vuoto': templates.struttura_vuota}[kind](**values)
             self._set(doc)
             self.path = None
             return _ok(state=self.state())

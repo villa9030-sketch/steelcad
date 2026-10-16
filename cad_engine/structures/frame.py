@@ -76,6 +76,7 @@ class StructureResult:
     name: str
     members: list            # Member
     warnings: list = None    # frasi per l'utente (aste che si compenetrano, …)
+    nodes: dict = None       # {punto: {'xyz', 'members', 'joint', 'auto'}} per l'interfaccia
 
     def compound(self) -> bd.Compound:
         return bd.Compound([m.solid for m in self.members])
@@ -87,8 +88,14 @@ def _vec(v, params, what) -> bd.Vector:
     return bd.Vector(*(evaluate(c, params, what=what) for c in v))
 
 
-def _point(k, v, params, sketches, nome, fid) -> bd.Vector:
-    """Un punto dello scheletro: [x, y, z] oppure un punto di uno sketch (+ spostamento [dx, dy, dz])."""
+def _point(k, v, params, sketches, nome, fid, _resolve=None) -> bd.Vector:
+    """Un punto dello scheletro: [x, y, z], un punto di uno sketch, oppure un altro punto
+    dello scheletro ("from"); negli ultimi due casi con uno spostamento [dx, dy, dz]."""
+    if isinstance(v, dict) and 'from' in v:
+        base = _resolve(v['from'])
+        if v.get('offset'):
+            base = base + _vec(v['offset'], params, f'lo spostamento del punto {k}')
+        return base
     if isinstance(v, dict) and 'sketch' in v:
         sid = v['sketch']
         if not sketches or sid not in sketches:
@@ -109,7 +116,26 @@ def _point(k, v, params, sketches, nome, fid) -> bd.Vector:
 def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureResult:
     fid = fdef['id']
     nome = fdef.get('name') or fid
-    pts = {k: _point(k, v, params, sketches, nome, fid) for k, v in (fdef.get('points') or {}).items()}
+    defs = fdef.get('points') or {}
+    pts: dict = {}
+    in_corso: list = []
+
+    def _resolve(k):
+        if k in pts:
+            return pts[k]
+        if k not in defs:
+            raise FeatureError(f'Il punto {in_corso[-1] if in_corso else k} di "{nome}" parte dal punto {k}, '
+                               'che non esiste.', feature=fid)
+        if k in in_corso:
+            giro = ' → '.join(in_corso[in_corso.index(k):] + [k])
+            raise FeatureError(f'I punti di "{nome}" dipendono uno dall’altro in cerchio: {giro}.', feature=fid)
+        in_corso.append(k)
+        pts[k] = _point(k, defs[k], params, sketches, nome, fid, _resolve)
+        in_corso.pop()
+        return pts[k]
+
+    for k in defs:
+        _resolve(k)
     # aste prese dalle linee di uno sketch (scheletro 2D)
     righe = []
     for m in fdef.get('members') or []:
@@ -143,8 +169,8 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         ox, oy = (evaluate(v, params, what=f'offset dell\'asta {mid}') for v in (m.get('offset') or [0, 0]))
         shift = x * (-ax * prof.width / 2 + ox) + y * (-ay * prof.height / 2 + oy)
         members.append(Member(mid, m.get('group', ''), prof, mat, a, b, x, y, shift))
-    if not members:
-        raise FeatureError(f'La struttura "{nome}" non ha aste.', feature=fid)
+    if not members:       # si parte da un nodo e si costruisce: nessuna asta va bene
+        return StructureResult(fid, nome, [], [], _node_info(pts, [], {}, fdef))
     ids = [m.id for m in members]
     if len(set(ids)) != len(ids):
         raise FeatureError(f'Nella struttura "{nome}" due aste hanno lo stesso nome.', feature=fid)
@@ -169,7 +195,26 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         for o in altri:
             legati.add(frozenset((mid, o.id)))
     chiavi = {m.id: _member_key(m, nodes) for m in members}
-    return StructureResult(fid, nome, members, _interferences(members, legati, chiavi))
+    return StructureResult(fid, nome, members, _interferences(members, legati, chiavi),
+                           _node_info(pts, members, nodes, fdef))
+
+
+JOINT_LABELS = {'auto': 'automatico', 'miter': 'a 45° (bisettrice)', 'butt': 'a battuta', 'extend': 'passante',
+                'square': 'taglio dritto', 'angle': 'ad angolo'}
+
+
+def _node_info(pts, members, nodes, fdef) -> dict:
+    joints = fdef.get('joints') or {}
+    out = {}
+    for k, p in pts.items():
+        if '.' in k and k not in (fdef.get('points') or {}):
+            continue                          # punti interni presi dalle linee di uno sketch
+        su = [m.id for m in members if (m.start - p).length < 1e-6 or (m.end - p).length < 1e-6]
+        tipi = sorted({nodes[(m.id, i)][0] for m in members for i, q in ((0, m.start), (1, m.end))
+                       if (q - p).length < 1e-6 and (m.id, i) in nodes})
+        out[k] = {'xyz': [p.X, p.Y, p.Z], 'members': su, 'joint': dict(joints.get(k) or {'type': 'auto'}),
+                  'auto': ' + '.join(JOINT_LABELS.get(t, t) for t in tipi)}
+    return out
 
 
 _CACHE: dict = {}

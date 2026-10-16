@@ -55,6 +55,18 @@ class Api:
     def edit_member(self, obj_id, fields, whole_group=False):
         return self._call(self._svc.edit_member, obj_id, fields, whole_group)
 
+    def add_member(self, st_id, from_key, to_key=None, direction=None, length=None, profile=None, group=None):
+        return self._call(self._svc.add_member, st_id, from_key, to_key, direction, length, profile, group)
+
+    def delete_members(self, obj_ids):
+        return self._call(self._svc.delete_members, obj_ids)
+
+    def set_joint(self, st_id, key, spec):
+        return self._call(self._svc.set_joint, st_id, key, spec)
+
+    def move_node(self, st_id, key, values):
+        return self._call(self._svc.move_node, st_id, key, values)
+
     def undo(self):
         return self._call(self._svc.undo)
 
