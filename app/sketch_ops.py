@@ -54,17 +54,20 @@ def view(doc, sid: str, body=None) -> dict:
         except SteelCADError:
             out['on_sheet'] = False
     for k, e in sk.entities.items():
-        if e['kind'] == 'line' and not e.get('construction'):
+        if e['kind'] == 'line':
             out['lines'].append({'id': k, 'a': e['a'], 'b': e['b'], 'label': sk.describe(k),
-                                 'pa': g(pts[e['a']]), 'pb': g(pts[e['b']])})
-        elif e['kind'] == 'circle' and not e.get('construction'):
+                                 'construction': bool(e.get('construction')),
+                                 'pa': g(pts[e['a']]), 'pb': g(pts[e['b']]),
+                                 'xa': list(pts[e['a']]), 'xb': list(pts[e['b']])})
+        elif e['kind'] == 'circle':
             c = pts[e['center']]
             r = e['r']
             try:
                 r = ss.circles[k][1]
             except Exception:  # noqa: BLE001
                 pass
-            out['circles'].append({'id': k, 'center': g(c), 'r': r, 'label': sk.describe(k)})
+            out['circles'].append({'id': k, 'center': g(c), 'r': r, 'label': sk.describe(k), 'xc': list(c),
+                                   'construction': bool(e.get('construction'))})
     return out
 
 
@@ -90,7 +93,27 @@ def _r(v: float):
 
 
 def _point_ref(sk, p):
-    """p è un id di punto esistente oppure [x, y]: ritorna (id, xy, nuovo?)."""
+    """p è un id di punto esistente, [x, y], oppure un aggancio legato a linee:
+    {'mid': linea} metà, {'cross': [l1, l2]} incrocio, {'on': linea, 'xy': [x, y]} sulla linea.
+    Ritorna (id, xy, nuovo?). Un punto agganciato resta legato: se sposti la linea, il punto la segue."""
+    if isinstance(p, dict):
+        x, y = (float(v) for v in p.get('xy', (0, 0)))
+        if 'mid' in p:
+            e = sk.entities[p['mid']]
+            (ax, ay), (bx, by) = (sk.entities[e['a']]['x'], sk.entities[e['a']]['y']), (sk.entities[e['b']]['x'], sk.entities[e['b']]['y'])
+            pid = sk.point((ax + bx) / 2, (ay + by) / 2)
+            sk.constrain('symmetric', e['a'], e['b'], pid)
+        elif 'cross' in p:
+            pid = sk.point(x, y)
+            for l in p['cross']:
+                sk.constrain('on_line', pid, l)
+        elif 'on' in p:
+            pid = sk.point(x, y)
+            sk.constrain('on_line', pid, p['on'])
+        else:
+            raise SketchError('Aggancio sconosciuto.')
+        e = sk.entities[pid]
+        return pid, (e['x'], e['y']), True
     if isinstance(p, str):
         if sk.kind(p) != 'point':
             raise SketchError(f'{p} non è un punto.')
@@ -100,7 +123,7 @@ def _point_ref(sk, p):
     return sk.point(x, y), (x, y), True
 
 
-def add_polyline(doc, sid: str, pts: list, closed: bool) -> list[str]:
+def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = False) -> list[str]:
     sk = doc.sketch(sid)
     if len(pts) < 2:
         raise SketchError('Servono almeno due punti.')
@@ -118,6 +141,7 @@ def add_polyline(doc, sid: str, pts: list, closed: bool) -> list[str]:
     linee = [sk.line(ids[i], ids[i + 1]) for i in range(len(ids) - 1)]
     for lid in linee:
         sk.entities[lid]['label'] = f'lato {lid}'     # "il fianco sul lato L3", non "linea L3"
+        sk.entities[lid]['construction'] = bool(construction)
     tipi = [_snap_hv(xy[i], xy[i + 1]) for i in range(len(linee))]
     for lid, t in zip(linee, tipi):
         if t:
@@ -138,13 +162,17 @@ def add_polyline(doc, sid: str, pts: list, closed: bool) -> list[str]:
     return linee
 
 
-def add_rectangle(doc, sid: str, p0, p1) -> dict:
+def add_rectangle(doc, sid: str, p0, p1, construction: bool = False) -> dict:
     sk = doc.sketch(sid)
+    if isinstance(p0, dict):
+        p0 = _point_ref(sk, p0)[0]
     a = (float(p0[0]), float(p0[1])) if not isinstance(p0, str) else (sk.entities[p0]['x'], sk.entities[p0]['y'])
     b = (float(p1[0]), float(p1[1]))
     if abs(b[0] - a[0]) < 1e-6 or abs(b[1] - a[1]) < 1e-6:
         raise SketchError('Il rettangolo ha bisogno di larghezza e altezza.')
     r = sk.rectangle(a[0], a[1], b[0], b[1])
+    for lid in r['lines']:
+        sk.entities[lid]['construction'] = bool(construction)
     sk.dimension('length', r['bottom'], value=_r(abs(b[0] - a[0])))
     sk.dimension('length', r['left'], value=_r(abs(b[1] - a[1])))
     if isinstance(p0, str):
@@ -157,13 +185,13 @@ def add_rectangle(doc, sid: str, p0, p1) -> dict:
     return r
 
 
-def add_circle(doc, sid: str, center, r: float) -> str:
+def add_circle(doc, sid: str, center, r: float, construction: bool = False) -> str:
     sk = doc.sketch(sid)
     r = float(r)
     if r <= 0:
         raise SketchError('Il cerchio ha bisogno di un raggio.')
     pid, xy, nuovo = _point_ref(sk, center)
-    cid = sk.circle(pid, r)
+    cid = sk.circle(pid, r, construction=bool(construction))
     sk.dimension('diameter', cid, value=_r(2 * r))
     if nuovo:
         _position(sk, pid, xy)
@@ -197,19 +225,30 @@ def delete(doc, sid: str, eids: list[str]) -> None:
             break
 
 
-def _prune(doc, sid: str, before: set) -> list[str]:
-    """Toglie le quote/vincoli appena aggiunti che il risolutore trova doppi o in conflitto."""
+def _num(k: str) -> int:
+    return int(''.join(ch for ch in k if ch.isdigit()) or 0)
+
+
+def _prune(doc, sid: str, before: set, era_pulito: bool = True) -> list[str]:
+    """Toglie le quote/vincoli appena aggiunti che rendono lo sketch doppio o in conflitto.
+    Se il risolutore dà la colpa a una quota vecchia ma prima lo sketch era pulito, la colpa è comunque
+    di quelle nuove: si tolgono dalla più recente (le posizioni dall'origine sono le ultime aggiunte)."""
     sk = doc.sketch(sid)
     tolti = []
-    for _ in range(12):
+    for _ in range(16):
         try:
             st = solve(sk, doc.resolved_parameters()).status
         except SteelCADError:
             break
-        nuovi = [c for c in list(st.redundant) + list(st.conflicting) if c not in before and c in sk.constraints]
+        guai = [c for c in list(st.redundant) + list(st.conflicting) if c in sk.constraints]
+        if not guai:
+            break
+        nuovi = [c for c in guai if c not in before]
+        if not nuovi and era_pulito:
+            nuovi = [c for c in sk.constraints if c not in before]
         if not nuovi:
             break
-        c = max(nuovi, key=lambda k: int(''.join(ch for ch in k if ch.isdigit()) or 0))
+        c = max(nuovi, key=_num)
         del sk.constraints[c]
         tolti.append(c)
     return tolti
@@ -217,9 +256,15 @@ def _prune(doc, sid: str, before: set) -> list[str]:
 
 def guarded(fn):
     def run(doc, sid, *a, **kw):
-        before = set(doc.sketch(sid).constraints)
+        sk = doc.sketch(sid)
+        before = set(sk.constraints)
+        try:
+            st = solve(sk, doc.resolved_parameters()).status
+            pulito = not st.redundant and not st.conflicting
+        except SteelCADError:
+            pulito = False
         out = fn(doc, sid, *a, **kw)
-        _prune(doc, sid, before)
+        _prune(doc, sid, before, pulito)
         return out
     return run
 

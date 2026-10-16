@@ -23,10 +23,12 @@ CONSTRAINTS = {
     'coincident': 'coincidente', 'horizontal': 'orizzontale', 'vertical': 'verticale',
     'parallel': 'parallelo', 'perpendicular': 'perpendicolare', 'tangent': 'tangente',
     'equal': 'uguale', 'concentric': 'concentrico', 'symmetric': 'simmetrico', 'fix': 'fisso',
+    'on_line': 'sulla linea',
 }
 DIMENSIONS = {
     'distance': 'distanza', 'length': 'lunghezza', 'hdistance': 'distanza orizzontale',
     'vdistance': 'distanza verticale', 'angle': 'angolo', 'diameter': 'diametro', 'radius': 'raggio',
+    'pldistance': 'distanza dalla linea',
 }
 
 

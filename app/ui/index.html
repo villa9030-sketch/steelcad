@@ -76,13 +76,24 @@
     <span class="sk-title">Sketch</span>
     <button data-tool="line" title="L">Linea</button><button data-tool="rect" title="R">Rettangolo</button>
     <button data-tool="circle" title="C">Cerchio</button><button data-tool="select" title="S">Seleziona</button>
+    <button data-tool="dim" title="D">Quota</button>
+    <button id="sk-constr" title="X: quello che disegni diventa linea di costruzione (guida, non si taglia)">Costruzione</button>
+    <span id="sk-selbar" hidden>
+      <span class="sk-sep"></span>
+      <button data-act="offset" title="O">Offset…</button><button data-act="mirror" title="M">Specchia…</button>
+      <button data-act="copy">Copia…</button><button data-act="move">Sposta…</button><button data-act="pattern">Serie…</button>
+      <button data-act="constr">↔ Costruzione</button><button data-act="delete" title="Canc">Elimina</button>
+    </span>
     <span id="sk-make"><button data-make="sheet">Crea lamiera…</button><button data-make="plate">Crea piastra…</button></span>
     <span id="sk-face"><button data-make="cut">Taglia attraverso</button><button data-make="boss" id="sk-boss">Estrudi…</button></span>
     <button id="sk-done" title="Esc">Fine sketch</button>
+  </div>
+  <div id="sk-foot" hidden>
     <div id="sk-status"></div>
-    <div class="sk-help">Clic sui punti · scrivi la lunghezza + Invio · clic sul primo punto per chiudere · Esc finisce · destro sposta, rotella ingrandisce</div>
+    <div class="sk-help" id="sk-help">Clic sui punti · scrivi la lunghezza + Invio · clic sul primo punto per chiudere · Esc finisce · destro sposta, rotella ingrandisce</div>
   </div>
   <div id="sk-tip"></div>
+  <div id="sk-box"></div>
   <div id="status"></div>
 </main>
 

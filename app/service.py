@@ -6,6 +6,7 @@ grafico e niente di OpenCascade esposto all'esterno.
 from __future__ import annotations
 
 import math
+import re
 import sys
 import traceback
 from pathlib import Path
@@ -25,7 +26,7 @@ from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS  # noqa: E402
 from cad_engine.sheetmetal import METODI, POSIZIONI, VERSI  # noqa: E402
-from app import sketch_ops  # noqa: E402
+from app import sketch_edit, sketch_ops  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
@@ -126,9 +127,24 @@ class Service:
             except SteelCADError:
                 continue
             pl = PLANES[f.plane]
+            visti = set()
             for did, c in f.constraints.items():
-                if c['type'] not in ('length', 'distance', 'diameter', 'hdistance', 'vdistance'):
+                if c['type'] not in ('length', 'distance', 'diameter', 'hdistance', 'vdistance', 'pldistance'):
                     continue
+                if _guida_secondaria(f, c):
+                    continue                    # delle linee di costruzione si mostra solo la distanza che conta
+                # offset e serie: la stessa misura su tanti tratti/copie si mostra una volta sola
+                expr = c['value']
+                param = expr if isinstance(expr, str) and expr.isidentifier() else None
+                m = re.fullmatch(r'\s*(\d+)\s*\*\s*([A-Za-z_]\w*)\s*', expr) if isinstance(expr, str) else None
+                if m:
+                    if m.group(1) != '1':
+                        continue
+                    param = m.group(2)
+                if param and c['type'] in ('pldistance', 'length') and f.entities.get(c['refs'][-1], {}).get('construction', c['type'] == 'pldistance'):
+                    if param in visti:
+                        continue
+                    visti.add(param)
                 if c['type'] == 'length':
                     a, b = ss.lines[c['refs'][0]]
                     pa, pb = ss.points[a], ss.points[b]
@@ -138,6 +154,12 @@ class Service:
                         continue
                     cx, cy = ss.points[centro]
                     pa, pb = (cx - r, cy), (cx + r, cy)
+                elif c['type'] == 'pldistance':
+                    pa = ss.points[c['refs'][0]]
+                    la, lb = (ss.points[x] for x in ss.lines[c['refs'][1]])
+                    ux, uy = lb[0] - la[0], lb[1] - la[1]
+                    tt = ((pa[0] - la[0]) * ux + (pa[1] - la[1]) * uy) / ((ux * ux + uy * uy) or 1)
+                    pb = (la[0] + ux * tt, la[1] + uy * tt)          # il piede sulla linea
                 else:
                     pa, pb = ss.points[c['refs'][0]], ss.points[c['refs'][1]]
                     if c['type'] == 'hdistance':
@@ -149,7 +171,7 @@ class Service:
                 ga, gb = pl.from_local_coords(pa), pl.from_local_coords(pb)
                 v = ss.values.get(did)
                 out.append({'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'],
-                            'param': c['value'] if isinstance(c['value'], str) and c['value'].isidentifier() else None,
+                            'param': param,
                             'value': v, 'label': ('Ø' if c['type'] == 'diameter' else '') + fmt_mm(v or 0),
                             'a': [ga.X, ga.Y, ga.Z], 'b': [gb.X, gb.Y, gb.Z]})
         return out
@@ -389,17 +411,48 @@ class Service:
         r = self._change(label, fn, keep_broken=True)
         return r
 
-    def sketch_add_polyline(self, sid: str, pts: list, closed: bool) -> dict:
+    def sketch_add_polyline(self, sid: str, pts: list, closed: bool, construction: bool = False) -> dict:
         n = len(pts) - (0 if closed else 1)
-        return self._sketch_change(f'{"Contorno" if closed else "Linee"} ({n} tratti)',
-                                   lambda: sketch_ops.add_polyline(self.doc, sid, pts, closed))
+        cosa = 'Linee di costruzione' if construction else ('Contorno' if closed else 'Linee')
+        return self._sketch_change(f'{cosa} ({n} tratti)',
+                                   lambda: sketch_ops.add_polyline(self.doc, sid, pts, closed, construction))
 
-    def sketch_add_rectangle(self, sid: str, p0, p1) -> dict:
-        return self._sketch_change('Rettangolo', lambda: sketch_ops.add_rectangle(self.doc, sid, p0, p1))
+    def sketch_add_rectangle(self, sid: str, p0, p1, construction: bool = False) -> dict:
+        return self._sketch_change('Rettangolo' + (' di costruzione' if construction else ''),
+                                   lambda: sketch_ops.add_rectangle(self.doc, sid, p0, p1, construction))
 
-    def sketch_add_circle(self, sid: str, center, r) -> dict:
+    def sketch_add_circle(self, sid: str, center, r, construction: bool = False) -> dict:
         return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
-                                   lambda: sketch_ops.add_circle(self.doc, sid, center, r))
+                                   lambda: sketch_ops.add_circle(self.doc, sid, center, r, construction))
+
+    def sketch_construction(self, sid: str, eids: list, flag: bool) -> dict:
+        return self._sketch_change('In costruzione' if flag else 'Da costruzione a normale',
+                                   lambda: sketch_edit.set_construction(self.doc, sid, eids, flag))
+
+    def sketch_offset_preview(self, sid: str, eids: list, dist, side: str) -> dict:
+        try:
+            return _ok(preview=sketch_edit.offset_preview(self.doc, sid, eids, _number(dist), side))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def sketch_offset(self, sid: str, eids: list, dist, side: str) -> dict:
+        return self._sketch_change(f'Offset {dist}', lambda: sketch_edit.offset(self.doc, sid, eids, _number(dist), side))
+
+    def sketch_mirror(self, sid: str, eids: list, axis: str) -> dict:
+        return self._sketch_change(f'Specchia su {axis}', lambda: sketch_edit.mirror(self.doc, sid, eids, axis))
+
+    def sketch_copy(self, sid: str, eids: list, dx, dy) -> dict:
+        return self._sketch_change('Copia', lambda: sketch_edit.copy(self.doc, sid, eids, _number(dx), _number(dy)))
+
+    def sketch_move(self, sid: str, eids: list, dx, dy) -> dict:
+        return self._sketch_change('Sposta', lambda: sketch_edit.move(self.doc, sid, eids, _number(dx), _number(dy)))
+
+    def sketch_pattern(self, sid: str, eids: list, cols, px, rows, py) -> dict:
+        return self._sketch_change(f'Serie {cols} × {rows}', lambda: sketch_edit.pattern(
+            self.doc, sid, eids, int(_number(cols)), _number(px), int(_number(rows)), _number(py)))
+
+    def sketch_dimension(self, sid: str, kind: str, refs: list) -> dict:
+        return self._sketch_change('Quota', lambda: sketch_edit.add_dimension(self.doc, sid, kind, refs))
 
     def sketch_delete(self, sid: str, eids: list) -> dict:
         return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
@@ -759,6 +812,29 @@ class Service:
                                'Controlli superati.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+
+def _guida_secondaria(sk, c) -> bool:
+    """Quote "di servizio" delle linee di costruzione: la lunghezza e la coordinata lungo la guida.
+    Di una guida verticale conta solo quanto dista dall'origine in orizzontale (e viceversa)."""
+    ent = sk.entities
+    if c['type'] == 'length':
+        if isinstance(c['value'], str) and c['value'].isidentifier():
+            return False                # la guida dell'offset: la sua lunghezza è "off1", si mostra
+        return bool(ent.get(c['refs'][0], {}).get('construction'))
+    if c['type'] not in ('hdistance', 'vdistance') or len(c['refs']) != 2:
+        return False
+    p = c['refs'][1]
+    linee = [e for e in ent.values() if e['kind'] == 'line' and p in (e.get('a'), e.get('b'))]
+    if not linee or not all(e.get('construction') for e in linee):
+        return False
+    for l in linee:
+        a, b = ent[l['a']], ent[l['b']]
+        verticale = abs(a['x'] - b['x']) < 1e-6
+        orizzontale = abs(a['y'] - b['y']) < 1e-6
+        if (verticale and c['type'] == 'hdistance') or (orizzontale and c['type'] == 'vdistance'):
+            return False
+    return True
 
 
 def _flange_fields(fields: dict) -> dict:

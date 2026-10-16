@@ -180,6 +180,8 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                     add(s.symmetric_point(pid[refs[0]], pid[refs[1]], pid[refs[2]]), kid)
                 else:
                     add(s.symmetric_line(pid[refs[0]], pid[refs[1]], lid[refs[2]]), kid)
+            elif t == 'on_line':
+                add(s.point_on_line(pid[refs[0]], lid[refs[1]]), kid)
             elif t == 'fix':
                 e = sk.entities[refs[0]]
                 add(s.coordinate_x(pid[refs[0]], s.add_param(e['x'], fixed=True)), kid)
@@ -187,7 +189,7 @@ def _build(sk: Sketch, params: dict, jitter: bool):
             elif t in DIMENSIONS:
                 v = _value(sk, kid, c, params)
                 values[kid] = v
-                if t in ('distance', 'length', 'diameter', 'radius') and v <= 0:
+                if t in ('distance', 'length', 'diameter', 'radius', 'pldistance') and v <= 0:
                     raise SketchError(f'{cap(sk.describe_constraint(kid, v))} deve essere maggiore di zero.',
                                       code='quota_non_valida')
                 if t == 'distance':
@@ -195,6 +197,8 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                 elif t == 'length':
                     e = sk.entities[refs[0]]
                     add(s.p2p_distance(pid[e['a']], pid[e['b']], s.add_param(v, fixed=True)), kid)
+                elif t == 'pldistance':
+                    add(s.p2l_distance(pid[refs[0]], lid[refs[1]], s.add_param(v, fixed=True)), kid)
                 elif t in ('hdistance', 'vdistance'):
                     i = 0 if t == 'hdistance' else 1
                     p1 = s.get_point_param_ids(pid[refs[0]])[i]

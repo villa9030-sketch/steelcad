@@ -133,6 +133,9 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
   padding: 1px 6px; border-radius: 3px; font-size: 12px; white-space: nowrap; transition: border-color .12s;
 }
 .dim:hover { border-color: var(--hover); }
+.dim.dia { transform: translate(8px, -130%); }      /* accanto al cerchio, non sopra: il cerchio si deve poter cliccare */
+#sk-box { position: absolute; border: 1px solid #1F5FBF; background: rgba(31, 95, 191, .08); pointer-events: none; display: none; }
+#sk-box.cross { border-style: dashed; background: rgba(46, 139, 87, .08); border-color: #2E8B57; }
 .dim .p { color: var(--ink-3); font-weight: 400; margin-right: 4px; }
 .dim input { width: 80px; border: 0; outline: 0; font: inherit; color: var(--ink); padding: 0; }
 .dim.edit { border-color: var(--hover); box-shadow: 0 0 0 2px rgba(78, 161, 255, .3); }
@@ -193,9 +196,16 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 #sk-bar #sk-face button { border-color: var(--action); color: var(--action); }
 #sk-bar #sk-make button { border-color: var(--action); color: var(--action); }
 #sk-bar #sk-done { margin-left: auto; }
-#sk-status { flex-basis: 100%; font-size: 12px; color: var(--ok); }
+#sk-foot { position: absolute; left: 10px; right: 10px; bottom: 26px; background: rgba(255, 255, 255, .9);
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; pointer-events: none; }
+#sk-foot[hidden] { display: none; }
+#sk-status { font-size: 12px; color: var(--ok); }
+#sk-bar .sk-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+#sk-bar #sk-constr.on { background: #5B6670; border-color: #5B6670; color: #fff; }
+#sk-selbar { display: contents; }
+#sk-selbar[hidden] { display: none; }
 #sk-status.bad { color: var(--warn); }
-.sk-help { flex-basis: 100%; font-size: 11px; color: var(--ink-3); }
+.sk-help { font-size: 11px; color: var(--ink-3); }
 #sk-tip {
   position: absolute; pointer-events: none; display: none; background: rgba(28, 34, 40, .9); color: #fff;
   padding: 2px 7px; border-radius: 3px; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums;

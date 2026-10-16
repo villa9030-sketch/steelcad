@@ -274,6 +274,104 @@ def scatola(pg, ok):
     pg.screenshot(path=str(SHOTS_G / '10_scatola.png'))
 
 
+def comandi_sketch(pg, ok):
+    """Guide di costruzione, foro agganciato all'incrocio, serie, specchio, offset: tutto con mouse e tastiera."""
+    pg.keyboard.press('Escape')
+    pg.keyboard.press('Control+N')
+    pg.click('.choice button[data-k="zero"]')
+    pg.fill('#n-name', 'Piastra forata')
+    pg.click('#n-ok')
+    pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.state.name === 'Piastra forata'")
+    time.sleep(0.4)
+    box = pg.locator('#c3d').bounding_box()
+
+    def finestra(a, b):
+        ax, ay = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', list(a))
+        bx, by = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', list(b))
+        pg.mouse.move(box['x'] + ax, box['y'] + ay)
+        pg.mouse.down()
+        pg.mouse.move(box['x'] + bx, box['y'] + by, steps=6)
+        pg.mouse.up()
+
+    def clic(x, y, shift=False):
+        sx, sy = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', [x, y])
+        pg.mouse.move(box['x'] + sx, box['y'] + sy, steps=3)
+        if shift:
+            pg.keyboard.down('Shift')
+        pg.mouse.down(); pg.mouse.up()
+        if shift:
+            pg.keyboard.up('Shift')
+
+    def v():
+        return pg.evaluate('window.__steelcad.sketch.v')
+
+    def attendi(js):
+        pg.wait_for_function('() => { const v = window.__steelcad.sketch && window.__steelcad.sketch.v; return v && (' + js + '); }')
+
+    pg.keyboard.press('r')
+    clic(0, 0); clic(300, 200)
+    attendi('v.lines.length === 4')
+    time.sleep(0.5)                          # il primo disegno si inquadra da solo
+    # due guide di costruzione: verticale a x = 60 e orizzontale a y = 40 (la griglia qui va a 20 mm)
+    pg.keyboard.press('x')
+    pg.keyboard.press('l')
+    clic(60, 180); clic(60, 20); pg.keyboard.press('Escape')
+    attendi('v.lines.length === 5')
+    clic(20, 40); clic(280, 40); pg.keyboard.press('Escape')
+    attendi('v.lines.length === 6')
+    clic(160, 180); clic(160, 20); pg.keyboard.press('Escape')
+    attendi('v.lines.length === 7')
+    pg.keyboard.press('x')
+    guide = sum(1 for l in v()['lines'] if l['construction'])
+    ok(f'tre guide di costruzione ({guide})', guide == 3)
+    # foro Ø10 agganciato all'incrocio delle guide
+    pg.keyboard.press('c')
+    clic(60, 40)
+    pg.keyboard.type('10'); pg.keyboard.press('Enter')
+    attendi('v.circles.length === 1')
+    c0 = v()['circles'][0]
+    ok(f'foro all’incrocio delle guide: {v()["status"]}', 'completamente' in v()['status'])
+    # serie di 3 a passo 40
+    pg.keyboard.press('s')
+    finestra((48, 28), (72, 52))            # finestra da sinistra a destra attorno al foro
+    pg.wait_for_function("window.__steelcad.sketch.sel.size === 1")
+    pg.click('#sk-selbar [data-act="pattern"]')
+    pg.fill('#p-c', '3'); pg.fill('#p-px', '40'); pg.fill('#p-r', '1')
+    pg.click('#m-ok')
+    attendi('v.circles.length === 3')
+    # specchio dei tre fori rispetto alla guida a x = 150
+    ids = [c['id'] for c in v()['circles']]
+    asse = next(l['id'] for l in v()['lines'] if l['construction'] and abs(l['xa'][0] - 160) < 1e-6)
+    finestra((48, 28), (148, 52))
+    pg.wait_for_function("window.__steelcad.sketch.sel.size === 3")
+    pg.click('#sk-selbar [data-act="mirror"]')
+    clic(160, 120)
+    attendi('v.circles.length === 6')
+    xs = sorted(round(c['xc'][0], 3) for c in v()['circles'])
+    ok(f'specchio sulla guida: fori a {xs}', xs == [60, 100, 140, 180, 220, 260])
+    # offset del contorno verso dentro: doppio clic su un lato = tutto il contorno
+    lato = next(l for l in v()['lines'] if not l['construction'] and abs(l['xa'][1]) < 1e-6 and abs(l['xb'][1]) < 1e-6)
+    sx, sy = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', [250, 0])
+    pg.mouse.dblclick(box['x'] + sx, box['y'] + sy)
+    pg.wait_for_function("window.__steelcad.sketch.sel.size === 4")
+    pg.click('#sk-selbar [data-act="offset"]')
+    pg.fill('#o-d', '15'); pg.select_option('#o-s', 'in')
+    pg.click('#m-ok')
+    attendi('v.lines.length === 15')             # 4 lati nuovi + le loro 4 guide a 90°
+    ok('offset del contorno 15 verso dentro: ' + v()['status'], 'completamente' in v()['status'])
+    pg.screenshot(path=str(SHOTS_G / '11_comandi.png'))
+    # il passo della serie è un parametro: px1 = 50 e i fori si spostano (anche quelli specchiati)
+    pg.keyboard.press('Control+K'); pg.keyboard.type('px1 = 45'); pg.keyboard.press('Enter')
+    attendi("v.circles.some(c => Math.abs(c.xc[0] - 105) < 1e-6)")
+    xs = sorted(round(c['xc'][0], 3) for c in v()['circles'])
+    ok(f'px1 = 45 → fori a {xs} (anche gli specchiati seguono)', xs == [60, 105, 150, 170, 215, 260])
+    pg.click('#sk-make [data-make="plate"]')
+    pg.fill('#m-sp', '8')
+    pg.click('#m-ok')
+    pg.wait_for_function("!window.__steelcad.sketch && window.__steelcad.state.info.part")
+    ok('piastra con 6 fori creata: ' + pg.evaluate("window.__steelcad.state.bom[0].description"), True)
+
+
 def lamiera(pg, ok):
     """Milestone 3 dall'interfaccia: base 500x300 sp. 2, dati di piega, due flange, foro, sviluppo, DXF."""
     pg.keyboard.press('Escape')
@@ -371,6 +469,7 @@ def cancello(pg, ok, errori):
             lamiera(pg, ok)
             da_zero(pg, ok)
             scatola(pg, ok)
+            comandi_sketch(pg, ok)
             ok('nessun errore in console', not errori)
 
 if __name__ == '__main__':

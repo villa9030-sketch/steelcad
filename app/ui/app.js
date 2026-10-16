@@ -154,7 +154,44 @@ function pick(ev) {
 
 const tip = $('#hover-tip');
 let premuto = null;
-canvas.addEventListener('pointerdown', ev => { premuto = { x: ev.clientX, y: ev.clientY }; });
+canvas.addEventListener('pointerdown', ev => {
+  premuto = { x: ev.clientX, y: ev.clientY };
+  if (SK && SK.tool === 'select' && ev.button === 0 && !SK.pick) SK.box = { x: ev.clientX, y: ev.clientY };
+});
+window.addEventListener('pointermove', ev => {
+  if (!SK?.box || !(ev.buttons & 1)) return;
+  const r = view.getBoundingClientRect(), b = $('#sk-box');
+  const x0 = Math.min(SK.box.x, ev.clientX), x1 = Math.max(SK.box.x, ev.clientX);
+  const y0 = Math.min(SK.box.y, ev.clientY), y1 = Math.max(SK.box.y, ev.clientY);
+  if (x1 - x0 < 5 && y1 - y0 < 5) return;
+  Object.assign(b.style, { display: 'block', left: (x0 - r.left) + 'px', top: (y0 - r.top) + 'px', width: (x1 - x0) + 'px', height: (y1 - y0) + 'px' });
+  b.classList.toggle('cross', ev.clientX < SK.box.x);
+});
+window.addEventListener('pointerup', ev => {
+  if (!SK?.box) return;
+  const inizio = SK.box; SK.box = null;
+  $('#sk-box').style.display = 'none';
+  if (Math.abs(ev.clientX - inizio.x) < 5 && Math.abs(ev.clientY - inizio.y) < 5) return;
+  // da sinistra a destra: dentro del tutto; da destra a sinistra: anche toccati
+  const r = canvas.getBoundingClientRect();
+  const X0 = Math.min(inizio.x, ev.clientX) - r.left, X1 = Math.max(inizio.x, ev.clientX) - r.left;
+  const Y0 = Math.min(inizio.y, ev.clientY) - r.top, Y1 = Math.max(inizio.y, ev.clientY) - r.top;
+  const dentro = p => p[0] >= X0 && p[0] <= X1 && p[1] >= Y0 && p[1] <= Y1;
+  const tocca = ev.clientX < inizio.x;
+  const scr = p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * view.clientWidth, (1 - q.y) / 2 * view.clientHeight]; };
+  if (!ev.shiftKey) SK.sel.clear();
+  for (const l of SK.v.lines) {
+    const a = scr(l.pa), b = scr(l.pb);
+    const ok = tocca ? (dentro(a) || dentro(b) || [0.25, 0.5, 0.75].some(t => dentro([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]))) : dentro(a) && dentro(b);
+    if (ok) SK.sel.add(l.id);
+  }
+  for (const c of SK.v.circles) {
+    const ctr = skToLocal(v3(c.center));
+    const pts = [0, 1, 2, 3].map(k => scr(skToWorld([ctr[0] + c.r * Math.cos(k * Math.PI / 2), ctr[1] + c.r * Math.sin(k * Math.PI / 2)])));
+    if (tocca ? pts.some(dentro) : pts.every(dentro)) SK.sel.add(c.id);
+  }
+  drawSketch();
+});
 canvas.addEventListener('pointermove', ev => {
   if (SK) { skMove(ev); return; }
   if (ev.buttons) { tip.style.display = 'none'; return; }
@@ -190,7 +227,7 @@ function fitBox(box, dir, keepDir = false) {
   const c = box.getCenter(new THREE.Vector3());
   const rad = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
   const fov = THREE.MathUtils.degToRad(camera.fov);
-  const dist = rad / Math.sin(Math.min(fov, fov * camera.aspect) / 2) * 1.08;
+  const dist = rad / Math.sin(Math.min(fov, fov * camera.aspect) / 2) * (SK ? 1.35 : 1.08);   // nello sketch c'è la barra sopra
   const d = keepDir ? camera.position.clone().sub(controls.target).normalize() : dir.clone().normalize();
   const to = { pos: c.clone().add(d.multiplyScalar(dist)), target: c };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches || primaVolta) {
@@ -240,7 +277,7 @@ function buildDims() {
       dimLines.add(new THREE.LineSegments(g, DIM_MAT));
     }
     const el = document.createElement('div');
-    el.className = 'dim';
+    el.className = 'dim' + (d.type === 'diameter' ? ' dia' : '');
     el.innerHTML = (d.param ? `<span class="p">${esc(d.param)}</span>` : '') + esc(d.label);
     el.title = d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla` : 'Clicca per cambiare la quota';
     el.addEventListener('click', ev => { ev.stopPropagation(); editDim(el, d); });
@@ -834,7 +871,7 @@ const CMDS = [
   { id: 'view_top', label: 'Vista dall’alto', keys: '7', run: () => goTo(VISTE.view_top) },
   { id: 'view_front', label: 'Vista di fronte', keys: '1', run: () => goTo(VISTE.view_front) },
   { id: 'view_right', label: 'Vista da destra', keys: '3', run: () => goTo(VISTE.view_right) },
-  { id: 'fit', label: 'Adatta alla finestra', keys: 'F', run: () => goTo(null, true) },
+  { id: 'fit', label: 'Adatta alla finestra', keys: 'F', run: () => (SK ? fitSketch() : goTo(null, true)) },
   { id: 'toggle_dims', label: 'Mostra/nascondi quote', keys: 'Q', run: () => { showDims = !showDims; buildDims(); } },
   { id: 'palette', label: 'Cerca comando', keys: 'Ctrl+K', run: () => openPalette() },
 ];
@@ -940,7 +977,16 @@ const SK_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF });
 const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5FBF, dashSize: 6, gapSize: 4 });
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE });
 const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5 });
-const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', select: 'Seleziona' };
+const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', select: 'Seleziona', dim: 'Quota' };
+const SK_CONSTR = new THREE.LineDashedMaterial({ color: 0x7D8790, dashSize: 8, gapSize: 5 });
+const SK_CONSTR_SEL = new THREE.LineDashedMaterial({ color: 0xE09A00, dashSize: 8, gapSize: 5 });
+const AIUTI = {
+  line: 'Clic sui punti · scrivi la lunghezza + Invio · clic sul primo punto per chiudere · Esc finisce',
+  rect: 'Clic su un angolo, poi sull’angolo opposto (o scrivi la misura + Invio)',
+  circle: 'Clic sul centro, poi sul bordo (o scrivi il diametro + Invio)',
+  select: 'Clic su linee e cerchi (Maiusc per aggiungere, doppio clic = tutto il contorno, Ctrl+A tutto) · poi i comandi',
+  dim: 'Clic su una linea (lunghezza) o un cerchio (diametro) · oppure su due punti, o un punto e una linea (distanza)',
+};
 
 const v3 = a => new THREE.Vector3(...a);
 function skToWorld(xy) {
@@ -974,13 +1020,14 @@ function skStep() {          // passo della griglia: circa 12 px sullo schermo, 
 async function enterSketch(sid) {
   const r = await call('sketch_view', sid);
   if (!r.ok) { toast(r.message, 'err'); return; }
-  SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '' };
+  SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '', constr: false, pick: null, dimPick: [] };
   clearSelection();
   controls.enableRotate = false;
   const suFaccia = !!SK.v.on_face;
   for (const o of objs.values()) { o.mesh.material.transparent = true; o.mesh.material.opacity = suFaccia ? 0.4 : 0.18; o.mesh.material.depthWrite = false; }
   nodesBox.style.display = 'none';
   $('#sk-bar').hidden = false;
+  $('#sk-foot').hidden = false;
   drawSketch();
   const pts = SK.v.points.map(p => p.xyz);
   const box = new THREE.Box3();
@@ -999,25 +1046,41 @@ function exitSketch() {
   for (const o of objs.values()) { o.mesh.material.transparent = false; o.mesh.material.opacity = 1; o.mesh.material.depthWrite = true; }
   nodesBox.style.display = '';
   $('#sk-bar').hidden = true;
+  $('#sk-foot').hidden = true;
   $('#sk-tip').style.display = 'none';
   for (const g of [skGroup, skGrid, skRubber]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
   goTo(VISTE.view_iso);
   renderTree();
 }
+function fitSketch() {
+  const pts = SK.v.points.filter(p => p.id !== 'O').map(p => v3(p.xyz));
+  const box = new THREE.Box3();
+  pts.forEach(p => box.expandByPoint(p));
+  SK.v.circles.forEach(c => { box.expandByPoint(v3(c.center).addScalar(c.r)); box.expandByPoint(v3(c.center).addScalar(-c.r)); });
+  if (box.isEmpty()) return;
+  box.expandByPoint(v3(SK.v.origin));
+  const zd = v3(SK.v.z_dir);
+  if (Math.abs(zd.z) > 0.99) zd.add(new THREE.Vector3(0, -0.0001 * Math.sign(zd.z), 0));
+  fitBox(box, zd);
+}
 async function refreshSketch() {
   if (!SK) return;
   const r = await call('sketch_view', SK.sid);
   if (!r.ok) { exitSketch(); return; }
+  const eraVuoto = SK.v.points.length <= 1 && !SK.v.circles.length;
   SK.v = r.sketch;
+  if (eraVuoto && (SK.v.points.length > 1 || SK.v.circles.length)) fitSketch();   // il primo disegno si inquadra da solo
   for (const id of [...SK.sel]) if (!SK.v.lines.some(l => l.id === id) && !SK.v.circles.some(c => c.id === id)) SK.sel.delete(id);
   drawSketch();
 }
 function setTool(t) {
   if (!SK) return;
-  SK.tool = t; SK.pts = []; SK.buf = '';
+  SK.tool = t; SK.pts = []; SK.buf = ''; SK.pick = null; SK.dimPick = [];
   document.querySelectorAll('#sk-bar [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  $('#sk-help').textContent = AIUTI[t] + ' · destro sposta, rotella ingrandisce';
   drawRubber();
 }
+function setHelp(t) { $('#sk-help').textContent = t; }
 
 function drawSketch() {
   for (const g of [skGroup, skGrid]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
@@ -1034,20 +1097,27 @@ function drawSketch() {
   skGrid.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([skToWorld([0, 0]), skToWorld([0, lim])]), new THREE.LineBasicMaterial({ color: 0x2E8B57 })));
   skGrid.position.copy(v3(v.z_dir).multiplyScalar(-0.05));
   for (const l of v.lines) {
-    const mat = SK.sel.has(l.id) ? SK_SEL : SK.hover === l.id ? SK_HOV : SK_LINE;
-    skGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat));
+    const mat = l.construction ? (SK.sel.has(l.id) ? SK_CONSTR_SEL : SK.hover === l.id ? SK_HOV : SK_CONSTR)
+      : SK.sel.has(l.id) ? SK_SEL : SK.hover === l.id ? SK_HOV : SK_LINE;
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat);
+    if (l.construction) ln.computeLineDistances();
+    skGroup.add(ln);
   }
   for (const c of v.circles) {
     const pts = [];
     const ctr = v3(c.center), x = v3(v.x_dir), y = v3(v.y_dir);
     for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push(ctr.clone().addScaledVector(x, c.r * Math.cos(a)).addScaledVector(y, c.r * Math.sin(a))); }
-    const mat = SK.sel.has(c.id) ? SK_SEL : SK.hover === c.id ? SK_HOV : SK_LINE;
-    skGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    const mat = c.construction ? (SK.sel.has(c.id) ? SK_CONSTR_SEL : SK_CONSTR) : SK.sel.has(c.id) ? SK_SEL : SK.hover === c.id ? SK_HOV : SK_LINE;
+    const cl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+    if (c.construction) cl.computeLineDistances();
+    skGroup.add(cl);
   }
   const pg = new THREE.BufferGeometry().setFromPoints(v.points.map(p => v3(p.xyz)));
   skGroup.add(new THREE.Points(pg, new THREE.PointsMaterial({ color: 0x1C2228, size: 6, sizeAttenuation: false })));
   skGroup.position.copy(v3(v.z_dir).multiplyScalar(0.05));
   $('#sk-status').textContent = v.status;
+  $('#sk-selbar').hidden = !SK.sel.size;
+  $('#sk-constr').classList.toggle('on', SK.constr);
   $('#sk-status').classList.toggle('bad', !v.ok);
   const libero = !v.used_by.length;
   $('#sk-make').hidden = !libero || !!v.on_face;
@@ -1068,6 +1138,33 @@ function skCursor(ev) {
     if (d < 10 && (!best || d < best.d)) best = { ...p, d };
   }
   if (best) return { xy: best.xy, id: best.id, how: best.id === 'O' ? 'origine' : 'punto', first: best.first };
+  // metà delle linee e incroci tra linee (anche di costruzione): il punto resta legato a loro
+  let leg = null;
+  const vicino = (xy2, how, ref) => {
+    const s = skScreen(xy2), d = Math.hypot(s[0] - mx, s[1] - my);
+    if (d < 10 && (!leg || d < leg.d)) leg = { xy: xy2, ref, how, d };
+  };
+  const L = SK.v.lines;
+  for (const l of L) vicino([(l.xa[0] + l.xb[0]) / 2, (l.xa[1] + l.xb[1]) / 2], 'metà', { mid: l.id });
+  for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+    const p = segX(L[i].xa, L[i].xb, L[j].xa, L[j].xb);
+    if (p) vicino(p, 'incrocio', { cross: [L[i].id, L[j].id], xy: p });
+  }
+  if (leg) return { xy: leg.xy, id: null, ref: leg.ref, how: leg.how };
+  // sulla linea (vicino a una linea di costruzione): il punto ci resta sopra
+  for (const l of L) {
+    if (!l.construction) continue;
+    const a = skScreen(l.xa), b = skScreen(l.xb);
+    const dx = b[0] - a[0], dy = b[1] - a[1], LL = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((mx - a[0]) * dx + (my - a[1]) * dy) / LL));
+    if (Math.hypot(mx - a[0] - t * dx, my - a[1] - t * dy) < 6) {
+      const q = [l.xa[0] + (l.xb[0] - l.xa[0]) * t, l.xa[1] + (l.xb[1] - l.xa[1]) * t];
+      const st0 = skStep(), ux = l.xb[0] - l.xa[0], uy = l.xb[1] - l.xa[1], len = Math.hypot(ux, uy);
+      const tt = Math.round(t * len / st0) * st0 / len;       // passo di griglia lungo la linea
+      const qq = [l.xa[0] + ux * tt, l.xa[1] + uy * tt];
+      return { xy: qq, id: null, ref: { on: l.id, xy: qq }, how: 'sulla guida' };
+    }
+  }
   const st = skStep();
   let q = [Math.round(xy[0] / st) * st, Math.round(xy[1] / st) * st];
   let how = 'griglia';
@@ -1092,7 +1189,12 @@ function drawRubber() {
     const l = new THREE.Line(g, SK_RUB); l.computeLineDistances(); skRubber.add(l);
   };
   let testo = '';
-  if (SK.tool === 'line') {
+  if (SK.pick && SK.pick.base) {
+    add([SK.pick.base.xy, c]);
+    testo = `${num(c[0] - SK.pick.base.xy[0], 2)} ; ${num(c[1] - SK.pick.base.xy[1], 2)}`;
+  } else if (SK.pick) {
+    testo = '';
+  } else if (SK.tool === 'line') {
     if (SK.pts.length > 1) add(SK.pts.map(p => p.xy));
     if (last) { add([last.xy, c]); testo = `${num(Math.hypot(c[0] - last.xy[0], c[1] - last.xy[1]), 2)} mm`; }
   } else if (SK.tool === 'rect' && last) {
@@ -1131,6 +1233,10 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
 
 function skMove(ev) {
   if (ev.buttons) return;
+  if (SK.pick?.what === 'axis' || (SK.tool === 'dim' && !SK.dimPick.length)) {
+    const h = skHit(ev);
+    if (h !== SK.hover) { SK.hover = h; drawSketch(); }
+  }
   if (SK.tool === 'select') {
     const h = skHit(ev);
     if (h !== SK.hover) { SK.hover = h; drawSketch(); }
@@ -1141,8 +1247,18 @@ function skMove(ev) {
   drawRubber();
 }
 
-const ptArg = p => p.id || p.xy;
+const ptArg = p => p.id || p.ref || p.xy;
+function segX(a, b, c, d) {             // incrocio di due segmenti (o null)
+  const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]];
+  const den = r[0] * s[1] - r[1] * s[0];
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den;
+  if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return null;
+  return [a[0] + r[0] * t, a[1] + r[1] * t];
+}
 function skClick(ev) {
+  if (SK.pick) { skPickClick(ev); return; }
+  if (SK.tool === 'dim') { skDimClick(ev); return; }
   if (SK.tool === 'select') {
     const h = skHit(ev);
     if (!h) SK.sel.clear(); else if (SK.sel.has(h)) SK.sel.delete(h); else { if (!ev.shiftKey) SK.sel.clear(); SK.sel.add(h); }
@@ -1154,7 +1270,7 @@ function skClick(ev) {
   skPlace(c);
 }
 function skPlace(c) {
-  const p = { id: c.id, xy: c.xy };
+  const p = { id: c.id, xy: c.xy, ref: c.ref };
   if (SK.tool === 'line') {
     if (SK.pts.length >= 3 && (c.first || (c.id && c.id === SK.pts[0].id))) { skFinish(true); return; }
     if (SK.pts.length && c.id && SK.pts.some(q => q.id === c.id)) { toast('Questo punto è già nella linea che stai disegnando.', 'err'); return; }
@@ -1162,10 +1278,10 @@ function skPlace(c) {
     if (SK.pts.length >= 2 && c.id && !SK.pts.slice(0, -1).some(q => q.id === c.id)) { skFinish(false); return; }   // agganciato a un punto che c'era: si collega lì
   } else if (SK.tool === 'rect') {
     if (!SK.pts.length) { SK.pts.push(p); }
-    else { const a = SK.pts[0]; SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(a), c.xy)); }); }
+    else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(a), c.xy, k)); }); }
   } else if (SK.tool === 'circle') {
     if (!SK.pts.length) { SK.pts.push(p); }
-    else { const a = SK.pts[0]; SK.pts = []; const r = Math.hypot(c.xy[0] - a.xy[0], c.xy[1] - a.xy[1]); if (r > 0) inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), r)); }); }
+    else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; const r = Math.hypot(c.xy[0] - a.xy[0], c.xy[1] - a.xy[1]); if (r > 0) inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), r, k)); }); }
   }
   SK.buf = '';
   drawRubber();
@@ -1175,7 +1291,8 @@ function skFinish(closed) {
   SK.pts = []; SK.buf = '';
   drawRubber();
   if (pts.length < 2) return;
-  inCoda(async () => { await apply(await call('sketch_add_polyline', SK.sid, pts.map(ptArg), closed)); });
+  const k = SK.constr;
+  inCoda(async () => { await apply(await call('sketch_add_polyline', SK.sid, pts.map(ptArg), closed, k)); });
 }
 // lunghezza scritta: nella direzione del mouse (orizzontale/verticale se ci sei vicino)
 function skTyped() {
@@ -1184,7 +1301,8 @@ function skTyped() {
   if (!(v > 0)) { toast('Scrivi un numero maggiore di zero.', 'err'); return; }
   const last = SK.pts[SK.pts.length - 1];
   if (!last) { toast('Prima clicca il punto di partenza.', 'err'); return; }
-  if (SK.tool === 'circle') { const a = SK.pts[0]; SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), v / 2)); }); drawRubber(); return; }
+  if (SK.pick) { skPickTyped(v); return; }
+  if (SK.tool === 'circle') { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), v / 2, k)); }); drawRubber(); return; }
   const c = SK.cursor?.xy || [last.xy[0] + 1, last.xy[1]];
   let dx = c[0] - last.xy[0], dy = c[1] - last.xy[1];
   const L = Math.hypot(dx, dy) || 1;
@@ -1194,13 +1312,16 @@ function skTyped() {
   const q = [Math.round((last.xy[0] + dx * v) * 1000) / 1000, Math.round((last.xy[1] + dy * v) * 1000) / 1000];
   const primo = SK.pts[0];
   if (SK.tool === 'line' && SK.pts.length >= 3 && Math.hypot(q[0] - primo.xy[0], q[1] - primo.xy[1]) < 1e-6) { skFinish(true); return; }
-  if (SK.tool === 'rect') { SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(last), [last.xy[0] + (Math.sign(c[0] - last.xy[0]) || 1) * v, last.xy[1] + (Math.sign(c[1] - last.xy[1]) || 1) * v])); }); drawRubber(); return; }
+  if (SK.tool === 'rect') { SK.pts = []; const k = SK.constr; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(last), [last.xy[0] + (Math.sign(c[0] - last.xy[0]) || 1) * v, last.xy[1] + (Math.sign(c[1] - last.xy[1]) || 1) * v], k)); }); drawRubber(); return; }
   SK.pts.push({ id: null, xy: q });
   SK.cursor = { xy: q, id: null, how: 'scritto' };
   drawRubber();
 }
 function skKey(ev) {
   if (!SK || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || !$('#modal').hidden || !$('#palette').hidden) return false;
+  if (ev.ctrlKey && ev.key.toLowerCase() === 'a') {
+    SK.sel = new Set([...SK.v.lines.map(l => l.id), ...SK.v.circles.map(c => c.id)]); setTool('select'); drawSketch(); return true;
+  }
   if (ev.ctrlKey || ev.altKey) return false;
   const k = ev.key;
   if (/^[0-9.,]$/.test(k) && SK.tool !== 'select' && SK.pts.length) { SK.buf += k; drawRubber(); return true; }
@@ -1208,6 +1329,8 @@ function skKey(ev) {
   if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); return true; }
   if (k === 'Escape') {
     if (SK.buf) { SK.buf = ''; drawRubber(); return true; }
+    if (SK.pick) { SK.pick = null; setTool('select'); return true; }
+    if (SK.dimPick.length) { SK.dimPick = []; drawRubber(); return true; }
     if (SK.tool === 'line' && SK.pts.length >= 2) { skFinish(false); return true; }
     if (SK.pts.length) { SK.pts = []; drawRubber(); return true; }
     if (SK.sel.size) { SK.sel.clear(); drawSketch(); return true; }
@@ -1218,10 +1341,122 @@ function skKey(ev) {
     inCoda(async () => { await apply(await call('sketch_delete', SK.sid, ids)); });
     return true;
   }
-  const tasti = { l: 'line', r: 'rect', c: 'circle', s: 'select' };
+  const tasti = { l: 'line', r: 'rect', c: 'circle', s: 'select', d: 'dim' };
   if (tasti[k.toLowerCase()]) { setTool(tasti[k.toLowerCase()]); return true; }
+  if (k.toLowerCase() === 'x') { SK.constr = !SK.constr; drawSketch(); return true; }
+  if (k.toLowerCase() === 'o' && SK.sel.size) { skAction('offset'); return true; }
+  if (k.toLowerCase() === 'm' && SK.sel.size) { skAction('mirror'); return true; }
   if (['f', '0', '1', '3', '7', 'q'].includes(k.toLowerCase())) return false;
   return true;          // nient'altro deve scappare alla vista 3D mentre si disegna
+}
+
+// --------------------------------------------------------------- comandi sulla selezione
+function skAction(act) {
+  const ids = [...SK.sel];
+  if (!ids.length) { toast('Seleziona prima qualcosa (strumento Seleziona).', 'err'); return; }
+  const sid = SK.sid;
+  if (act === 'delete') { SK.sel.clear(); inCoda(async () => { await apply(await call('sketch_delete', sid, ids)); }); return; }
+  if (act === 'constr') {
+    const tutte = ids.every(id => (SK.v.lines.find(l => l.id === id) || SK.v.circles.find(c => c.id === id))?.construction);
+    inCoda(async () => { await apply(await call('sketch_construction', sid, ids, !tutte)); });
+    return;
+  }
+  if (act === 'mirror') { SK.pick = { what: 'axis', ids }; setHelp('Specchia: clic sulla linea che fa da asse (va bene una di costruzione) · Esc annulla'); return; }
+  if (act === 'copy' || act === 'move') {
+    SK.pick = { what: act, ids, base: null };
+    setHelp(`${act === 'copy' ? 'Copia' : 'Sposta'}: clic sul punto di partenza, poi dove va (o scrivi la distanza + Invio) · Esc annulla`);
+    return;
+  }
+  if (act === 'pattern') {
+    modal(`<h3>Serie</h3><p class="hint">Colonne lungo X e righe lungo Y, originale compreso. I passi diventano parametri (px, py): li cambi dopo e la serie segue.</p>
+      <div class="form"><label>Colonne<input class="field" id="p-c" value="3"></label><label>Passo X (mm)<input class="field" id="p-px" value="50"></label>
+      <label>Righe<input class="field" id="p-r" value="1"></label><label>Passo Y (mm)<input class="field" id="p-py" value="50"></label></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea serie</button></div>`, close => {
+      $('#m-no').onclick = close;
+      $('#m-ok').onclick = () => { const v = ['#p-c', '#p-px', '#p-r', '#p-py'].map(q => $(q).value.trim()); close();
+        inCoda(async () => { await apply(await call('sketch_pattern', sid, ids, ...v)); }); };
+      $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+    });
+    return;
+  }
+  if (act === 'offset') {
+    const chiusa = (() => { const L = SK.v.lines.filter(l => SK.sel.has(l.id)); if (!L.length) return true;
+      const g = {}; L.forEach(l => { g[l.a] = (g[l.a] || 0) + 1; g[l.b] = (g[l.b] || 0) + 1; }); return Object.values(g).every(x => x === 2); })();
+    const lati = chiusa ? { out: 'fuori', in: 'dentro' } : { right: 'da un lato', left: 'dall’altro' };
+    modal(`<h3>Offset</h3><p class="hint">La distanza diventa un parametro (off): la cambi dopo e l’offset segue; se cambi l’originale, l’offset lo segue.</p>
+      <div class="form"><label>Distanza (mm)<input class="field" id="o-d" value="10"></label>
+      <label>Verso<select class="field" id="o-s">${Object.entries(lati).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Offset</button></div>`, close => {
+      const anteprima = async () => {
+        const r = await call('sketch_offset_preview', sid, ids, $('#o-d').value.trim(), $('#o-s').value);
+        skRubber.traverse(x => x.geometry?.dispose()); skRubber.clear();
+        if (!r.ok) { $('#o-d').classList.add('bad'); ridisegna(); return; }
+        $('#o-d').classList.remove('bad');
+        const add = pts => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), SK_RUB); l.computeLineDistances(); skRubber.add(l); };
+        r.preview.lines.forEach(seg => add(seg));
+        r.preview.circles.forEach(([c, rr]) => { const p = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; p.push([c[0] + rr * Math.cos(a), c[1] + rr * Math.sin(a)]); } add(p); });
+        ridisegna();
+      };
+      const chiudi = () => { skRubber.traverse(x => x.geometry?.dispose()); skRubber.clear(); ridisegna(); close(); };
+      $('#o-d').oninput = anteprima; $('#o-s').onchange = anteprima; anteprima();
+      $('#m-no').onclick = chiudi;
+      $('#m-ok').onclick = () => { const d = $('#o-d').value.trim(), s = $('#o-s').value; chiudi();
+        inCoda(async () => { await apply(await call('sketch_offset', sid, ids, d, s)); }); };
+      $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') chiudi(); };
+    });
+  }
+}
+function skPickClick(ev) {
+  const P = SK.pick;
+  if (P.what === 'axis') {
+    const h = skHit(ev);
+    if (!h || !SK.v.lines.some(l => l.id === h)) { toast('Clicca una linea: sarà l’asse dello specchio.', 'err'); return; }
+    SK.pick = null; setTool('select');
+    inCoda(async () => { await apply(await call('sketch_mirror', SK.sid, P.ids, h)); });
+    return;
+  }
+  const c = SK.cursor || skCursor(ev);
+  if (!c) return;
+  if (!P.base) { P.base = { xy: c.xy }; SK.pts = [P.base]; drawRubber(); return; }
+  skPickDone(c.xy[0] - P.base.xy[0], c.xy[1] - P.base.xy[1]);
+}
+function skPickTyped(v) {
+  const P = SK.pick;
+  if (!P.base) { toast('Prima clicca il punto di partenza.', 'err'); return; }
+  const c = SK.cursor?.xy || [P.base.xy[0] + 1, P.base.xy[1]];
+  let dx = c[0] - P.base.xy[0], dy = c[1] - P.base.xy[1];
+  const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+  const ang = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
+  if (ang < 8 || ang > 172) { dx = Math.sign(dx) || 1; dy = 0; } else if (Math.abs(ang - 90) < 8) { dx = 0; dy = Math.sign(dy) || 1; }
+  skPickDone(dx * v, dy * v);
+}
+function skPickDone(dx, dy) {
+  const P = SK.pick;
+  SK.pick = null; SK.pts = []; setTool('select');
+  if (Math.hypot(dx, dy) < 1e-9) { toast('Partenza e arrivo coincidono.', 'err'); return; }
+  inCoda(async () => { await apply(await call(P.what === 'copy' ? 'sketch_copy' : 'sketch_move', SK.sid, P.ids, dx, dy)); });
+}
+// --------------------------------------------------------------- quota a mano
+function skDimClick(ev) {
+  const c = skCursor(ev);
+  const punto = c && c.id ? c.id : null;
+  const h = punto ? null : skHit(ev);
+  const sid = SK.sid;
+  if (!SK.dimPick.length) {
+    if (punto) { SK.dimPick = [punto]; setHelp('Quota: ora clic su un altro punto o su una linea · Esc annulla'); return; }
+    if (h && SK.v.circles.some(x => x.id === h)) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'diameter', [h])); }); return; }
+    if (h) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'length', [h])); }); return; }
+    return;
+  }
+  const a = SK.dimPick[0];
+  SK.dimPick = []; setTool('dim');
+  if (h && SK.v.lines.some(l => l.id === h)) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'pldistance', [a, h])); }); return; }
+  if (!punto || punto === a) return;
+  modal(`<h3>Quota tra due punti</h3><div class="choice"><button data-k="hdistance">Orizzontale</button><button data-k="vdistance">Verticale</button><button data-k="distance">Allineata</button></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); inCoda(async () => { await apply(await call('sketch_dimension', sid, b.dataset.k, [a, punto])); }); }; });
+  });
 }
 
 function makeDialog(kind) {
@@ -1263,9 +1498,27 @@ function makeDialog(kind) {
   });
 }
 
+canvas.addEventListener('dblclick', ev => {
+  if (!SK || SK.tool !== 'select') return;
+  const h = skHit(ev);
+  if (!h) return;
+  const l0 = SK.v.lines.find(l => l.id === h);
+  if (!l0) return;
+  // tutto il contorno collegato a questa linea
+  const presi = new Set([h]);
+  let cresce = true;
+  while (cresce) {
+    cresce = false;
+    const punti = new Set(SK.v.lines.filter(l => presi.has(l.id)).flatMap(l => [l.a, l.b]));
+    for (const l of SK.v.lines) if (!presi.has(l.id) && l.construction === l0.construction && (punti.has(l.a) || punti.has(l.b))) { presi.add(l.id); cresce = true; }
+  }
+  SK.sel = presi; drawSketch();
+});
 $('#sk-bar').addEventListener('click', ev => {
   const b = ev.target.closest('button');
   if (!b || !SK) return;
+  if (b.id === 'sk-constr') { SK.constr = !SK.constr; drawSketch(); return; }
+  if (b.dataset.act) { skAction(b.dataset.act); return; }
   if (b.dataset.tool) setTool(b.dataset.tool);
   else if (b.dataset.make) makeDialog(b.dataset.make);
   else if (b.id === 'sk-done') exitSketch();

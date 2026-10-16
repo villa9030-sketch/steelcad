@@ -94,14 +94,38 @@ class Api:
     def sketch_view(self, sid):
         return self._call(self._svc.sketch_view, sid)
 
-    def sketch_add_polyline(self, sid, pts, closed):
-        return self._call(self._svc.sketch_add_polyline, sid, pts, closed)
+    def sketch_add_polyline(self, sid, pts, closed, construction=False):
+        return self._call(self._svc.sketch_add_polyline, sid, pts, closed, construction)
 
-    def sketch_add_rectangle(self, sid, p0, p1):
-        return self._call(self._svc.sketch_add_rectangle, sid, p0, p1)
+    def sketch_add_rectangle(self, sid, p0, p1, construction=False):
+        return self._call(self._svc.sketch_add_rectangle, sid, p0, p1, construction)
 
-    def sketch_add_circle(self, sid, center, r):
-        return self._call(self._svc.sketch_add_circle, sid, center, r)
+    def sketch_add_circle(self, sid, center, r, construction=False):
+        return self._call(self._svc.sketch_add_circle, sid, center, r, construction)
+
+    def sketch_construction(self, sid, eids, flag):
+        return self._call(self._svc.sketch_construction, sid, eids, flag)
+
+    def sketch_offset_preview(self, sid, eids, dist, side):
+        return self._call(self._svc.sketch_offset_preview, sid, eids, dist, side)
+
+    def sketch_offset(self, sid, eids, dist, side):
+        return self._call(self._svc.sketch_offset, sid, eids, dist, side)
+
+    def sketch_mirror(self, sid, eids, axis):
+        return self._call(self._svc.sketch_mirror, sid, eids, axis)
+
+    def sketch_copy(self, sid, eids, dx, dy):
+        return self._call(self._svc.sketch_copy, sid, eids, dx, dy)
+
+    def sketch_move(self, sid, eids, dx, dy):
+        return self._call(self._svc.sketch_move, sid, eids, dx, dy)
+
+    def sketch_pattern(self, sid, eids, cols, px, rows, py):
+        return self._call(self._svc.sketch_pattern, sid, eids, cols, px, rows, py)
+
+    def sketch_dimension(self, sid, kind, refs):
+        return self._call(self._svc.sketch_dimension, sid, kind, refs)
 
     def sketch_delete(self, sid, eids):
         return self._call(self._svc.sketch_delete, sid, eids)
