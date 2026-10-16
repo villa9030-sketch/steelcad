@@ -40,6 +40,7 @@ py -3 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m pytest            # tutti i test
 .venv\Scripts\python tools\milestone1.py  # il flusso del gate, scrive in test_parts\
+<python con playwright> tools\prova_ui.py      # l'interfaccia in un browser invisibile
 ```
 
 ## Esempio
