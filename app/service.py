@@ -5,6 +5,7 @@ grafico e niente di OpenCascade esposto all'esterno.
 """
 from __future__ import annotations
 
+import math
 import sys
 import traceback
 from pathlib import Path
@@ -24,6 +25,7 @@ from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS  # noqa: E402
 from cad_engine.sheetmetal import METODI, POSIZIONI, VERSI  # noqa: E402
+from app import sketch_ops  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
@@ -55,7 +57,9 @@ class Service:
         self.doc = doc
         self.history = History(doc)
         self.result = doc.rebuild()
-        self.scene_version = 1
+        # sempre crescente, anche cambiando progetto: se ripartisse da 1 la UI crederebbe di avere
+        # già la scena giusta e lascerebbe a video il pezzo vecchio
+        self.scene_version = getattr(self, 'scene_version', 0) + 1
 
     def _rebuild(self):
         self.result = self.doc.rebuild()
@@ -136,6 +140,12 @@ class Service:
                     pa, pb = (cx - r, cy), (cx + r, cy)
                 else:
                     pa, pb = ss.points[c['refs'][0]], ss.points[c['refs'][1]]
+                    if c['type'] == 'hdistance':
+                        pb = (pb[0], pa[1])
+                    elif c['type'] == 'vdistance':
+                        pb = (pa[0], pb[1])
+                    if math.dist(pa, pb) < 1e-9:
+                        continue                        # quota zero: niente da mostrare
                 ga, gb = pl.from_local_coords(pa), pl.from_local_coords(pb)
                 v = ss.values.get(did)
                 out.append({'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'],
@@ -330,6 +340,54 @@ class Service:
                 sm['method'] = fields['method']
         # qui una modifica può lasciare la lamiera senza un dato: va bene, la scheda lo dice
         return self._change('Dati di piega', lambda: fn(self._sheet_def(fid)), keep_broken=True)
+
+    # ---------------------------------------------------------------- disegno libero
+    def sketch_view(self, sid: str) -> dict:
+        try:
+            return _ok(sketch=sketch_ops.view(self.doc, sid))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def _sketch_change(self, label, fn):
+        # mentre si disegna lo sketch può restare aperto: la modifica si tiene comunque
+        r = self._change(label, fn, keep_broken=True)
+        return r
+
+    def sketch_add_polyline(self, sid: str, pts: list, closed: bool) -> dict:
+        n = len(pts) - (0 if closed else 1)
+        return self._sketch_change(f'{"Contorno" if closed else "Linee"} ({n} tratti)',
+                                   lambda: sketch_ops.add_polyline(self.doc, sid, pts, closed))
+
+    def sketch_add_rectangle(self, sid: str, p0, p1) -> dict:
+        return self._sketch_change('Rettangolo', lambda: sketch_ops.add_rectangle(self.doc, sid, p0, p1))
+
+    def sketch_add_circle(self, sid: str, center, r) -> dict:
+        return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
+                                   lambda: sketch_ops.add_circle(self.doc, sid, center, r))
+
+    def sketch_delete(self, sid: str, eids: list) -> dict:
+        return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
+
+    def create_from_sketch(self, sid: str, kind: str, values: dict) -> dict:
+        """Dal contorno disegnato: lamiera (spessore + dati di piega) o piastra (estrusione)."""
+        v = {k: _number(x) for k, x in (values or {}).items() if str(x).strip() != ''}
+        fr = next((f for f in self.result.features if f.id == sid), None)
+        if fr is None or not fr.ok:
+            return {'ok': False, 'code': 'sketch', 'message': 'Prima chiudi il contorno: '
+                    + (fr.message if fr else 'lo sketch non è costruibile.')}
+        if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
+            return {'ok': False, 'code': 'usato', 'message': 'Questo sketch ha già un pezzo: modificalo da lì.'}
+
+        def fn():
+            if 'sp' not in self.doc.parameters:
+                self.doc.set_parameter('sp', v.get('thickness', 2))
+            if kind == 'sheet':
+                self.doc.add_feature('sheet', self.doc.meta.get('name') or 'Lamiera', sketch=sid, thickness='sp',
+                                     radius=v.get('radius'), method='k', k=v.get('k'), flanges=[])
+            else:
+                self.doc.add_feature('extrude', self.doc.meta.get('name') or 'Piastra', sketch=sid,
+                                     distance='sp', operation='new')
+        return self._change('Crea lamiera' if kind == 'sheet' else 'Crea piastra', fn)
 
     def profile_suggestions(self) -> list[str]:
         out = ['30x30x2', '40x40x3', '50x50x3', '60x60x3', '70x70x4', '80x80x4', '60x40x3', '80x40x3',
@@ -553,7 +611,8 @@ class Service:
         try:
             values = {k: _number(v) for k, v in (values or {}).items()}
             doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
-                   'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera}[kind](**values)
+                   'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
+                   'zero': templates.da_zero}[kind](**values)
             self._set(doc)
             self.path = None
             return _ok(state=self.state())

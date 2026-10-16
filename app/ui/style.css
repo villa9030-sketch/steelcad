@@ -179,6 +179,28 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 18px; margin-top: 8px; }
 .kv span:nth-child(odd) { color: var(--ink-2); }
 
+/* --- modalità sketch --- */
+#sk-bar {
+  position: absolute; top: 10px; left: 10px; right: 240px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  background: rgba(255, 255, 255, .94); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px;
+}
+#sk-bar[hidden] { display: none; }
+#sk-bar .sk-title { font-weight: 600; margin-right: 6px; }
+#sk-bar button { border: 1px solid var(--line); background: #fff; padding: 3px 10px; border-radius: 3px; }
+#sk-bar button:hover { border-color: #AEB6BF; }
+#sk-bar button.on { background: var(--action); border-color: var(--action); color: #fff; }
+#sk-bar #sk-make[hidden] { display: none; }
+#sk-bar #sk-make button { border-color: var(--action); color: var(--action); }
+#sk-bar #sk-done { margin-left: auto; }
+#sk-status { flex-basis: 100%; font-size: 12px; color: var(--ok); }
+#sk-status.bad { color: var(--warn); }
+.sk-help { flex-basis: 100%; font-size: 11px; color: var(--ink-3); }
+#sk-tip {
+  position: absolute; pointer-events: none; display: none; background: rgba(28, 34, 40, .9); color: #fff;
+  padding: 2px 7px; border-radius: 3px; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+#sk-tip b { color: #FFD166; }
+
 /* --- lamiera --- */
 .sheet-cols { display: grid; grid-template-columns: 300px 1fr 1fr; gap: 20px; padding-top: 8px; }
 .sheet-cols h4 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
@@ -216,7 +238,7 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 .modal-box .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 /* --- messaggi --- */
-#toasts { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; z-index: 70; }
+#toasts { position: fixed; bottom: 244px; right: 324px; justify-items: end; display: grid; gap: 6px; z-index: 70; }
 .toast {
   background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 4px; max-width: 640px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .2); animation: in .16s ease-out;

@@ -127,3 +127,56 @@ def test_elimina_e_modifiche_che_rompono():
     assert not r['ok'] and r['message'].startswith('Non applicato')
     assert s.state()['cutlist']['pieces'] == 4 and s.state()['errors'] == []
     assert not s.add_member('ST1', 'A', to_key='N1')['ok']                   # c'è già
+
+
+def test_nuovo_progetto_cambia_sempre_la_scena():
+    """Bug 16/10: appena aperta l'app (versione 1) un progetto nuovo ripartiva da 1 e la UI non ridisegnava."""
+    s = Service()
+    v = s.state()['scene_version']
+    r = s.new_project('piastra', {})
+    assert r['state']['scene_version'] > v
+    assert s.new_project('zero', {})['state']['scene_version'] > r['state']['scene_version']
+
+
+def test_lamiera_da_zero_disegnata():
+    s = Service()
+    s.new_project('zero', {'name': 'Staffa'})
+    # una L: si parte dall'origine, l'ultimo tratto torna all'origine
+    r = s.sketch_add_polyline('S1', ['O', [300, 0], [300, 100], [120, 100], [120, 250], [0, 250]], True)
+    v = s.sketch_view('S1')['sketch']
+    assert r['ok'] and v['ok'] and 'completamente' in v['status']
+    assert sorted(d['label'] for d in s.state()['dimensions']) == ['100', '150', '180', '300']
+    assert s.sketch_add_circle('S1', [60, 50], 7)['ok']
+    r = s.create_from_sketch('S1', 'sheet', {'thickness': 3, 'radius': 3, 'k': 0.42})
+    assert r['ok']
+    assert s.add_flange('SM1', 'L1', {'length': 40})['ok']
+    d = next(x for x in s.state()['dimensions'] if x['label'] == '300')
+    assert s.set_dimension(d['sketch'], d['dim'], 350)['ok']
+    import build123d as bd
+    assert bd.Solid(s.result.body.shape).bounding_box().size.X == 350
+
+
+def test_disegno_aperto_poi_chiuso_senza_quote_doppie():
+    s = Service()
+    s.new_project('zero', {})
+    assert s.sketch_add_polyline('S1', ['O', [100, 0], [100, 60]], False)['ok']
+    assert not s.create_from_sketch('S1', 'plate', {'thickness': 5})['ok']       # aperto: prima chiudi
+    ultimo = s.sketch_view('S1')['sketch']['points'][-1]['id']
+    assert s.sketch_add_polyline('S1', [ultimo, [0, 60], 'O'], False)['ok']
+    v = s.sketch_view('S1')['sketch']
+    assert v['ok'] and 'completamente' in v['status']                            # niente quote doppie
+    assert s.create_from_sketch('S1', 'plate', {'thickness': 5})['ok']
+    assert s.state()['bom'][0]['type'] == 'piastra'
+
+
+def test_rettangolo_cerchio_elimina():
+    s = Service()
+    s.new_project('zero', {})
+    assert s.sketch_add_rectangle('S1', 'O', [200, 120])['ok']
+    assert s.sketch_add_circle('S1', [50, 60], 5)['ok']
+    v = s.sketch_view('S1')['sketch']
+    assert 'completamente' in v['status'] and len(v['circles']) == 1
+    assert s.sketch_delete('S1', [v['circles'][0]['id']])['ok']
+    v = s.sketch_view('S1')['sketch']
+    assert v['circles'] == [] and 'completamente' in v['status']
+    assert len(v['points']) == 5                                                 # 4 angoli + origine

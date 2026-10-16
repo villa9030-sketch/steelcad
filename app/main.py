@@ -85,6 +85,24 @@ class Api:
     def set_sheet_tech(self, fid, fields):
         return self._call(self._svc.set_sheet_tech, fid, fields)
 
+    def sketch_view(self, sid):
+        return self._call(self._svc.sketch_view, sid)
+
+    def sketch_add_polyline(self, sid, pts, closed):
+        return self._call(self._svc.sketch_add_polyline, sid, pts, closed)
+
+    def sketch_add_rectangle(self, sid, p0, p1):
+        return self._call(self._svc.sketch_add_rectangle, sid, p0, p1)
+
+    def sketch_add_circle(self, sid, center, r):
+        return self._call(self._svc.sketch_add_circle, sid, center, r)
+
+    def sketch_delete(self, sid, eids):
+        return self._call(self._svc.sketch_delete, sid, eids)
+
+    def create_from_sketch(self, sid, kind, values):
+        return self._call(self._svc.create_from_sketch, sid, kind, values)
+
     def undo(self):
         return self._call(self._svc.undo)
 

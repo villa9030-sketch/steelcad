@@ -45,6 +45,14 @@ def main():
             time.sleep(0.5)
             pg.screenshot(path=str(SHOTS / '1_avvio.png'))
             ok('albero con il telaio', 'Telaio superiore' in pg.inner_text('#tree'))
+            nuovo_subito(pg, ok)
+            pg.goto(f'http://127.0.0.1:{PORTA}/?dev')
+            pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
+            pg.evaluate("fetch('/api/new_project', {method: 'POST', body: JSON.stringify(['telaio', {name: 'Tavolo officina'}])})")
+            pg.reload()
+            pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
+            time.sleep(0.3)
+            ok('albero con il telaio', 'Telaio superiore' in pg.inner_text('#tree'))
             ok('8 aste nella scena', pg.evaluate('window.__steelcad.objs.size') == 8)
             ok('quote L e P sul modello', pg.locator('.dim').count() == 2)
             ok('cut list 2040', '2.040' in pg.inner_text('#tab-cut') or '2040' in pg.inner_text('#tab-cut'))
@@ -132,6 +140,81 @@ def main():
         srv.kill()
     print(json.dumps({'errori_console': errori, 'screenshot': str(SHOTS)}, ensure_ascii=False))
     return 0 if all(e for _, e in esiti) else 1
+
+
+def nuovo_subito(pg, ok):
+    """Bug 16/10: appena aperta l'app, Nuovo → il pezzo nuovo deve sostituire quello vecchio a video."""
+    pg.keyboard.press('Control+N')
+    pg.click('.choice button[data-k="piastra"]')
+    pg.click('#n-ok')
+    pg.wait_for_function("window.__steelcad.state.name === 'Piastra'")
+    pg.wait_for_function("window.__steelcad.objs.has('body') && window.__steelcad.objs.size === 1", timeout=8000)
+    ok('nuovo progetto subito dopo l’avvio: a video c’è il pezzo nuovo', True)
+
+
+def da_zero(pg, ok):
+    """Lamiera da zero: contorno disegnato col mouse e le lunghezze scritte, foro, poi Crea lamiera."""
+    pg.keyboard.press('Escape')
+    pg.keyboard.press('Control+N')
+    pg.click('.choice button[data-k="zero"]')
+    pg.fill('#n-name', 'Staffa')
+    pg.click('#n-ok')
+    pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.state.name === 'Staffa'")
+    time.sleep(0.4)
+    box = pg.locator('#c3d').bounding_box()
+
+    def schermo(x, y):
+        sx, sy = pg.evaluate('([x, y]) => window.__steelcad.skScreen([x, y])', [x, y])
+        return box['x'] + sx, box['y'] + sy
+
+    def muovi(x, y):
+        pg.mouse.move(*schermo(x, y), steps=3)
+
+    def clic(x, y):
+        muovi(x, y)
+        pg.mouse.down()
+        pg.mouse.up()
+
+    clic(0, 0)                               # aggancio all'origine
+    for (x, y), lung in (((300, 0), '400'), ((400, 150), '200'), ((100, 200), '400')):
+        muovi(x, y)
+        pg.keyboard.type(lung)
+        pg.keyboard.press('Enter')
+    clic(0, 0)                               # clic sul primo punto: si chiude
+    pg.wait_for_function("window.__steelcad.sketch.v.lines.length === 4 && window.__steelcad.sketch.v.ok")
+    stato = pg.evaluate('window.__steelcad.sketch.v.status')
+    quote = sorted(pg.locator('.dim').all_inner_texts())
+    ok(f'contorno disegnato e chiuso: {stato} {quote}', 'completamente' in stato and quote == ['200', '400'])
+    pg.keyboard.press('c')
+    clic(100, 100)
+    pg.keyboard.type('20')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("window.__steelcad.sketch.v.circles.length === 1")
+    ok('foro Ø20 scritto: ' + pg.evaluate('window.__steelcad.sketch.v.status'),
+       abs(pg.evaluate('window.__steelcad.sketch.v.circles[0].r') - 10) < 1e-9)
+    pg.screenshot(path=str(SHOTS_G / '7_sketch.png'))
+    pg.click('#sk-make [data-make="sheet"]')
+    pg.fill('#m-sp', '2'); pg.fill('#m-r', '2'); pg.fill('#m-k', '0,4')
+    pg.click('#m-ok')
+    pg.wait_for_function("window.__steelcad.state.sheet && window.__steelcad.state.sheet.data && !window.__steelcad.sketch")
+    size = pg.evaluate('window.__steelcad.state.sheet.data.flat_size')
+    ok(f'lamiera creata dal disegno: {size}', abs(size[0] - 400) < 1e-6 and abs(size[1] - 200) < 1e-6)
+    pg.evaluate("""() => { const o = window.__steelcad.objs.get('body');
+        const f = o.data.faces.find(x => x.name && x.name.includes('/lato/')); window.__steelcad.select('body', f.index); }""")
+    pg.wait_for_selector('#f-add')
+    pg.click('#f-add')
+    pg.wait_for_function("window.__steelcad.state.sheet.data.bends.length === 1")
+    ok('flangia sul pezzo disegnato', True)
+    pg.screenshot(path=str(SHOTS_G / '8_da_zero.png'))
+    # riapro lo sketch dall'albero e allungo il pezzo con la quota
+    pg.click('#tree .node:has-text("Contorno")')
+    pg.wait_for_function("window.__steelcad.sketch")
+    pg.locator('.dim', has_text='400').first.click()
+    pg.keyboard.press('Control+A'); pg.keyboard.type('500'); pg.keyboard.press('Enter')
+    pg.wait_for_function("window.__steelcad.state.sheet.data && Math.round(Math.max(...window.__steelcad.state.sheet.data.flat_size)) >= 500")
+    ok('quota 400 → 500 dallo sketch riaperto', True)
+    pg.click('#sk-done')
+    pg.wait_for_function("!window.__steelcad.sketch")
 
 
 def lamiera(pg, ok):
@@ -229,6 +312,7 @@ def cancello(pg, ok, errori):
             pg.wait_for_selector('.toast.err:has-text("Non applicato")')
             ok('nodo sopra un altro: ' + pg.inner_text('.toast.err:has-text("Non applicato")')[:80], pg.evaluate("window.__steelcad.state.cutlist.pieces") == 4)
             lamiera(pg, ok)
+            da_zero(pg, ok)
             ok('nessun errore in console', not errori)
 
 if __name__ == '__main__':

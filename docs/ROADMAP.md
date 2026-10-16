@@ -94,6 +94,16 @@ Pezzi di riferimento in `test_parts/`: simple_frame_2000x1000, table_frame, shee
 
 Manca solo il confronto con un pezzo piegato davvero sulla pressa: vedi `sheetmetal_u_2mm/expected.json`.
 
+**Dopo la prima prova di Stefano (16/10).**
+- Corretto: un progetto nuovo creato subito dopo l'avvio lasciava a video il pezzo vecchio. La
+  versione della scena ripartiva da 1 e l'interfaccia credeva di averla già.
+- Nuovo: disegno libero ("Nuovo → Da zero" oppure clic su uno sketch nell'albero).
+  - Vista dall'alto con griglia, strumenti Linea, Rettangolo, Cerchio e Seleziona/Canc.
+  - Agganci a punti, origine, orizzontale/verticale e griglia.
+  - Lunghezze e diametri si scrivono mentre si disegna; il contorno si chiude cliccando il primo punto.
+  - Le quote nascono da sole e quelle doppie si tolgono da sole.
+  - Poi "Crea lamiera…" o "Crea piastra…".
+
 ## Milestone 4 — Uso in azienda
 Configuratori (tavolo, basamento, telaio, cancello, piedistallo, armadio,
 carter) sullo stesso motore, ottimizzazione barre da 6 m, componenti

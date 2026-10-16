@@ -68,3 +68,10 @@ def lamiera(name: str = 'Lamiera', larghezza=500, profondita=300, spessore=2, ra
     doc.add_feature('sheet', name, sketch=sk.id, thickness='sp', radius=None if vuoto(raggio) else raggio,
                     method='k', k=None if vuoto(k) else k, flanges=[])
     return doc
+
+
+def da_zero(name: str = 'Pezzo', material='S235') -> Document:
+    """Solo uno sketch vuoto sul piano XY: si disegna il contorno, poi si sceglie lamiera o piastra."""
+    doc = Document(name, material)
+    doc.add_sketch('XY', 'Contorno')
+    return doc

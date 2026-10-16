@@ -112,6 +112,15 @@ def project_tree(doc, result) -> dict:
                                          [f'{st.id}/{m.id}' for m in ms]))
             nodo_st['children'].append(ng)
         root['children'].append(nodo_st)
+    usati = {f.get('sketch') for f in doc.features if not isinstance(f, Sketch)}
+    for f in doc.features:
+        if not isinstance(f, Sketch) and f.get('type') == 'structure':
+            usati |= doc._sketch_refs(f)
+    for f in doc.features:
+        if isinstance(f, Sketch) and f.id not in usati and isinstance(f.plane, str):
+            fr = stati.get(f.id)
+            root['children'].append(_n(f.name or f.id, 'sketch', f.id,
+                                       status=None if fr and fr.ok else 'da chiudere'))
     for fr in result.features:
         if not fr.ok and fr.type == 'structure':
             root['children'].append(_n(f'{fr.id}: {fr.message}', 'structure', fr.id, status='errore'))
