@@ -280,6 +280,8 @@ def build(fdef: dict, ctx) -> NamedShape:
                                    feature=fid)
             g.holes.append((uf, v, d))
 
+    tabs = _closed_corners(fdef, geos, t, ctx, fid)
+
     # ----------------------------------------------------------------- solido 3D
     base = bd.extrude(face, amount=t, dir=tuple(N))
     for g in geos:
@@ -290,6 +292,8 @@ def build(fdef: dict, ctx) -> NamedShape:
     parti = [base]
     for g in geos:
         parti.append(_flange_solid(g, t))
+    for g, ua, ub in tabs:
+        parti.append(_tab_solid(g, ua, ub, t))
     vol_attesa = sum(p.volume for p in parti)
     solido = parti[0]
     for p in parti[1:]:
@@ -304,7 +308,7 @@ def build(fdef: dict, ctx) -> NamedShape:
     shape = solidi[0].wrapped
 
     # ----------------------------------------------------------------- sviluppo
-    flat, linee = _flat(face, geos, pl, t)
+    flat, linee = _flat(face, geos, pl, t, tabs)
     bb = [pl.to_local_coords(v) for v in flat.vertices()] if flat is not None else []
     size = ((max(p.X for p in bb) - min(p.X for p in bb)), (max(p.Y for p in bb) - min(p.Y for p in bb))) \
         if bb else (0.0, 0.0)
@@ -433,7 +437,7 @@ def _check_base_holes(face, prof, geos, pl, fid):
                                        'contorno (dove comincia la piega).', feature=fid)
 
 
-def _flat(face, geos, pl, t):
+def _flat(face, geos, pl, t, tabs=()):
     """Lo sviluppo sul piano dello sketch: base accorciata + strisce lunghe BA + tratto dritto."""
     def pf(g, u, s):            # punto sul piano dello sketch (z = 0), anche per le flange "giù"
         p = g.origin + g.xf * u + g.n * s
@@ -459,6 +463,10 @@ def _flat(face, geos, pl, t):
         for uf, v, d in g.holes:
             c = pf(g, uf, g.off + g.bend.ba + v - g.bend.ossb)
             flat = flat - bd.Face(bd.Wire.make_circle(d / 2, bd.Plane(origin=c, z_dir=pl.z_dir)))
+        for h, ua, ub in tabs:
+            if h is g:
+                lo = g.off + g.bend.ba
+                flat = flat + poly([pf(g, ua, lo), pf(g, ub, lo), pf(g, ub, lo + g.lf), pf(g, ua, lo + g.lf)])
         s_mid = g.off + g.bend.ba / 2
         a, b = pl.to_local_coords(pf(g, g.u0, s_mid)), pl.to_local_coords(pf(g, g.u1, s_mid))
         testo = f'{g.fid} {VERSI[g.direction].upper()} {fmt_mm(g.bend.angle)}° R{fmt_mm(g.bend.r)}'
@@ -471,6 +479,55 @@ def _flat(face, geos, pl, t):
         raise FeatureError('Lo sviluppo non è venuto un pezzo unico: le flange si sovrappongono nel piano. '
                            'Aumenta la fessura d’angolo.', feature=geos[0].fid if geos else None)
     return facce[0], linee
+
+
+# =============================================================================== angoli chiusi
+def _closed_corners(fdef, geos, t, ctx, fid) -> list:
+    """Angoli chiusi tra due flange a 90° nello stesso verso: quella "sopra" si allunga fino a coprire lo
+    spessore dell'altra (a filo della sua faccia esterna); quella "sotto" si allunga fino alla faccia
+    interna della prima, meno la fessura. Solo nel tratto dritto: in fondo all'angolo resta lo scarico
+    della piega. Ritorna [(flangia, u_da, u_a)] cioè le alette da aggiungere."""
+    out = []
+    per_id = {g.fid: g for g in geos}
+    for k, c in enumerate(fdef.get('corners') or []):
+        a, b = per_id.get(c.get('over')), per_id.get(c.get('under'))
+        if a is None or b is None:
+            raise FeatureError(f'L’angolo chiuso {k + 1} usa una flangia che non c’è più.', feature=fid)
+        comune = set(a.ends) & set(b.ends)
+        if not comune:
+            raise FeatureError(f'Le flange {a.fid} e {b.fid} non hanno un angolo in comune.', feature=fid)
+        if abs(a.bend.angle - 90) > 1e-9 or abs(b.bend.angle - 90) > 1e-9 or a.direction != b.direction:
+            raise FeatureError(f'L’angolo chiuso tra {a.fid} e {b.fid} per ora si fa solo con flange a 90° '
+                               'piegate dallo stesso lato.', feature=fid)
+        if a.position != 'inside' or b.position != 'inside':
+            raise FeatureError('L’angolo chiuso per ora si fa con le flange "quota esterna sul contorno".', feature=fid)
+        gap = evaluate(c.get('gap', 0), ctx.params, what=f'la fessura dell’angolo {a.fid}/{b.fid}')
+        if gap < 0:
+            raise FeatureError('La fessura dell’angolo non può essere negativa.', feature=fid)
+        pid = comune.pop()
+        sh_a, sh_b = a.off + a.bend.ossb, b.off + b.bend.ossb
+        # a fino alla faccia esterna di b; b fino alla faccia interna di a, meno la fessura
+        for g, altra, piano in ((a, b, sh_b), (b, a, sh_a - t - gap)):
+            den = g.xf.dot(altra.n)
+            if abs(den) < 1e-9:
+                raise FeatureError(f'Le flange {a.fid} e {b.fid} sono parallele: niente angolo.', feature=fid)
+            u = (piano - (g.origin - altra.origin).dot(altra.n)) / den
+            if g.ends[0] == pid:
+                ua, ub = u, g.u0
+            else:
+                ua, ub = g.u1, u
+            if ub - ua <= TOL:
+                continue                     # già lunga abbastanza
+            out.append((g, ua, ub))
+    return out
+
+
+def _tab_solid(g: FlangeGeo, ua: float, ub: float, t: float):
+    """L'aletta: il tratto dritto della flangia allungato lungo il lato da ua a ub."""
+    q = _section_points(g, t)
+    pts = [g.p(ua, *q['oe']), g.p(ua, *q['ot']), g.p(ua, *q['it']), g.p(ua, *q['ie'])]
+    f = bd.Face(bd.Wire.make_polygon(pts, close=True))
+    return bd.extrude(f, amount=ub - ua, dir=tuple(g.xf))
 
 
 # =============================================================================== nomi
@@ -541,3 +598,97 @@ def _axis(ad) -> bd.Vector:
 
 
 __all__ = ['bend_values', 'build', 'Bend', 'SheetData', 'METODI', 'VERSI', 'POSIZIONI', 'cap']
+
+
+# =============================================================================== tagli disegnati su una faccia
+def build_cut(fdef: dict, ctx) -> NamedShape:
+    """Un contorno disegnato su una faccia della lamiera (la base sopra/sotto o una flangia dentro/fuori)
+    tagliato attraverso lo spessore. Entra anche nello sviluppo, portato in piano nella posizione giusta."""
+    import dataclasses
+
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+
+    fid = fdef['id']
+    body = ctx.body
+    data = getattr(body, 'sheet', None) if body is not None else None
+    if data is None:
+        raise FeatureError('Il taglio di lamiera va disegnato su una faccia di una lamiera (e prima di altre '
+                           'lavorazioni non di lamiera).', feature=fid)
+    ss, prof = ctx.sketch(fdef)
+    if not prof.faces:
+        raise FeatureError(f'Lo sketch "{ss.sketch.label()}" non ha contorni chiusi da tagliare.', feature=fid)
+    piano = ss.sketch.plane
+    nome = piano.get('face', '') if isinstance(piano, dict) else ''
+    parti = nome.split('/')
+    if not parti or parti[0] != data.feature:
+        raise FeatureError('Il taglio di lamiera va disegnato su una faccia della lamiera.', feature=fid)
+    t, pl, N = data.thickness, data.plane, data.plane.z_dir
+
+    def proj(p):
+        return p - N * N.dot(p - pl.origin)
+
+    if len(parti) == 2 and parti[1] in ('sopra', 'sotto'):
+        h = t if parti[1] == 'sopra' else 0.0
+        src = bd.Plane(origin=pl.origin + N * h, x_dir=pl.x_dir, z_dir=N)
+        dst = pl
+        dentro = -N if parti[1] == 'sopra' else N
+        g = None
+    elif len(parti) == 3 and parti[2] in ('esterno', 'interno'):
+        g = next((x for x in data.flanges if x.fid == parti[1]), None)
+        if g is None:
+            raise FeatureError(f'La flangia {parti[1]} non c’è più.', feature=fid)
+        th = math.radians(g.bend.angle)
+        dvec = g.n * math.cos(th) + g.zf * math.sin(th)
+        nrm = g.n * -math.sin(th) + g.zf * math.cos(th)            # dalla faccia esterna verso l'interna
+        sh = g.off + g.bend.ossb
+        p0 = g.origin + g.n * sh + (nrm * t if parti[2] == 'interno' else bd.Vector(0, 0, 0))
+        src = bd.Plane(origin=p0, x_dir=g.xf, z_dir=g.xf.cross(dvec))
+        dst = bd.Plane(origin=proj(g.origin + g.n * (g.off + g.bend.ba - g.bend.ossb)), x_dir=g.xf,
+                       z_dir=g.xf.cross(g.n))
+        dentro = nrm if parti[2] == 'esterno' else -nrm
+    else:
+        raise FeatureError('Si può tagliare sulla faccia sopra/sotto della base o sulla faccia esterna/interna '
+                           'di una flangia (non sulle pieghe né sui fianchi).', feature=fid)
+
+    # niente tagli nelle pieghe: controllo su punti presi lungo i contorni disegnati
+    for f in prof.faces:
+        for e in f.edges():
+            for p in e.positions([i / 16 for i in range(17)]):
+                q = src.to_local_coords(p)
+                if g is not None:
+                    if q.Y < g.bend.ossb - TOL:
+                        raise FeatureError(f'Il taglio cade nella piega della flangia {g.fid}: deve stare ad almeno '
+                                           f'{fmt_mm(round(g.bend.ossb, 2))} mm dallo spigolo esterno.', feature=fid)
+                else:
+                    for h_ in data.flanges:
+                        loc = proj(p) - proj(h_.origin)
+                        if loc.dot(h_.n) > h_.off + TOL and h_.u0 - TOL <= loc.dot(h_.xf) <= h_.u1 + TOL:
+                            raise FeatureError(f'Il taglio cade nella piega della flangia {h_.fid}: sulla base deve '
+                                               f'stare ad almeno {fmt_mm(round(-h_.off, 2))} mm dal contorno.',
+                                               feature=fid)
+    # 3D: attraverso lo spessore
+    attrezzo = None
+    for f in prof.faces:
+        s = bd.extrude(f.moved(bd.Location(-dentro * 0.01)), amount=t + 0.02, dir=tuple(dentro))
+        attrezzo = s if attrezzo is None else attrezzo + s
+    op = BRepAlgoAPI_Cut(body.shape, attrezzo.wrapped)
+    if not op.IsDone():
+        raise FeatureError('Il kernel non è riuscito a fare il taglio.', feature=fid)
+    nuovo = body.after(op, op.Shape())
+    from ..features.base import volume
+    if volume(nuovo.shape) > volume(body.shape) - 1e-6:
+        raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
+    for f in _faces_of(nuovo.shape):
+        if not nuovo.names_of(f):
+            nuovo.names.setdefault(f'{fid}/parete', []).append(f)
+    # sviluppo: lo stesso contorno, portato in piano
+    sposta = dst.location * src.location.inverse()
+    flat = data.flat
+    for f in prof.faces:
+        flat = flat.cut(f.moved(sposta))
+    flat = flat.clean() if hasattr(flat, 'clean') else flat
+    facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
+    if len(facce) != 1:
+        raise FeatureError('Il taglio divide lo sviluppo in più pezzi.', feature=fid)
+    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area)
+    return nuovo

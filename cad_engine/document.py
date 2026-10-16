@@ -25,9 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_cut': 'TG'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
-        'structure': 'Struttura', 'sheet': 'Lamiera'}
+        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_cut': 'Taglio'}
 
 
 @dataclass
@@ -306,6 +306,8 @@ class Document:
                 for h in fl.get('holes') or []:
                     for k in ('u', 'v', 'd'):
                         nomi |= names_in(h.get(k))
+            for c in f.get('corners') or []:
+                nomi |= names_in(c.get('gap'))
         return {n: params.get(n) for n in sorted(nomi)}
 
     def _plane(self, sk: Sketch, body: NamedShape | None):
@@ -334,7 +336,7 @@ class Document:
             return f'il fianco sul {ent} di {nome_f}' if ent.startswith('lato') else f'il fianco su {ent} di {nome_f}'
         testi = {'fine': 'la faccia finale', 'inizio': 'la faccia iniziale', 'foro': 'la parete del foro',
                  'fondo': 'il fondo del foro', 'raccordo': 'il raccordo', 'smusso': 'lo smusso',
-                 'sopra': 'la faccia di sopra', 'sotto': 'la faccia di sotto'}
+                 'sopra': 'la faccia di sopra', 'sotto': 'la faccia di sotto', 'parete': 'la parete del taglio'}
         flangia = {'esterno': 'la faccia esterna', 'interno': 'la faccia interna', 'punta': 'la punta',
                    'fianco': 'il fianco', 'piega_esterna': 'la piega (fuori)', 'piega_interna': 'la piega (dentro)'}
         if len(parti) == 3 and (parti[2] in flangia or parti[2].startswith('foro')):

@@ -56,6 +56,8 @@ def _feature_label(doc, f, fr) -> str:
             except SteelCADError:
                 pass
             return f'Lamiera sp. {sp}'
+        if t == 'sheet_cut':
+            return f'{nome or "Taglio"} attraverso la lamiera'
     except (KeyError, ValueError):
         pass
     return nome or f['id']

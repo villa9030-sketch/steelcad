@@ -470,11 +470,11 @@ async function renderProps(s) {
       <button class="btn" id="p-flip" title="Scambia il lato da cui è appoggiato il profilo">Inverti</button></div>
       <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Elimina ${sel?.ids?.length > 1 ? sel.ids.length + ' aste' : 'asta'}</button></div>`;
   } else if (s.kind === 'flange') {
-    $('#props').innerHTML = h + flangePanel(s);
+    $('#props').innerHTML = h + faceSketchButton(s) + flangePanel(s);
     wireFlange(s);
     return;
   } else if (s.kind === 'body' && s.flange_form) {
-    $('#props').innerHTML = h + newFlangePanel(s.flange_form);
+    $('#props').innerHTML = h + faceSketchButton(s) + newFlangePanel(s.flange_form);
     wireNewFlange(s.flange_form);
     return;
   } else if (s.kind === 'node') {
@@ -482,6 +482,7 @@ async function renderProps(s) {
     wireNode(s);
     return;
   } else if (s.commands?.length) {
+    h += faceSketchButton(s);
     h += `<div class="row-btns">${s.commands.map(c => `<button class="btn" data-cmd="${esc(c.id)}">${esc(c.label)}</button>`).join('')}</div>`;
   }
   $('#props').innerHTML = h;
@@ -495,6 +496,19 @@ async function renderProps(s) {
   $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
   $('#p-del').onclick = deleteSelected;
 }
+
+function faceSketchButton(s) {
+  if (!s.face?.planar || !s.face.name) return '';
+  return `<div class="row-btns"><button class="btn primary" data-face-sketch="${esc(s.face.name)}">Disegna su questa faccia</button></div>`;
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-face-sketch]');
+  if (!b) return;
+  inCoda(async () => {
+    const r = await call('sketch_on_face', b.dataset.faceSketch);
+    if (await apply(r)) await enterSketch(r.sketch);
+  });
+});
 
 function deleteSelected() {
   if (sel?.id?.startsWith('flange=')) {
@@ -542,6 +556,12 @@ function flangePanel(s) {
   return `<div class="sub">Flangia</div>${flangeFields(s.def, s.directions, s.positions)}
     <label class="lbl" style="display:block;margin-top:6px">Fessura d’angolo (mm)<input class="field" id="f-gap" value="${esc(String(s.def.gap ?? 0).replace('.', ','))}"></label>
     <div class="row-btns"><button class="btn primary" id="f-apply">Applica</button><button class="btn danger" id="f-del">Elimina flangia</button></div>
+    ${s.corners.length ? `<div class="sub">Angoli</div>${s.corners.map(c => `<div class="corner" data-other="${esc(c.other)}">
+      <label class="lbl">Con ${esc(c.other)}<select class="field" data-corner>
+        <option value="open"${c.mode === 'open' ? ' selected' : ''}>aperto</option>
+        <option value="over"${c.mode === 'over' ? ' selected' : ''}>chiuso, ${esc(s.flange)} sopra (copre ${esc(c.other)})</option>
+        <option value="under"${c.mode === 'under' ? ' selected' : ''}>chiuso, ${esc(c.other)} sopra (copre ${esc(s.flange)})</option></select></label>
+      <label class="lbl"${c.mode === 'open' ? ' hidden' : ''}>Fessura (mm, 0 = a contatto)<input class="field" data-cgap value="${esc(String(c.gap).replace('.', ','))}"></label></div>`).join('')}` : ''}
     <div class="sub">Fori sulla flangia</div><div class="holes">${fori}</div>
     <p class="hint" style="margin:6px 0 4px">u lungo il lato, v dallo spigolo esterno verso la punta.</p>
     <div class="xyz"><label>u<input class="field" id="h-u" value="50"></label><label>v<input class="field" id="h-v" value="15"></label>
@@ -554,6 +574,12 @@ function wireFlange(s) {
   ['#f-len', '#f-ang', '#f-gap'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') applica(); }; });
   $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); };
   $('#h-add').onclick = () => inCoda(async () => apply(await call('add_flange_hole', s.feature, s.flange, $('#h-u').value, $('#h-v').value, $('#h-d').value)));
+  document.querySelectorAll('.corner').forEach(div => {
+    const salva = () => inCoda(async () => apply(await call('set_corner', s.feature, s.flange, div.dataset.other,
+      div.querySelector('[data-corner]').value, div.querySelector('[data-cgap]').value)));
+    div.querySelector('[data-corner]').onchange = salva;
+    div.querySelector('[data-cgap]').onkeydown = ev => { if (ev.key === 'Enter') salva(); };
+  });
   document.querySelectorAll('[data-hdel]').forEach(b => { b.onclick = () => inCoda(async () => apply(await call('delete_flange_hole', s.feature, s.flange, +b.dataset.hdel))); });
 }
 
@@ -588,7 +614,12 @@ function renderSheet() {
       <span>Area</span><span>${num(data.flat_area / 1e6, 4)} m²</span></div>
       <div class="row-btns"><button class="btn primary" data-cmd="export_dxf">Esporta sviluppo DXF…</button></div>`;
   }
+  const attivo = document.activeElement?.dataset?.tech ? { k: document.activeElement.dataset.tech, v: document.activeElement.value } : null;
   $('#tab-sheet').innerHTML = `<div class="sheet-cols"><div><h4>Dati di piega</h4>${tech}</div><div><h4>Pieghe</h4>${pieghe}</div><div><h4>Sviluppo</h4>${flat}</div></div>`;
+  if (attivo) {               // stavi scrivendo in un campo: il ridisegno non ti toglie quello che hai scritto
+    const i = document.querySelector(`[data-tech="${attivo.k}"]`);
+    if (i) { i.value = attivo.v; i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  }
   $('#sheet-badge').textContent = manca.size ? '!' : '';
   const salva = fields => inCoda(async () => apply(await call('set_sheet_tech', sh.feature, fields)));
   document.querySelectorAll('[data-tech]').forEach(i => {
@@ -946,7 +977,8 @@ async function enterSketch(sid) {
   SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '' };
   clearSelection();
   controls.enableRotate = false;
-  for (const o of objs.values()) { o.mesh.material.transparent = true; o.mesh.material.opacity = 0.18; o.mesh.material.depthWrite = false; }
+  const suFaccia = !!SK.v.on_face;
+  for (const o of objs.values()) { o.mesh.material.transparent = true; o.mesh.material.opacity = suFaccia ? 0.4 : 0.18; o.mesh.material.depthWrite = false; }
   nodesBox.style.display = 'none';
   $('#sk-bar').hidden = false;
   drawSketch();
@@ -955,7 +987,9 @@ async function enterSketch(sid) {
   if (pts.length > 1) pts.forEach(p => box.expandByPoint(v3(p)));
   else { box.expandByPoint(skToWorld([-50, -50])); box.expandByPoint(skToWorld([550, 350])); }
   if (objs.size) box.union(new THREE.Box3().setFromObject(model));
-  fitBox(box, VISTE.view_top);
+  const zd = v3(SK.v.z_dir);
+  if (Math.abs(zd.z) > 0.99) zd.add(new THREE.Vector3(0, -0.0001 * Math.sign(zd.z), 0));   // guardando giù/su: il nord resta in alto
+  fitBox(box, zd);
   setTool('line');
 }
 function exitSketch() {
@@ -1016,7 +1050,9 @@ function drawSketch() {
   $('#sk-status').textContent = v.status;
   $('#sk-status').classList.toggle('bad', !v.ok);
   const libero = !v.used_by.length;
-  $('#sk-make').hidden = !libero;
+  $('#sk-make').hidden = !libero || !!v.on_face;
+  $('#sk-face').hidden = !libero || !v.on_face;
+  $('#sk-boss').hidden = !!v.on_sheet;
   ridisegna();
 }
 
@@ -1189,6 +1225,20 @@ function skKey(ev) {
 }
 
 function makeDialog(kind) {
+  if (kind === 'cut') {
+    const sid = SK.sid;
+    inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'cut', {}), 'Tagliato.')) exitSketch(); });
+    return;
+  }
+  if (kind === 'boss') {
+    modal(`<h3>Estrudi dalla faccia</h3><div class="form"><label>Di quanto (mm)<input class="field" id="m-d" value="10"></label></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Estrudi</button></div>`, close => {
+      $('#m-no').onclick = close;
+      $('#m-ok').onclick = () => { const sid = SK.sid, d = $('#m-d').value.trim(); close();
+        inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'boss', { distance: d }))) exitSketch(); }); };
+    });
+    return;
+  }
   const lam = kind === 'sheet';
   modal(`<h3>${lam ? 'Crea lamiera dal contorno' : 'Crea piastra dal contorno'}</h3>
     <div class="form"><label>Spessore (mm)<input class="field" id="m-sp" value="${lam ? 2 : 5}"></label>
@@ -1228,7 +1278,7 @@ async function start() {
   await loadScene();
   setInterval(() => call('autosave'), 60000);
   requestAnimationFrame(loop);
-  window.__steelcad = { ready: true, get state() { return S; }, get nodes() { return nodes; }, get sketch() { return SK; },
+  window.__steelcad = { ready: true, get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, skScreen: xy => skScreen(xy), enterSketch };
 }
 if (DEV) start();

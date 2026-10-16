@@ -7,6 +7,7 @@ BUILDERS = {
     'fillet': dress.build,
     'chamfer': dress.build,
     'sheet': sheetmetal.build,
+    'sheet_cut': sheetmetal.build_cut,
 }
 
 # campi che contengono valori (numeri o espressioni sui parametri)

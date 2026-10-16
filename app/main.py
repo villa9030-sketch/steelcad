@@ -85,6 +85,12 @@ class Api:
     def set_sheet_tech(self, fid, fields):
         return self._call(self._svc.set_sheet_tech, fid, fields)
 
+    def set_corner(self, fid, flid, other, mode, gap=0):
+        return self._call(self._svc.set_corner, fid, flid, other, mode, gap)
+
+    def sketch_on_face(self, face_name):
+        return self._call(self._svc.sketch_on_face, face_name)
+
     def sketch_view(self, sid):
         return self._call(self._svc.sketch_view, sid)
 

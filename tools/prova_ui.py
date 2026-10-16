@@ -6,6 +6,7 @@ persona e controlla il risultato. Nessuna finestra sul desktop.
     <python con playwright> tools\prova_ui.py [cartella_screenshot]
 """
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -217,6 +218,62 @@ def da_zero(pg, ok):
     pg.wait_for_function("!window.__steelcad.sketch")
 
 
+def scatola(pg, ok):
+    """Scatola: 4 flange, angolo chiuso dal pannello, foro disegnato sulla faccia di una flangia."""
+    pg.keyboard.press('Escape')
+    pg.keyboard.press('Control+N')
+    pg.click('.choice button[data-k="lamiera"]')
+    pg.fill('#n-name', 'Scatola')
+    pg.fill('[data-f="larghezza"]', '400'); pg.fill('[data-f="profondita"]', '300')
+    pg.fill('[data-f="raggio"]', '2'); pg.fill('[data-f="k"]', '0,5')
+    pg.click('#n-ok')
+    pg.wait_for_function("window.__steelcad.state.name === 'Scatola' && window.__steelcad.objs.has('body') && "
+                         "window.__steelcad.objs.get('body').data.faces.filter(x => x.name && x.name.includes('/lato/')).length === 4")
+    for lato in ('L1', 'L2', 'L3', 'L4'):
+        pg.evaluate("""(lato) => { const o = window.__steelcad.objs.get('body');
+            const f = o.data.faces.find(x => x.name === 'SM1/lato/' + lato); window.__steelcad.select('body', f.index); }""", lato)
+        pg.wait_for_selector('#f-add')
+        pg.fill('#f-len', '60')
+        pg.click('#f-add')
+        pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
+        pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+    pg.evaluate("window.__steelcad.select('flange=SM1/FL1')")
+    pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]')
+    area0 = pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
+    pg.select_option('.corner[data-other="FL2"] [data-corner]', 'over')
+    pg.wait_for_function("(a) => window.__steelcad.state.sheet.data.flat_area > a + 1", arg=area0)
+    diff = pg.evaluate('window.__steelcad.state.sheet.data.flat_area') - area0
+    ok(f'angolo chiuso FL1 sopra FL2 dal pannello (+{diff:.1f} mm² di aletta)', abs(diff - 6 * 56) < 1e-6)
+    pg.wait_for_function("window.__steelcad.state.scene_version === window.__steelcad.sceneVersion")
+    # clic sulla faccia esterna di FL1 → disegna qui → cerchio Ø8 → taglia
+    pg.evaluate("""() => { const o = window.__steelcad.objs.get('body');
+        const f = o.data.faces.find(x => x.name === 'SM1/FL1/esterno'); window.__steelcad.select('body', f.index); }""")
+    pg.wait_for_selector('[data-face-sketch]')
+    pg.click('[data-face-sketch]')
+    pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL1/esterno'")
+    time.sleep(0.4)
+    box = pg.locator('#c3d').bounding_box()
+    loc = pg.evaluate("""(P) => { const v = window.__steelcad.sketch.v;
+        const d = P.map((c, i) => c - v.origin[i]); const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+        return [dot(d, v.x_dir), dot(d, v.y_dir)]; }""", [200, 0, 30])
+    sx, sy = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', loc)
+    pg.keyboard.press('c')
+    pg.mouse.move(box['x'] + sx, box['y'] + sy, steps=3)
+    pg.mouse.down(); pg.mouse.up()
+    pg.keyboard.type('8')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("window.__steelcad.sketch.v.circles.length === 1")
+    pg.screenshot(path=str(SHOTS_G / '9_su_faccia.png'))
+    area1 = pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
+    pg.click('#sk-face [data-make="cut"]')
+    pg.wait_for_function("(a) => !window.__steelcad.sketch && window.__steelcad.state.sheet.data.flat_area < a - 1", arg=area1)
+    diff = area1 - pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
+    ok(f'foro Ø8 disegnato sulla faccia della flangia, anche nello sviluppo (−{diff:.2f} mm²)', abs(diff - math.pi * 16) < 0.5)
+    pg.evaluate("window.__steelcad.select('body')")
+    time.sleep(0.4)
+    pg.screenshot(path=str(SHOTS_G / '10_scatola.png'))
+
+
 def lamiera(pg, ok):
     """Milestone 3 dall'interfaccia: base 500x300 sp. 2, dati di piega, due flange, foro, sviluppo, DXF."""
     pg.keyboard.press('Escape')
@@ -313,6 +370,7 @@ def cancello(pg, ok, errori):
             ok('nodo sopra un altro: ' + pg.inner_text('.toast.err:has-text("Non applicato")')[:80], pg.evaluate("window.__steelcad.state.cutlist.pieces") == 4)
             lamiera(pg, ok)
             da_zero(pg, ok)
+            scatola(pg, ok)
             ok('nessun errore in console', not errori)
 
 if __name__ == '__main__':

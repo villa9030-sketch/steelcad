@@ -20,12 +20,15 @@ from cad_engine.sketch.profile import PLANES
 HV_TOL = math.radians(3)      # entro 3° un tratto diventa orizzontale o verticale
 
 
-def view(doc, sid: str) -> dict:
+def view(doc, sid: str, body=None) -> dict:
     """Lo sketch risolto, anche se il contorno è ancora aperto (mentre si disegna)."""
     sk = doc.sketch(sid)
-    if not isinstance(sk.plane, str):
-        raise SteelCADError('Per ora si disegnano solo sketch sui piani XY, XZ, YZ.', code='piano')
-    pl = PLANES[sk.plane]
+    if isinstance(sk.plane, str):
+        pl = PLANES[sk.plane]
+    else:
+        if body is None:
+            raise SteelCADError('La faccia di questo sketch non c’è più nel pezzo.', code='piano')
+        pl = doc._plane(sk, body)
     try:
         ss = solve(sk, doc.resolved_parameters())
         pts, stato = ss.points, ss.status.message
@@ -42,7 +45,14 @@ def view(doc, sid: str) -> dict:
            'points': [{'id': k, 'xy': list(v), 'xyz': g(v)} for k, v in pts.items()
                       if not sk.entities.get(k, {}).get('construction')],
            'lines': [], 'circles': [],
-           'used_by': [f['id'] for f in doc.features if not hasattr(f, 'entities') and f.get('sketch') == sid]}
+           'used_by': [f['id'] for f in doc.features if not hasattr(f, 'entities') and f.get('sketch') == sid],
+           'on_face': sk.plane.get('face') if isinstance(sk.plane, dict) else None}
+    if out['on_face']:
+        try:
+            f0 = doc.feature(out['on_face'].split('/')[0])
+            out['on_sheet'] = not hasattr(f0, 'entities') and f0.get('type') == 'sheet'
+        except SteelCADError:
+            out['on_sheet'] = False
     for k, e in sk.entities.items():
         if e['kind'] == 'line' and not e.get('construction'):
             out['lines'].append({'id': k, 'a': e['a'], 'b': e['b'], 'label': sk.describe(k),

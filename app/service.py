@@ -189,6 +189,9 @@ class Service:
                                     'label': self.doc.describe_face(nomi[0]) if nomi else 'faccia',
                                     'area': bd.Face(f).area}
                     dati['rows'].append(['Faccia', dati['face']['label']])
+                    from OCP.BRepAdaptor import BRepAdaptor_Surface
+                    from OCP.GeomAbs import GeomAbs_Plane
+                    dati['face']['planar'] = BRepAdaptor_Surface(f).GetType() == GeomAbs_Plane
                     dati['rows'].append(['Area faccia', f'{dati["face"]["area"]:.1f} mm²'])
                     nome = dati['face']['name'] or ''
                     parti = nome.split('/')
@@ -199,6 +202,7 @@ class Service:
                     elif sm is not None and len(parti) == 3 and parti[1].startswith('FL'):
                         fs = self._flange_selection(parti[0], parti[1])
                         fs['face_label'] = dati['face']['label']
+                        fs['face'] = dati['face']
                         return _ok(selection=fs)
                 dati['commands'] = [{'id': 'export_dxf', 'label': 'Esporta DXF di taglio'},
                                     {'id': 'export_step', 'label': 'Esporta STEP'}]
@@ -242,7 +246,7 @@ class Service:
         out = {'feature': sm['id'], 'def': {k: sm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')},
                'methods': METODI, 'data': None, 'flanges': len(sm.get('flanges') or []),
                'after': [f['id'] for f in self.doc.features[self.doc.features.index(sm) + 1:]
-                         if not isinstance(f, Sketch) and f.get('type') != 'structure']}
+                         if not isinstance(f, Sketch) and f.get('type') not in ('structure', 'sheet_cut')]}
         data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
         if data is not None:
             out['data'] = data.summary()
@@ -275,7 +279,38 @@ class Service:
                 'def': {k: fl.get(k, d) for k, d in (('length', None), ('angle', 90), ('direction', 'up'),
                                                       ('position', 'inside'), ('gap', 0))},
                 'holes': fl.get('holes') or [], 'directions': VERSI, 'positions': POSIZIONI,
+                'corners': self._corners_of(sm, flid, data),
                 'highlight': self._face_indices(f'{fid}/{flid}') if self.result.body is not None else []}
+
+    def _corners_of(self, sm, flid, data) -> list:
+        """Le flange che hanno un angolo in comune con questa, e com'è chiuso l'angolo."""
+        if data is None:
+            return []
+        g = next((x for x in data.flanges if x.fid == flid), None)
+        if g is None:
+            return []
+        out = []
+        for h in data.flanges:
+            if h is g or not set(h.ends) & set(g.ends):
+                continue
+            c = next((c for c in sm.get('corners') or [] if {c.get('over'), c.get('under')} == {flid, h.fid}), None)
+            mode = 'open' if c is None else ('over' if c['over'] == flid else 'under')
+            out.append({'other': h.fid, 'mode': mode, 'gap': (c or {}).get('gap', 0)})
+        return out
+
+    def set_corner(self, fid: str, flid: str, other: str, mode: str, gap=0) -> dict:
+        if mode not in ('open', 'over', 'under'):
+            return {'ok': False, 'message': 'Tipo di angolo sconosciuto.'}
+
+        def fn(sm):
+            cs = [c for c in sm.get('corners') or [] if {c.get('over'), c.get('under')} != {flid, other}]
+            if mode != 'open':
+                over, under = (flid, other) if mode == 'over' else (other, flid)
+                g = _number(gap) if str(gap).strip() != '' else 0
+                cs.append({'over': over, 'under': under, 'gap': g})
+            sm['corners'] = cs
+        testo = {'open': 'aperto', 'over': f'{flid} sopra', 'under': f'{other} sopra'}[mode]
+        return self._edit_sheet(fid, f'Angolo {flid}/{other}: {testo}', fn)
 
     def _edit_sheet(self, fid: str, label: str, fn) -> dict:
         def wrap():
@@ -313,6 +348,7 @@ class Service:
     def delete_flange(self, fid: str, flid: str) -> dict:
         def fn(sm):
             sm['flanges'] = [x for x in sm['flanges'] if x['id'] != flid]
+            sm['corners'] = [c for c in sm.get('corners') or [] if flid not in (c.get('over'), c.get('under'))]
         return self._edit_sheet(fid, f'Elimina {flid}', fn)
 
     def add_flange_hole(self, fid: str, flid: str, u, v, d) -> dict:
@@ -344,7 +380,7 @@ class Service:
     # ---------------------------------------------------------------- disegno libero
     def sketch_view(self, sid: str) -> dict:
         try:
-            return _ok(sketch=sketch_ops.view(self.doc, sid))
+            return _ok(sketch=sketch_ops.view(self.doc, sid, self.result.body))
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
@@ -368,9 +404,27 @@ class Service:
     def sketch_delete(self, sid: str, eids: list) -> dict:
         return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
 
+    def sketch_on_face(self, face_name: str) -> dict:
+        """La faccia cliccata diventa il piano di lavoro: uno sketch nuovo su di lei."""
+        if self.result.body is None or face_name not in self.result.body.names:
+            return {'ok': False, 'code': 'faccia', 'message': 'Questa faccia non ha un nome stabile: non ci si può '
+                    'disegnare sopra (succede con facce nate da tagli). Scegline un’altra.'}
+        nuovo = {}
+
+        def fn():
+            sk = self.doc.add_sketch({'face': face_name}, 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
+            nuovo['id'] = sk.id
+        r = self._change('Sketch su faccia', fn)
+        if r['ok']:
+            r['sketch'] = nuovo['id']
+        return r
+
     def create_from_sketch(self, sid: str, kind: str, values: dict) -> dict:
         """Dal contorno disegnato: lamiera (spessore + dati di piega) o piastra (estrusione)."""
         v = {k: _number(x) for k, x in (values or {}).items() if str(x).strip() != ''}
+        sk = self.doc.sketch(sid)
+        if isinstance(sk.plane, dict) and kind in ('cut', 'boss'):
+            return self._from_face_sketch(sid, sk, kind, v)
         fr = next((f for f in self.result.features if f.id == sid), None)
         if fr is None or not fr.ok:
             return {'ok': False, 'code': 'sketch', 'message': 'Prima chiudi il contorno: '
@@ -388,6 +442,27 @@ class Service:
                 self.doc.add_feature('extrude', self.doc.meta.get('name') or 'Piastra', sketch=sid,
                                      distance='sp', operation='new')
         return self._change('Crea lamiera' if kind == 'sheet' else 'Crea piastra', fn)
+
+    def _from_face_sketch(self, sid, sk, kind, v) -> dict:
+        fr = next((f for f in self.result.features if f.id == sid), None)
+        if fr is None or not fr.ok:
+            return {'ok': False, 'code': 'sketch', 'message': 'Prima chiudi il contorno: '
+                    + (fr.message if fr else 'lo sketch non è costruibile.')}
+        su = self._sheet_def(sk.plane['face'].split('/')[0])
+
+        def fn():
+            if kind == 'cut' and su is not None:
+                self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid)
+            elif kind == 'cut':
+                self.doc.add_feature('extrude', 'Taglio', sketch=sid, operation='cut', through_all=True, reverse=True)
+            else:
+                if su is not None:
+                    raise SteelCADError('Sulla lamiera non si aggiunge materiale estrudendo: lo sviluppo non '
+                                        'lo conterrebbe. Usa le flange.', code='lamiera')
+                if 'distance' not in v:
+                    raise SteelCADError('Scrivi di quanto estrudere.', code='distanza')
+                self.doc.add_feature('extrude', 'Estrusione', sketch=sid, operation='add', distance=v['distance'])
+        return self._change('Taglio dalla faccia' if kind == 'cut' else 'Estrusione dalla faccia', fn)
 
     def profile_suggestions(self) -> list[str]:
         out = ['30x30x2', '40x40x3', '50x50x3', '60x60x3', '70x70x4', '80x80x4', '60x40x3', '80x40x3',

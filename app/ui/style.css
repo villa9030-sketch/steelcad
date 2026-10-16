@@ -189,7 +189,8 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 #sk-bar button { border: 1px solid var(--line); background: #fff; padding: 3px 10px; border-radius: 3px; }
 #sk-bar button:hover { border-color: #AEB6BF; }
 #sk-bar button.on { background: var(--action); border-color: var(--action); color: #fff; }
-#sk-bar #sk-make[hidden] { display: none; }
+#sk-bar #sk-make[hidden], #sk-bar #sk-face[hidden], #sk-bar [hidden] { display: none; }
+#sk-bar #sk-face button { border-color: var(--action); color: var(--action); }
 #sk-bar #sk-make button { border-color: var(--action); color: var(--action); }
 #sk-bar #sk-done { margin-left: auto; }
 #sk-status { flex-basis: 100%; font-size: 12px; color: var(--ok); }
@@ -247,3 +248,4 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 @keyframes in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 .xyz input, .lbl input, .xyz select, .lbl select { color: var(--ink); }
+.corner { display: grid; gap: 4px; margin-bottom: 6px; }

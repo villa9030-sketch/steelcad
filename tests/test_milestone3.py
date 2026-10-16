@@ -169,3 +169,77 @@ def test_fori_nella_piega_rifiutati():
     doc.feature('SM1')['flanges'][0]['holes'] = [{'u': 100, 'v': 5, 'd': 8}]
     res = doc.rebuild()
     assert not res.ok and 'cade nella piega' in res.errors[0].message
+
+
+def _scatola(corners, k=0.5):
+    doc = Document('Scatola', 'S235')
+    sk = doc.add_sketch('XY', 'B')
+    r = sk.rectangle(0, 0, 400, 300)
+    sk.constrain('coincident', r['corners'][0], 'O')
+    sk.dimension('length', r['bottom'], value=400)
+    sk.dimension('length', r['left'], value=300)
+    fl = [{'id': f'FL{i}', 'edge': e, 'length': 60} for i, e in enumerate(('L1', 'L2', 'L3', 'L4'), 1)]
+    doc.add_feature('sheet', 'Scatola', sketch=sk.id, thickness=T, radius=R, method='k', k=k, flanges=fl,
+                    corners=corners)
+    return doc
+
+
+def test_scatola_angoli_chiusi():
+    """Angolo chiuso: FL1 copre lo spessore di FL2 a filo, FL2 arriva alla faccia interna di FL1.
+    Alette a mano: FL1 si allunga di (R+T) = 4, FL2 di (R+T) − T = 2, alte (60 − 4) e spesse 2."""
+    aperta = bd.Solid(_scatola([]).rebuild().body.shape).volume
+    res = _scatola([{'over': 'FL1', 'under': 'FL2'}]).rebuild()
+    assert res.ok, res.errors[0].message
+    s = bd.Solid(res.body.shape)
+    assert s.is_valid
+    assert s.volume - aperta == pytest.approx((4 + 2) * 56 * T, rel=1e-9)
+    assert res.body.sheet.flat_area * T == pytest.approx(s.volume, rel=1e-9)
+    assert s.is_inside(bd.Vector(399, 1, 40))           # lo spessore di FL1 arriva fino all'angolo
+    assert s.is_inside(bd.Vector(398.5, 3.5, 40))       # FL2 arriva sotto FL1
+    assert not s.is_inside(bd.Vector(399, 3, 3))        # in fondo resta lo scarico della piega
+    res = _scatola([{'over': 'FL1', 'under': 'FL2', 'gap': 0.2}]).rebuild()
+    assert bd.Solid(res.body.shape).volume - aperta == pytest.approx((4 + 1.8) * 56 * T, rel=1e-9)
+
+
+def test_angolo_chiuso_solo_a_90():
+    doc = _scatola([{'over': 'FL1', 'under': 'FL2'}])
+    doc.feature('SM1')['flanges'][1]['angle'] = 80
+    res = doc.rebuild()
+    assert not res.ok and 'solo con flange a 90°' in res.errors[0].message
+
+
+@pytest.mark.parametrize('faccia,punto', [('SM1/FL1/esterno', (250, 0, 18)), ('SM1/FL1/interno', (250, 2, 18)),
+                                          ('SM1/sopra', (250, 150, 2)), ('SM1/sotto', (100, 100, 0))])
+def test_taglio_disegnato_sulla_faccia(faccia, punto):
+    doc, _ = u_part(k=0.5, foro_base=False, foro_flangia=False)
+    doc.rebuild()
+    s2 = doc.add_sketch({'face': faccia}, 'Fori')
+    doc.rebuild()
+    pl = doc._sketch_results[s2.id][1].plane
+    q = pl.to_local_coords(bd.Vector(*punto))
+    s2.circle((q.X, q.Y), 4)
+    doc.add_feature('sheet_cut', 'Taglio', sketch=s2.id)
+    res = doc.rebuild()
+    assert res.ok, res.errors[0].message
+    sh = res.body.sheet
+    s = bd.Solid(res.body.shape)
+    assert sh.flat_area * T == pytest.approx(s.volume, rel=1e-9)            # il foro è anche nello sviluppo
+    centro = [sh.plane.to_local_coords(e.arc_center) for e in sh.flat.edges() if e.geom_type == bd.GeomType.CIRCLE]
+    assert len(centro) == 1
+    if 'FL1' in faccia:            # sulla flangia: nello sviluppo a v − BD dal contorno
+        BD = 2 * ossb(90) - ba(90, k=0.5)
+        assert (centro[0].X, centro[0].Y) == pytest.approx((250, -(18 - BD)), abs=1e-9)
+    else:
+        assert (centro[0].X, centro[0].Y) == pytest.approx(punto[:2], abs=1e-9)
+
+
+def test_taglio_nella_piega_rifiutato():
+    doc, _ = u_part(foro_base=False, foro_flangia=False)
+    doc.rebuild()
+    s2 = doc.add_sketch({'face': 'SM1/FL1/esterno'}, 'F')
+    doc.rebuild()
+    q = doc._sketch_results[s2.id][1].plane.to_local_coords(bd.Vector(250, 0, 5))
+    s2.circle((q.X, q.Y), 4)
+    doc.add_feature('sheet_cut', 'T', sketch=s2.id)
+    res = doc.rebuild()
+    assert not res.ok and 'cade nella piega' in res.errors[0].message

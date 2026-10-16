@@ -22,6 +22,24 @@ Dall'interfaccia:
 - **Angoli tra due flange**: ogni flangia si ferma dove incontra la linea di fine piano della
   vicina; nello sviluppo resta uno scarico quadrato. La "fessura d'angolo" aggiunge gioco.
 
+## Angoli chiusi (scatole)
+Tra due flange vicine, entrambe a 90° e piegate dallo stesso lato, l'angolo si sceglie nel
+pannello della flangia:
+- **aperto**: ogni flangia si ferma all'incrocio delle linee di fine piano; resta lo scarico quadrato;
+- **chiuso, X sopra**: X si allunga fino a coprire lo spessore dell'altra, a filo della sua faccia
+  esterna; l'altra arriva fino alla faccia interna di X, meno la fessura. La fessura la scegli tu:
+  0 vuol dire a contatto;
+- solo il tratto dritto si allunga, quindi in fondo all'angolo resta lo scarico della piega;
+- le alette entrano nello sviluppo e la verifica area × spessore = volume con K 0,5 vale ancora.
+
+## Disegnare su una faccia
+Clic su una faccia piana → "Disegna su questa faccia": la faccia diventa il piano di lavoro dello
+sketch. Poi:
+- su una lamiera (base sopra o sotto, flangia dentro o fuori) → **Taglia attraverso**: il contorno
+  attraversa lo spessore ed entra nello sviluppo, portato in piano nella posizione giusta.
+  Un taglio che tocca una piega è rifiutato;
+- su un pezzo pieno → **Taglia attraverso** (tasca passante) oppure **Estrudi** di una distanza.
+
 ## Calcolo della piega
 Nessun valore di default: spessore, raggio interno e metodo li dà l'utente (sono dati della
 piegatrice). Se manca qualcosa la lamiera non si costruisce e la scheda dice cosa manca.
@@ -54,7 +72,8 @@ piegatrice). Se manca qualcosa la lamiera non si costruisce e la scheda dice cos
 
 ## Limiti attuali
 - Flange solo sui lati dritti del contorno esterno del piano; niente flange sulle flange.
+- Angoli chiusi solo tra flange a 90° nello stesso verso, con quota esterna sul contorno.
 - Niente risvolti (oltre 170°).
-- Lavorazioni dopo la lamiera (estrusioni, fori come feature a parte) non entrano nello sviluppo:
-  l'export lo dice. I fori sulla base vanno nello sketch, quelli sulle ali nel pannello della flangia.
+- Estrusioni dopo la lamiera non entrano nello sviluppo, e l'export lo dice. I tagli disegnati su una
+  faccia della lamiera invece ci entrano.
 - Solid-to-sheet (da un STEP importato) è della Milestone 4.
