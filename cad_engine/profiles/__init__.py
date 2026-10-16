@@ -44,9 +44,9 @@ class Profile:
     @property
     def description(self) -> str:
         nomi = {'SHS': 'Tubolare quadro', 'RHS': 'Tubolare rettangolare', 'CHS': 'Tubo tondo', 'FLAT': 'Piatto',
-                'L': 'Angolare', 'IPE': 'Trave IPE', 'HEA': 'Trave HEA', 'HEB': 'Trave HEB',
+                'L': 'Angolare', 'IPE': 'Trave', 'HEA': 'Trave', 'HEB': 'Trave',
                 'U': 'U piegata', 'C': 'C piegata'}
-        return f'{nomi[self.family]} {self.name}'
+        return f'{nomi[self.family]} {self.name}'      # "Trave IPE 100", non "Trave IPE IPE 100"
 
     def section(self) -> bd.Face:
         return _section(self)

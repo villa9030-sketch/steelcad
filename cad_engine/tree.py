@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections import OrderedDict
 
 from .analysis import properties
+from .errors import SteelCADError
+from .expressions import evaluate
 from .sketch import Sketch
 from .units import fmt_mm
 
@@ -27,8 +29,16 @@ def _feature_label(doc, f, fr) -> str:
     try:
         if t == 'extrude':
             op = {'new': '', 'add': 'aggiunta ', 'cut': 'tasca '}[f.get('operation', 'new')]
-            dist = 'passante' if f.get('through_all') else f'{fmt_mm(float(f["distance"]))} mm' \
-                if isinstance(f.get('distance'), (int, float)) else str(f.get('distance'))
+            d = f.get('distance')
+            if f.get('through_all'):
+                dist = 'passante'
+            elif isinstance(d, (int, float)):
+                dist = f'{fmt_mm(float(d))} mm'
+            else:
+                try:
+                    dist = f'{d} = {fmt_mm(evaluate(d, doc.resolved_parameters(), "distanza"))} mm'
+                except SteelCADError:
+                    dist = str(d)
             return f'{nome or "Estrusione"}: {op}{dist}'.replace(': ', ': ', 1)
         if t == 'hole':
             d = f.get('diameter')

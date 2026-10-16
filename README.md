@@ -3,8 +3,8 @@
 CAD parametrico verticale per carpenteria metallica: piastre, telai in
 tubolare, lamiera piegata. Pensato per chi conosce l'officina, non il CAD.
 
-**Stato: Milestone 1 (fondamenta del motore) completata, senza interfaccia
-grafica.** Vedi `docs/ROADMAP.md`.
+**Stato: Milestone 2 completata (strutture in tubolare e prima interfaccia).**
+Vedi `docs/ROADMAP.md`.
 
 ## Cosa c'è
 
@@ -22,6 +22,16 @@ grafica.** Vedi `docs/ROADMAP.md`.
 - Export STEP (verificato rileggendolo) e DXF di produzione (controlli:
   contorni chiusi, doppioni, sovrapposizioni, microsegmenti, unità).
 - Peso dal materiale (S235, inox, alluminio…).
+- Strutture in tubolare da uno scheletro: profili a catalogo (quadro,
+  rettangolare, tondo, piatto, angolare, U, C, IPE, HEA, HEB), giunti a 45° e
+  di testa, cut list con lunghezze e tagli, distinta, avvisi di interferenza.
+- Interfaccia desktop: viewer 3D, albero, parametri, quote modificabili sul
+  modello, proprietà dell'asta, distinta/cut list, palette Ctrl+K.
+
+## Aprire l'app
+
+Doppio clic su `SteelCAD.bat` (oppure `.venv\Scripts\python app\main.py`).
+Parte con un tavolo 2000×1000×900 di esempio; File → Nuovo per telaio o piastra.
 
 ## Provare
 

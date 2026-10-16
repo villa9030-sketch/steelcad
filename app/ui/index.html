@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>SteelCAD</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
+</head>
+<body>
+<header id="top">
+  <div class="brand">SteelCAD</div>
+  <nav class="menu">
+    <div class="menu-item"><button>File</button>
+      <div class="drop">
+        <button data-cmd="new">Nuovo…<kbd>Ctrl+N</kbd></button>
+        <button data-cmd="open">Apri…<kbd>Ctrl+O</kbd></button>
+        <button data-cmd="save">Salva<kbd>Ctrl+S</kbd></button>
+        <button data-cmd="saveas">Salva con nome…<kbd>Ctrl+Maiusc+S</kbd></button>
+        <hr>
+        <button data-cmd="export_step">Esporta STEP…</button>
+        <button data-cmd="export_dxf">Esporta DXF di taglio…</button>
+      </div>
+    </div>
+    <div class="menu-item"><button>Modifica</button>
+      <div class="drop">
+        <button data-cmd="undo" id="m-undo">Annulla<kbd>Ctrl+Z</kbd></button>
+        <button data-cmd="redo" id="m-redo">Ripeti<kbd>Ctrl+Y</kbd></button>
+      </div>
+    </div>
+    <div class="menu-item"><button>Vista</button>
+      <div class="drop">
+        <button data-cmd="view_iso">Isometrica<kbd>0</kbd></button>
+        <button data-cmd="view_top">Dall’alto<kbd>7</kbd></button>
+        <button data-cmd="view_front">Di fronte<kbd>1</kbd></button>
+        <button data-cmd="view_right">Da destra<kbd>3</kbd></button>
+        <button data-cmd="fit">Adatta alla finestra<kbd>F</kbd></button>
+        <hr>
+        <button data-cmd="toggle_dims">Mostra/nascondi quote<kbd>Q</kbd></button>
+      </div>
+    </div>
+  </nav>
+  <div class="quick">
+    <button class="icon" data-cmd="undo" id="b-undo" title="Annulla">↶</button>
+    <button class="icon" data-cmd="redo" id="b-redo" title="Ripeti">↷</button>
+  </div>
+  <button id="palette-btn" data-cmd="palette">Cerca un comando o scrivi una quota, es. <b>L = 2200</b><kbd>Ctrl+K</kbd></button>
+  <div id="docname"></div>
+</header>
+
+<aside id="left">
+  <section class="panel">
+    <h2>Progetto</h2>
+    <div id="tree"></div>
+  </section>
+  <section class="panel">
+    <h2>Parametri</h2>
+    <table id="params" class="grid"></table>
+    <p class="hint">Un parametro può essere un numero o un’espressione: <code>L/2 + 20</code></p>
+  </section>
+</aside>
+
+<main id="view">
+  <canvas id="c3d"></canvas>
+  <div id="dims"></div>
+  <div id="views">
+    <button data-cmd="view_iso" title="Isometrica (0)">Iso</button>
+    <button data-cmd="view_top" title="Dall’alto (7)">Sopra</button>
+    <button data-cmd="view_front" title="Di fronte (1)">Fronte</button>
+    <button data-cmd="view_right" title="Da destra (3)">Destra</button>
+    <button data-cmd="fit" title="Adatta (F)">Adatta</button>
+  </div>
+  <div id="hover-tip"></div>
+  <div id="status"></div>
+</main>
+
+<aside id="right">
+  <section class="panel">
+    <h2>Proprietà</h2>
+    <div id="props"><p class="empty">Clicca un pezzo nel modello o nell’albero.</p></div>
+  </section>
+</aside>
+
+<footer id="bottom">
+  <div class="tabs">
+    <button data-tab="bom" class="on">Distinta</button>
+    <button data-tab="cut">Cut list</button>
+    <button data-tab="info">Info <span id="info-badge"></span></button>
+  </div>
+  <div class="tab-body" id="tab-bom"></div>
+  <div class="tab-body" id="tab-cut" hidden></div>
+  <div class="tab-body" id="tab-info" hidden></div>
+</footer>
+
+<div id="palette" hidden>
+  <div class="pal-box">
+    <input id="pal-input" autocomplete="off" spellcheck="false" placeholder="Comando, oppure parametro = valore">
+    <ul id="pal-list"></ul>
+  </div>
+</div>
+
+<div id="modal" hidden><div class="modal-box" id="modal-box"></div></div>
+<div id="toasts"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -16,9 +16,8 @@ Verifica: 39 test automatici (`pytest`), gate in `tests/test_milestone1.py`,
 file di riferimento in `test_parts/plate_300x200_hole30/`. Rigenerazione della
 piastra dopo una modifica: circa 10 ms.
 
-Non ancora fatto (va nella M2 insieme alla prima UI): viewer, selezione col
-mouse, quote modificabili sul modello, palette comandi. Revolve, serie,
-specchio, sweep: dopo la M2.
+Viewer, selezione col mouse, quote sul modello e palette comandi: fatti nella
+M2. Revolve, serie, specchio, sweep: dopo.
 
 ## Milestone 2 — Strutture
 Scheletro 2D/3D → profilo 40×40×3 → tubolari reali → gambe → giunti (trim,
@@ -26,6 +25,38 @@ extend, 45°, testa) → modifica dimensioni → BOM → cut list → STEP. Cata
 profili modificabile (quadro, rettangolare, tondo, piatto, angolare, U, C,
 HEA, HEB, IPE). Prima UI: viewer Three.js, selezione, pannello proprietà,
 quote modificabili sul modello. Scelta finale del guscio desktop.
+
+**Fatta (16/10).** Motore: telaio 2000×1000×900 in 40×40×3 → 2×2040 e 2×1040
+a 45°/45°, 4 gambe 880 dritte, 31,98 kg; cambiando L/P/H le lunghezze si
+aggiornano (rigenerate solo le aste toccate). BOM, albero, cut list, STEP con
+un solido per asta, avvisi di interferenza.
+
+Prima interfaccia (guscio: **pywebview + WebView2**, perché Node e Rust non ci
+sono; three.js in locale, funziona senza internet):
+- viewer 3D: ruota/sposta/zoom, viste Iso/Sopra/Fronte/Destra/Adatta, hover
+  azzurro, selezione ambra (asta intera o faccia della piastra), Esc deseleziona;
+- albero del progetto (gruppi e misure) e parametri modificabili, anche con
+  espressioni; nuovo parametro con "nome = valore";
+- quote sul modello: clic sul numero, scrivi, Invio. Se la quota è legata a un
+  parametro cambia il parametro;
+- pannello proprietà secondo ciò che selezioni: per un'asta profilo (anche per
+  tutto il gruppo), rotazione 90°, inversione, linea d'asse; per la piastra
+  peso, ingombro, faccia, export;
+- in basso Distinta | Cut list (con totali per profilo) | Info (tempi, avvisi,
+  errori);
+- annulla/ripeti con il nome dell'operazione, salva/apri con recupero del
+  salvataggio automatico (ogni minuto), conferma alla chiusura;
+- export STEP e DXF di taglio dalla finestra di Windows;
+- palette Ctrl+K: comandi e "L = 2200" per cambiare un parametro al volo;
+- modelli rapidi Telaio/tavolo e Piastra, fatti con le stesse feature.
+
+Prove: `pytest` (67 test, compreso lo strato applicativo) e
+`tools/prova_ui.py` (browser invisibile: 17 controlli dal clic alla quota
+all'export, nessun errore in console).
+
+Ancora da fare in M2+: disegnare lo scheletro con il mouse (per ora dai
+modelli o dal file), aggiungere/togliere aste dall'interfaccia, scegliere il
+tipo di giunto per nodo dal pannello.
 
 ## Milestone 3 — Lamiera
 Rettangolo → lamiera sp. 2 → flangia 30 a 90° → seconda flangia → fori →
