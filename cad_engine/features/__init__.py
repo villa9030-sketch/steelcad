@@ -1,0 +1,16 @@
+from . import dress, extrude, hole
+
+BUILDERS = {
+    'extrude': extrude.build,
+    'hole': hole.build,
+    'fillet': dress.build,
+    'chamfer': dress.build,
+}
+
+# campi che contengono valori (numeri o espressioni sui parametri)
+VALUE_FIELDS = {
+    'extrude': ('distance',),
+    'hole': ('diameter', 'depth'),
+    'fillet': ('radius',),
+    'chamfer': ('distance',),
+}

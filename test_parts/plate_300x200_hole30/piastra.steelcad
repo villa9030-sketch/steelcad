@@ -1,0 +1,174 @@
+{
+ "format": "steelcad",
+ "version": 1,
+ "meta": {
+  "name": "Piastra 300x200 foro 30",
+  "created": "2026-10-16T13:53:22",
+  "modified": "2026-10-16T13:53:22"
+ },
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "mass": "kg"
+ },
+ "parameters": {
+  "larghezza": 400
+ },
+ "material": "S235",
+ "features": [
+  {
+   "id": "S1",
+   "type": "sketch",
+   "name": "Profilo piastra",
+   "plane": "XY",
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P2": {
+     "kind": "point",
+     "x": 290.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P3": {
+     "kind": "point",
+     "x": 290.0,
+     "y": 190.0,
+     "construction": false
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 190.0,
+     "construction": false
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P3",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P4",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P1",
+     "construction": false,
+     "label": "lato sinistro"
+    },
+    "P5": {
+     "kind": "point",
+     "x": 150.0,
+     "y": 100.0,
+     "construction": false
+    },
+    "C1": {
+     "kind": "circle",
+     "center": "P5",
+     "r": 14.0,
+     "construction": false
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "horizontal",
+     "refs": [
+      "L1"
+     ],
+     "auto": true
+    },
+    "K2": {
+     "type": "vertical",
+     "refs": [
+      "L2"
+     ],
+     "auto": true
+    },
+    "K3": {
+     "type": "horizontal",
+     "refs": [
+      "L3"
+     ],
+     "auto": true
+    },
+    "K4": {
+     "type": "vertical",
+     "refs": [
+      "L4"
+     ],
+     "auto": true
+    },
+    "K5": {
+     "type": "coincident",
+     "refs": [
+      "P1",
+      "O"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "length",
+     "refs": [
+      "L1"
+     ],
+     "value": "larghezza"
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L4"
+     ],
+     "value": 200
+    },
+    "D3": {
+     "type": "diameter",
+     "refs": [
+      "C1"
+     ],
+     "value": 30
+    },
+    "K6": {
+     "type": "symmetric",
+     "refs": [
+      "P1",
+      "P3",
+      "P5"
+     ],
+     "auto": false
+    }
+   }
+  },
+  {
+   "id": "E1",
+   "type": "extrude",
+   "name": "Piastra",
+   "sketch": "S1",
+   "distance": 5,
+   "operation": "new"
+  }
+ ]
+}

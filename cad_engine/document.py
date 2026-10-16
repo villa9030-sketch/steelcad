@@ -1,0 +1,327 @@
+"""Il modello parametrico di una parte: parametri, feature in ordine, ricostruzione con cache.
+
+La definizione (parametri + feature) è JSON puro e si salva nel file
+.steelcad. La geometria non si salva: si ricostruisce, e la cache evita di
+rifare le feature che non sono cambiate (impronta = definizione + parametri
+usati + impronta di ciò da cui dipende).
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from . import materials
+from .errors import FeatureError, SketchError, SteelCADError
+from .expressions import evaluate, names_in
+from .features import BUILDERS, VALUE_FIELDS
+from .features.base import Context
+from .sketch import Sketch, solve
+from .sketch import profile as profile_mod
+from .sketch.model import DIMENSIONS
+from .topology import NamedShape
+
+FORMAT_VERSION = 1
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH'}
+NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso'}
+
+
+@dataclass
+class FeatureResult:
+    id: str
+    type: str
+    ok: bool
+    message: str = ''
+    from_cache: bool = False
+    sketch_status: dict | None = None
+
+    def to_dict(self) -> dict:
+        return {'id': self.id, 'type': self.type, 'ok': self.ok, 'message': self.message,
+                'from_cache': self.from_cache, 'sketch_status': self.sketch_status}
+
+
+@dataclass
+class RebuildResult:
+    features: list = field(default_factory=list)
+    body: NamedShape | None = None
+    rebuilt: int = 0
+    cached: int = 0
+    seconds: float = 0.0
+
+    @property
+    def ok(self) -> bool:
+        return all(f.ok for f in self.features)
+
+    @property
+    def errors(self) -> list:
+        return [f for f in self.features if not f.ok]
+
+
+class Document:
+    def __init__(self, name: str = 'Parte', material: str = 'S235'):
+        materials.get(material)
+        now = datetime.now().isoformat(timespec='seconds')
+        self.meta = {'name': name, 'created': now, 'modified': now}
+        self.material = material
+        self.parameters: dict[str, object] = {}
+        self.features: list = []          # Sketch oppure dict
+        self._cache: dict[str, object] = {}
+        self.last: RebuildResult | None = None
+        self._sketch_results: dict = {}
+
+    # ============================================================ modifica
+    def _new_id(self, ftype: str) -> str:
+        p = PREFIX[ftype]
+        usati = [self._fid(f) for f in self.features]
+        n = 1 + max((int(u[len(p):]) for u in usati if u.startswith(p) and u[len(p):].isdigit()), default=0)
+        return f'{p}{n}'
+
+    @staticmethod
+    def _fid(f) -> str:
+        return f.id if isinstance(f, Sketch) else f['id']
+
+    def add_sketch(self, plane='XY', name: str = '') -> Sketch:
+        sk = Sketch(self._new_id('sketch'), name=name, plane=plane)
+        self.features.append(sk)
+        return sk
+
+    def add_feature(self, ftype: str, name: str = '', **fields) -> str:
+        if ftype not in BUILDERS:
+            raise FeatureError(f'Tipo di feature "{ftype}" sconosciuto.')
+        fid = self._new_id(ftype)
+        self.features.append({'id': fid, 'type': ftype, 'name': name, **fields})
+        return fid
+
+    def feature(self, fid: str):
+        for f in self.features:
+            if self._fid(f) == fid:
+                return f
+        raise SteelCADError(f'Nel progetto non c\'è "{fid}".', code='feature_sconosciuta')
+
+    def sketch(self, sid: str) -> Sketch:
+        f = self.feature(sid)
+        if not isinstance(f, Sketch):
+            raise SteelCADError(f'"{sid}" non è uno sketch.')
+        return f
+
+    def edit_feature(self, fid: str, **fields) -> None:
+        f = self.feature(fid)
+        if isinstance(f, Sketch):
+            raise SteelCADError('Per uno sketch si cambiano entità e quote, non i campi.')
+        f.update(fields)
+
+    def set_parameter(self, name: str, value) -> None:
+        if not name.isidentifier():
+            raise SteelCADError(f'"{name}" non va bene come nome di parametro: usa lettere, cifre e _ '
+                                '(senza spazi, non all\'inizio una cifra).', code='parametro_non_valido')
+        if name in names_in(value):
+            raise SteelCADError(f'Il parametro "{name}" non può dipendere da sé stesso.')
+        existed, previous = name in self.parameters, self.parameters.get(name)
+        self.parameters[name] = value
+        try:
+            self.resolved_parameters()
+        except SteelCADError:
+            if existed:
+                self.parameters[name] = previous
+            else:
+                del self.parameters[name]
+            raise
+
+    def remove_feature(self, fid: str) -> None:
+        dip = [self._fid(f) for f in self.features if fid in self._deps(f)]
+        if dip:
+            raise SteelCADError(f'"{fid}" non si può togliere: lo usano {", ".join(dip)}.', code='in_uso')
+        self.features = [f for f in self.features if self._fid(f) != fid]
+
+    @staticmethod
+    def _deps(f) -> set:
+        if isinstance(f, Sketch):
+            return {f.plane['face'].split('/')[0]} if isinstance(f.plane, dict) and 'face' in f.plane else set()
+        out = set()
+        if f.get('sketch'):
+            out.add(f['sketch'])
+        for ref in f.get('edges') or []:
+            out.update(n.split('/')[0] for n in ref['faces'])
+        return out
+
+    def resolved_parameters(self) -> dict[str, float]:
+        """I parametri possono riferirsi ad altri parametri: si risolvono in ordine di dipendenza."""
+        out, pending = {}, dict(self.parameters)
+        while pending:
+            progress = False
+            for k, v in list(pending.items()):
+                if names_in(v) <= set(out):
+                    out[k] = evaluate(v, out, what=f'parametro "{k}"')
+                    del pending[k]
+                    progress = True
+            if not progress:
+                mancanti = ', '.join(sorted(pending))
+                raise SteelCADError(f'I parametri {mancanti} dipendono l\'uno dall\'altro in cerchio, oppure da '
+                                    'parametri che non esistono.', code='parametri_circolari')
+        return out
+
+    # ======================================================= ricostruzione
+    def rebuild(self) -> RebuildResult:
+        t0 = time.perf_counter()
+        try:
+            params = self.resolved_parameters()
+        except SteelCADError as ex:
+            res = RebuildResult(features=[FeatureResult('parametri', 'parameters', False, ex.message)])
+            self.last = res
+            return res
+        res = RebuildResult()
+        body: NamedShape | None = None
+        body_hash = 'vuoto'
+        sketch_hash: dict[str, str] = {}
+        ctx_sketches: dict = {}
+        blocked_by: str | None = None
+        nuova_cache: dict[str, object] = {}
+        for f in self.features:
+            fid = self._fid(f)
+            if isinstance(f, Sketch):
+                on_face = isinstance(f.plane, dict)
+                h = _hash(f.to_dict(), self._used(f, params), body_hash if on_face else '')
+                sketch_hash[fid] = h
+                cached = self._cache.get(h)
+                if cached is not None:
+                    solved, prof = cached
+                    res.cached += 1
+                    from_cache = True
+                else:
+                    from_cache = False
+                    try:
+                        plane = self._plane(f, body)
+                        solved = solve(f, params)
+                        prof = None
+                        if solved.status.ok_for_features:
+                            prof = profile_mod.build(solved, plane)
+                    except SteelCADError as ex:
+                        res.features.append(FeatureResult(fid, 'sketch', False, ex.message))
+                        continue
+                    res.rebuilt += 1
+                nuova_cache[h] = (solved, prof)
+                ok = prof is not None
+                if ok:
+                    ctx_sketches[fid] = (solved, prof)
+                res.features.append(FeatureResult(fid, 'sketch', ok, solved.status.message, from_cache,
+                                                  solved.status.to_dict()))
+                continue
+            ftype = f['type']
+            if blocked_by:
+                res.features.append(FeatureResult(fid, ftype, False,
+                                                  f'Non costruita: prima va sistemato l\'errore in {blocked_by}.'))
+                continue
+            h = _hash(f, self._used(f, params), body_hash, sketch_hash.get(f.get('sketch'), ''))
+            cached = self._cache.get(h)
+            if cached is not None:
+                body = cached
+                res.cached += 1
+                nuova_cache[h] = cached
+                body_hash = h
+                res.features.append(FeatureResult(fid, ftype, True, '', True))
+                continue
+            try:
+                ctx = Context(params, body, ctx_sketches, self.describe_face)
+                body = BUILDERS[ftype](f, ctx)
+            except SteelCADError as ex:
+                blocked_by = fid
+                res.features.append(FeatureResult(fid, ftype, False, ex.message))
+                continue
+            except Exception as ex:  # noqa: BLE001 - errore del kernel non previsto: si dice, non si nasconde
+                blocked_by = fid
+                res.features.append(FeatureResult(fid, ftype, False,
+                                                  f'Il kernel CAD non è riuscito a costruire {fid} ({type(ex).__name__}). '
+                                                  'Segnalalo con il file del progetto.'))
+                continue
+            res.rebuilt += 1
+            nuova_cache[h] = body
+            body_hash = h
+            res.features.append(FeatureResult(fid, ftype, True, ''))
+        self._cache = nuova_cache
+        res.body = body
+        res.seconds = time.perf_counter() - t0
+        self.last = res
+        self._sketch_results = dict(ctx_sketches)
+        return res
+
+    def _used(self, f, params: dict) -> dict:
+        nomi: set[str] = set()
+        if isinstance(f, Sketch):
+            for c in f.constraints.values():
+                if c['type'] in DIMENSIONS:
+                    nomi |= names_in(c.get('value'))
+        else:
+            for k in VALUE_FIELDS.get(f['type'], ()):
+                nomi |= names_in(f.get(k))
+        return {n: params.get(n) for n in sorted(nomi)}
+
+    def _plane(self, sk: Sketch, body: NamedShape | None):
+        if isinstance(sk.plane, str):
+            return profile_mod.PLANES[sk.plane]
+        nome = sk.plane.get('face')
+        if body is None:
+            raise SketchError(f'Lo sketch "{sk.label()}" sta su una faccia, ma in quel punto il pezzo non esiste.')
+        from .sketch.face_plane import plane_of
+        return plane_of(body, nome, sk)
+
+    # ============================================================== utilità
+    def describe_face(self, name: str) -> str:
+        """'E1/lato/L1' -> 'il fianco sul lato sotto di "Piastra"'. Per i messaggi all'utente."""
+        parti = name.split('/')
+        try:
+            f = self.feature(parti[0])
+        except SteelCADError:
+            return f'"{name}"'
+        nome_f = f'"{f["name"]}"' if not isinstance(f, Sketch) and f.get('name') else parti[0]
+        if len(parti) == 3 and parti[1] == 'lato' and not isinstance(f, Sketch) and f.get('sketch'):
+            try:
+                ent = self.sketch(f['sketch']).describe(parti[2])
+            except SteelCADError:
+                ent = parti[2]
+            return f'il fianco sul {ent} di {nome_f}' if ent.startswith('lato') else f'il fianco su {ent} di {nome_f}'
+        testi = {'fine': 'la faccia finale', 'inizio': 'la faccia iniziale', 'foro': 'la parete del foro',
+                 'fondo': 'il fondo del foro', 'raccordo': 'il raccordo', 'smusso': 'lo smusso'}
+        if len(parti) >= 2 and parti[1] in testi:
+            return f'{testi[parti[1]]} di {nome_f}'
+        return f'"{name}"'
+
+    def solved_sketch(self, sid: str):
+        """Lo sketch risolto dall'ultima ricostruzione (per la UI: punti, stato)."""
+        if self.last is None:
+            self.rebuild()
+        if sid in self._sketch_results:
+            return self._sketch_results[sid][0]
+        return solve(self.sketch(sid), self.resolved_parameters())
+
+    # ================================================================= JSON
+    def to_dict(self) -> dict:
+        return {'format': 'steelcad', 'version': FORMAT_VERSION, 'meta': dict(self.meta),
+                'units': {'length': 'mm', 'angle': 'deg', 'mass': 'kg'},
+                'parameters': copy.deepcopy(self.parameters), 'material': self.material,
+                'features': [f.to_dict() if isinstance(f, Sketch) else copy.deepcopy(f) for f in self.features]}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Document':
+        if d.get('format') != 'steelcad':
+            raise SteelCADError('Questo file non è un progetto SteelCAD.', code='file_progetto')
+        if d.get('version', 0) > FORMAT_VERSION:
+            raise SteelCADError('Il progetto è stato salvato da una versione più nuova di SteelCAD: aggiorna il '
+                                'programma per aprirlo.', code='file_progetto')
+        doc = cls(d.get('meta', {}).get('name', 'Parte'), d.get('material', 'S235'))
+        doc.meta.update(d.get('meta') or {})
+        doc.parameters = dict(d.get('parameters') or {})
+        doc.features = [Sketch.from_dict(f) if f.get('type') == 'sketch' else dict(f) for f in d.get('features') or []]
+        return doc
+
+    def load_definition(self, d: dict) -> None:
+        """Rimette una definizione (undo/redo) tenendo la cache della geometria."""
+        other = Document.from_dict(d)
+        self.meta, self.material, self.parameters, self.features = (other.meta, other.material,
+                                                                    other.parameters, other.features)
+
+
+def _hash(*parts) -> str:
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()

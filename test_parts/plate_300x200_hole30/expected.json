@@ -1,0 +1,15 @@
+{
+  "_nota": "Piastra 300 x 200 x 5 in S235 (7,85 g/cm3) con foro passante Ø30 al centro; poi larghezza portata a 400. Volumi calcolati a mano: L*H*s - pi*15^2*s.",
+  "300": {
+    "volume_mm3": 296465.7082647115,
+    "mass_kg": 2.3272558098779853,
+    "bbox_mm": [300, 200, 5],
+    "hole_center_mm": [150, 100]
+  },
+  "400": {
+    "volume_mm3": 396465.7082647115,
+    "mass_kg": 3.1122558098779853,
+    "bbox_mm": [400, 200, 5],
+    "hole_center_mm": [200, 100]
+  }
+}
