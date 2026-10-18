@@ -525,4 +525,30 @@ body.dark .ibtn img { filter: invert(.88) hue-rotate(180deg) brightness(1.15); }
 .fsec .hint { margin: 0 0 8px; }
 .fnote { margin-top: 10px; padding: 9px 10px; border-radius: 6px; background: var(--on-bg); border: 1px solid var(--on-line); font-size: 12px; display: grid; gap: 6px; }
 .fnote .btn { justify-self: start; }
+body.assembly #left .panel:nth-child(2) { display: none; }
+#b-back { font-weight: 600; color: #8CC0FF; }
+.imp-view { background: #fff; border: 1px solid var(--line); border-radius: 4px; height: min(70vh, 720px); overflow: hidden; }
+.imp-view svg { display: block; width: 100%; height: 100%; }
+.imp-view path.giro { fill: transparent; stroke: #7A838C; cursor: pointer; }
+.imp-view path.giro:hover { fill: rgba(61, 127, 208, .10); stroke: #3D7FD0; }
+.imp-view path.giro.scelto { fill: rgba(31, 58, 95, .14); stroke: #1F3A5F; }
+.imp-view line.piega { stroke: #C9CED3; pointer-events: none; }
+.imp-view line.piega.utile { stroke: #D9480F; }
+.imp-view line.piega.hl { stroke: #FFB000; stroke-width: 3px; vector-effect: non-scaling-stroke; }
+.imp-info p { margin: 4px 0; font-size: 12px; }
+.imp-bt { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.imp-bt th { text-align: left; color: var(--ink-3); font-weight: normal; }
+.imp-bt td { padding: 1px 3px; }
+.imp-bt .field { width: 100%; padding: 2px 4px; }
+#modal-box.wide { width: min(1400px, 96vw); max-width: none; }
+.tav { display: grid; grid-template-columns: 300px 1fr; gap: 16px; }
+.tav-side .form { grid-template-columns: 1fr 1fr; }
+.tav-side .acts { justify-content: flex-start; flex-wrap: wrap; }
+.tav-main { display: flex; flex-direction: column; min-width: 0; }
+.tav-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.tav-tabs button { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; font-size: 12px; }
+.tav-tabs button.on { background: var(--action); color: #fff; border-color: var(--action); }
+.tav-view { background: #fff; border: 1px solid var(--line); border-radius: 4px; aspect-ratio: 1.414; overflow: hidden; }
+.tav-view svg { display: block; width: 100%; height: 100%; }
 #sk-xray.on { background: #0E7490; border-color: #0E7490; color: #fff; }
+#b-back[hidden] { display: none; }

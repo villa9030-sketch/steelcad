@@ -1,0 +1,542 @@
+"""La modalità assieme del servizio: più pezzi SteelCAD messi insieme con gli accoppiamenti.
+
+Quando è aperto un assieme (self.asm), lo stato, la scena e la selezione parlano dell'assieme; aprendo un suo
+pezzo si passa al pezzo e con "Torna all'assieme" si rientra (i pezzi cambiati si rileggono da soli).
+"""
+from __future__ import annotations
+
+import copy
+import time
+from pathlib import Path
+
+import numpy as np
+
+from cad_engine import assembly as A
+from cad_engine.errors import SteelCADError
+from cad_engine.units import fmt_mm
+
+
+def _ok(**kw):
+    return {'ok': True, **kw}
+
+
+class AssemblyMixin:
+    asm = None
+
+    # ------------------------------------------------------------------ apertura, salvataggio, cronologia
+    def _asm_set(self, asm, path=None):
+        self.asm = asm
+        self.asm_parts = {}
+        self.asm_undo, self.asm_redo = [], []
+        self.asm_dirty = False
+        self._asm_ritorno = None
+        self.path = Path(path) if path else None
+        self.blank = False
+        self._asm_reload()
+        self.scene_version += 1
+
+    def _asm_reload(self):
+        """Rilegge i pezzi (solo quelli cambiati) e rimette a posto le istanze."""
+        t0 = time.perf_counter()
+        self.asm_errors = []
+        parti = {}
+        for i in self.asm.instances:
+            if i['file'] in parti:
+                continue
+            try:
+                parti[i['file']] = A.load_part(i['file'])
+            except SteelCADError as ex:
+                self.asm_errors.append({'id': i['id'], 'message': ex.message})
+        self.asm_parts = parti
+        validi = A.Assembly(self.asm.name, [i for i in self.asm.instances if i['file'] in parti],
+                            [m for m in self.asm.mates if m['a']['inst'] in self._asm_ids(parti) and m['b']['inst'] in self._asm_ids(parti)],
+                            self.asm.path)
+        A.solve(validi, parti)
+        self.asm.warnings = getattr(validi, 'warnings', [])
+        self.asm_ms = (time.perf_counter() - t0) * 1000
+
+    def _asm_ids(self, parti):
+        return {i['id'] for i in self.asm.instances if i['file'] in parti}
+
+    def new_assembly(self, name: str = 'Assieme') -> dict:
+        self._asm_set(A.Assembly(name or 'Assieme'))
+        return _ok(state=self.state())
+
+    def _asm_change(self, label: str, fn):
+        prima = self.asm.to_dict()
+        try:
+            out = fn()
+            self._asm_reload()
+        except SteelCADError as ex:
+            self.asm.__dict__.update(A.Assembly.from_dict(prima, self.asm.path).__dict__)
+            self._asm_reload()
+            return {'ok': False, 'message': ex.message, 'code': ex.code}
+        self.asm_undo.append((label, prima))
+        self.asm_redo.clear()
+        self.asm_dirty = True
+        self.scene_version += 1
+        r = _ok(state=self.state())
+        if isinstance(out, dict):
+            r.update(out)
+        return r
+
+    def _asm_undo(self, avanti=False):
+        da, a = (self.asm_redo, self.asm_undo) if avanti else (self.asm_undo, self.asm_redo)
+        if not da:
+            return _ok(state=self.state())
+        label, d = da.pop()
+        a.append((label, self.asm.to_dict()))
+        self.asm = A.Assembly.from_dict(d, self.asm.path)
+        self._asm_reload()
+        self.asm_dirty = True
+        self.scene_version += 1
+        return _ok(state=self.state())
+
+    def _asm_save(self, path=None):
+        p = Path(path) if path else self.path
+        if p is None:
+            return {'ok': False, 'code': 'serve_percorso', 'message': 'Scegli dove salvare l’assieme.'}
+        self.path = A.save(self.asm, p)
+        self.asm_dirty = False
+        from app.service import _add_recent
+        _add_recent(self.path)
+        return _ok(state=self.state(), path=str(self.path))
+
+    def _asm_open(self, path):
+        asm = A.load(path)
+        self._asm_set(asm, path)
+        from app.service import _add_recent
+        _add_recent(Path(path))
+        return _ok(state=self.state())
+
+    # ------------------------------------------------------------------ istanze
+    def asm_insert(self, path: str) -> dict:
+        """Mette nell'assieme una copia del pezzo (file .steelcad), a destra di quello che c'è già."""
+        p = Path(path).resolve()
+
+        def fn():
+            part = A.load_part(p)
+            dx = 0.0
+            if self.asm.instances:
+                xs = []
+                for i in self.asm.instances:
+                    pp = self.asm_parts.get(i['file'])
+                    if pp is not None:
+                        bb = A.placed_shape(pp, i['R'], i['T']).bounding_box() if i.get('R') else None
+                        if bb is not None:
+                            xs.append(bb.max.X)
+                bb0 = __import__('build123d').Shape.cast(part.shape).bounding_box()
+                dx = (max(xs) if xs else 0) + 50 - bb0.min.X
+            iid = self.asm.new_id('I', {i['id'] for i in self.asm.instances})
+            nome = part.doc.meta.get('name') or p.stem
+            n = sum(1 for i in self.asm.instances if i['file'] == str(p))
+            self.asm.instances.append({'id': iid, 'file': str(p), 'name': f'{nome} ({n + 1})' if n else nome,
+                                       'R': np.eye(3).tolist(), 'T': [dx, 0, 0]})
+            return {'select': iid}
+        return self._asm_change(f'Inserisci {p.stem}', fn)
+
+    def asm_remove(self, iid: str) -> dict:
+        def fn():
+            self.asm.instance(iid)
+            self.asm.instances = [i for i in self.asm.instances if i['id'] != iid]
+            self.asm.mates = [m for m in self.asm.mates if iid not in (m['a']['inst'], m['b']['inst'])]
+        return self._asm_change(f'Togli {iid}', fn)
+
+    def asm_move(self, iid: str, dx, dy, dz) -> dict:
+        from app.service import _number
+
+        def fn():
+            i = self.asm.instance(iid)
+            i['T'] = (np.array(i.get('T') or [0, 0, 0]) + [_number(dx or 0), _number(dy or 0), _number(dz or 0)]).tolist()
+        return self._asm_change(f'Sposta {iid}', fn)
+
+    def asm_rotate(self, iid: str, axis: str, deg) -> dict:
+        """Ruota attorno al centro del pezzo, lungo un asse del mondo (X, Y, Z)."""
+        from app.service import _number
+
+        def fn():
+            i = self.asm.instance(iid)
+            part = self.asm_parts[i['file']]
+            R, T = np.array(i['R']), np.array(i['T'])
+            bb = __import__('build123d').Shape.cast(part.shape).bounding_box()
+            c = R @ np.array([(bb.min.X + bb.max.X) / 2, (bb.min.Y + bb.max.Y) / 2, (bb.min.Z + bb.max.Z) / 2]) + T
+            d = {'x': [1, 0, 0], 'y': [0, 1, 0], 'z': [0, 0, 1]}[axis.lower()]
+            Q = A._rot_axis(np.array(d, dtype=float), np.radians(_number(deg)))
+            i['R'] = (Q @ R).tolist()
+            i['T'] = (Q @ (T - c) + c).tolist()
+        return self._asm_change(f'Ruota {iid}', fn)
+
+    def asm_set(self, iid: str, fields: dict) -> dict:
+        def fn():
+            i = self.asm.instance(iid)
+            if 'name' in fields and str(fields['name']).strip():
+                i['name'] = str(fields['name']).strip()
+            if 'fixed' in fields:
+                for j in self.asm.instances:
+                    j.pop('fixed', None)
+                if fields['fixed']:
+                    i['fixed'] = True
+        return self._asm_change(f'{iid}: modifica', fn)
+
+    # ------------------------------------------------------------------ accoppiamenti
+    def _asm_face(self, iid, face_index):
+        from cad_engine.topology.naming import _faces_of
+        i = self.asm.instance(iid)
+        part = self.asm_parts.get(i['file'])
+        if part is None:
+            raise A.AssemblyError(f'Il pezzo di {iid} non si legge.')
+        facce = list(_faces_of(part.shape))
+        if face_index is None or not 0 <= int(face_index) < len(facce):
+            raise A.AssemblyError('Clicca una faccia del pezzo.')
+        return {'inst': iid, **A.face_info(part, facce[int(face_index)])}
+
+    def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False) -> dict:
+        """a: la faccia del pezzo che sta fermo, b: quella del pezzo che si muove. {'inst': id, 'face': indice}."""
+        from app.service import _number
+        if kind not in A.MATE_TYPES:
+            return {'ok': False, 'message': f'Accoppiamento "{kind}" sconosciuto.'}
+
+        def fn():
+            if a['inst'] == b['inst']:
+                raise A.AssemblyError('Le due facce sono dello stesso pezzo: scegline una su un altro pezzo.')
+            ra, rb = self._asm_face(a['inst'], a.get('face')), self._asm_face(b['inst'], b.get('face'))
+            serve = 'piana' if kind == 'faccia' else 'cilindrica'
+            for r in (ra, rb):
+                if r['kind'] != serve:
+                    raise A.AssemblyError('Faccia su faccia vuole due facce piane.' if kind == 'faccia'
+                                          else 'Foro su foro vuole due fori (facce cilindriche).')
+            terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
+            fermo, mobile = (rb, ra) if ra['inst'] != terra and rb['inst'] == terra else (ra, rb)
+            mid = self.asm.new_id('M', {m['id'] for m in self.asm.mates})
+            self.asm.mates.append({'id': mid, 'type': kind, 'a': fermo, 'b': mobile, 'offset': _number(offset or 0),
+                                   'flip': bool(flip)})
+            return {'select': 'mate=' + mid}
+        return self._asm_change('Faccia su faccia' if kind == 'faccia' else 'Foro su foro', fn)
+
+    def asm_edit_mate(self, mid: str, fields: dict) -> dict:
+        from app.service import _number
+
+        def fn():
+            m = next((x for x in self.asm.mates if x['id'] == mid), None)
+            if m is None:
+                raise A.AssemblyError(f'Non c’è l’accoppiamento {mid}.')
+            if 'offset' in fields and str(fields['offset']).strip() != '':
+                m['offset'] = _number(fields['offset'])
+            if 'flip' in fields:
+                m['flip'] = bool(fields['flip'])
+            if 'off' in fields:
+                m['off'] = bool(fields['off'])
+        return self._asm_change(f'{mid}: modifica', fn)
+
+    def asm_delete_mate(self, mid: str) -> dict:
+        def fn():
+            self.asm.mates = [m for m in self.asm.mates if m['id'] != mid]
+        return self._asm_change(f'Togli {mid}', fn)
+
+    def asm_interferences(self) -> dict:
+        trovate = A.interferences(self.asm, self.asm_parts)
+        nomi = {i['id']: i['name'] for i in self.asm.instances}
+        righe = [{**x, 'label': f'{nomi.get(x["a"], x["a"])} e {nomi.get(x["b"], x["b"])}: {fmt_mm(round(x["volume"], 1))} mm³'}
+                 for x in trovate]
+        return _ok(interferences=righe, message='Nessuna interferenza: i pezzi non si compenetrano.' if not righe else
+                   f'{len(righe)} interferenz{"a" if len(righe) == 1 else "e"}.')
+
+    # ------------------------------------------------------------------ incastri tra due pezzi
+    def _asm_tip_contact(self, iid: str, face_index):
+        """La faccia scelta è la punta di una flangia (o un fianco della base) che appoggia su una faccia piana di un
+        altro pezzo? Ritorna (info punta nel mondo, altra istanza, nome dell'altra faccia, faccia nel mondo)."""
+        import build123d as bd
+        from cad_engine.topology.naming import _faces_of
+        ra = self._asm_face(iid, face_index)
+        nome = ra.get('name') or ''
+        if ra['kind'] != 'piana' or not (nome.endswith('/punta') or '/lato/' in nome):
+            return None
+        ia = self.asm.instance(iid)
+        Ra, Ta = np.array(ia['R']), np.array(ia['T'])
+        pA, nA = Ra @ np.array(ra['p']) + Ta, Ra @ np.array(ra['n'])
+        for ib in self.asm.instances:
+            if ib['id'] == iid or ib['file'] not in self.asm_parts:
+                continue
+            part = self.asm_parts[ib['file']]
+            Rb, Tb = np.array(ib['R']), np.array(ib['T'])
+            locale = Rb.T @ (pA - Tb)                    # il centro della punta, nel pezzo B
+            for f in _faces_of(part.shape):
+                inf = A.face_info(part, f)
+                if inf['kind'] != 'piana' or not inf['name']:
+                    continue
+                nB = Rb @ np.array(inf['n'])
+                pB = Rb @ np.array(inf['p']) + Tb
+                if np.dot(nA, nB) > -0.999999 or abs(np.dot(pA - pB, nB)) > 1e-3:
+                    continue
+                if bd.Face(f).distance_to(bd.Vector(*locale)) < 1e-3:
+                    return ra, ib['id'], inf['name'], nome
+        return None
+
+    def asm_tabs(self, iid: str, face_index, n, w, gioco, sporgenza=0) -> dict:
+        """Incastri tra due pezzi: la punta (faccia scelta) del pezzo di iid appoggia su una faccia di un altro pezzo.
+        Linguette nel file del primo pezzo, asole nel file del secondo: si modificano e si salvano i due file
+        (resta la copia .bak). Tutte le copie di quei pezzi cambiano."""
+        import build123d as bd
+        from app.service import _number
+        from cad_engine import project_io
+        from cad_engine.sketch.face_plane import plane_of
+        from app import sketch_ops
+        try:
+            n, w, c, sp = int(_number(n)), _number(w), _number(gioco), _number(sporgenza or 0)
+            if n < 1 or w <= 0 or c < 0 or sp < 0:
+                raise SteelCADError('Numero almeno 1, larghezza maggiore di zero, gioco e sporgenza non negativi.')
+            cont = self._asm_tip_contact(iid, face_index)
+            if cont is None:
+                raise SteelCADError('Questa faccia non appoggia su un altro pezzo: scegli la punta di una flangia (o il fianco '
+                                    'della base) che tocca una faccia di un altro pezzo.')
+            ra, iidb, nome_b, nome_a = cont
+            ia, ib = self.asm.instance(iid), self.asm.instance(iidb)
+            if ia['file'] == ib['file']:
+                raise SteelCADError('I due pezzi sono lo stesso file: gli incastri si fanno tra pezzi diversi.')
+            pa, pb = self.asm_parts[ia['file']], self.asm_parts[ib['file']]
+            sa = getattr(pa.result.body, 'sheet', None)
+            sb = getattr(pb.result.body, 'sheet', None)
+            if sa is None or sb is None:
+                raise SteelCADError('Gli incastri si fanno tra due lamiere.')
+            fid = nome_a.split('/')[0]
+            if nome_a.endswith('/punta'):
+                flid = nome_a.split('/')[1]
+                g = next(x for x in sa.flanges if x.fid == flid)
+                dvec, nrm = (v.normalized() for v in g.frame())
+                xf = g.xf.normalized()
+                nome_est = f'{fid}/{flid}/esterno'
+            else:
+                raise SteelCADError('Per ora gli incastri tra pezzi partono dalla punta di una flangia.')
+            punta = max((bd.Face(f) for f in pa.result.body.names.get(nome_a, [])), key=lambda f: f.area)
+            us = [(bd.Vector(v) - g.origin).dot(xf) for v in punta.vertices()]
+            u0, u1 = min(us), max(us)
+            # solo il tratto dove la punta appoggia davvero sull'altro pezzo
+            Ra_, Ta_ = np.array(ia['R']), np.array(ia['T'])
+            Rb_, Tb_ = np.array(ib['R']), np.array(ib['T'])
+            fb = [bd.Face(f) for f in pb.result.body.names.get(nome_b, [])]
+            c0 = punta.center()
+            bu0 = (c0 - g.origin).dot(xf)
+            sopra = []
+            for k in range(201):
+                u = u0 + (u1 - u0) * k / 200
+                q = c0 + xf * (u - bu0)
+                qb = Rb_.T @ (Ra_ @ np.array([q.X, q.Y, q.Z]) + Ta_ - Tb_)
+                if any(f.distance_to(bd.Vector(*qb)) < 1e-3 for f in fb):
+                    sopra.append(u)
+            if not sopra:
+                raise SteelCADError('La punta non appoggia sull’altro pezzo.')
+            u0, u1 = min(sopra), max(sopra)
+            if (u1 - u0) / (n + 1) < w + 2 * c + 2:
+                raise SteelCADError(f'{n} linguette da {fmt_mm(w)} non stanno sul tratto dove la punta appoggia '
+                                    f'({fmt_mm(round(u1 - u0, 1))} mm): mettine meno o più strette.')
+            centro = punta.center()
+            bu = (centro - g.origin).dot(xf)
+            centri = [centro + xf * (u0 + (u1 - u0) * (k + 1) / (n + 1) - bu) for k in range(n)]
+            tb = sb.thickness
+            ta = sa.thickness
+            Ra, Ta = np.array(ia['R']), np.array(ia['T'])
+            Rb, Tb = np.array(ib['R']), np.array(ib['T'])
+            a2b = lambda v: Rb.T @ (Ra @ np.array([v.X, v.Y, v.Z]) + Ta - Tb)  # noqa: E731
+            dir_b = lambda v: Rb.T @ (Ra @ np.array([v.X, v.Y, v.Z]))  # noqa: E731
+            est = bd.Face(pa.result.body.face(nome_est)[0])
+            ne, oe = est.normal_at(), est.center()
+            sul_est = lambda p: p - ne * (p - oe).dot(ne)  # noqa: E731
+            doc_a, doc_b = project_io.load(ia['file']), project_io.load(ib['file'])
+            body_a, body_b = doc_a.rebuild().body, doc_b.rebuild().body
+            # linguette nel pezzo A
+            sk = doc_a.add_sketch({'face': nome_est}, f'Sketch: linguette verso {ib["name"]}')
+            pl = plane_of(body_a, nome_est, sk)
+            sketch_ops.add_reference_edges(sk, est, pl, body_a.shape)
+            for C in centri:
+                q = [pl.to_local_coords(sul_est(C + xf * a_ * (w / 2) + dvec * d)) for a_, d in ((-1, -1), (1, -1), (1, tb + sp), (-1, tb + sp))]
+                ids = [sk.point(p.X, p.Y) for p in q]
+                for pid in ids:
+                    sk.constrain('fix', pid)
+                for x, y in zip(ids, ids[1:] + ids[:1]):
+                    sk.line(x, y)
+            doc_a.add_feature('sheet_cut', f'Linguette verso {ib["name"]}', sketch=sk.id, mode='add')
+            # asole nel pezzo B
+            skb = doc_b.add_sketch({'face': nome_b}, f'Sketch: asole per {ia["name"]}')
+            plb = plane_of(body_b, nome_b, skb)
+            sketch_ops.add_reference_edges(skb, bd.Face(body_b.face(nome_b)[0]), plb, body_b.shape)
+            xb, nb = dir_b(xf), dir_b(nrm)
+            for C in centri:
+                cb = a2b(C)
+                q = [plb.to_local_coords(bd.Vector(*(cb + xb * a_ * (w / 2 + c) + nb * b_ * (ta / 2 + c))))
+                     for a_, b_ in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+                ids = [skb.point(p.X, p.Y) for p in q]
+                for pid in ids:
+                    skb.constrain('fix', pid)
+                for x, y in zip(ids, ids[1:] + ids[:1]):
+                    skb.line(x, y)
+            doc_b.add_feature('sheet_cut', f'Asole per {ia["name"]}', sketch=skb.id)
+            for doc in (doc_a, doc_b):
+                r = doc.rebuild()
+                if r.errors:
+                    raise SteelCADError('Gli incastri non si riescono a fare: ' + r.errors[0].message)
+            project_io.save(doc_a, ia['file'])
+            project_io.save(doc_b, ib['file'])
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message, 'code': ex.code}
+        self._asm_reload()
+        # le linguette restano nelle asole: due accoppiamenti faccia su faccia (col gioco) tra un fianco della prima
+        # linguetta e la parete dell'asola davanti, e tra la faccia della flangia e l'altra parete. Se il pezzo
+        # con le asole cambia, quello con le linguette lo segue.
+        w0 = lambda v: Ra @ np.array([v.X, v.Y, v.Z]) + Ta  # noqa: E731
+        d0 = lambda v: Ra @ np.array([v.X, v.Y, v.Z])  # noqa: E731
+        C0 = centri[0]
+        coppie = [(w0(C0 - xf * (w / 2) + dvec * (tb / 2)), -d0(xf), w0(C0 - xf * (w / 2 + c) + dvec * (tb / 2)), d0(xf)),
+                  (w0(sul_est(C0) + dvec * (tb / 2)), d0(ne), w0(sul_est(C0) + bd.Vector(*ne) * c + dvec * (tb / 2)), -d0(ne))]
+        aggiunti = 0
+        for pa_, na_, pb_, nb_ in coppie:
+            fa = self._asm_face_at(iid, pa_, na_)
+            fb = self._asm_face_at(iidb, pb_, nb_)
+            if fa is None or fb is None:
+                continue
+            mid = self.asm.new_id('M', {m['id'] for m in self.asm.mates})
+            self.asm.mates.append({'id': mid, 'type': 'faccia', 'a': fb, 'b': fa, 'offset': c, 'flip': False})
+            aggiunti += 1
+        self._asm_reload()
+        self.asm_dirty = True
+        self.scene_version += 1
+        extra = f' {aggiunti} accoppiamenti tengono le linguette nelle asole.' if aggiunti else ''
+        return _ok(state=self.state(), message=f'{n} linguette su {ia["name"]} e {n} asole su {ib["name"]} (salvati i due '
+                   'file dei pezzi; resta la copia .bak).' + extra)
+
+    def _asm_face_at(self, iid, punto, normale):
+        """La faccia piana dell'istanza che passa per il punto (nel mondo) con quella normale: riferimento per un
+        accoppiamento, o None."""
+        import build123d as bd
+        from cad_engine.topology.naming import _faces_of
+        i = self.asm.instance(iid)
+        part = self.asm_parts[i['file']]
+        R, T = np.array(i['R']), np.array(i['T'])
+        loc = R.T @ (np.asarray(punto) - T)
+        nloc = R.T @ np.asarray(normale)
+        nloc = nloc / np.linalg.norm(nloc)
+        meglio = None
+        for f in _faces_of(part.shape):
+            inf = A.face_info(part, f)
+            if inf['kind'] != 'piana' or np.dot(inf['n'], nloc) < 0.999:
+                continue
+            if abs(np.dot(loc - np.array(inf['p']), nloc)) > 1e-3:
+                continue
+            d = bd.Face(f).distance_to(bd.Vector(*loc))
+            if d < 1.0 and (meglio is None or d < meglio[0]):
+                meglio = (d, inf)
+        return {'inst': iid, **meglio[1]} if meglio else None
+
+    def asm_export_step(self, path: str) -> dict:
+        import build123d as bd
+        forme = [A.placed_shape(self.asm_parts[i['file']], i['R'], i['T']) for i in self.asm.instances if i['file'] in self.asm_parts]
+        if not forme:
+            return {'ok': False, 'message': 'L’assieme è vuoto.'}
+        bd.export_step(bd.Compound(children=forme), path)
+        return _ok(message=f'STEP dell’assieme salvato: {len(forme)} pezzi.', path=path)
+
+    # ------------------------------------------------------------------ aprire un pezzo e tornare
+    def asm_open_part(self, iid: str) -> dict:
+        i = self.asm.instance(iid)
+        ritorno = (self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty)
+        self.asm = None
+        r = self.open(i['file'])
+        if not r['ok']:
+            self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty = ritorno
+            return r
+        self._asm_ritorno = ritorno
+        r['state'] = self.state()
+        return r
+
+    def asm_back(self) -> dict:
+        rit = getattr(self, '_asm_ritorno', None)
+        if not rit:
+            return {'ok': False, 'message': 'Non c’è un assieme da cui sei arrivato.'}
+        if self.history.dirty:
+            return {'ok': False, 'code': 'non_salvato', 'message': 'Salva il pezzo prima di tornare all’assieme (l’assieme '
+                    'legge il file salvato).'}
+        self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty = rit
+        self._asm_ritorno = None
+        self._asm_reload()
+        self.scene_version += 1
+        return _ok(state=self.state())
+
+    # ------------------------------------------------------------------ stato, scena, selezione
+    def _asm_state(self) -> dict:
+        asm = self.asm
+        nomi = {i['id']: i['name'] for i in asm.instances}
+        figli = []
+        for i in asm.instances:
+            st = 'errore' if any(e['id'] == i['id'] for e in self.asm_errors) else ('fisso' if i.get('fixed') else None)
+            figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': [], 'status': st})
+        acc = [{'label': f'{m["id"]}: {A.MATE_TYPES[m["type"]]} — {nomi.get(m["a"]["inst"], "?")} / {nomi.get(m["b"]["inst"], "?")}'
+                + (f', distanza {fmt_mm(m.get("offset") or 0)}' if m['type'] == 'faccia' and m.get('offset') else '')
+                + (' (sospeso)' if m.get('off') else ''),
+                'kind': 'mate', 'ref': m['id'], 'children': [], 'status': None} for m in asm.mates]
+        if acc:
+            figli.append({'label': 'Accoppiamenti', 'kind': 'group', 'ref': None, 'children': acc, 'status': None})
+        tree = {'label': asm.name, 'kind': 'assembly', 'ref': None, 'children': figli, 'status': None}
+        righe = A.bom(asm, self.asm_parts)
+        bom = [{'code': f'P{k + 1}', 'description': r['name'] + (f', sviluppo {fmt_mm(round(r["flat"][0], 1))} × {fmt_mm(round(r["flat"][1], 1))}' if r['flat'] else ''),
+                'qty': r['qty'], 'material': r['material'], 'profile': None, 'thickness_mm': r['thickness'],
+                'kg_each': r['mass_kg'], 'kg_total': r['mass_tot'], 'file': r['file']} for k, r in enumerate(righe)]
+        totale = sum(r['kg_total'] for r in bom)
+        avvisi = list(getattr(asm, 'warnings', []) or [])
+        for f, p in self.asm_parts.items():
+            avvisi += [f'{Path(f).stem}: {e}' for e in p.errors]
+        return {'mode': 'assembly', 'name': asm.name, 'path': str(self.path) if self.path else None,
+                'dirty': self.asm_dirty, 'undo': [x[0] for x in self.asm_undo[-1:]], 'redo': [x[0] for x in self.asm_redo[-1:]],
+                'tree': tree, 'parameters': [], 'errors': self.asm_errors, 'warnings': avvisi,
+                'bom': bom, 'bom_kg': totale, 'cutlist': {'rows': [], 'totals': [], 'pieces': 0, 'kg': 0},
+                'info': {'rebuild_ms': round(getattr(self, 'asm_ms', 0), 1), 'rebuilt': len(self.asm_parts), 'cached': 0,
+                         'material': '—'},
+                'scene_version': self.scene_version, 'dimensions': [], 'sheet': None,
+                'instances': [{'id': i['id'], 'name': i['name'], 'file': i['file'], 'fixed': bool(i.get('fixed'))} for i in asm.instances],
+                'mate_types': A.MATE_TYPES, 'can_back': False}
+
+    def _asm_scene(self) -> dict:
+        objs = []
+        for i in self.asm.instances:
+            part = self.asm_parts.get(i['file'])
+            if part is None:
+                continue
+            m = A.part_mesh(part)
+            R, T = i['R'], i['T']
+            mat = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
+            facce = [{**f, 'label': f'{i["name"]}: {part.doc.describe_face(f["name"]) if f["name"] else "faccia"}'} for f in m['faces']]
+            objs.append({'id': i['id'], 'kind': 'instance', 'name': i['name'], 'matrix': mat,
+                         'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges']})
+        return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
+
+    def _asm_select(self, obj_id: str, face_index=None) -> dict:
+        if obj_id.startswith('mate='):
+            mid = obj_id[5:]
+            m = next((x for x in self.asm.mates if x['id'] == mid), None)
+            if m is None:
+                return {'ok': False, 'message': 'Accoppiamento non trovato.'}
+            nomi = {i['id']: i['name'] for i in self.asm.instances}
+            err = A.mate_error(m, {i['id']: (np.array(i['R']), np.array(i['T'])) for i in self.asm.instances}, self.asm_parts, self.asm)
+            rows = [['Tipo', A.MATE_TYPES[m['type']]], ['Fermo', nomi.get(m['a']['inst'], '?')], ['Si muove', nomi.get(m['b']['inst'], '?')],
+                    ['Scarto', '—' if err is None else f'{err:.4f}']]
+            return _ok(selection={'kind': 'mate', 'id': mid, 'title': f'Accoppiamento {mid}', 'rows': rows,
+                                  'def': {'type': m['type'], 'offset': m.get('offset') or 0, 'flip': bool(m.get('flip')),
+                                          'off': bool(m.get('off'))}})
+        i = self.asm.instance(obj_id)
+        part = self.asm_parts.get(i['file'])
+        rows = [['File', Path(i['file']).name]]
+        if part is not None:
+            pr = A.part_props(part)
+            rows += [['Materiale', part.doc.material], ['Peso', f'{pr["mass_kg"]:.3f} kg'.replace('.', ',')],
+                     ['Ingombro', ' × '.join(fmt_mm(round(v, 1)) for v in pr['bbox_mm']['size']) + ' mm']]
+        sel = {'kind': 'instance', 'id': obj_id, 'title': i['name'], 'rows': rows, 'fixed': bool(i.get('fixed')),
+               'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])]}
+        if face_index is not None and part is not None:
+            try:
+                f = self._asm_face(obj_id, face_index)
+                sel['face'] = {'index': face_index, 'kind': f['kind'], 'name': f['name'],
+                               'label': part.doc.describe_face(f['name']) if f['name'] else 'faccia'}
+                cont = self._asm_tip_contact(obj_id, face_index)
+                if cont:
+                    sel['tabs_with'] = self.asm.instance(cont[1])['name']
+            except SteelCADError:
+                pass
+        return _ok(selection=sel)

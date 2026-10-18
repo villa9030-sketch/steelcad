@@ -27,6 +27,9 @@ from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS  # noqa: E402
 from cad_engine.sheetmetal import METODI, POSIZIONI, TIP_CORNERS, VERSI  # noqa: E402
 from app import sketch_edit, sketch_more, sketch_ops, sketch_trim  # noqa: E402
+from app.assembly_service import AssemblyMixin  # noqa: E402
+from app.drawings_service import DrawingsMixin  # noqa: E402
+from app.import_service import ImportMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
@@ -49,7 +52,7 @@ def _err(ex: Exception):
             'code': 'interno'}
 
 
-class Service:
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))
@@ -100,6 +103,8 @@ class Service:
 
     # ================================================================ lettura
     def state(self) -> dict:
+        if self.asm is not None:
+            return self._asm_state()
         r, doc = self.result, self.doc
         info = {'rebuild_ms': round(r.seconds * 1000, 1), 'rebuilt': r.rebuilt, 'cached': r.cached,
                 'material': doc.material}
@@ -116,7 +121,8 @@ class Service:
             'name': doc.meta.get('name'), 'path': str(self.path) if self.path else None,
             'dirty': self.history.dirty, 'undo': self.history.labels()['undo'][:1],
             'redo': self.history.labels()['redo'][:1],
-            'tree': project_tree(doc, r), 'parameters': self._parameters(),
+            'tree': project_tree(doc, r), 'parameters': self._parameters(), 'mode': 'part',
+            'can_back': bool(getattr(self, '_asm_ritorno', None)),
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
@@ -215,6 +221,8 @@ class Service:
         return out
 
     def scene(self) -> dict:
+        if self.asm is not None:
+            return self._asm_scene()
         objs = []
         r = self.result
         if r.body is not None:
@@ -242,6 +250,11 @@ class Service:
         return {'version': self.scene_version, 'objects': objs, 'nodes': nodi, 'bend_edges': bordi}
 
     def select(self, obj_id: str, face_index: int | None = None, face_name: str | None = None) -> dict:
+        if self.asm is not None:
+            try:
+                return self._asm_select(obj_id, face_index)
+            except SteelCADError as ex:
+                return _err(ex)
         """Cosa mostrare nel pannello proprietà e quali comandi hanno senso per ciò che è stato cliccato.
         Con il nome della faccia: se intanto il pezzo è stato ricostruito, il numero della faccia cliccata
         (preso dalla scena vecchia) può essere cambiato; il nome no, e vince lui."""
@@ -826,7 +839,7 @@ class Service:
             g = next(x for x in data.flanges if x.fid == flid)
             t = data.thickness
             xf = g.xf.normalized()
-            if n * w > (u1 - u0) - 2 * c:
+            if (u1 - u0) / (n + 1) < w + 2 * c + 2:
                 raise SteelCADError(f'{n} linguette da {fmt_mm(w)} non stanno sulla punta lunga {fmt_mm(round(u1 - u0, 1))} mm.',
                                     code='incastri')
             base_u = (centro - g.origin).dot(xf)
@@ -1599,6 +1612,8 @@ class Service:
         return self._change(f'Sposta {key}', fn)
 
     def undo(self) -> dict:
+        if self.asm is not None:
+            return self._asm_undo(False)
         try:
             self.history.undo()
             self._rebuild()
@@ -1607,6 +1622,8 @@ class Service:
             return _err(ex)
 
     def redo(self) -> dict:
+        if self.asm is not None:
+            return self._asm_undo(True)
         try:
             self.history.redo()
             self._rebuild()
@@ -1623,6 +1640,8 @@ class Service:
             self._set(doc)
             self.path = None
             self.blank = False
+            self.asm = None
+            self._asm_ritorno = None
             return _ok(state=self.state())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
@@ -1661,6 +1680,11 @@ class Service:
 
     # ================================================================ file
     def save(self, path: str | None = None) -> dict:
+        if self.asm is not None:
+            try:
+                return self._asm_save(path)
+            except SteelCADError as ex:
+                return _err(ex)
         try:
             p = Path(path) if path else self.path
             if p is None:
@@ -1674,6 +1698,10 @@ class Service:
 
     def open(self, path: str, recover: bool = False) -> dict:
         try:
+            if str(path).endswith('.steelcad-asm'):
+                return self._asm_open(path)
+            self.asm = None
+            self._asm_ritorno = None
             doc = project_io.recover(path) if recover else project_io.load(path)
             self._set(doc)
             self.path = Path(path)
@@ -1687,6 +1715,8 @@ class Service:
         return project_io.recovery_available(path)
 
     def autosave(self) -> dict:
+        if self.asm is not None:
+            return _ok(saved=False)
         if not self.history.dirty:
             return _ok(saved=False)
         try:
@@ -1697,6 +1727,11 @@ class Service:
             return _err(ex)
 
     def export_step(self, path: str) -> dict:
+        if self.asm is not None:
+            try:
+                return self.asm_export_step(path)
+            except Exception as ex:  # noqa: BLE001
+                return _err(ex)
         try:
             out = step.export_project(self.doc, self.result, path)
             return _ok(message=f'STEP salvato: {out["solids"]} solidi, controllato rileggendo il file.', path=path)

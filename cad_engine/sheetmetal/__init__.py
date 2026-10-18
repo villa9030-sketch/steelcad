@@ -491,6 +491,23 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
     return face, lati, extra
 
 
+def flat_size(flat, pl) -> tuple:
+    """Ingombro (larghezza, altezza) dello sviluppo nel piano dello sketch, cerchi compresi."""
+    if flat is None:
+        return (0.0, 0.0)
+    bb = [pl.to_local_coords(v) for v in flat.vertices()]
+    for e in flat.edges():
+        if e.geom_type == bd.GeomType.CIRCLE:
+            for p in (e.arc_center - e.radius * pl.x_dir, e.arc_center + e.radius * pl.x_dir,
+                      e.arc_center - e.radius * pl.y_dir, e.arc_center + e.radius * pl.y_dir):
+                bb.append(pl.to_local_coords(p))
+        elif e.geom_type != bd.GeomType.LINE:
+            bb += [pl.to_local_coords(p) for p in e.positions([i / 16 for i in range(17)])]
+    if not bb:
+        return (0.0, 0.0)
+    return (max(p.X for p in bb) - min(p.X for p in bb), max(p.Y for p in bb) - min(p.Y for p in bb))
+
+
 def _free_edges(geos, lati, N, t) -> list:
     """I bordi liberi, a metà spessore: i lati dritti della base senza flangia e le punte delle flange
     senza figlia. [{'kind': 'edge'|'tip', 'ref': lato o flangia, 'a': [x,y,z], 'b': [...], 'length': mm}]"""
@@ -1307,7 +1324,7 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
     if abs((data.flat.area - facce[0].area) * t - tolto) > 1e-6 * max(tolto, 1) + 1e-3:
         raise FeatureError('Il contorno prende anche una piega o un’altra parte del pezzo: sviluppo e pezzo '
                            'piegato non tornerebbero. Tienilo dentro un solo tratto piano.', feature=fid)
-    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area)
+    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area, flat_size=flat_size(facce[0], data.plane))
     return nuovo
 
 
@@ -1390,7 +1407,7 @@ def _add_tab(fdef, body, data, lavori, t):
     if abs((facce[0].area - data.flat.area) * t - messo) > 1e-6 * max(messo, 1) + 1e-3:
         raise FeatureError('La linguetta tocca un’altra parte del pezzo o una piega: nello sviluppo non tornerebbe. '
                            'Tienila nel piano della faccia, lontana dalle altre pareti.', feature=fid)
-    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area)
+    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area, flat_size=flat_size(facce[0], data.plane))
     return nuovo
 
 
@@ -1703,7 +1720,7 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     if abs(tolto - atteso) > 2e-3 * max(atteso, 1) + 1e-3:
         raise FeatureError('Il taglio nel pezzo piegato non corrisponde allo sviluppo (tocca un’altra parte del '
                            'pezzo?): non lo applico.', feature=fid)
-    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area)
+    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area, flat_size=flat_size(facce[0], data.plane))
     return nuovo
 
 

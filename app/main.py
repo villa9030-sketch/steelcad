@@ -19,7 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.service import Service  # noqa: E402
 
 UI = Path(__file__).resolve().parent / 'ui' / 'index.html'
-FILTRO_PROGETTO = ('Progetto SteelCAD (*.steelcad)',)
+FILTRO_PROGETTO = ('Progetto SteelCAD (*.steelcad;*.steelcad-asm)', 'Pezzo (*.steelcad)', 'Assieme (*.steelcad-asm)')
+FILTRO_PEZZO = ('Pezzo SteelCAD (*.steelcad)',)
+FILTRO_ASSIEME = ('Assieme SteelCAD (*.steelcad-asm)',)
+FILTRO_DISEGNO = ('Disegno (*.dxf;*.dwg)', 'DXF (*.dxf)', 'DWG (*.dwg)')
 
 
 class Api:
@@ -238,6 +241,82 @@ class Api:
     def forget_recent(self, path):
         return self._call(self._svc.forget_recent, path)
 
+    # import di uno sviluppo da DXF/DWG
+    def import_dxf_dialog(self):
+        p = self._dialog(webview.OPEN_DIALOG, FILTRO_DISEGNO)
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.import_dxf, p)
+
+    def import_dxf(self, path):
+        return self._call(self._svc.import_dxf, path)
+
+    def import_dxf_giro(self, giro):
+        return self._call(self._svc.import_dxf_giro, giro)
+
+    def import_dxf_create(self, giro, params):
+        return self._call(self._svc.import_dxf_create, giro, params)
+
+    # assiemi
+    def new_assembly(self, name='Assieme'):
+        return self._call(self._svc.new_assembly, name)
+
+    def asm_insert_dialog(self):
+        p = self._dialog(webview.OPEN_DIALOG, FILTRO_PEZZO)
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.asm_insert, p)
+
+    def asm_insert(self, path):
+        return self._call(self._svc.asm_insert, path)
+
+    def asm_remove(self, iid):
+        return self._call(self._svc.asm_remove, iid)
+
+    def asm_move(self, iid, dx, dy, dz):
+        return self._call(self._svc.asm_move, iid, dx, dy, dz)
+
+    def asm_rotate(self, iid, axis, deg):
+        return self._call(self._svc.asm_rotate, iid, axis, deg)
+
+    def asm_set(self, iid, fields):
+        return self._call(self._svc.asm_set, iid, fields)
+
+    def asm_add_mate(self, kind, a, b, offset=0, flip=False):
+        return self._call(self._svc.asm_add_mate, kind, a, b, offset, flip)
+
+    def asm_edit_mate(self, mid, fields):
+        return self._call(self._svc.asm_edit_mate, mid, fields)
+
+    def asm_delete_mate(self, mid):
+        return self._call(self._svc.asm_delete_mate, mid)
+
+    def asm_interferences(self):
+        return self._call(self._svc.asm_interferences)
+
+    def asm_tabs(self, iid, face, n, w, gioco, sporgenza=0):
+        return self._call(self._svc.asm_tabs, iid, face, n, w, gioco, sporgenza)
+
+    def drawing_fields(self):
+        return self._call(self._svc.drawing_fields)
+
+    def drawing_preview(self, campi=None, tutte=False):
+        return self._call(self._svc.drawing_preview, campi, tutte)
+
+    def export_drawings_dialog(self, fmt, campi, tutte=False):
+        nome = ((self._svc.asm.name if self._svc.asm is not None else self._svc.doc.meta.get('name')) or 'tavole') + '_tavole'
+        filtro = ('PDF (*.pdf)',) if fmt == 'pdf' else ('DXF (*.dxf)',)
+        p = self._dialog(webview.SAVE_DIALOG, filtro, nome + ('.pdf' if fmt == 'pdf' else '.dxf'))
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.export_drawings, p, campi, tutte)
+
+    def asm_open_part(self, iid):
+        return self._call(self._svc.asm_open_part, iid)
+
+    def asm_back(self):
+        return self._call(self._svc.asm_back)
+
     def autosave(self):
         return self._call(self._svc.autosave)
 
@@ -267,8 +346,13 @@ class Api:
     def save(self, save_as=False):
         p = None
         if save_as or self._svc.path is None:
+            if self._svc.asm is not None:
+                p = self._dialog(webview.SAVE_DIALOG, FILTRO_ASSIEME, (self._svc.asm.name or 'assieme') + '.steelcad-asm')
+                if not p:
+                    return {'ok': False, 'cancelled': True}
+                return self._call(self._svc.save, p)
             nome = (self._svc.doc.meta.get('name') or 'progetto') + '.steelcad'
-            p = self._dialog(webview.SAVE_DIALOG, FILTRO_PROGETTO, nome)
+            p = self._dialog(webview.SAVE_DIALOG, FILTRO_PEZZO, nome)
             if not p:
                 return {'ok': False, 'cancelled': True}
         return self._call(self._svc.save, p)
@@ -276,7 +360,9 @@ class Api:
     def export(self, kind):
         ext = {'step': ('STEP (*.step;*.stp)', '.step'), 'dxf': ('DXF di taglio (*.dxf)', '.dxf'),
                'bendtable': ('Tabella pieghe (*.csv)', '_pieghe.csv')}[kind]
-        nome = (self._svc.doc.meta.get('name') or 'pezzo') + ext[1]
+        if self._svc.asm is not None and kind != 'step':
+            return {'ok': False, 'message': 'Il DXF e la tabella pieghe si fanno per ogni pezzo: apri il pezzo dall’assieme.'}
+        nome = ((self._svc.asm.name if self._svc.asm is not None else self._svc.doc.meta.get('name')) or 'pezzo') + ext[1]
         p = self._dialog(webview.SAVE_DIALOG, (ext[0],), nome)
         if not p:
             return {'ok': False, 'cancelled': True}

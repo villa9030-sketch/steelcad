@@ -244,7 +244,7 @@ def main():
             time.sleep(0.4)
             attesi = {
                 'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal', 'new_plate': 'modal',
-                'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal',
+                'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'modal',
                 'export_dxf': 'toast', 'export_bendtable': 'toast', 'export_step': 'toast', 'show_cut': 'cut', 'show_bom': 'bom',
             }
             ok('progetto in lamiera: si vede solo la scheda LAMIERA',

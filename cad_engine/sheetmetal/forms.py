@@ -102,7 +102,8 @@ def build_form(fdef: dict, ctx):
         if len(facce) != 1:
             raise FeatureError('Il taglio della persiana divide lo sviluppo.', feature=fid)
         flat = facce[0]
-    ns.sheet = dataclasses.replace(data, flat=flat, flat_area=flat.area)
+    from . import flat_size
+    ns.sheet = dataclasses.replace(data, flat=flat, flat_area=flat.area, flat_size=flat_size(flat, data.plane))
     return ns
 
 

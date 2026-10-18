@@ -32,20 +32,14 @@ class ApiProva(Api):
         if 'steelcad' in filtri[0] and not nome:
             prog = sorted(self._dir.glob('*.steelcad'))
             return str(prog[0]) if prog else None
+        if 'dxf' in filtri[0].lower() and not nome:
+            dis = sorted(self._dir.glob('*.dxf')) + sorted(self._dir.glob('*.dwg'))
+            return str(dis[0]) if dis else None
         return str(self._dir / nome)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--porta', type=int, default=5077)
-    ap.add_argument('--cartella', default=str(Path.cwd()))
-    a = ap.parse_args()
-    cartella = Path(a.cartella)
-    cartella.mkdir(parents=True, exist_ok=True)
-    import os
-    os.environ.setdefault('STEELCAD_HOME', str(cartella / '.steelcad'))   # i recenti delle prove restano qui
-    api = ApiProva(cartella)
-
+def crea_server(api, porta: int) -> ThreadingHTTPServer:
+    """Il server dell'interfaccia di prova sull'Api data (serve anche alla diretta di tools/vetrina_quadro.py)."""
     class H(SimpleHTTPRequestHandler):
         def __init__(self, *x, **kw):
             super().__init__(*x, directory=str(UI), **kw)
@@ -67,7 +61,20 @@ def main():
             self.end_headers()
             self.wfile.write(body)
 
-    srv = ThreadingHTTPServer(('127.0.0.1', a.porta), H)
+    return ThreadingHTTPServer(('127.0.0.1', porta), H)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--porta', type=int, default=5077)
+    ap.add_argument('--cartella', default=str(Path.cwd()))
+    a = ap.parse_args()
+    cartella = Path(a.cartella)
+    cartella.mkdir(parents=True, exist_ok=True)
+    import os
+    os.environ.setdefault('STEELCAD_HOME', str(cartella / '.steelcad'))   # i recenti delle prove restano qui
+    api = ApiProva(cartella)
+    srv = crea_server(api, a.porta)
     print(f'http://127.0.0.1:{a.porta}/?dev', flush=True)
     srv.serve_forever()
 

@@ -94,13 +94,15 @@ function buildScene(sc) {
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const mesh = new THREE.Mesh(g, mat);
     mesh.userData.id = d.id;
+    const pos = d.matrix ? new THREE.Matrix4().set(...d.matrix) : null;      // istanza di un assieme: dove sta
     const seg = [];
     for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
     const lines = new THREE.LineSegments(lg, EDGE);
+    if (pos) for (const o of [mesh, lines]) { o.matrixAutoUpdate = false; o.matrix.copy(pos); o.updateMatrixWorld(true); }
     model.add(mesh, lines);
-    objs.set(d.id, { data: d, mesh, lines, base });
+    objs.set(d.id, { data: d, mesh, lines, base, pos });
   }
   paint();
 }
@@ -114,7 +116,9 @@ function faceOverlay(o, faceIndex, color) {
   g.computeVertexNormals();
   const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthTest: true,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  overlay.add(new THREE.Mesh(g, m));
+  const ov = new THREE.Mesh(g, m);
+  if (o.pos) { ov.matrixAutoUpdate = false; ov.matrix.copy(o.pos); ov.updateMatrixWorld(true); }
+  overlay.add(ov);
 }
 
 function paint() {
@@ -124,7 +128,7 @@ function paint() {
   for (const [id, o] of objs) {
     let c = o.base;
     const intero = o.data.kind === 'member';
-    if (selIds.has(id) && (intero || sel.face == null)) c = C_SEL;
+    if (selIds.has(id) && (intero || sel.face == null || (sel.ids && sel.ids.length > 1))) c = C_SEL;
     else if (hover && hover.id === id && (intero || hover.face == null)) c = C_HOVER;
     o.mesh.material.color.copy(c);
     o.mesh.material.emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, 0);
@@ -221,7 +225,7 @@ function pick(ev) {
   if (!hit) return null;
   const o = objs.get(hit.object.userData.id);
   let face = null;
-  if (o.data.kind === 'body') {
+  if (o.data.kind === 'body' || o.data.kind === 'instance') {
     const k = hit.faceIndex * 3;
     face = o.data.faces.find(f => k >= f.start && k < f.start + f.count)?.index ?? null;
   }
@@ -301,6 +305,7 @@ canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; 
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK) { skClick(ev); return; }
+  if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
   const he = pickEdge(ev);
   if (he) { selectEdge(he); return; }
   const h = pick(ev);
@@ -620,6 +625,10 @@ async function loadScene() {
 }
 
 function renderPanels() {
+  const assieme = S.mode === 'assembly';
+  document.body.classList.toggle('assembly', assieme);
+  $('#b-back').hidden = !S.can_back;
+  if (!assieme && ASM.tool) asmTool(null);
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); renderTimeline();
 }
 
@@ -642,6 +651,7 @@ function renderTree() {
     const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? membersOf(n.ref)
       : n.kind === 'flange' ? ['flange=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
+      : n.kind === 'instance' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref]
       : ['part', 'extrude', 'hole', 'fillet', 'chamfer', 'sheet'].includes(n.kind) ? ['body'] : null;
     const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
@@ -738,6 +748,14 @@ async function renderProps(s) {
       <button class="btn" id="p-rot" title="Ruota il profilo attorno al suo asse">Ruota di 90° (ora ${num(s.rotate)}°)</button>
       <button class="btn" id="p-flip" title="Scambia il lato da cui è appoggiato il profilo">Inverti</button></div>
       <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Elimina ${sel?.ids?.length > 1 ? sel.ids.length + ' aste' : 'asta'}</button></div>`;
+  } else if (s.kind === 'instance') {
+    $('#props').innerHTML = instancePanel(s);
+    wireInstance(s);
+    return;
+  } else if (s.kind === 'mate') {
+    $('#props').innerHTML = matePanel(s);
+    wireMate(s);
+    return;
   } else if (s.kind === 'fold') {
     $('#props').innerHTML = foldPanel(s) + faceSketchButton(s);
     wireFold(s);
@@ -898,6 +916,138 @@ function flangePanel(s) {
     ${sezLinguetta}${sezAngoli}${sezIncastri}${sezPunta}
     <details class="fsec"><summary>Dati di piega</summary><table class="grid">${dati.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table></details>`;
 }
+// ===================================================================== assiemi
+const ASM = { tool: null, first: null };
+function asmTool(t) {
+  ASM.tool = t; ASM.first = null;
+  document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
+  if (t) setHelp(t === 'faccia' ? 'Faccia su faccia: clic sulla faccia del pezzo che sta fermo · Esc annulla'
+    : 'Foro su foro: clic sul foro del pezzo che sta fermo · Esc annulla');
+  else setHelp('');
+  if (!SK) $('#sk-foot').hidden = !t;                // il suggerimento in basso, anche fuori dal disegno
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-asm-tool]');
+  if (b) asmTool(ASM.tool === b.dataset.asmTool ? null : b.dataset.asmTool);
+});
+function asmClick(ev) {
+  const h = pick(ev);
+  if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
+  if (!ASM.first) {
+    ASM.first = { inst: h.id, face: h.face };
+    sel = { id: h.id, face: h.face }; paint();
+    setHelp(`${ASM.tool === 'faccia' ? 'Faccia su faccia' : 'Foro su foro'}: ora clic sul${ASM.tool === 'faccia' ? 'la faccia' : ' foro'} dell’altro pezzo · Esc annulla`);
+    return;
+  }
+  if (h.id === ASM.first.inst) { toast('Scegli una faccia di un altro pezzo.', 'err'); return; }
+  const a = ASM.first, b = { inst: h.id, face: h.face }, tipo = ASM.tool;
+  asmTool(tipo);                                       // resta attivo per un altro accoppiamento
+  inCoda(async () => {
+    const r = await call('asm_add_mate', tipo, a, b, 0, false);
+    if (await apply(r, 'Accoppiato.') && r.select) await select(r.select);
+  });
+}
+function instancePanel(s) {
+  const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
+  const faccia = s.face ? `<p class="hint">Faccia: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
+  const incastri = s.tabs_with ? `<details class="fsec" open><summary>Incastri con ${esc(s.tabs_with)}</summary>
+    <p class="hint">Questa punta appoggia su ${esc(s.tabs_with)}: linguette qui e asole nell’altro pezzo (si salvano i due file).</p>
+    <div class="ff"><label>Quante<span class="inp"><input class="field" id="t-n" value="3"></span></label>
+      <label>Larghezza<span class="inp"><input class="field" id="t-w" value="15"><i>mm</i></span></label>
+      <label>Gioco<span class="inp"><input class="field" id="t-c" value="0,2"><i>mm</i></span></label>
+      <label>Sporgenza<span class="inp"><input class="field" id="t-s" value="0"><i>mm</i></span></label></div>
+    <div class="row-btns"><button class="btn primary" id="t-go">Crea gli incastri</button></div></details>` : '';
+  return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
+      <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
+    ${tab}${faccia}${incastri}
+    <div class="sub">Sposta (mm)</div>
+    <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
+    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div>
+    <div class="sub">Ruota di 90°</div>
+    <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
+    <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
+    <div class="row-btns"><button class="btn primary" id="a-open">Apri il pezzo</button></div>
+    ${s.mates.length ? `<p class="hint">Accoppiamenti: ${esc(s.mates.join(', '))}</p>` : '<p class="hint">Nessun accoppiamento: si sposta liberamente.</p>'}`;
+}
+function wireInstance(s) {
+  const fai = (m, ...a) => inCoda(async () => { if (await apply(await call(m, ...a))) await refreshSel(); });
+  $('#a-move').onclick = () => fai('asm_move', s.id, $('#a-dx').value.trim(), $('#a-dy').value.trim(), $('#a-dz').value.trim());
+  document.querySelectorAll('[data-rot]').forEach(b => { b.onclick = () => fai('asm_rotate', s.id, b.dataset.rot, 90); });
+  $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
+  $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
+  $('#a-open').onclick = () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', s.id))); };
+  if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
+    $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
+}
+function matePanel(s) {
+  const d = s.def;
+  return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.rows[0][1])}</div></div>
+      <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
+    <table class="grid">${s.rows.slice(1).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
+    ${d.type === 'faccia' ? `<div class="ff" style="margin-top:10px"><label>Distanza<span class="inp"><input class="field" id="m-off" value="${esc(String(d.offset).replace('.', ','))}"><i>mm</i></span></label><span></span></div>` : ''}
+    <div class="row-btns"><button class="btn" id="m-flip">${d.type === 'faccia' ? 'Allinea invece di affacciare' : 'Gira dall’altra parte'}</button>
+      <button class="btn" id="m-sosp">${d.off ? 'Riattiva' : 'Sospendi'}</button></div>`;
+}
+function wireMate(s) {
+  const fai = f => inCoda(async () => { if (await apply(await call('asm_edit_mate', s.id, f))) await refreshSel(); });
+  if ($('#m-off')) { $('#m-off').onkeydown = ev => { if (ev.key === 'Enter') fai({ offset: $('#m-off').value.trim() }); }; $('#m-off').onchange = () => fai({ offset: $('#m-off').value.trim() }); }
+  $('#m-flip').onclick = () => fai({ flip: !s.def.flip });
+  $('#m-sosp').onclick = () => fai({ off: !s.def.off });
+  $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
+}
+// ===================================================================== tavole
+async function drawingsDialog() {
+  const r = await call('drawing_fields');
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  const c = r.fields;
+  const campo = (k, l, w = '') => `<label${w}>${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
+  modal(`<div class="tav"><div class="tav-side"><h3>Tavole</h3>
+      <div class="form">${campo('azienda', 'Azienda', ' style="grid-column:1/-1"')}${campo('disegnatore', 'Disegnatore')}${campo('numero', 'N. disegno')}
+      ${campo('revisione', 'Revisione')}<label>Formato<select class="field" data-c="formato">${['A4', 'A3', 'A2'].map(f => `<option${c.formato === f ? ' selected' : ''}>${f}</option>`).join('')}</select></label>
+      ${campo('note', 'Note', ' style="grid-column:1/-1"')}</div>
+      ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi (con gli sviluppi)</label>' : ''}
+      <p class="hint">Azienda e disegnatore si ricordano per le prossime tavole. Viste in proiezione europea, quote d’ingombro e note dei fori automatiche.</p>
+      <div class="acts"><button class="btn" id="tav-agg">Aggiorna anteprima</button></div>
+      <div class="acts"><button class="btn" id="m-no">Chiudi</button><button class="btn" id="tav-dxf">Esporta DXF</button><button class="btn primary" id="tav-pdf">Esporta PDF</button></div></div>
+      <div class="tav-main"><div class="tav-tabs" id="tav-tabs"></div><div class="tav-view" id="tav-view"><p class="hint">Preparo l’anteprima…</p></div></div></div>`, close => {
+    const leggi = () => { const o = {}; document.querySelectorAll('#modal-box [data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); }); return o; };
+    const tutte = () => !!$('#tav-tutte')?.checked;
+    let fogli = [];
+    const mostra = k => {
+      $('#tav-view').innerHTML = fogli[k] ? fogli[k].svg.replace(/width="[\d.]+mm" height="[\d.]+mm"/, 'width="100%" height="100%"') : '';
+      document.querySelectorAll('#tav-tabs button').forEach((b, i) => b.classList.toggle('on', i === k));
+    };
+    const anteprima = () => inCoda(async () => {
+      $('#tav-view').innerHTML = '<p class="hint">Preparo l’anteprima…</p>';
+      const p = await call('drawing_preview', leggi(), tutte());
+      if (!p.ok) { $('#tav-view').innerHTML = `<div class="msg err">${esc(p.message)}</div>`; return; }
+      fogli = p.sheets;
+      $('#tav-tabs').innerHTML = fogli.map((f, i) => `<button data-i="${i}">${i + 1}. ${esc(f.title)}</button>`).join('');
+      document.querySelectorAll('#tav-tabs button').forEach(b => { b.onclick = () => mostra(+b.dataset.i); });
+      mostra(0);
+    });
+    const esporta = fmt => inCoda(async () => { const x = await call('export_drawings_dialog', fmt, leggi(), tutte()); if (!x.cancelled) toast(x.message, x.ok ? '' : 'err'); });
+    $('#m-no').onclick = close;
+    $('#tav-agg').onclick = anteprima;
+    $('#tav-pdf').onclick = () => esporta('pdf');
+    $('#tav-dxf').onclick = () => esporta('dxf');
+    if ($('#tav-tutte')) $('#tav-tutte').onchange = anteprima;
+    anteprima();
+  });
+  $('#modal-box').classList.add('wide');
+}
+
+function newAssemblyDialog() {
+  modal(`<h3>Nuovo assieme</h3><div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="Assieme"></label></div>
+    <p class="hint">Poi «Inserisci pezzo» per mettere i pezzi (file .steelcad) e gli accoppiamenti per posizionarli.</p>
+    <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea</button></div>`, close => {
+    $('#n-no').onclick = close;
+    $('#n-ok').onclick = () => { const n = $('#n-name').value.trim() || 'Assieme'; close(); primaVolta = true; clearSelection();
+      inCoda(async () => { if (await apply(await call('new_assembly', n))) hideHome(); }); };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
+  });
+}
+
 function foldPanel(s) {
   const d = s.def;
   return `<div class="fhead"><div><h3>Piega ${esc(s.fold)}</h3><div class="fsub">piega su linea</div></div>
@@ -1142,6 +1292,7 @@ function toast(msg, kind = '') {
 }
 
 function modal(html, wire) {
+  $('#modal-box').classList.remove('wide');
   $('#modal-box').innerHTML = html;
   $('#modal').hidden = false;
   const close = () => { $('#modal').hidden = true; };
@@ -1235,6 +1386,102 @@ async function openProject(percorso) {
   if (await apply(r)) hideHome();
 }
 
+// ------------------------------------------------------------- import DXF / DWG
+// Lo sviluppo piano diventa una lamiera: si sceglie il contorno del pezzo (clic sull'anteprima), si danno i dati
+// della piegatrice; le linee di piega diventano flange, i fori e le sagome un taglio sullo sviluppo.
+async function importDialog(percorso) {
+  const r = percorso ? await call('import_dxf', percorso) : await call('import_dxf_dialog');
+  if (!r.ok) { if (!r.cancelled) toast(r.message, 'err'); return; }
+  let giro = r.giro || null;
+  const virg = v => (v === null || v === undefined ? '' : String(v).replace('.', ','));
+  const regole = r.rules || [];
+  const mat = r.materiale || 'S235';
+  modal(`<div class="tav imp"><div class="tav-side"><h3>Importa ${esc(r.name)}</h3>
+      <div class="imp-info" id="imp-info"></div>
+      <div class="form">
+        <label style="grid-column:1/-1">Nome<input class="field" id="imp-name" value="${esc(r.name)}"></label>
+        <label>Materiale<select class="field" id="imp-mat">${r.materiali.map(m => `<option value="${esc(m.code)}"${m.code === mat ? ' selected' : ''}>${esc(m.code)}</option>`).join('')}</select></label>
+        <label>Spessore<input class="field" id="imp-sp" value="${virg(r.spessore)}" placeholder="mm"></label>
+        ${regole.length ? `<label style="grid-column:1/-1">Regola di piega<select class="field" id="imp-rule"><option value="">— scrivi i dati qui sotto —</option>
+          ${regole.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}
+        <label>Raggio interno<input class="field" id="imp-r" placeholder="mm"></label>
+        <label>Metodo<select class="field" id="imp-met"><option value="k">K-factor</option><option value="din6935">DIN 6935</option><option value="bd90">Deduzione 90°</option></select></label>
+        <label id="imp-k-l">K-factor<input class="field" id="imp-k" placeholder="es. 0,4"></label>
+        <label id="imp-bd-l" hidden>Deduzione 90°<input class="field" id="imp-bd" placeholder="mm"></label>
+        <label>Angolo pieghe<input class="field" id="imp-ang" value="90"></label>
+        <label>Verso<select class="field" id="imp-dir"><option value="up">su</option><option value="down">giù</option></select></label>
+      </div>
+      <div id="imp-bends"></div>
+      <p class="hint">Clic sull’anteprima per scegliere il contorno del pezzo. Le linee di piega sono la mezzeria della piega: lo sviluppo del pezzo torna uguale al disegno.</p>
+      <div id="imp-msg"></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="imp-ok">Crea il pezzo</button></div></div>
+      <div class="tav-main"><div class="imp-view" id="imp-view">${r.svg}</div></div></div>`, close => {
+    const view = $('#imp-view');
+    const mostra = () => {
+      view.querySelectorAll('path.giro').forEach(p => p.classList.toggle('scelto', giro && +p.dataset.giro === giro.index));
+      const utili = new Set(giro ? giro.pieghe : []);
+      view.querySelectorAll('line.piega').forEach(l => l.classList.toggle('utile', utili.has(+l.dataset.piega)));
+      if (!giro) {
+        $('#imp-info').innerHTML = '<div class="msg warn">Scegli il contorno del pezzo sull’anteprima.</div>';
+        $('#imp-bends').innerHTML = '';
+        return;
+      }
+      const [w, h] = giro.size;
+      $('#imp-info').innerHTML = `<p><b>${num(w)} × ${num(h)} mm</b> · ${giro.tagli} fori/scassi · ${giro.pieghe.length} linee di piega`
+        + `${r.pieghe_tot > giro.pieghe.length ? ` <span class="hint">(${r.pieghe_tot - giro.pieghe.length} linee tratto-punto ignorate: assi o fuori dal pezzo)</span>` : ''}</p>`
+        + (r.aperti ? `<p class="hint">${r.aperti} tratti del disegno non chiudono un contorno: se il pezzo non c’è, il suo contorno è aperto.</p>` : '');
+      $('#imp-bends').innerHTML = giro.pieghe.length ? `<table class="imp-bt"><tr><th>Piega</th><th>Lungh.</th><th>Angolo</th><th>Verso</th></tr>
+        ${giro.pieghe.map((p, i) => `<tr data-i="${i}" data-p="${p}"><td>${i + 1}</td><td>${num(giro.lunghezze[i])}</td>
+          <td><input class="field" data-b="angle" placeholder="${esc($('#imp-ang').value)}"></td>
+          <td><select class="field" data-b="direction"><option value="">=</option><option value="up">su</option><option value="down">giù</option></select></td></tr>`).join('')}</table>` : '';
+      $('#imp-bends').querySelectorAll('tr[data-p]').forEach(tr => {
+        const l = view.querySelector(`line.piega[data-piega="${tr.dataset.p}"]`);
+        tr.onmouseenter = () => l?.classList.add('hl');
+        tr.onmouseleave = () => l?.classList.remove('hl');
+      });
+    };
+    view.querySelectorAll('path.giro').forEach(p => {
+      p.onclick = () => inCoda(async () => {
+        const x = await call('import_dxf_giro', +p.dataset.giro);
+        if (!x.ok) { toast(x.message, 'err'); return; }
+        giro = x.giro; mostra();
+      });
+    });
+    const metodo = () => { $('#imp-k-l').hidden = $('#imp-met').value !== 'k'; $('#imp-bd-l').hidden = $('#imp-met').value !== 'bd90'; };
+    $('#imp-met').onchange = metodo;
+    if ($('#imp-rule')) $('#imp-rule').onchange = () => {
+      const x = regole[+$('#imp-rule').value];
+      if (!x) return;
+      if (x.material && [...$('#imp-mat').options].some(o => o.value === x.material)) $('#imp-mat').value = x.material;
+      if (x.thickness) $('#imp-sp').value = virg(x.thickness);
+      $('#imp-r').value = virg(x.radius); $('#imp-met').value = x.method || 'k';
+      $('#imp-k').value = virg(x.k); $('#imp-bd').value = virg(x.bd90); metodo();
+    };
+    $('#imp-ang').oninput = () => $('#imp-bends').querySelectorAll('[data-b="angle"]').forEach(i => { i.placeholder = $('#imp-ang').value; });
+    $('#m-no').onclick = close;
+    $('#imp-ok').onclick = () => inCoda(async () => {
+      if (!giro) { $('#imp-msg').innerHTML = '<div class="msg err">Scegli prima il contorno del pezzo.</div>'; return; }
+      const bends = [...$('#imp-bends').querySelectorAll('tr[data-p]')].map(tr => ({
+        angle: tr.querySelector('[data-b="angle"]').value.trim(), direction: tr.querySelector('[data-b="direction"]').value }));
+      const params = { name: $('#imp-name').value.trim(), material: $('#imp-mat').value, thickness: $('#imp-sp').value.trim(),
+        radius: $('#imp-r').value.trim(), method: $('#imp-met').value, k: $('#imp-k').value.trim(), bd90: $('#imp-bd').value.trim(),
+        angle: $('#imp-ang').value.trim(), direction: $('#imp-dir').value, bends };
+      $('#imp-msg').innerHTML = '<p class="hint">Costruisco il pezzo…</p>';
+      const x = await call('import_dxf_create', giro.index, params);
+      if (!x.ok) { $('#imp-msg').innerHTML = `<div class="msg err">${esc(x.message)}</div>`; return; }
+      close();
+      primaVolta = true; sel = null; clearSelection();
+      if (SK) exitSketch();
+      if (await apply(x)) {
+        hideHome();
+        if (x.avvisi && x.avvisi.length) toast(x.avvisi.join(' · '), 'err');
+      }
+    });
+    mostra();
+  });
+  $('#modal-box').classList.add('wide');
+}
+
 // ------------------------------------------------------------- pagina iniziale
 async function showHome(info) {
   info = info || await call('home_info');
@@ -1251,7 +1498,9 @@ async function showHome(info) {
   $('#home-close').hidden = !!info.show;              // all'avvio non c'è un progetto da cui tornare
   $('#home').hidden = false;
   document.body.classList.add('at-home');
-  $('#home').querySelectorAll('[data-new]').forEach(b => { b.onclick = () => newDialog(b.dataset.new); });
+  $('#home').querySelectorAll('[data-new]').forEach(b => {
+    b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'importa' ? inCoda(importDialog) : newDialog(b.dataset.new));
+  });
   $('#home-open').onclick = () => inCoda(() => openProject());
   $('#home-close').onclick = hideHome;
   $('#home').querySelectorAll('.home-rec').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
@@ -1269,7 +1518,19 @@ function hideHome() {
 const CMDS = [
   { id: 'new', label: 'Nuovo progetto…', keys: 'Ctrl+N', run: () => newDialog() },
   { id: 'home', label: 'Pagina iniziale', run: () => inCoda(() => showHome()) },
+  { id: 'new_asm', label: 'Nuovo assieme…', run: newAssemblyDialog },
+  { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
+  { id: 'asm_insert', label: 'Assieme: inserisci pezzo…', run: () => inCoda(async () => { const r = await call('asm_insert_dialog'); if (await apply(r) && r.select) await select(r.select); }) },
+  { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
+    const r = await call('asm_interferences');
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    if (!r.interferences.length) { toast(r.message); return; }
+    sel = { id: r.interferences[0].a, ids: [...new Set(r.interferences.flatMap(x => [x.a, x.b]))] }; paint(); renderTree();
+    toast('Interferenze: ' + r.interferences.map(x => x.label).join(' · '), 'err');
+  }) },
+  { id: 'asm_back', label: 'Torna all’assieme', run: () => inCoda(async () => { primaVolta = true; clearSelection(); await apply(await call('asm_back')); }) },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
+  { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
   { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => apply(await call('save', false), 'Salvato.')) },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => apply(await call('save', true), 'Salvato.')) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
@@ -1389,6 +1650,7 @@ document.addEventListener('keydown', ev => {
     else if (ev.key === 'Escape') $('#modal').hidden = true;
     return;
   }
+  if (ev.key === 'Escape' && ASM.tool) { asmTool(null); sel = null; paint(); return; }
   if (ev.key === 'Escape') {
     if (!$('#modal').hidden) { $('#modal').hidden = true; return; }
     if (linkFrom) { linkFrom = null; paintNodes(); return; }
@@ -2676,6 +2938,14 @@ $('#ribbon').addEventListener('click', ev => {
 // la scheda giusta per il progetto aperto
 // si vedono solo le schede che servono al progetto aperto (tutte se è ancora un disegno vuoto)
 function ribbonTabs() {
+  const assieme = S?.mode === 'assembly';
+  document.querySelector('.rtabs [data-rtab="assieme"]').hidden = !assieme;
+  if (assieme) {
+    for (const k of ['lamiera', 'strutture', 'piastra']) document.querySelector(`.rtabs [data-rtab="${k}"]`).hidden = true;
+    if (schedaPrima !== 'assieme' && !SK) { schedaPrima = 'assieme'; showRibbon('assieme'); }
+    return { assieme: true };
+  }
+  if (schedaPrima === 'assieme') schedaPrima = 'lamiera';
   const usa = { lamiera: !!S?.sheet, strutture: !!(S?.cutlist?.rows?.length || nodes.length),
     piastra: !S?.sheet && JSON.stringify(S?.tree || {}).includes('"kind":"extrude"') };
   const nessuna = !Object.values(usa).some(Boolean);
@@ -2693,7 +2963,7 @@ function ribbonForProject() {
   schedaPrima = t; showRibbon(t);
 }
 // ---------------------------------------------------------------- storia delle operazioni (timeline)
-const ICONA_TIPO = { sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', extrude: 'extrude', hole: 'hole', fillet: 'fillet',
+const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'joint', sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', extrude: 'extrude', hole: 'hole', fillet: 'fillet',
   chamfer: 'chamfer', structure: 'joint', members: 'line', part: 'box', group: 'list', project: 'box' };
 const iconImg = k => `<img src="icons/${ICONA_TIPO[k] || 'box'}.svg" alt="">`;
 function renderTimeline() {
@@ -2758,6 +3028,29 @@ async function start() {
     objs, select, camera, skScreen: xy => skScreen(xy), enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }
-if (DEV) start();
+// Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo
+async function liveLoop() {
+  for (;;) {
+    let r;
+    try { r = await call('live_next'); } catch (e) { await new Promise(ok => setTimeout(ok, 1000)); continue; }
+    if (!r || !r.ok) { await new Promise(ok => setTimeout(ok, 500)); continue; }
+    for (const ev of r.events) {
+      try {
+        if (ev.type === 'toast') toast(ev.text, ev.kind || '');
+        else if (ev.type === 'refresh') {
+          if (ev.nuovo) { primaVolta = true; clearSelection(); }
+          if (SK && ev.sketch !== SK.sid) exitSketch();
+          await apply({ ok: true, state: await call('state') });
+          hideHome();
+          if (ev.sketch && !SK) await enterSketch(ev.sketch);
+          if (ev.key) document.dispatchEvent(new KeyboardEvent('keydown', { key: ev.key, bubbles: true }));
+        }
+      } catch (e) { console.error(e); }
+    }
+    await call('live_ack', r.n);
+    if (r.end) break;
+  }
+}
+if (DEV) { start(); if (new URLSearchParams(location.search).has('live')) setTimeout(liveLoop, 500); }
 else if (window.pywebview?.api) start();
 else window.addEventListener('pywebviewready', start, { once: true });

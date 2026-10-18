@@ -165,7 +165,14 @@ def _faces(loops: list, plane: bd.Plane) -> list:
         if depth[i] % 2:
             continue
         holes = [info[j][0] for j in range(len(info)) if parent[j] == i and depth[j] == depth[i] + 1]
-        face = bd.Face(w, holes) if holes else f
+        try:
+            face = bd.Face(w, holes) if holes else f
+            if holes and abs(face.area - (f.area - sum(info[j][1].area for j in range(len(info))
+                                                         if parent[j] == i and depth[j] == depth[i] + 1))) > TOL:
+                raise ValueError
+        except Exception:  # noqa: BLE001 - un contorno interno che esce da quello esterno
+            raise SketchError('Due contorni dello sketch si sovrappongono (uno esce dall’altro): il profilo non è '
+                              'chiaro. Uniscili in un solo contorno o separali.', code='profilo_sovrapposto') from None
         if face.normal_at().dot(plane.z_dir) < 0:
             face = -face
         faces.append(face)
