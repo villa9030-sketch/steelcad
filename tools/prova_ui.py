@@ -37,7 +37,7 @@ def main():
 
     try:
         with sync_playwright() as p:
-            b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+            b = p.chromium.launch(channel='chrome' if '--chrome' in sys.argv else None, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
             pg = b.new_page(viewport={'width': 1440, 'height': 900})
             pg.on('console', lambda m: m.type == 'error' and errori.append(m.text))
             pg.on('pageerror', lambda e: errori.append(str(e)))
@@ -45,7 +45,8 @@ def main():
             pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
             time.sleep(0.5)
             pg.screenshot(path=str(SHOTS / '1_avvio.png'))
-            ok('albero con il telaio', 'Telaio superiore' in pg.inner_text('#tree'))
+            ok('all’avvio la pagina iniziale, nessun progetto di esempio',
+               pg.is_visible('#home') and 'Telaio superiore' not in pg.inner_text('#tree') and not pg.is_visible('#home-close'))
             nuovo_subito(pg, ok)
             pg.goto(f'http://127.0.0.1:{PORTA}/?dev')
             pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
@@ -145,10 +146,10 @@ def main():
 
 def nuovo_subito(pg, ok):
     """Bug 16/10: appena aperta l'app, Nuovo → il pezzo nuovo deve sostituire quello vecchio a video."""
-    pg.keyboard.press('Control+N')
-    pg.click('.choice button[data-k="piastra"]')
+    pg.click('#home [data-new="piastra"]')
     pg.click('#n-ok')
     pg.wait_for_function("window.__steelcad.state.name === 'Piastra'")
+    pg.wait_for_selector('#home', state='hidden')
     pg.wait_for_function("window.__steelcad.objs.has('body') && window.__steelcad.objs.size === 1", timeout=8000)
     ok('nuovo progetto subito dopo l’avvio: a video c’è il pezzo nuovo', True)
 
@@ -238,6 +239,8 @@ def scatola(pg, ok):
         pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
         pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
     pg.evaluate("window.__steelcad.select('flange=SM1/FL1')")
+    pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]', state='attached')
+    pg.click('#props details.fsec:has(.corner) summary')          # gli angoli stanno in una sezione chiusa
     pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]')
     area0 = pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
     pg.select_option('.corner[data-other="FL2"] [data-corner]', 'over')
@@ -354,10 +357,14 @@ def comandi_sketch(pg, ok):
     sx, sy = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', [250, 0])
     pg.mouse.dblclick(box['x'] + sx, box['y'] + sy)
     pg.wait_for_function("window.__steelcad.sketch.sel.size === 4")
-    pg.click('#sk-selbar [data-act="offset"]')
-    pg.fill('#o-d', '15'); pg.select_option('#o-s', 'in')
-    pg.click('#m-ok')
+    # come in AutoCAD: O, distanza + Invio, clic dalla parte dove va (dentro)
+    pg.keyboard.press('o')
+    pg.keyboard.type('15'); pg.keyboard.press('Enter')
+    sx, sy = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', [250, 30])
+    pg.mouse.move(box['x'] + sx, box['y'] + sy)
+    pg.mouse.click(box['x'] + sx, box['y'] + sy)
     attendi('v.lines.length === 15')             # 4 lati nuovi + le loro 4 guide a 90°
+    pg.keyboard.press('Escape')                  # fine dell'offset
     ok('offset del contorno 15 verso dentro: ' + v()['status'], 'completamente' in v()['status'])
     pg.screenshot(path=str(SHOTS_G / '11_comandi.png'))
     # il passo della serie è un parametro: px1 = 50 e i fori si spostano (anche quelli specchiati)
@@ -399,12 +406,8 @@ def lamiera(pg, ok):
         pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
     size = pg.evaluate('window.__steelcad.state.sheet.data.flat_size')
     ok(f'U: sviluppo {size}', abs(size[0] - 500) < 1e-6 and abs(size[1] - 352.7964594) < 1e-5)
-    pg.fill('#h-u', '100')
-    pg.fill('#h-v', '18')
-    pg.fill('#h-d', '8')
-    pg.click('#h-add')
-    pg.wait_for_function("document.querySelectorAll('.holes .h').length === 1")
-    ok('foro sulla flangia', True)
+    ok('pannello flangia senza "Fori" e "Chiudi la testata" (tolti: si fanno disegnando sulla faccia)',
+       'fori sulla flangia' not in pg.inner_text('#props').lower() and 'testata' not in pg.inner_text('#props').lower())
     pg.click('.tabs button[data-tab="sheet"]')
     pg.wait_for_selector('#flat-svg')
     time.sleep(0.3)

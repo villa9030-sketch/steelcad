@@ -233,13 +233,18 @@ def test_taglio_disegnato_sulla_faccia(faccia, punto):
         assert (centro[0].X, centro[0].Y) == pytest.approx(punto[:2], abs=1e-9)
 
 
-def test_taglio_nella_piega_rifiutato():
+def test_foro_che_entra_nella_piega_si_avvolge():
+    """Un foro disegnato sulla flangia che scende nella piega: prima era rifiutato, ora la parte nella piega si
+    avvolge sulla piega (come se fosse disegnato sullo sviluppo)."""
     doc, _ = u_part(foro_base=False, foro_flangia=False)
-    doc.rebuild()
+    res0 = doc.rebuild()
+    v0 = bd.Solid(res0.body.shape).volume
     s2 = doc.add_sketch({'face': 'SM1/FL1/esterno'}, 'F')
     doc.rebuild()
     q = doc._sketch_results[s2.id][1].plane.to_local_coords(bd.Vector(250, 0, 5))
     s2.circle((q.X, q.Y), 4)
     doc.add_feature('sheet_cut', 'T', sketch=s2.id)
     res = doc.rebuild()
-    assert not res.ok and 'cade nella piega' in res.errors[0].message
+    assert res.ok, [e.message for e in res.errors]
+    assert len(bd.Shape.cast(res.body.shape).solids()) == 1
+    assert bd.Solid(res.body.shape).volume < v0 - 10

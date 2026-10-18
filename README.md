@@ -42,6 +42,8 @@ py -3 -m venv .venv
 .venv\Scripts\python -m pytest            # tutti i test
 .venv\Scripts\python tools\milestone1.py  # il flusso del gate, scrive in test_parts\
 <python con playwright> tools\prova_ui.py      # l'interfaccia in un browser invisibile
+<python con playwright> tools\prova_ui_pieghe.py  # pieghe su pieghe, faccia di lavoro, spiega
+<python con playwright> tools\prova_ui_comandi.py # ogni pulsante della barra, raccordi, cubo, tema
 ```
 
 ## Esempio
@@ -72,3 +74,7 @@ dxf.export_flat(res.body.shape, 'piastra.dxf')
 
 `docs/ARCHITECTURE.md`, `docs/UX_PRINCIPLES.md`, `docs/CAD_MODEL.md`,
 `docs/TOPOLOGY_STRATEGY.md`, `docs/ROADMAP.md`.
+
+## Icone
+Le icone dell'interfaccia vengono da [SolidCraft](https://github.com/tangency-labs/solidcraft)
+(MIT o Apache-2.0): vedi `app/ui/icons/ATTRIBUTION.md`.

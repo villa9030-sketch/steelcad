@@ -1,8 +1,8 @@
 """Il piano di uno sketch messo su una faccia piana con nome.
 
-Origine: la proiezione dell'origine globale sul piano della faccia; asse X:
-l'asse X globale proiettato (o Y, se X è perpendicolare). Così le quote dello
-sketch non cambiano quando cambia la forma della faccia.
+Assi come li vedi guardando la faccia (la vista dello sketch ha "su" = Z): X verso destra, Y verso
+l'alto. Per le facce orizzontali X è l'asse X globale. Origine: l'angolo in basso a sinistra della faccia,
+così le quote del disegno partono dallo spigolo del pezzo ("40 dal bordo") e lo seguono se cambia.
 """
 from __future__ import annotations
 
@@ -21,10 +21,13 @@ def plane_of(body: NamedShape, face_name: str, sk) -> bd.Plane:
         raise SketchError(f'Lo sketch "{sk.label()}" sta su "{describe(face_name)}", che non è piana.')
     face = bd.Face(f)
     n = face.normal_at()
-    p = face.center()
-    origin = n * n.dot(p)
-    x = bd.Vector(1, 0, 0)
-    if abs(n.dot(x)) > 0.99:
-        x = bd.Vector(0, 1, 0)
-    x = (x - n * n.dot(x)).normalized()
-    return bd.Plane(origin=origin, x_dir=x, z_dir=n)
+    su = bd.Vector(0, 0, 1)
+    if abs(n.dot(su)) < 0.99:
+        x = su.cross(n).normalized()             # faccia in piedi: X a destra guardandola, Y in su
+    else:
+        x = bd.Vector(1, 0, 0)
+        x = (x - n * n.dot(x)).normalized()
+    p0 = bd.Plane(origin=face.center(), x_dir=x, z_dir=n)
+    loc = [p0.to_local_coords(v) for v in face.vertices()]
+    angolo = p0.from_local_coords((min(q.X for q in loc), min(q.Y for q in loc)))
+    return bd.Plane(origin=angolo, x_dir=x, z_dir=n)

@@ -39,8 +39,8 @@ class Api:
     def scene(self):
         return self._call(self._svc.scene)
 
-    def select(self, obj_id, face_index=None):
-        return self._call(self._svc.select, obj_id, face_index)
+    def select(self, obj_id, face_index=None, face_name=None):
+        return self._call(self._svc.select, obj_id, face_index, face_name)
 
     def profile_suggestions(self):
         return self._svc.profile_suggestions()
@@ -67,8 +67,8 @@ class Api:
     def move_node(self, st_id, key, values):
         return self._call(self._svc.move_node, st_id, key, values)
 
-    def add_flange(self, fid, edge, fields):
-        return self._call(self._svc.add_flange, fid, edge, fields)
+    def add_flange(self, fid, edge, fields, parent=None):
+        return self._call(self._svc.add_flange, fid, edge, fields, parent)
 
     def edit_flange(self, fid, flid, fields):
         return self._call(self._svc.edit_flange, fid, flid, fields)
@@ -85,17 +85,56 @@ class Api:
     def set_sheet_tech(self, fid, fields):
         return self._call(self._svc.set_sheet_tech, fid, fields)
 
+    def set_tip_corners(self, fid, mode):
+        return self._call(self._svc.set_tip_corners, fid, mode)
+
+    def extend_over_tab(self, fid, flid):
+        return self._call(self._svc.extend_over_tab, fid, flid)
+
+    def sketch_hole_type(self, sid, eids, spec):
+        return self._call(self._svc.sketch_hole_type, sid, eids, spec)
+
+    def auto_tabs(self, fid, flid, n, w, gioco, sporgenza=0):
+        return self._call(self._svc.auto_tabs, fid, flid, n, w, gioco, sporgenza)
+
+    def sheet_fold(self, sid, angle, direction='up', flip=False):
+        return self._call(self._svc.sheet_fold, sid, angle, direction, flip)
+
+    def edit_fold(self, fid, foid, fields):
+        return self._call(self._svc.edit_fold, fid, foid, fields)
+
+    def delete_fold(self, fid, foid):
+        return self._call(self._svc.delete_fold, fid, foid)
+
+    def sketch_xray(self, sid, on):
+        return self._call(self._svc.sketch_xray, sid, on)
+
+    def sheet_tab(self, sid):
+        return self._call(self._svc.sheet_tab, sid)
+
+    def contour_flange(self, sid):
+        return self._call(self._svc.contour_flange, sid)
+
+    def set_end_tab(self, fid, flid, end, on, gap=0):
+        return self._call(self._svc.set_end_tab, fid, flid, end, on, gap)
+
     def set_corner(self, fid, flid, other, mode, gap=0):
         return self._call(self._svc.set_corner, fid, flid, other, mode, gap)
 
     def sketch_on_face(self, face_name):
         return self._call(self._svc.sketch_on_face, face_name)
 
+    def sketch_close(self, sid):
+        return self._call(self._svc.sketch_close, sid)
+
+    def sketch_on_flat(self, fid=None):
+        return self._call(self._svc.sketch_on_flat, fid)
+
     def sketch_view(self, sid):
         return self._call(self._svc.sketch_view, sid)
 
-    def sketch_add_polyline(self, sid, pts, closed, construction=False):
-        return self._call(self._svc.sketch_add_polyline, sid, pts, closed, construction)
+    def sketch_add_polyline(self, sid, pts, closed, construction=False, angles=None):
+        return self._call(self._svc.sketch_add_polyline, sid, pts, closed, construction, angles)
 
     def sketch_add_rectangle(self, sid, p0, p1, construction=False):
         return self._call(self._svc.sketch_add_rectangle, sid, p0, p1, construction)
@@ -103,14 +142,62 @@ class Api:
     def sketch_add_circle(self, sid, center, r, construction=False):
         return self._call(self._svc.sketch_add_circle, sid, center, r, construction)
 
+    def sketch_add_slot(self, sid, c1, c2, r, construction=False):
+        return self._call(self._svc.sketch_add_slot, sid, c1, c2, r, construction)
+
+    def sketch_add_arc3(self, sid, p1, p2, p3, construction=False):
+        return self._call(self._svc.sketch_add_arc3, sid, p1, p2, p3, construction)
+
+    def sketch_add_polygon(self, sid, center, vertex, n, construction=False):
+        return self._call(self._svc.sketch_add_polygon, sid, center, vertex, n, construction)
+
+    def sketch_fillet(self, sid, pid, r):
+        return self._call(self._svc.sketch_fillet, sid, pid, r)
+
+    def sketch_fillet_lines(self, sid, l1, l2, c1, c2, r):
+        return self._call(self._svc.sketch_fillet_lines, sid, l1, l2, c1, c2, r)
+
+    def sketch_chamfer_lines(self, sid, l1, l2, c1, c2, d):
+        return self._call(self._svc.sketch_chamfer_lines, sid, l1, l2, c1, c2, d)
+
+    def sketch_chamfer(self, sid, pid, d):
+        return self._call(self._svc.sketch_chamfer, sid, pid, d)
+
+    def sheet_rules(self):
+        return self._call(self._svc.sheet_rules)
+
+    def save_sheet_rule(self, fid, name):
+        return self._call(self._svc.save_sheet_rule, fid, name)
+
+    def delete_sheet_rule(self, name):
+        return self._call(self._svc.delete_sheet_rule, name)
+
+    def apply_sheet_rule(self, fid, name):
+        return self._call(self._svc.apply_sheet_rule, fid, name)
+
     def sketch_construction(self, sid, eids, flag):
         return self._call(self._svc.sketch_construction, sid, eids, flag)
 
     def sketch_offset_preview(self, sid, eids, dist, side):
         return self._call(self._svc.sketch_offset_preview, sid, eids, dist, side)
 
+    def sketch_offset_side(self, sid, eids, dist, point):
+        return self._call(self._svc.sketch_offset_side, sid, eids, dist, point)
+
     def sketch_offset(self, sid, eids, dist, side):
         return self._call(self._svc.sketch_offset, sid, eids, dist, side)
+
+    def sketch_trim_preview(self, sid, eid, click):
+        return self._call(self._svc.sketch_trim_preview, sid, eid, click)
+
+    def sketch_trim(self, sid, eid, click):
+        return self._call(self._svc.sketch_trim, sid, eid, click)
+
+    def sketch_extend_preview(self, sid, eid, click):
+        return self._call(self._svc.sketch_extend_preview, sid, eid, click)
+
+    def sketch_extend(self, sid, eid, click):
+        return self._call(self._svc.sketch_extend, sid, eid, click)
 
     def sketch_mirror(self, sid, eids, axis):
         return self._call(self._svc.sketch_mirror, sid, eids, axis)
@@ -142,6 +229,15 @@ class Api:
     def new_project(self, kind, values=None):
         return self._call(self._svc.new_project, kind, values)
 
+    def home_info(self):
+        return self._call(self._svc.home_info)
+
+    def recover_unsaved(self):
+        return self._call(self._svc.recover_unsaved)
+
+    def forget_recent(self, path):
+        return self._call(self._svc.forget_recent, path)
+
     def autosave(self):
         return self._call(self._svc.autosave)
 
@@ -160,6 +256,11 @@ class Api:
             return {'ok': False, 'recovery': True, 'path': p}
         return self._call(self._svc.open, p)
 
+    def open_recent(self, path):
+        if self._svc.recovery_available(path):
+            return {'ok': False, 'recovery': True, 'path': path}
+        return self._call(self._svc.open, path)
+
     def open_path(self, path, recover=False):
         return self._call(self._svc.open, path, recover)
 
@@ -173,12 +274,13 @@ class Api:
         return self._call(self._svc.save, p)
 
     def export(self, kind):
-        ext = {'step': ('STEP (*.step;*.stp)', '.step'), 'dxf': ('DXF di taglio (*.dxf)', '.dxf')}[kind]
+        ext = {'step': ('STEP (*.step;*.stp)', '.step'), 'dxf': ('DXF di taglio (*.dxf)', '.dxf'),
+               'bendtable': ('Tabella pieghe (*.csv)', '_pieghe.csv')}[kind]
         nome = (self._svc.doc.meta.get('name') or 'pezzo') + ext[1]
         p = self._dialog(webview.SAVE_DIALOG, (ext[0],), nome)
         if not p:
             return {'ok': False, 'cancelled': True}
-        fn = self._svc.export_step if kind == 'step' else self._svc.export_dxf
+        fn = {'step': self._svc.export_step, 'dxf': self._svc.export_dxf, 'bendtable': self._svc.export_bend_table}[kind]
         return self._call(fn, p)
 
 
@@ -190,7 +292,7 @@ def main():
         if not r['ok']:
             print(r['message'])
     w = webview.create_window('SteelCAD', str(UI), js_api=api, width=1440, height=900, min_size=(1024, 640),
-                              background_color='#E8EAED')
+                              background_color='#16191D')
     api._window = w
 
     def chiusura():

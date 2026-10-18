@@ -32,3 +32,9 @@ def plate(width=300, height=200, hole=30, thickness=5, material='S235'):
 @pytest.fixture
 def tmp(tmp_path):
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _cartella_programma(tmp_path_factory, monkeypatch):
+    """I progetti recenti dei test non finiscono in quelli veri dell'utente."""
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path_factory.mktemp('steelcad_home')))

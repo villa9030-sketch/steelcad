@@ -56,8 +56,38 @@ def _feature_label(doc, f, fr) -> str:
             except SteelCADError:
                 pass
             return f'Lamiera sp. {sp}'
+        if t == 'sheet_form':
+            try:
+                sk = doc.sketch(f['sketch'])
+                n = sum(1 for e in sk.entities.values() if e['kind'] == ('line' if f.get('kind') == 'louver' else 'circle')
+                        and not e.get('construction') and not e.get('ref'))
+            except SteelCADError:
+                n = 0
+            if f.get('kind') == 'louver':
+                return f'{nome or "Persiane"}: {n} × {f.get("width")} alta {f.get("height")}'
+            return f'{nome or "Imbutiture"}: {n} × profonde {f.get("depth")}'
         if t == 'sheet_cut':
-            return f'{nome or "Taglio"} attraverso la lamiera'
+            if f.get('mode') == 'add':
+                return f'{nome or "Linguetta"}: materiale aggiunto nel piano della faccia'
+            extra = []
+            try:
+                sk = doc.sketch(f['sketch'])
+                fil, sva = {}, {}
+                for e in sk.entities.values():
+                    h = e.get('hole') if e['kind'] == 'circle' and not e.get('construction') else None
+                    if h and h.get('tipo') == 'filettato':
+                        fil[h['M']] = fil.get(h['M'], 0) + 1
+                    elif h and h.get('tipo') == 'svasato':
+                        k = f'Ø{fmt_mm(h["D"])}'
+                        sva[k] = sva.get(k, 0) + 1
+                    elif h and h.get('tipo') == 'inserto':
+                        k = f'inserti {h["codice"]}'
+                        sva[k] = sva.get(k, 0) + 1
+                extra = [f'{n} × {m}' for m, n in fil.items()] + [f'{n} × {"" if k.startswith("inserti") else "svasati "}{k}'
+                                                                  for k, n in sva.items()]
+            except (SteelCADError, KeyError):
+                pass
+            return f'{nome or "Taglio"} attraverso la lamiera' + (f' ({", ".join(extra)})' if extra else '')
     except (KeyError, ValueError):
         pass
     return nome or f['id']
@@ -91,8 +121,15 @@ def project_tree(doc, result) -> dict:
                                            status=None if fr and fr.ok else 'errore'))
                 if f['type'] == 'sheet':
                     sk = doc.sketch(f['sketch']) if f.get('sketch') else None
+                    for fo in f.get('folds') or []:
+                        verso = 'su' if fo.get('direction', 'up') == 'up' else 'giù'
+                        part['children'].append(_n(f'{fo["id"]}: piega su linea a {fo.get("angle", 90)}° {verso}',
+                                                   'flange', f'{fid}/{fo["id"]}'))
                     for fl in f.get('flanges') or []:
-                        lato = sk.describe(fl.get('edge')) if sk else fl.get('edge')
+                        if fl.get('parent'):
+                            lato = f'sulla punta di {fl["parent"]}'
+                        else:
+                            lato = sk.describe(fl.get('edge')) if sk else fl.get('edge')
                         verso = 'su' if fl.get('direction', 'up') == 'up' else 'giù'
                         ang = fl.get('angle', 90)
                         part['children'].append(_n(f'{fl["id"]}: flangia {fl.get("length")} a {ang}° {verso}, {lato}',

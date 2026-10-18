@@ -8,7 +8,20 @@ from .. import materials
 from ..features.measure_util import bbox
 
 
+_ULTIME: list = []          # [(forma, materiale, risultato)] le ultime calcolate
+
+
 def properties(shape, material_code: str) -> dict:
+    for f, m, r in _ULTIME:
+        if f is shape and m == material_code:
+            return r
+    r = _properties(shape, material_code)
+    _ULTIME.insert(0, (shape, material_code, r))
+    del _ULTIME[4:]
+    return r
+
+
+def _properties(shape, material_code: str) -> dict:
     vp = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape, vp)
     sp = GProp_GProps()

@@ -42,6 +42,8 @@ def main():
     a = ap.parse_args()
     cartella = Path(a.cartella)
     cartella.mkdir(parents=True, exist_ok=True)
+    import os
+    os.environ.setdefault('STEELCAD_HOME', str(cartella / '.steelcad'))   # i recenti delle prove restano qui
     api = ApiProva(cartella)
 
     class H(SimpleHTTPRequestHandler):

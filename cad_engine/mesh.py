@@ -45,8 +45,15 @@ def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angula
         faces.append({'name': nome, 'index': k, 'start': start, 'count': len(idx) - start})
     edges = []
     for e in _edges_of(shape):
+        if BRep_Tool.Degenerated_s(e):
+            continue                        # lo spigolo "a punto" del polo di una sfera: niente da disegnare
         be = bd.Edge(e)
+        if be.length < 1e-9:
+            continue
         n = 2 if be.geom_type == bd.GeomType.LINE else max(8, min(64, int(be.length / 2)))
-        pts = be.positions([i / (n - 1) for i in range(n)])
+        try:
+            pts = be.positions([i / (n - 1) for i in range(n)])
+        except Exception:  # noqa: BLE001 - uno spigolo strano non deve fermare la vista
+            continue
         edges.append([round(c, 4) for p in pts for c in (p.X, p.Y, p.Z)])
     return {'positions': [round(v, 4) for v in pos], 'indices': idx, 'faces': faces, 'edges': edges}

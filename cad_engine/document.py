@@ -25,9 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_cut': 'TG'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_cut': 'TG', 'sheet_form': 'FM'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
-        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_cut': 'Taglio'}
+        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma'}
 
 
 @dataclass
@@ -141,6 +141,8 @@ class Document:
     @staticmethod
     def _deps(f) -> set:
         if isinstance(f, Sketch):
+            if isinstance(f.plane, dict) and 'flat' in f.plane:
+                return {f.plane['flat']}
             return {f.plane['face'].split('/')[0]} if isinstance(f.plane, dict) and 'face' in f.plane else set()
         out = set()
         if f.get('sketch'):
@@ -201,7 +203,14 @@ class Document:
                         solved = solve(f, params)
                         prof = None
                         if solved.status.ok_for_features:
-                            prof = profile_mod.build(solved, plane)
+                            try:
+                                prof = profile_mod.build(solved, plane)
+                            except SteelCADError:
+                                # le persiane si disegnano con linee aperte: per loro il contorno chiuso non serve
+                                if not any(not isinstance(x, Sketch) and x.get('type') == 'sheet_form'
+                                           and x.get('kind') == 'louver' and x.get('sketch') == fid for x in self.features):
+                                    raise
+                                prof = profile_mod.Profile(plane, [], [])
                     except SteelCADError as ex:
                         res.features.append(FeatureResult(fid, 'sketch', False, ex.message))
                         continue
@@ -306,6 +315,8 @@ class Document:
                 for h in fl.get('holes') or []:
                     for k in ('u', 'v', 'd'):
                         nomi |= names_in(h.get(k))
+                for et in fl.get('end_tabs') or []:
+                    nomi |= names_in(et.get('gap'))
             for c in f.get('corners') or []:
                 nomi |= names_in(c.get('gap'))
         return {n: params.get(n) for n in sorted(nomi)}
@@ -316,6 +327,12 @@ class Document:
         nome = sk.plane.get('face')
         if body is None:
             raise SketchError(f'Lo sketch "{sk.label()}" sta su una faccia, ma in quel punto il pezzo non esiste.')
+        if sk.plane.get('flat'):
+            # sullo sviluppo: il piano dello sketch della lamiera, dove sta lo sviluppo
+            sheet = getattr(body, 'sheet', None)
+            if sheet is None or sheet.feature != sk.plane['flat']:
+                raise SketchError(f'Lo sketch "{sk.label()}" sta sullo sviluppo di {sk.plane["flat"]}, che non c’è.')
+            return sheet.plane
         from .sketch.face_plane import plane_of
         return plane_of(body, nome, sk)
 
@@ -338,7 +355,8 @@ class Document:
                  'fondo': 'il fondo del foro', 'raccordo': 'il raccordo', 'smusso': 'lo smusso',
                  'sopra': 'la faccia di sopra', 'sotto': 'la faccia di sotto', 'parete': 'la parete del taglio'}
         flangia = {'esterno': 'la faccia esterna', 'interno': 'la faccia interna', 'punta': 'la punta',
-                   'fianco': 'il fianco', 'piega_esterna': 'la piega (fuori)', 'piega_interna': 'la piega (dentro)'}
+                   'fianco': 'il fianco', 'piega_esterna': 'la piega (fuori)', 'piega_interna': 'la piega (dentro)',
+                   'chiusura': 'la piega di chiusura'}
         if len(parti) == 3 and (parti[2] in flangia or parti[2].startswith('foro')):
             cosa = flangia.get(parti[2]) or f'il {parti[2].replace("foro", "foro ")}'
             return f'{cosa} della flangia {parti[1]} di {nome_f}'

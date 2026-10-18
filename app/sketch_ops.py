@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import math
 
+import build123d as bd
+
 from cad_engine.errors import SketchError, SteelCADError
 from cad_engine.sketch import solve
 from cad_engine.sketch.model import ORIGIN
@@ -43,11 +45,32 @@ def view(doc, sid: str, body=None) -> dict:
            'origin': g((0, 0)), 'x_dir': [pl.x_dir.X, pl.x_dir.Y, pl.x_dir.Z], 'y_dir': [pl.y_dir.X, pl.y_dir.Y, pl.y_dir.Z],
            'z_dir': [pl.z_dir.X, pl.z_dir.Y, pl.z_dir.Z],
            'points': [{'id': k, 'xy': list(v), 'xyz': g(v)} for k, v in pts.items()
-                      if not sk.entities.get(k, {}).get('construction')],
-           'lines': [], 'circles': [],
+                      if not sk.entities.get(k, {}).get('construction') or sk.entities.get(k, {}).get('ref')],
+           'lines': [], 'circles': [], 'arcs': [],
            'used_by': [f['id'] for f in doc.features if not hasattr(f, 'entities') and f.get('sketch') == sid],
-           'on_face': sk.plane.get('face') if isinstance(sk.plane, dict) else None}
-    if out['on_face']:
+           'on_face': sk.plane.get('face') if isinstance(sk.plane, dict) else None,
+           'on_flat': sk.plane.get('flat') if isinstance(sk.plane, dict) else None}
+    fatto = (doc._sketch_results or {}).get(sid) if hasattr(doc, '_sketch_results') else None
+    out['profiles'] = len(fatto[1].faces) if fatto and fatto[1] is not None else 0
+    out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc') and not e.get('ref'))
+    if out['on_flat']:
+        out['where'] = 'sullo sviluppo della lamiera'
+    elif out['on_face']:
+        testo = doc.describe_face(out['on_face']).replace('"', '')
+        for art, prep in (('la ', 'sulla '), ('il ', 'sul '), ('lo ', 'sullo '), ('l’', 'sull’')):
+            if testo.startswith(art):
+                testo = prep + testo[len(art):]
+                break
+        else:
+            testo = 'su ' + testo
+        out['where'] = testo
+    else:
+        out['where'] = {'XY': 'sul piano XY (dall’alto)', 'XZ': 'sul piano XZ (di fronte)',
+                        'YZ': 'sul piano YZ (di lato)'}.get(sk.plane, 'sul piano')
+    out['xray'] = any(e.get('xray') and e['kind'] != 'point' for e in sk.entities.values())
+    if out['on_flat']:
+        out['on_sheet'] = True
+    elif out['on_face']:
         try:
             f0 = doc.feature(out['on_face'].split('/')[0])
             out['on_sheet'] = not hasattr(f0, 'entities') and f0.get('type') == 'sheet'
@@ -56,9 +79,19 @@ def view(doc, sid: str, body=None) -> dict:
     for k, e in sk.entities.items():
         if e['kind'] == 'line':
             out['lines'].append({'id': k, 'a': e['a'], 'b': e['b'], 'label': sk.describe(k),
-                                 'construction': bool(e.get('construction')),
+                                 'construction': bool(e.get('construction')), 'ref': bool(e.get('ref')), 'xray': bool(e.get('xray')),
                                  'pa': g(pts[e['a']]), 'pb': g(pts[e['b']]),
                                  'xa': list(pts[e['a']]), 'xb': list(pts[e['b']])})
+        elif e['kind'] == 'arc':
+            c, a, b = pts[e['center']], pts[e['start']], pts[e['end']]
+            t0 = math.atan2(a[1] - c[1], a[0] - c[0])
+            t1 = math.atan2(b[1] - c[1], b[0] - c[0])
+            while t1 <= t0:
+                t1 += 2 * math.pi
+            out['arcs'].append({'id': k, 'center': g(c), 'xc': list(c), 'r': math.hypot(a[0] - c[0], a[1] - c[1]),
+                                'a0': t0, 'a1': t1, 'label': sk.describe(k), 'start': e['start'], 'end': e['end'],
+                                'center_id': e['center'],
+                                'construction': bool(e.get('construction')), 'ref': bool(e.get('ref')), 'xray': bool(e.get('xray'))})
         elif e['kind'] == 'circle':
             c = pts[e['center']]
             r = e['r']
@@ -67,8 +100,98 @@ def view(doc, sid: str, body=None) -> dict:
             except Exception:  # noqa: BLE001
                 pass
             out['circles'].append({'id': k, 'center': g(c), 'r': r, 'label': sk.describe(k), 'xc': list(c),
-                                   'construction': bool(e.get('construction'))})
+                                   'center_id': e['center'], 'hole': e.get('hole'),
+                                   'construction': bool(e.get('construction')), 'ref': bool(e.get('ref')), 'xray': bool(e.get('xray'))})
     return out
+
+
+def _bend_edges(body_shape, face) -> set:
+    """Gli spigoli della faccia che confinano con una faccia cilindrica del pezzo (l'inizio di una piega)."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp
+    from OCP.TopoDS import TopoDS
+    from OCP.collections import IndexedDataMap_TopoDS_Shape_List_TopoDS_Shape_TopTools_ShapeMapHasher as Mappa
+    m = Mappa()
+    TopExp.MapShapesAndAncestors_s(body_shape, TopAbs_EDGE, TopAbs_FACE, m)
+    out = set()
+    for e in face.edges():
+        if not m.Contains(e.wrapped):
+            continue
+        for f in m.FindFromKey(e.wrapped):
+            if not f.IsSame(face.wrapped) and BRepAdaptor_Surface(TopoDS.Face(f)).GetType() == GeomAbs_Cylinder:
+                out.add(e)
+                break
+    return out
+
+
+def add_reference_edges(sk, face, plane, body_shape=None) -> list[str]:
+    """I bordi della faccia (o dello sviluppo) su cui si disegna, come linee di costruzione fisse: ci si
+    aggancia, ci si quota e ci si fa l'offset ("10 mm dal bordo del pezzo"). Non si tagliano: sono guide."""
+    punti: dict = {}
+    # i punti arancio che ci sono già (bordi rifatti): si riusano, così il disegno resta attaccato
+    for pid, e in sk.entities.items():
+        if e['kind'] == 'point' and e.get('ref'):
+            punti.setdefault((round(e['x'], 4), round(e['y'], 4)), pid)
+
+    def pt(v):
+        q = plane.to_local_coords(v)
+        k = (round(q.X, 4), round(q.Y, 4))
+        if k not in punti:
+            pid = sk.point(q.X, q.Y, construction=True)
+            sk.entities[pid]['ref'] = True              # si vede e ci si aggancia, anche se è di costruzione
+            sk.constrain('fix', pid)
+            punti[k] = pid
+        elif not any(c['type'] == 'fix' and c['refs'] == [punti[k]] for c in sk.constraints.values()):
+            sk.constrain('fix', punti[k])
+        return punti[k]
+
+    pieghe = _bend_edges(body_shape, face) if body_shape is not None else set()
+    fatte = []
+    for e in face.edges():
+        if e.geom_type == bd.GeomType.LINE:
+            a, b = pt(e.start_point()), pt(e.end_point())
+            if a != b:
+                lid = sk.line(a, b, construction=True, label='bordo del pezzo')
+                sk.entities[lid]['ref'] = True
+                if e in pieghe:
+                    sk.entities[lid]['piega'] = True        # qui comincia una piega
+                fatte.append(lid)
+        elif e.geom_type == bd.GeomType.CIRCLE and abs(e.length - 2 * math.pi * e.radius) < 1e-6:
+            c = pt(e.arc_center)
+            cid = sk.circle(c, e.radius, construction=True)
+            sk.entities[cid]['ref'] = True
+            sk.dimension('diameter', cid, value=_r(2 * e.radius))
+            fatte.append(cid)
+        elif e.geom_type == bd.GeomType.CIRCLE:
+            # uno spigolo raccordato: arco con gli estremi fissi; il centro lo trova il raggio (se fosse fisso
+            # anche lui, il vincolo sarebbe di troppo)
+            a, b = pt(e.start_point()), pt(e.end_point())
+            qc, qm = plane.to_local_coords(e.arc_center), plane.to_local_coords(e.position_at(0.5))
+            ang = lambda x, y: math.atan2(y - qc.Y, x - qc.X)  # noqa: E731
+            a0 = ang(sk.entities[a]['x'], sk.entities[a]['y'])
+            giro = lambda t: (t - a0) % (2 * math.pi)  # noqa: E731
+            antiorario = giro(ang(qm.X, qm.Y)) < giro(ang(sk.entities[b]['x'], sk.entities[b]['y']))
+            c = sk.point(qc.X, qc.Y, construction=True)
+            sk.entities[c]['ref'] = True
+            arco = sk.arc(c, a, b, construction=True) if antiorario else sk.arc(c, b, a, construction=True)
+            sk.entities[arco]['ref'] = True
+            sk.dimension('radius', arco, value=_r(e.radius))
+            fatte.append(arco)
+    return fatte
+
+
+def refresh_reference_edges(sk, face, plane, body_shape=None) -> list[str]:
+    """Rifà i bordi arancio dalla faccia vera (se ne mancano pezzi): via le linee/archi/cerchi del bordo, i
+    punti restano (il disegno ci è attaccato) e si riusano."""
+    via = [k for k, e in sk.entities.items() if e['kind'] in ('line', 'arc', 'circle') and e.get('ref') and not e.get('proj')]
+    for k in via:
+        del sk.entities[k]
+    for k, c in list(sk.constraints.items()):
+        if any(r not in sk.entities for r in c['refs']):
+            del sk.constraints[k]
+    return add_reference_edges(sk, face, plane, body_shape)
 
 
 def _snap_hv(a, b):
@@ -109,7 +232,34 @@ def _point_ref(sk, p):
                 sk.constrain('on_line', pid, l)
         elif 'on' in p:
             pid = sk.point(x, y)
-            sk.constrain('on_line', pid, p['on'])
+            sk.constrain('on_line', pid, p['on'])          # su una linea, un cerchio o un arco
+        elif 'quad' in p:
+            # quadrante di un cerchio/arco (in cima, in fondo, a destra, a sinistra): resta lì anche se il
+            # cerchio cambia diametro o si sposta
+            e = sk.entities[p['quad']]
+            c = sk.entities[e['center']]
+            if e['kind'] == 'circle':
+                r = e['r']
+            else:
+                s0 = sk.entities[e['start']]
+                r = math.hypot(s0['x'] - c['x'], s0['y'] - c['y'])
+            k = int(p.get('k', 0)) % 4
+            pid = sk.point(c['x'] + r * math.cos(k * math.pi / 2), c['y'] + r * math.sin(k * math.pi / 2))
+            sk.constrain('on_line', pid, p['quad'])
+            sk.constrain('horizontal' if k % 2 == 0 else 'vertical', pid, e['center'])
+        elif 'tan' in p:
+            pid = sk.point(x, y)                # la tangenza la mette add_polyline, sul tratto che arriva qui
+        elif 'perp' in p:
+            pid = sk.point(x, y)
+            sk.constrain('on_line', pid, p['perp'])         # + perpendicolare sul tratto (add_polyline)
+        elif 'track' in p:
+            # allineato a un altro punto: stessa X (in verticale) e/o stessa Y (in orizzontale)
+            pid = sk.point(x, y)
+            t = p['track']
+            if t.get('x'):
+                sk.constrain('vertical', pid, t['x'])
+            if t.get('y'):
+                sk.constrain('horizontal', pid, t['y'])
         else:
             raise SketchError('Aggancio sconosciuto.')
         e = sk.entities[pid]
@@ -123,7 +273,7 @@ def _point_ref(sk, p):
     return sk.point(x, y), (x, y), True
 
 
-def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = False) -> list[str]:
+def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = False, angles=None) -> list[str]:
     sk = doc.sketch(sid)
     if len(pts) < 2:
         raise SketchError('Servono almeno due punti.')
@@ -157,6 +307,25 @@ def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = Fa
     for i, lid in enumerate(linee):
         if i not in salta:
             sk.dimension('length', lid, value=_r(math.dist(xy[i], xy[i + 1])))
+    # angolo scritto ("100<30"): resta quello, misurato dall'asse X con una guida orizzontale corta
+    for i, ang in enumerate(angles or []):
+        if ang is None or i >= len(linee) or tipi[i]:
+            continue
+        x0, y0 = xy[i]
+        q = sk.point(x0 + 20, y0, construction=True)
+        g = sk.line(ids[i], q, construction=True)
+        sk.constrain('horizontal', g)
+        sk.dimension('length', g, value=20)
+        sk.dimension('angle', g, linee[i], value=_r(ang))
+    # tangente / perpendicolare: valgono per il tratto che arriva al punto agganciato (o parte, se è il primo)
+    for i, p in enumerate(pts):
+        if not isinstance(p, dict) or not linee:
+            continue
+        seg = linee[i - 1] if i > 0 else linee[0]
+        if 'tan' in p:
+            sk.constrain('tangent', seg, p['tan'])
+        if 'perp' in p:
+            sk.constrain('perpendicular', seg, p['perp'])
     if refs[0][2]:
         _position(sk, ids[0], xy[0])
     return linee
@@ -198,13 +367,44 @@ def add_circle(doc, sid: str, center, r: float, construction: bool = False) -> s
     return cid
 
 
+def add_slot(doc, sid: str, c1, c2, r: float, construction: bool = False) -> dict:
+    """Asola: due centri e la larghezza (2 × r). Quote: larghezza, interasse, posizione del primo centro."""
+    sk = doc.sketch(sid)
+    r = float(r)
+    if r <= 0:
+        raise SketchError('L’asola ha bisogno di una larghezza maggiore di zero.')
+    p1, xy1, nuovo1 = _point_ref(sk, c1)
+    p2, xy2, _ = _point_ref(sk, c2)
+    if math.dist(xy1, xy2) < 1e-6:
+        raise SketchError('I due centri dell’asola coincidono: serve un interasse.')
+    out = sk.slot(xy1, xy2, r)
+    k1, k2 = out['centers']
+    for k in (k1, k2):
+        sk.entities[k]['construction'] = False      # i centri si vedono: ci si aggancia
+    sk.constrain('coincident', k1, p1)
+    sk.constrain('coincident', k2, p2)
+    for eid in out['arcs'] + out['lines']:
+        sk.entities[eid]['construction'] = bool(construction)
+    hv = _snap_hv(xy1, xy2)
+    if hv:
+        sk.constrain(hv, k1, k2)
+    sk.dimension('distance', k1, k2, value=_r(math.dist(xy1, xy2)))
+    sk.dimension('radius', out['arcs'][0], value=_r(r))
+    if nuovo1:
+        _position(sk, p1, xy1)
+    return out
+
+
 def delete(doc, sid: str, eids: list[str]) -> None:
     """Toglie linee/cerchi, i vincoli che li usano e i punti rimasti soli (mai l'origine)."""
     sk = doc.sketch(sid)
-    via = set(eids)
     for e in eids:
         if e not in sk.entities or e == ORIGIN:
             raise SketchError(f'Nello sketch non c’è {e}.')
+    eids = [e for e in eids if not sk.entities[e].get('ref')]     # i bordi del pezzo restano
+    if not eids:
+        raise SketchError('I bordi arancio sono il pezzo vero: non si cancellano né si modificano (servono per agganciarsi e per chiudere i contorni).')
+    via = set(eids)
     for k in list(sk.entities):
         if k in via:
             del sk.entities[k]
@@ -272,3 +472,4 @@ def guarded(fn):
 add_polyline = guarded(add_polyline)
 add_rectangle = guarded(add_rectangle)
 add_circle = guarded(add_circle)
+add_slot = guarded(add_slot)

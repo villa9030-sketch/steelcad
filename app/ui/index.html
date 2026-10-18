@@ -3,49 +3,58 @@
 <head>
 <meta charset="utf-8">
 <title>SteelCAD</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
 </head>
 <body>
 <header id="top">
-  <div class="brand">SteelCAD</div>
-  <nav class="menu">
-    <div class="menu-item"><button>File</button>
-      <div class="drop">
-        <button data-cmd="new">Nuovo…<kbd>Ctrl+N</kbd></button>
-        <button data-cmd="open">Apri…<kbd>Ctrl+O</kbd></button>
-        <button data-cmd="save">Salva<kbd>Ctrl+S</kbd></button>
-        <button data-cmd="saveas">Salva con nome…<kbd>Ctrl+Maiusc+S</kbd></button>
-        <hr>
-        <button data-cmd="export_step">Esporta STEP…</button>
-        <button data-cmd="export_dxf">Esporta DXF di taglio…</button>
-      </div>
+  <button class="brand" data-cmd="home" title="Pagina iniziale"><img src="icons/box.svg" alt="">SteelCAD</button>
+  <div class="menu-item"><button class="tbtn" title="File"><img src="icons/open.svg" alt=""><span>File</span></button>
+    <div class="drop">
+      <button data-cmd="new">Nuovo…<kbd>Ctrl+N</kbd></button>
+      <button data-cmd="open">Apri…<kbd>Ctrl+O</kbd></button>
+      <button data-cmd="save">Salva<kbd>Ctrl+S</kbd></button>
+      <button data-cmd="saveas">Salva con nome…<kbd>Ctrl+Maiusc+S</kbd></button>
+      <button data-cmd="home">Pagina iniziale</button>
+      <hr>
+      <button data-cmd="export_step">Esporta STEP…</button>
+      <button data-cmd="export_dxf">Esporta DXF di taglio…</button>
+      <button data-cmd="export_bendtable">Esporta tabella pieghe…</button>
     </div>
-    <div class="menu-item"><button>Modifica</button>
-      <div class="drop">
-        <button data-cmd="undo" id="m-undo">Annulla<kbd>Ctrl+Z</kbd></button>
-        <button data-cmd="redo" id="m-redo">Ripeti<kbd>Ctrl+Y</kbd></button>
-      </div>
-    </div>
-    <div class="menu-item"><button>Vista</button>
-      <div class="drop">
-        <button data-cmd="view_iso">Isometrica<kbd>0</kbd></button>
-        <button data-cmd="view_top">Dall’alto<kbd>7</kbd></button>
-        <button data-cmd="view_front">Di fronte<kbd>1</kbd></button>
-        <button data-cmd="view_right">Da destra<kbd>3</kbd></button>
-        <button data-cmd="fit">Adatta alla finestra<kbd>F</kbd></button>
-        <hr>
-        <button data-cmd="toggle_dims">Mostra/nascondi quote<kbd>Q</kbd></button>
-      </div>
-    </div>
-  </nav>
-  <div class="quick">
-    <button class="icon" data-cmd="undo" id="b-undo" title="Annulla">↶</button>
-    <button class="icon" data-cmd="redo" id="b-redo" title="Ripeti">↷</button>
   </div>
-  <button id="palette-btn" data-cmd="palette">Cerca un comando o scrivi una quota, es. <b>L = 2200</b><kbd>Ctrl+K</kbd></button>
-  <div id="docname"></div>
+  <button class="tbtn" data-cmd="save" title="Salva (Ctrl+S)"><img src="icons/save.svg" alt=""></button>
+  <button class="tbtn" data-cmd="undo" id="b-undo" title="Annulla"><img src="icons/undo.svg" alt=""></button>
+  <button class="tbtn" data-cmd="redo" id="b-redo" title="Ripeti"><img src="icons/redo.svg" alt=""></button>
+  <div class="menu-item"><button class="tbtn" title="Vista"><span>Vista</span></button>
+    <div class="drop">
+      <button data-cmd="view_iso">Isometrica<kbd>0</kbd></button>
+      <button data-cmd="view_top">Dall’alto<kbd>7</kbd></button>
+      <button data-cmd="view_front">Di fronte<kbd>1</kbd></button>
+      <button data-cmd="view_right">Da destra<kbd>3</kbd></button>
+      <button data-cmd="fit">Adatta alla finestra<kbd>F</kbd></button>
+      <button data-cmd="unfold">Spiega / ripiega la lamiera<kbd>U</kbd></button>
+      <hr>
+      <button data-cmd="toggle_dims">Mostra/nascondi quote<kbd>Q</kbd></button>
+      <button data-cmd="toggle_theme">Tema scuro / chiaro</button>
+    </div>
+  </div>
+  <div id="doctab"><span id="docname"></span></div>
+  <button id="palette-btn" data-cmd="palette" title="Cerca un comando o scrivi una quota (Ctrl+K)">Cerca un comando…<kbd>Ctrl+K</kbd></button>
 </header>
+
+<nav id="ribbon">
+  <div class="rtabs">
+    <button data-rtab="lamiera" class="on">LAMIERA</button>
+    <button data-rtab="strutture">STRUTTURE</button>
+    <button data-rtab="piastra">PIASTRA</button>
+    <button data-rtab="sketch" id="rtab-sketch" class="ctx" hidden>SKETCH</button>
+  </div>
+  <div class="rbody" data-rbody="lamiera"><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="flange_help" title="Flangia: passa col mouse su un bordo (si accende in arancio) e clicca"><img src="icons/flange.svg" alt=""><span>Flangia</span></button><button class="rb" data-cmd="face_help" title="Disegna su una faccia: clicca una faccia piana, poi «Disegna su questa faccia»"><img src="icons/project.svg" alt=""><span>Su una faccia</span></button><button class="rb" data-cmd="contour_help" title="Lamiera a contorno: disegni la sezione, diventa lamiera piegata"><img src="icons/fold.svg" alt=""><span>Contorno</span></button></div><div class="rname">Crea</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="unfold" title="Spiega / ripiega la lamiera (U)"><img src="icons/flat.svg" alt=""><span>Spiega</span></button><button class="rb" data-cmd="flat_sketch" title="Disegna sullo sviluppo: il taglio torna nel pezzo piegato"><img src="icons/refold.svg" alt=""><span>Sullo sviluppo</span></button><button class="rb" data-cmd="sheet_rules" title="Dati di piega e regole di lamiera salvate (materiale, spessore, raggio, K)"><img src="icons/library.svg" alt=""><span>Regole</span></button></div><div class="rname">Modifica</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="export_dxf" title="Esporta lo sviluppo in DXF (taglio e pieghe)"><img src="icons/dxf.svg" alt=""><span>DXF sviluppo</span></button><button class="rb" data-cmd="export_bendtable" title="Esporta la tabella delle pieghe (CSV, per la piegatrice)"><img src="icons/bendtable.svg" alt=""><span>Tabella pieghe</span></button><button class="rb" data-cmd="export_step" title="Esporta il pezzo in STEP"><img src="icons/export.svg" alt=""><span>STEP</span></button></div><div class="rname">Esporta</div></div></div>
+  <div class="rbody" data-rbody="strutture" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="member_help" title="Nuova asta: clicca un nodo (pallino) e scegli direzione e lunghezza"><img src="icons/line.svg" alt=""><span>Nuova asta</span></button></div><div class="rname">Crea</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="export_step" title="Esporta la struttura in STEP"><img src="icons/export.svg" alt=""><span>STEP</span></button></div><div class="rname">Esporta</div></div></div>
+  <div class="rbody" data-rbody="piastra" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="face_help" title="Disegna su una faccia: clicca una faccia piana, poi «Disegna su questa faccia»"><img src="icons/project.svg" alt=""><span>Su una faccia</span></button></div><div class="rname">Crea</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="export_dxf" title="Esporta il DXF di taglio"><img src="icons/dxf.svg" alt=""><span>DXF di taglio</span></button><button class="rb" data-cmd="export_step" title="Esporta in STEP"><img src="icons/export.svg" alt=""><span>STEP</span></button></div><div class="rname">Esporta</div></div></div>
+  <div class="rbody" data-rbody="sketch" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-tool="line" title="Linea (L)"><img src="icons/line.svg" alt=""><span>Linea</span></button><button class="rb" data-tool="rect" title="Rettangolo (R)"><img src="icons/rect.svg" alt=""><span>Rettangolo</span></button><button class="rb" data-tool="circle" title="Cerchio (C)"><img src="icons/circle.svg" alt=""><span>Cerchio</span></button><button class="rb" data-tool="arc3" title="Arco per tre punti"><img src="icons/arc3.svg" alt=""><span>Arco</span></button><button class="rb" data-tool="slot" title="Asola (K)"><img src="icons/slot.svg" alt=""><span>Asola</span></button><button class="rb" data-tool="polygon" title="Poligono regolare (P)"><img src="icons/polygon.svg" alt=""><span>Poligono</span></button></div><div class="rname">Disegna</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-act="offset" title="Offset (O)"><img src="icons/offset.svg" alt=""><span>Offset</span></button><button class="rb" data-tool="trim" title="Taglia (T)"><img src="icons/trim.svg" alt=""><span>Taglia</span></button><button class="rb" data-tool="extend" title="Allunga (A)"><img src="icons/extend.svg" alt=""><span>Allunga</span></button><button class="rb" data-tool="fillet" title="Raccordo di uno spigolo"><img src="icons/fillet.svg" alt=""><span>Raccordo</span></button><button class="rb" data-tool="chamfer" title="Smusso di uno spigolo"><img src="icons/chamfer.svg" alt=""><span>Smusso</span></button><button class="rb" data-act="mirror" title="Specchia la selezione (M)"><img src="icons/mirror.svg" alt=""><span>Specchia</span></button><button class="rb" data-act="pattern" title="Serie della selezione"><img src="icons/pattern_rect.svg" alt=""><span>Serie</span></button></div><div class="rname">Modifica</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-tool="dim" title="Quota (D)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" id="rb-constr" title="Linee di costruzione (X)"><img src="icons/construction.svg" alt=""><span>Costruzione</span></button><button class="rb" data-tool="select" title="Seleziona (S)"><img src="icons/select.svg" alt=""><span>Seleziona</span></button></div><div class="rname">Vincoli</div></div><div class="rgroup"><div class="rbtns"><button class="rb" id="rb-xray" title="Vedi attraverso (V): i bordi e i fori delle parti dietro e davanti alla faccia, per agganciarti e riprenderli"><img src="icons/eye.svg" alt=""><span>Vedi attraverso</span></button></div><div class="rname">Vista</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-skdone="1" title="Esci dal disegno (Esc)"><img src="icons/finish.svg" alt=""><span>Esci</span></button></div><div class="rname">Fine</div></div></div>
+</nav>
 
 <aside id="left">
   <section class="panel">
@@ -55,7 +64,6 @@
   <section class="panel">
     <h2>Parametri</h2>
     <table id="params" class="grid"></table>
-    <p class="hint">Un parametro può essere un numero o un’espressione: <code>L/2 + 20</code></p>
   </section>
 </aside>
 
@@ -65,42 +73,76 @@
   <div id="nodes"></div>
   <div id="link-hint" hidden>Clicca il nodo dove arriva la nuova asta · <b>Esc</b> annulla</div>
   <div id="views">
-    <button data-cmd="view_iso" title="Isometrica (0)">Iso</button>
-    <button data-cmd="view_top" title="Dall’alto (7)">Sopra</button>
-    <button data-cmd="view_front" title="Di fronte (1)">Fronte</button>
-    <button data-cmd="view_right" title="Da destra (3)">Destra</button>
     <button data-cmd="fit" title="Adatta (F)">Adatta</button>
+    <button data-cmd="unfold" id="b-unfold" title="Spiega/ripiega la lamiera (U)" hidden>Spiega</button>
   </div>
+  <div id="viewcube" title="Clic su una faccia per la vista; sull’angolo per l’isometrica">
+    <div class="cube" id="cube">
+      <div class="cf" data-view="view_top" data-f="pz">SOPRA</div>
+      <div class="cf" data-view="view_bottom" data-f="nz">SOTTO</div>
+      <div class="cf" data-view="view_front" data-f="ny">FRONTE</div>
+      <div class="cf" data-view="view_back" data-f="py">RETRO</div>
+      <div class="cf" data-view="view_right" data-f="px">DESTRA</div>
+      <div class="cf" data-view="view_left" data-f="nx">SINISTRA</div>
+    </div>
+    <button class="cube-home" data-cmd="view_iso" title="Vista isometrica (0)"><img src="icons/home.svg" alt=""></button>
+  </div>
+  <div id="navbar">
+    <button data-cmd="fit" title="Adatta (F)"><img src="icons/fit.svg" alt=""></button>
+    <button data-cmd="toggle_dims" title="Mostra/nascondi quote (Q)"><img src="icons/dimension.svg" alt=""></button>
+    <button data-cmd="unfold" title="Spiega/ripiega (U)"><img src="icons/flat.svg" alt=""></button>
+    <button data-cmd="toggle_theme" title="Tema scuro / chiaro" class="theme-btn">◐</button>
+  </div>
+  <div id="flat-bar" hidden>Sviluppo della lamiera
+    <button class="btn primary" data-cmd="flat_sketch">Disegna sullo sviluppo</button>
+    <button class="btn" data-cmd="unfold">Ripiega</button></div>
   <div id="hover-tip"></div>
-  <div id="sk-bar" hidden>
-    <span class="sk-title">Sketch</span>
-    <button data-tool="line" title="L">Linea</button><button data-tool="rect" title="R">Rettangolo</button>
-    <button data-tool="circle" title="C">Cerchio</button><button data-tool="select" title="S">Seleziona</button>
-    <button data-tool="dim" title="D">Quota</button>
-    <button id="sk-constr" title="X: quello che disegni diventa linea di costruzione (guida, non si taglia)">Costruzione</button>
-    <span id="sk-selbar" hidden>
-      <span class="sk-sep"></span>
-      <button data-act="offset" title="O">Offset…</button><button data-act="mirror" title="M">Specchia…</button>
-      <button data-act="copy">Copia…</button><button data-act="move">Sposta…</button><button data-act="pattern">Serie…</button>
-      <button data-act="constr">↔ Costruzione</button><button data-act="delete" title="Canc">Elimina</button>
-    </span>
-    <span id="sk-make"><button data-make="sheet">Crea lamiera…</button><button data-make="plate">Crea piastra…</button></span>
-    <span id="sk-face"><button data-make="cut">Taglia attraverso</button><button data-make="boss" id="sk-boss">Estrudi…</button></span>
-    <button id="sk-done" title="Esc">Fine sketch</button>
-  </div>
+  <div id="sk-cmd" hidden><span id="sk-cmd-label"></span><input id="sk-cmd-in" autocomplete="off" spellcheck="false"><span class="u">mm · Invio</span></div>
   <div id="sk-foot" hidden>
-    <div id="sk-status"></div>
-    <div class="sk-help" id="sk-help">Clic sui punti · scrivi la lunghezza + Invio · clic sul primo punto per chiudere · Esc finisce · destro sposta, rotella ingrandisce</div>
+    <div class="sk-help" id="sk-help"></div>
   </div>
   <div id="sk-tip"></div>
+  <div id="sk-snap"></div>
   <div id="sk-box"></div>
-  <div id="status"></div>
 </main>
 
 <aside id="right">
-  <section class="panel">
+  <section class="panel" id="props-panel">
     <h2>Proprietà</h2>
     <div id="props"><p class="empty">Clicca un pezzo nel modello o nell’albero.</p></div>
+  </section>
+  <section class="panel" id="sk-panel" hidden>
+    <h2>Disegno 2D</h2>
+    <div class="sk-where" id="sk-where"></div>
+    <div class="sk-state" id="sk-status"></div>
+    <button class="sk-toggle" id="sk-constr" title="Le linee di costruzione sono guide: servono per agganciarsi e quotare, non si tagliano">
+      <span class="box"></span>Linee di costruzione (guide) <kbd>X</kbd></button>
+    <button class="sk-toggle" id="sk-grid" title="Spento: i punti vanno dove clicchi (restano gli agganci a punti, incroci, linee)">
+      <span class="box"></span>Aggancio alla griglia <kbd>F9</kbd></button>
+    <div id="sk-selbar" hidden>
+      <div class="sub">Sulla selezione · <span id="sk-nsel"></span></div>
+      <div class="sk-acts">
+        <button data-act="mirror">Specchia</button><button data-act="copy">Copia</button>
+        <button data-act="move">Sposta</button><button data-act="pattern">Serie</button>
+        <button data-act="hole">Tipo di foro…</button><button data-act="constr">Guida ↔ normale</button><button data-act="delete" class="danger">Elimina</button>
+      </div>
+    </div>
+    <div id="sk-finish-box"><div class="sub">Quando il contorno è chiuso</div>
+    <div class="sk-finish">
+      <span id="sk-make"><button data-make="sheet" class="btn primary">Crea lamiera…</button><button data-make="plate" class="btn">Crea piastra…</button></span>
+      <span id="sk-face"><button data-make="tab" id="sk-tab" class="btn primary" title="Il contorno disegnato diventa lamiera dello stesso spessore nel piano della faccia (anche nello sviluppo). Se parte e finisce sul bordo della faccia, lo chiudo io lungo il bordo.">Aggiungi materiale</button><button data-make="contour" id="sk-contour" class="btn primary" title="La spezzata disegnata (aperta, che parte dallo spigolo di un bordo libero) diventa lamiera piegata">Lamiera a contorno</button><button data-make="fold" id="sk-fold" class="btn primary" title="La linea disegnata sulla base è dove la lamiera si piega (spigolo esterno); la parte più piccola sale, lo sviluppo resta quello disegnato">Piega su questa linea…</button><button data-make="louver" id="sk-louver" class="btn" title="Una linea per ogni persiana: è il bordo aperto della feritoia; la cappa sale a sinistra della linea (dal primo punto al secondo)">Persiane…</button><button data-make="dimple" id="sk-dimple" class="btn" title="Un cerchio per ogni imbutitura (bugna tonda): il cerchio è il suo diametro">Imbutiture…</button><button data-make="cut" class="btn primary" title="Toglie il materiale dentro il contorno chiuso. Con una spezzata aperta da bordo a bordo della faccia (linee arancio), la chiudo io lungo il bordo e tolgo il pezzo più piccolo: così si rifila una parete che sporge.">Taglia attraverso</button><button data-make="boss" id="sk-boss" class="btn">Estrudi…</button></span>
+    </div></div>
+    <div class="sk-legend">
+      <span><i class="l-draw"></i>contorno (si taglia)</span>
+      <span><i class="l-guide"></i>guida</span>
+      <span><i class="l-ref"></i>bordo del pezzo</span>
+      <span id="sk-leg-xray" hidden><i class="l-xray"></i>visto attraverso</span>
+    </div>
+    <div class="row-btns sk-bottom">
+      <button class="btn" id="sk-xray" title="V: i bordi e i fori delle parti dietro e davanti, tratteggiati in azzurro; ci si aggancia">Vedi attraverso</button>
+      <button class="btn" id="sk-ghost" title="G">Mostra il pezzo 3D</button>
+      <button class="btn" id="sk-done" title="Esc">Esci dal disegno</button>
+    </div>
   </section>
 </aside>
 
@@ -117,10 +159,40 @@
   <div class="tab-body" id="tab-info" hidden></div>
 </footer>
 
+<div id="timeline"><span class="tl-label">Storia</span><div id="tl-items"></div></div>
+
+
 <div id="palette" hidden>
   <div class="pal-box">
     <input id="pal-input" autocomplete="off" spellcheck="false" placeholder="Comando, oppure parametro = valore">
     <ul id="pal-list"></ul>
+  </div>
+</div>
+
+<div id="home" hidden>
+  <div class="home-box">
+    <div class="home-head">
+      <div class="home-brand"><img src="icons/box.svg" alt=""><div><b>SteelCAD</b><span>Lamiera piegata, strutture e piastre per la carpenteria</span></div></div>
+      <button class="btn" id="home-close" title="Chiudi la pagina iniziale (Esc)">Vai al progetto</button>
+    </div>
+    <div class="home-cols">
+      <section>
+        <h3>Nuovo progetto</h3>
+        <div class="home-new">
+          <button data-new="lamiera"><img src="icons/flange.svg" alt=""><b>Lamiera piegata</b><span>Base rettangolare, poi le flange: scatole, profili, omega</span></button>
+          <button data-new="zero"><img src="icons/sketch.svg" alt=""><b>Disegna il contorno</b><span>Parti dallo sketch: poi diventa lamiera o piastra</span></button>
+          <button data-new="piastra"><img src="icons/hole.svg" alt=""><b>Piastra</b><span>Lamiera piana con fori, per il DXF di taglio</span></button>
+          <button data-new="telaio"><img src="icons/joint.svg" alt=""><b>Telaio / tavolo</b><span>Telaio e gambe in tubolare, con cut list</span></button>
+          <button data-new="vuoto"><img src="icons/point.svg" alt=""><b>Struttura libera</b><span>Parti da un nodo e tiri le aste</span></button>
+        </div>
+        <div class="home-open"><button class="btn primary" id="home-open"><img src="icons/open.svg" alt="">Apri un progetto…</button><kbd>Ctrl+O</kbd></div>
+        <div id="home-unsaved"></div>
+      </section>
+      <section>
+        <h3>Recenti</h3>
+        <div id="home-recent"></div>
+      </section>
+    </div>
   </div>
 </div>
 

@@ -54,8 +54,30 @@ def _value(sk: Sketch, cid: str, c: dict, params: dict) -> float:
     return evaluate(c['value'], params, what=f'valore della quota {cid}')
 
 
+_MEMORIA: dict = {}
+
+
 def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
+    """Risolve lo sketch. Lo stesso disegno con gli stessi parametri dà la stessa soluzione: la si ricorda
+    (una modifica nell'interfaccia risolveva lo stesso sketch 3 volte: prima, dopo, nella ricostruzione)."""
+    import dataclasses
+    import json
     params = params or {}
+    try:
+        chiave = json.dumps([sk.plane, sk.entities, sk.constraints, params], sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        chiave = None
+    if chiave is not None and chiave in _MEMORIA:
+        return dataclasses.replace(_MEMORIA[chiave], sketch=sk)
+    out = _solve(sk, params)
+    if chiave is not None:
+        if len(_MEMORIA) > 64:
+            _MEMORIA.pop(next(iter(_MEMORIA)))
+        _MEMORIA[chiave] = out
+    return out
+
+
+def _solve(sk: Sketch, params: dict) -> SolvedSketch:
     # La diagnosi (gradi di libertà, vincoli superflui o in conflitto) si fa su
     # una copia con i punti spostati di pochissimo: se il disegno soddisfa già
     # alla perfezione i vincoli, planegcs vedrebbe superflui vincoli che servono.
@@ -93,11 +115,20 @@ def _build(sk: Sketch, params: dict, jitter: bool):
         tag_of[int(tag)] = cid
 
     scale = max([1.0] + [abs(e[k]) for e in sk.entities.values() if e['kind'] == 'point' for k in ('x', 'y')])
+    # i punti con un vincolo "fisso" (i bordi arancio del pezzo, a decine) entrano già fissi: niente incognite né
+    # equazioni, il risolutore e la diagnosi vanno molto più veloci
+    fissi = {c['refs'][0]: kid for kid, c in sk.constraints.items() if c['type'] == 'fix' and len(c['refs']) == 1
+             and sk.entities.get(c['refs'][0], {}).get('kind') == 'point'}
     # --- geometria
     for eid, e in sk.entities.items():
         if e['kind'] == 'point':
-            dx, dy = _jitter(eid, scale) if jitter else (0.0, 0.0)
-            pid[eid] = s.add_fixed_point(0.0, 0.0) if eid == ORIGIN else s.add_point(e['x'] + dx, e['y'] + dy)
+            if eid == ORIGIN:
+                pid[eid] = s.add_fixed_point(0.0, 0.0)
+            elif eid in fissi:
+                pid[eid] = s.add_fixed_point(e['x'], e['y'])
+            else:
+                dx, dy = _jitter(eid, scale) if jitter else (0.0, 0.0)
+                pid[eid] = s.add_point(e['x'] + dx, e['y'] + dy)
     for eid, e in sk.entities.items():
         k = e['kind']
         if k == 'line':
@@ -181,7 +212,16 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                 else:
                     add(s.symmetric_line(pid[refs[0]], pid[refs[1]], lid[refs[2]]), kid)
             elif t == 'on_line':
-                add(s.point_on_line(pid[refs[0]], lid[refs[1]]), kid)
+                # "sulla linea" vale anche per cerchi e archi: il punto resta sul bordo
+                k2 = sk.entities[refs[1]]['kind']
+                if k2 == 'circle':
+                    add(s.point_on_circle(pid[refs[0]], cid_[refs[1]]), kid)
+                elif k2 == 'arc':
+                    add(s.point_on_arc(pid[refs[0]], aid[refs[1]]), kid)
+                else:
+                    add(s.point_on_line(pid[refs[0]], lid[refs[1]]), kid)
+            elif t == 'fix' and fissi.get(refs[0]) == kid:
+                continue                                  # già fisso come punto
             elif t == 'fix':
                 e = sk.entities[refs[0]]
                 add(s.coordinate_x(pid[refs[0]], s.add_param(e['x'], fixed=True)), kid)

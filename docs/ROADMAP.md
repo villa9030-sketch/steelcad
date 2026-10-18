@@ -104,6 +104,52 @@ Manca solo il confronto con un pezzo piegato davvero sulla pressa: vedi `sheetme
   - Le quote nascono da sole e quelle doppie si tolgono da sole.
   - Poi "Crea lamiera…" o "Crea piastra…".
 
+**Dopo la seconda prova di Stefano (17/10).**
+- Pieghe su pieghe: flange sulla punta di altre flange, anche a catena (omega, scatola bordata, Z).
+  Sviluppo esatto, i bordi negli angoli si accorciano da soli. Test in `tests/test_flange_chain.py`.
+- "Disegna su questa faccia": la faccia è il piano di lavoro, il resto del pezzo sparisce (tasto G
+  per vederlo in trasparenza). Lo sketch lasciato vuoto non resta nell'albero.
+- **Spiega** (tasto U): lo sviluppo a video, con le strisce delle pieghe; **Disegna sullo sviluppo**:
+  quello che disegni si taglia nello sviluppo e torna nel pezzo piegato sulla faccia giusta.
+- Angoli dei bordi della scatola bordata: lo chiede al primo angolo (dritti con i lati lunghi interi,
+  dritti con i lati corti interi, tagliati a 45°); si cambia dal pannello di un bordo.
+- Sulla faccia (e sullo sviluppo) i bordi del pezzo sono guide fisse: offset dal bordo, agganci, quote.
+- Linea con angolo scritto: `100<30` (lunghezza < angolo dall'asse X); l'angolo resta vincolato.
+- Corretto: la flangia poteva finire sul lato sbagliato se si cliccava un altro lato mentre la
+  precedente si costruiva (la selezione vecchia arrivava dopo e sostituiva il pannello).
+- Bordi da piegare scelti col mouse: il bordo si accende passandoci sopra, clic = flangia solo lì
+  (prima si prendeva la faccia sottile sbagliata, es. la testata corta invece del bordo lungo).
+  Clic su una faccia di flangia: si accende la faccia, non tutta la flangia.
+- Offset come AutoCAD: distanza + Invio, clic sull'oggetto, clic dalla parte dove va.
+- Disegno 2D rifatto (18/10): comandi nel pannello a destra con stato in parole semplici e passi
+  numerati, quote visibili anche sulle facce, assi della faccia come lo schermo e (0;0) nel suo angolo
+  in basso a sinistra, bordi del pezzo in arancio, inquadratura sulla faccia intera.
+- Offset di una linea sola (quella cliccata) e casella di comando in alto per distanze e misure
+  (anche rettangolo `100x50`).
+- Taglia e Allunga come AutoCAD, con anteprima (rosso il pezzo che si toglie, tratteggio l'allungamento);
+  un cerchio tagliato diventa arco. Archi disegnati e selezionabili nello sketch.
+- Agganci su cerchi e archi (quadranti, incroci, sul bordo) legati al cerchio; strumento Asola; il Taglia
+  riusa i punti che ci sono già (asola fatta a mano = contorno chiuso).
+- Agganci rifatti come AutoCAD: vince il più vicino, simbolo sul punto, incroci cerchio-cerchio, tangente,
+  perpendicolare, "sulla linea" anche per le linee normali, puntamento (allineamento a un punto, linea verde),
+  F9 per la griglia. Tangente, perpendicolare e puntamento restano vincoli.
+- **Interfaccia in stile SolidCraft** (18/10): barra del titolo scura, barra a schede LAMIERA / STRUTTURE /
+  PIASTRA con le icone di SolidCraft (MIT/Apache, `app/ui/icons/ATTRIBUTION.md`) e la scheda SKETCH che
+  compare mentre disegni; cubo delle viste, barra di navigazione, storia delle operazioni in basso, riga di
+  comando; mentre disegni il pannello in basso si chiude.
+- Funzioni prese da SolidCraft come idee (codice nostro): raccordo e smusso degli spigoli nello sketch,
+  arco per tre punti, poligono regolare, regole di lamiera salvate (materiale, spessore, raggio, K) riusabili
+  in ogni progetto, tabella pieghe in CSV.
+- Tema scuro (predefinito) e chiaro; raccordo/smusso anche cliccando due linee (come AutoCAD), con R0 per
+  unirle; corretto il raccordo sullo spigolo che sta sull'origine.
+- Aletta di chiusura della testata dei profili chiusi, piegata da una parete (anche nello sviluppo).
+- Lamiera a contorno: la sezione disegnata sulla testata diventa una catena di flange.
+- Aggiungi materiale (linguetta): il contorno disegnato su una faccia diventa lamiera nel suo piano.
+- Prove: 136 test (`pytest`), `tools/prova_ui.py` (42), `tools/prova_ui_pieghe.py` (55) e
+  `tools/prova_ui_comandi.py` (45: ogni pulsante della barra, cubo delle viste, storia, tema, raccordi, chiusura testata).
+- In coda (da SolidCraft): orlo, piega lungo una linea, scarichi d'angolo a scelta, altezza/angolo per lato
+  in una flangia, foratura a griglia, conversione da solido a lamiera.
+
 ## Milestone 4 — Uso in azienda
 Configuratori (tavolo, basamento, telaio, cancello, piedistallo, armadio,
 carter) sullo stesso motore, ottimizzazione barre da 6 m, componenti

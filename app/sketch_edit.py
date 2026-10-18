@@ -71,6 +71,7 @@ def _new_param(doc, base: str, value) -> str:
 def set_construction(doc, sid, eids, flag: bool):
     sk = doc.sketch(sid)
     _check(sk, eids)
+    eids = [e for e in eids if not sk.entities[e].get('ref')]
     for e in eids:
         if sk.entities[e]['kind'] in ('line', 'circle', 'arc'):
             sk.entities[e]['construction'] = bool(flag)
@@ -176,6 +177,36 @@ def offset_preview(doc, sid, eids, dist, side) -> dict:
             raise SketchError('Offset troppo grande verso dentro: il cerchio sparirebbe.')
         out['circles'].append([list(_xy(sk, e['center'])), r])
     return out
+
+
+def offset_side(doc, sid, eids, dist, point) -> dict:
+    """Come in AutoCAD: il lato dell'offset è quello dove sta il mouse. Si prova da tutte e due le parti e
+    vince quella con l'anteprima più vicina al punto. Ritorna {'side', 'preview'}."""
+    sk = doc.sketch(sid)
+    _check(sk, eids)
+    linee = [e for e in eids if sk.entities[e]['kind'] == 'line']
+    chiusa = _chain(sk, linee)[2] if linee else True
+    px, py = float(point[0]), float(point[1])
+
+    def dist_seg(a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = dx * dx + dy * dy or 1
+        t = max(0.0, min(1.0, ((px - a[0]) * dx + (py - a[1]) * dy) / L))
+        return math.hypot(px - a[0] - t * dx, py - a[1] - t * dy)
+
+    migliore = None
+    for side in (('out', 'in') if chiusa else ('right', 'left')):
+        try:
+            pv = offset_preview(doc, sid, eids, dist, side)
+        except SketchError:
+            continue                        # verso dentro troppo grande: resta solo l'altra parte
+        d = min([dist_seg(a, b) for a, b in pv['lines']] +
+                [abs(math.hypot(px - c[0], py - c[1]) - r) for c, r in pv['circles']] or [math.inf])
+        if migliore is None or d < migliore[0]:
+            migliore = (d, side, pv)
+    if migliore is None:
+        raise SketchError(f'Offset di {float(dist):g} troppo grande da tutte e due le parti.')
+    return {'side': migliore[1], 'preview': migliore[2]}
 
 
 def offset(doc, sid, eids, dist, side):
@@ -368,6 +399,8 @@ def move(doc, sid, eids, dx, dy):
     """Sposta: si spostano i punti e si aggiornano le quote di posizione che li legano al resto."""
     sk = doc.sketch(sid)
     _check(sk, eids)
+    if any(sk.entities[e].get('ref') for e in eids):
+        raise SketchError('I bordi arancio sono il pezzo vero: non si cancellano né si modificano (servono per agganciarsi e per chiudere i contorni).')
     _sync(doc, sk)
     pts = set(_points_of(sk, eids))
     if ORIGIN in pts:
