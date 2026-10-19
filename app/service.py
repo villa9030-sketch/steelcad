@@ -59,6 +59,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         self.blank = True                  # appena aperto, niente progetto: la UI mostra la pagina iniziale
 
     def _set(self, doc: Document):
+        for f in doc.features:                     # file fatti prima: pieghe su linea in ordine lungo il pezzo
+            if not isinstance(f, Sketch) and f.get('type') == 'sheet':
+                _rinumera_pieghe(f)
         self.doc = doc
         self.history = History(doc)
         self.result = doc.rebuild()
@@ -641,7 +644,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             righe = ['Piega;Flangia;Su;Lunghezza esterna mm;Angolo °;Verso;Raggio interno mm;K;BA mm;BD mm;Larghezza mm']
             for i, g in enumerate(data.flanges, 1):
                 b = g.bend
-                righe.append(';'.join([str(i), g.fid, g.edge, n(g.length, 2), n(b.angle, 1),
+                righe.append(';'.join([str(i), g.fid, data.lato_di(g), n(g.length, 2), n(b.angle, 1),
                                        'su' if g.direction == 'up' else 'giù', n(b.r, 2), n(b.k), n(b.ba), n(b.bd), n(g.u1 - g.u0, 2)]))
             righe.append('')
             righe.append(f'Spessore mm;{n(data.thickness, 2)};Materiale;{self.doc.material};Sviluppo mm;'
@@ -870,6 +873,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     n += 1
                 folds.append({'id': f'PL{n}', 'a': a, 'b': b, 'angle': _number(angle), 'direction': direction,
                               'flip': bool(flip)})
+            _rinumera_pieghe(sm)
             self.doc.features = [f for f in self.doc.features if f is not sk]   # la linea è diventata la piega
         r = self._change('Piega su linea' if len(tratti) == 1 else f'{len(tratti)} pieghe su linea', fn)
         if r['ok']:
@@ -2351,6 +2355,29 @@ def _guida_secondaria(sk, c) -> bool:
 
 
 _UNSAVED = Path.home() / 'Documents' / 'SteelCAD senza nome.steelcad'
+
+
+def _rinumera_pieghe(sm: dict) -> None:
+    """Le pieghe su linea numerate in ordine lungo il pezzo (PL1 a un'estremità, poi la successiva...), non
+    nell'ordine in cui sono state disegnate: così la tabella pieghe e le etichette vanno da una parte all'altra.
+    I riferimenti delle flange (lato o madre) seguono il nuovo nome."""
+    folds = sm.get('folds') or []
+    if len(folds) < 2:
+        return
+    (ax, ay), (bx, by) = folds[0]['a'], folds[0]['b']
+    orizz = abs(bx - ax) >= abs(by - ay)
+    i, j = (1, 0) if orizz else (0, 1)
+    ordinate = sorted(folds, key=lambda f: (round(f['a'][i] + f['b'][i], 6), round(f['a'][j] + f['b'][j], 6)))
+    mappa = {f['id']: f'PL{k}' for k, f in enumerate(ordinate, 1)}
+    if ordinate == folds and all(a == b for a, b in mappa.items()):
+        return
+    for f in ordinate:
+        f['id'] = mappa[f['id']]
+    sm['folds'] = ordinate
+    for fl in sm.get('flanges') or []:
+        for k in ('edge', 'parent'):
+            if fl.get(k) in mappa:
+                fl[k] = mappa[fl[k]]
 
 # filettature metriche a passo grosso: (preforo, diametro nominale) in mm (UNI/ISO, valori di tabella)
 FILETTI = {'M3': (2.5, 3), 'M4': (3.3, 4), 'M5': (4.2, 5), 'M6': (5.0, 6), 'M8': (6.8, 8), 'M10': (8.5, 10),

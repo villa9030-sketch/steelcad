@@ -67,3 +67,21 @@ def test_pieghe_in_serie_bumping():
         # 5 × 18° = 90°: la parte piegata sale (o scende) di parecchio, non a zig-zag
         bb = bd.Solid(s.result.body.shape).bounding_box()
         assert bb.size.Z > 100
+
+
+def test_tabella_pieghe_in_ordine_lungo_il_pezzo():
+    """19/10: pieghe aggiunte in tempi diversi uscivano in tabella nell'ordine di costruzione (PL11, PL10…PL1, PL12).
+    Ora PL1… vanno da un bordo all'altro e la tabella dice dove sta ogni linea sullo sviluppo."""
+    s, sid = _faccia_sopra()
+    assert s.set_sheet_tech('SM1', {'radius': 1, 'method': 'k', 'k': 0.33})['ok']
+    for y in (150, 160, 170):
+        assert s.sketch_add_polyline(sid, [[0, y], [300, y]], False)['ok']
+    assert s.sheet_fold(sid, 10, 'up')['ok']
+    f = next(x for x in s.scene()['objects'][0]['faces'] if x['name'] and x['name'].endswith('sopra'))
+    sid2 = s.sketch_on_face(f['name'])['sketch']
+    assert s.sketch_add_polyline(sid2, [[0, 20], [300, 20]], False)['ok']
+    assert s.sheet_fold(sid2, 30, 'up')['ok'], 'seconda piega'
+    righe = s.result.body.sheet.summary()['bends']
+    assert [r['flange'] for r in righe] == ['PL1', 'PL2', 'PL3', 'PL4']
+    pos = [r['line_at'] for r in righe]
+    assert pos == sorted(pos) and all(r['edge'].startswith('linea a ') for r in righe)

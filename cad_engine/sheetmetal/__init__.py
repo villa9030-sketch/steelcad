@@ -178,9 +178,16 @@ class SheetData:
     tip_mode: str = 'long'
     free_edges: list = field(default_factory=list)     # bordi dove si può ancora piegare: per sceglierli col mouse
 
+    def lato_di(self, g) -> str:
+        """Dove sta la piega, in parole: per le pieghe su linea la quota della linea sullo sviluppo (dal bordo da
+        cui partono i numeri PL1, PL2...), che è quella che serve alla piegatrice per il registro."""
+        x = (getattr(self, 'fold_pos', None) or {}).get(g.fid)
+        return g.edge if x is None else f'linea a {fmt_mm(round(x, 2))} mm dal bordo'
+
     def summary(self) -> dict:
         return {'feature': self.feature, 'thickness': self.thickness, 'tech': self.tech,
-                'bends': [{'flange': g.fid, 'edge': g.edge, 'parent': g.parent, 'length': g.length,
+                'bends': [{'flange': g.fid, 'edge': self.lato_di(g), 'parent': g.parent, 'length': g.length,
+                           'line_at': (getattr(self, 'fold_pos', None) or {}).get(g.fid),
                            'direction': g.direction, 'position': g.position, 'width': g.u1 - g.u0,
                            **g.bend.as_dict()} for g in self.flanges],
                 'flat_size': list(self.flat_size), 'flat_area': self.flat_area, 'warnings': self.warnings,
@@ -413,9 +420,24 @@ def build(fdef: dict, ctx) -> NamedShape:
                           e.arc_center - e.radius * pl.y_dir, e.arc_center + e.radius * pl.y_dir):
                     bb.append(pl.to_local_coords(p))
         size = ((max(p.X for p in bb) - min(p.X for p in bb)), (max(p.Y for p in bb) - min(p.Y for p in bb)))
+    # in tabella: prima le flange, poi le pieghe su linea nell'ordine lungo il pezzo (non quello di costruzione,
+    # che per le pieghe in serie parte dalla striscia più grande e va a catena da una parte e poi dall'altra)
+    ordine = {fo.get('id'): k for k, fo in enumerate(fdef.get('folds') or [])}
+    geos = sorted(geos, key=lambda g: (g.fid in ordine, ordine.get(g.fid, 0)))
+    fold_pos = {}
+    if flat is not None and fdef.get('folds'):
+        vs = [pl.to_local_coords(v) for v in flat.vertices()]
+        for fo in fdef['folds']:
+            (ax, ay), (bx, by) = fo['a'], fo['b']
+            L = math.hypot(bx - ax, by - ay) or 1.0
+            nx, ny = -(by - ay) / L, (bx - ax) / L
+            if (abs(nx) > abs(ny) and nx < 0) or (abs(ny) >= abs(nx) and ny < 0):
+                nx, ny = -nx, -ny                   # verso crescente, come la numerazione PL1, PL2...
+            fold_pos[fo.get('id')] = (ax + bx) / 2 * nx + (ay + by) / 2 * ny - min(v.X * nx + v.Y * ny for v in vs)
     data = SheetData(fid, t, tech, geos, flat, pl, linee, size, flat.area if flat is not None else 0.0,
                      [g.avviso for g in geos if g.avviso],
                      contatti, fdef.get('tip_corners') or 'long', _free_edges(geos, lati, N, t))
+    data.fold_pos = fold_pos
     ns = NamedShape(shape, _names(shape, fid, geos, lati, prof, pl, t))
     ns.sheet = data
     # pieghe su linea con la parte piegata non rettangolare: si toglie dallo sviluppo (e dal pezzo) quello che la
