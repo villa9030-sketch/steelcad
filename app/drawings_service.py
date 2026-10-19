@@ -67,7 +67,20 @@ class DrawingsMixin:
         tot = tot or 2
         base = {**campi, 'titolo': doc.meta.get('name') or 'Struttura', 'materiale': doc.material,
                 'spessore_massa': f'{D.fmt(round(cl["kg"], 2))} kg', 'data': D.oggi()}
-        fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato)]
+        # le file di aste uguali a passo costante (sbarre, ripiani): per gruppo, parallele
+        file = []
+        for st in result.structures:
+            gruppi = {}
+            for m in st.members:
+                d = (m.end - m.start).normalized()
+                chiave = (m.group, round(abs(d.X), 3), round(abs(d.Y), 3), round(abs(d.Z), 3), round(m.length, 1))
+                gruppi.setdefault(chiave, []).append(((m.start + m.end) * 0.5, m))
+            for (gruppo, *_), lista in gruppi.items():
+                if len(lista) >= 3:
+                    m0 = lista[0][1]
+                    file.append({'assi': [(p.X, p.Y, p.Z) for p, _ in lista], 'nome': gruppo or 'aste',
+                                 'profilo': m0.profile.name, 'larghezza': min(m0.profile.width, m0.profile.height)})
+        fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato, file_passo=file)]
         righe = [[str(i), r['profile'], D.fmt(r['length_mm']), ' / '.join(r['cuts']), str(r['qty']),
                   ', '.join(r['groups']), D.fmt(round(r['kg_each'], 2)), D.fmt(round(r['kg_total'], 2))]
                  for i, r in enumerate(cl['rows'], 1)]

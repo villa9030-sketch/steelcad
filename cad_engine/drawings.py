@@ -116,6 +116,65 @@ def proietta(shape, vista: str) -> dict:
     return res
 
 
+def proietta_punto(vista: str, p) -> tuple:
+    """Dove cade un punto 3D nella vista (stesse coordinate di proietta)."""
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.HLRAlgo import HLRAlgo_Projector
+    d, up = VISTE[vista]
+    ax = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(*d))
+    ax.SetYDirection(gp_Dir(*up) if vista != 'iso' else _up_iso(d))
+    pr = HLRAlgo_Projector(ax)
+    from OCP.gp import gp_Pnt2d
+    q = gp_Pnt2d()
+    pr.Project(gp_Pnt(*p), q)
+    return (q.X(), q.Y())
+
+
+def catene_di_passo(f: Foglio, v: dict, s: float, T, file: list, vista: str = 'fronte'):
+    """Quote delle file di aste uguali a passo costante (sbarre di un cancello, ripiani di uno scaffale):
+    dal bordo alla prima, la campata "n × passo", dall'ultima al bordo. file: [[punti 3D degli assi]]."""
+    x0, y0, x1, y1 = v['bbox']
+    giu, sx = 0, 0
+    for fila in file:
+        assi = fila['assi'] if isinstance(fila, dict) else fila
+        pts = [proietta_punto(vista, p) for p in assi]
+        xs, ys = sorted(q[0] for q in pts), sorted(q[1] for q in pts)
+        for coord, lista in ((0, xs), (1, ys)):
+            if len(lista) < 3 or lista[-1] - lista[0] < 1e-6:
+                continue
+            passi = [b - a for a, b in zip(lista, lista[1:])]
+            if max(passi) - min(passi) > 0.5:
+                continue                                   # non a passo costante
+            passo = sum(passi) / len(passi)
+            n = len(passi)
+            if coord == 0:                                 # in orizzontale: catena sotto la quota d'ingombro
+                giu += 1
+                y = y0
+                d = -7 - 9 * giu
+                tappe = [x0] + lista + [x1]
+                pezzi = [(tappe[0], tappe[1], None), (lista[0], lista[-1], f'{n} × {fmt(round(passo, 1))} = {fmt(round(passo * n, 1))}'),
+                         (lista[-1], tappe[-1], None)]
+                for a, b, t in pezzi:
+                    if b - a > 1e-6:
+                        quota(f, T((a, y)), T((b, y)), d, b - a, testo=t)
+                if isinstance(fila, dict):              # la nota per l'officina: quanti, che profilo, passo e luce
+                    luce = passo - fila.get('larghezza', 0)
+                    A = T((lista[0], y))
+                    f.text('testo', (A[0], A[1] + d * 1.0 - 6), f'{fila["nome"]}: {n + 1} × {fila["profilo"]}, passo '
+                           f'{fmt(round(passo, 2))}, luce {fmt(round(luce, 2))}', 2.5)
+                    giu += 1
+            else:                                          # in verticale: a sinistra, fuori dalla quota d'altezza
+                sx += 1
+                x = x0
+                d = 7 + 9 * sx
+                tappe = [y0] + lista + [y1]
+                pezzi = [(tappe[0], tappe[1], None), (lista[0], lista[-1], f'{n} × {fmt(round(passo, 1))} = {fmt(round(passo * n, 1))}'),
+                         (lista[-1], tappe[-1], None)]
+                for a, b, t in pezzi:
+                    if b - a > 1e-6:
+                        quota(f, T((x, a)), T((x, b)), d, b - a, testo=t)
+
+
 def _up_iso(d):
     from OCP.gp import gp_Dir
     import numpy as np
@@ -175,7 +234,7 @@ def _freccia(f: Foglio, p, verso, layer='quote', L=2.5):
     f.pieni.append((layer, [p, a, b]))
 
 
-def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso=''):
+def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None):
     """Quota lineare tra a e b (foglio), spostata di "distanza" a sinistra di a→b; scrive il valore vero."""
     ax, ay = a
     bx, by = b
@@ -192,9 +251,10 @@ def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso=''):
     _freccia(f, A, (-ux, -uy))
     _freccia(f, B, (ux, uy))
     m = ((A[0] + B[0]) / 2 + nx * 1.2 * (1 if distanza > 0 else -2.2), (A[1] + B[1]) / 2 + ny * 1.2 * (1 if distanza > 0 else -2.2))
-    f.text('quote', m, prefisso + fmt(valore), h, 'c' if abs(uy) < 0.5 else 'c')
+    scritta = testo if testo is not None else prefisso + fmt(valore)
+    f.text('quote', m, scritta, h, 'c')
     if abs(uy) > 0.5:                                      # quota verticale: testo ruotato nei formati che lo sanno fare
-        f.testi[-1] = ('quote', m, prefisso + fmt(valore), h, 'cv')
+        f.testi[-1] = ('quote', m, scritta, h, 'cv')
 
 
 def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=True, valori=None):
@@ -275,7 +335,7 @@ def _scegli_scala(dims: list, area_w: float, area_h: float) -> float:
 
 
 # ------------------------------------------------------------------------------------------ le tavole
-def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3') -> Foglio:
+def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3', file_passo=None) -> Foglio:
     """Fronte, alto, sinistra (europea) + isometrica, con ingombri e note dei fori."""
     f = Foglio(formato, campi.get('titolo', ''))
     area, cart = _cornice(f, campi)
@@ -293,7 +353,12 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     ox = area[0] + g
     oyT = area[1] + g + 5
     oyF = oyT + hT * s + g
+    if file_passo:                                        # più spazio sotto e a sinistra per le catene di quote
+        ox += 18
+        oyT += 0
     TF, _, _ = _metti_vista(f, v['fronte'], s, ox, oyF)
+    if file_passo:
+        catene_di_passo(f, v['fronte'], s, TF, file_passo)
     TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
     TL, _, _ = _metti_vista(f, v['sinistra'], s, ox + wF * s + g, oyF)
     for nome, (x, y) in (('VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
