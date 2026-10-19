@@ -1212,10 +1212,44 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             r['sketch'] = nuovo['id']
         return r
 
+    def _togli_doppi(self, sid: str) -> str:
+        """Se lo sketch ha solo vincoli doppi (nessun conflitto), li toglie: torna la loro descrizione ('' se niente)."""
+        try:
+            st = self.doc.solved_sketch(sid).status
+        except SteelCADError:
+            return ''
+        if st.state != 'ridondante' or st.conflicting:
+            return ''
+        sk = self.doc.sketch(sid)
+        nomi = {c: sk.describe_constraint(c) for c in sk.constraints}
+        tolti = []
+
+        def fn():
+            tolti.extend(sketch_ops._prune(self.doc, sid, set()))
+        r = self._change('Tolti vincoli doppi', fn, keep_broken=True)
+        if not r.get('ok') or not tolti:
+            return ''
+        return ' e '.join(nomi.get(c, c) for c in tolti)
+
     def create_from_sketch(self, sid: str, kind: str, values: dict) -> dict:
         """Dal contorno disegnato: lamiera (spessore + dati di piega) o piastra (estrusione)."""
         v = {k: _number(x) for k, x in (values or {}).items() if str(x).strip() != ''}
         sk = self.doc.sketch(sid)
+        # vincoli doppi (che dicono la stessa cosa di altri, senza contraddirli) non cambiano il disegno: si tolgono
+        # da soli, lo si dice, e si va avanti. Prima il pezzo veniva rifiutato con "lo sketch non è costruibile"
+        tolti = self._togli_doppi(sid)
+        if tolti:
+            r = self.create_from_sketch(sid, kind, values)
+            if r.get('ok'):
+                r['message'] = f'Ho tolto {tolti}: {"era doppio" if " e " not in tolti else "erano doppi"}. ' \
+                    + (r.get('message') or '')
+            return r
+        try:
+            st = self.doc.solved_sketch(sid).status
+            if not st.ok_for_features and st.state != 'parziale':
+                return {'ok': False, 'code': 'sketch', 'message': 'Lo sketch non va: ' + st.message}
+        except SteelCADError:
+            pass                                         # lo dicono i controlli sotto, con le loro parole
         if isinstance(sk.plane, dict) and kind in ('louver', 'dimple'):
             if not sk.plane.get('face') or self._sheet_def(sk.plane['face'].split('/')[0]) is None:
                 return {'ok': False, 'code': 'forma', 'message': 'Persiane e imbutiture si disegnano su una faccia della lamiera.'}

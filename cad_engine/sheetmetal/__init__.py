@@ -1644,15 +1644,24 @@ def _in_striscia(x, g: FlangeGeo, data) -> bool:
     """Il pezzo (nello sviluppo) sta tutto, dove c'è lamiera, nel tratto dritto della flangia g?"""
     s1 = g.off + g.bend.ba
     s2 = s1 + g.lf
+    # uscita rapida: gli spigoli dell'ingombro contengono il pezzo; se in (u, s) cadono tutti fuori dal tratto
+    # dritto, nessun punto del pezzo ci sta e la risposta è no (qualunque punto nello sviluppo direbbe no)
+    bb = x.bounding_box()
+    us = [((q - g.F0).dot(g.fx), (q - g.F0).dot(g.fn)) for q in
+          (bd.Vector(cx, cy, cz) for cx in (bb.min.X, bb.max.X) for cy in (bb.min.Y, bb.max.Y) for cz in (bb.min.Z, bb.max.Z))]
+    if (max(u for u, _ in us) < g.u0 - TOL or min(u for u, _ in us) > g.u1 + TOL
+            or max(v for _, v in us) < s1 - TOL or min(v for _, v in us) > s2 + TOL):
+        return False
     dentro = False
     for e in x.edges():
         for p in e.positions([i / 8 for i in range(9)]):
-            if not data.flat.is_inside(p):
-                continue
+            # prima il conto facile; "sta nello sviluppo?" (lento) solo quando cambia la risposta
             u, s = (p - g.F0).dot(g.fx), (p - g.F0).dot(g.fn)
             if not (g.u0 - TOL <= u <= g.u1 + TOL and s1 - TOL <= s <= s2 + TOL):
-                return False
-            dentro = True
+                if data.flat.is_inside(p):
+                    return False
+            elif not dentro and data.flat.is_inside(p):
+                dentro = True
     return dentro
 
 
@@ -1666,10 +1675,16 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     from ..features.base import volume
     fid = fdef['id']
     attrezzi, atteso = [], 0.0
+    strisce = [(g, _bend_rect(g)) for g in data.flanges]
+    strisce = [(g, r, r.bounding_box()) for g, r in strisce]
     for i, f in enumerate(contorni):
         resto = [f]
-        for g in data.flanges:
-            rett = _bend_rect(g)
+        bf = f.bounding_box()
+        for g, rett, br in strisce:
+            # contorno lontano dalla piega (il caso di quasi tutte le asole di una serie): niente booleane
+            if (bf.max.X < br.min.X - TOL or br.max.X < bf.min.X - TOL or bf.max.Y < br.min.Y - TOL
+                    or br.max.Y < bf.min.Y - TOL or bf.max.Z < br.min.Z - TOL or br.max.Z < bf.min.Z - TOL):
+                continue
             for x in _facce(f & rett):
                 dentro = sum(y.area for y in _facce(x & data.flat))
                 if dentro < 1e-6:
@@ -1696,10 +1711,16 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
             atteso += dentro * t
     if not attrezzi:
         raise FeatureError('Il contorno disegnato è fuori dallo sviluppo: non toglie niente.', feature=fid)
-    attrezzo = attrezzi[0]
-    for a in attrezzi[1:]:
-        attrezzo = attrezzo + a
-    op = BRepAlgoAPI_Cut(body.shape, attrezzo.wrapped)
+    from OCP.collections import List_TopoDS_Shape
+    argomenti, utensili = List_TopoDS_Shape(), List_TopoDS_Shape()
+    argomenti.Append(body.shape)
+    for a in attrezzi:
+        for so in (a.solids() if hasattr(a, 'solids') else [a]):
+            utensili.Append(so.wrapped)
+    op = BRepAlgoAPI_Cut()
+    op.SetArguments(argomenti)
+    op.SetTools(utensili)
+    op.Build()
     if not op.IsDone():
         raise FeatureError('Il kernel non è riuscito a fare il taglio.', feature=fid)
     nuovo = body.after(op, op.Shape())
@@ -1709,9 +1730,7 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     for f in _faces_of(nuovo.shape):
         if not nuovo.names_of(f):
             nuovo.names.setdefault(f'{fid}/parete', []).append(f)
-    flat = data.flat
-    for f in contorni:
-        flat = flat.cut(f)
+    flat = data.flat.cut(*contorni)                       # tutti i contorni in un colpo solo
     flat = flat.clean() if hasattr(flat, 'clean') else flat
     facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
     if len(facce) != 1:

@@ -46,9 +46,17 @@ class Sketch:
 
     # ---------------------------------------------------------------- id
     def _new_id(self, prefix: str, where: dict) -> str:
-        n = 1 + max((int(k[len(prefix):]) for k in where if k.startswith(prefix) and k[len(prefix):].isdigit()),
+        # l'ultimo numero dato si ricorda: rifare il massimo su tutte le chiavi a ogni elemento nuovo costava
+        # milioni di confronti in una serie grande. Vale finché l'ultimo id dato c'è ancora e il successivo è
+        # libero (dopo un annulla o un caricamento si ricalcola)
+        memo = self.__dict__.setdefault('_ultimi_id', {})
+        chiave = (prefix, id(where))
+        n = memo.get(chiave)
+        if n is None or f'{prefix}{n}' not in where or f'{prefix}{n + 1}' in where:
+            n = max((int(k[len(prefix):]) for k in where if k.startswith(prefix) and k[len(prefix):].isdigit()),
                     default=0)
-        return f'{prefix}{n}'
+        memo[chiave] = n + 1
+        return f'{prefix}{n + 1}'
 
     def kind(self, eid: str) -> str:
         if eid not in self.entities:

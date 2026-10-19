@@ -103,12 +103,19 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
 def _loops(sk, open_edges) -> list:
     """Collega linee e archi in contorni chiusi (estremità confrontate in coordinate dello sketch)."""
     nodes: list[tuple[float, float]] = []
+    # griglia per trovare i punti vicini senza confrontarli tutti (serie grandi: migliaia di estremità); la
+    # cella è grande almeno quanto la tolleranza più larga, si guarda la cella e le otto attorno
+    cella = 1e-6 * max([1.0] + [abs(c) for *_, a, b in open_edges for c in (*a, *b)])
+    griglia: dict = {}
 
     def node(p):
-        for i, q in enumerate(nodes):
-            if math.dist(p, q) < 1e-6 * max(1.0, abs(p[0]), abs(p[1])):
+        cx, cy = math.floor(p[0] / cella), math.floor(p[1] / cella)
+        vicini = [i for dx in (-1, 0, 1) for dy in (-1, 0, 1) for i in griglia.get((cx + dx, cy + dy), ())]
+        for i in sorted(vicini):
+            if math.dist(p, nodes[i]) < 1e-6 * max(1.0, abs(p[0]), abs(p[1])):
                 return i
         nodes.append(p)
+        griglia.setdefault((cx, cy), []).append(len(nodes) - 1)
         return len(nodes) - 1
 
     adj: dict[int, list[int]] = {}
@@ -153,13 +160,26 @@ def _faces(loops: list, plane: bd.Plane) -> list:
         if f.area < TOL:
             raise SketchError('Un contorno dello sketch ha area zero.', code='profilo_degenere')
         info.append((w, f))
+    # aree e ingombri calcolati una volta: con una serie di 75 asole i confronti a coppie erano migliaia, ognuno
+    # con l'area rifatta e un'intersezione vera anche tra contorni lontanissimi
+    aree = [f.area for _, f in info]
+    box = [f.bounding_box() for _, f in info]
+
+    def dentro_box(b, q):
+        return b.min.X - TOL <= q.X <= b.max.X + TOL and b.min.Y - TOL <= q.Y <= b.max.Y + TOL             and b.min.Z - TOL <= q.Z <= b.max.Z + TOL
+
+    def toccano(a, b):
+        return not (a.max.X < b.min.X - TOL or b.max.X < a.min.X - TOL or a.max.Y < b.min.Y - TOL
+                    or b.max.Y < a.min.Y - TOL or a.max.Z < b.min.Z - TOL or b.max.Z < a.min.Z - TOL)
+
     depth = []
     parent = []
     for i, (w, f) in enumerate(info):
         p = w.edges()[0].position_at(0.5)
-        contenitori = [j for j, (w2, f2) in enumerate(info) if j != i and f2.area > f.area and _inside(f2, p)]
+        contenitori = [j for j, (w2, f2) in enumerate(info) if j != i and aree[j] > aree[i] and dentro_box(box[j], p)
+                       and _inside(f2, p)]
         depth.append(len(contenitori))
-        parent.append(min(contenitori, key=lambda j: info[j][1].area) if contenitori else None)
+        parent.append(min(contenitori, key=lambda j: aree[j]) if contenitori else None)
     faces = []
     for i, (w, f) in enumerate(info):
         if depth[i] % 2:
@@ -178,7 +198,7 @@ def _faces(loops: list, plane: bd.Plane) -> list:
         faces.append(face)
     for i in range(len(info)):
         for j in range(i + 1, len(info)):
-            if depth[i] == depth[j] and _overlap(info[i][1], info[j][1]):
+            if depth[i] == depth[j] and toccano(box[i], box[j]) and _overlap(info[i][1], info[j][1]):
                 raise SketchError('Due contorni dello sketch si sovrappongono: il profilo non è chiaro.',
                                   code='profilo_sovrapposto')
     return faces

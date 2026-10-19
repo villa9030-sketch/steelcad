@@ -69,12 +69,238 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
         chiave = None
     if chiave is not None and chiave in _MEMORIA:
         return dataclasses.replace(_MEMORIA[chiave], sketch=sk)
-    out = _solve(sk, params)
+    out = _solve_a_blocchi(sk, params) if len(sk.constraints) > _SOGLIA_BLOCCHI else None
+    if out is None:
+        out = _solve(sk, params)
     if chiave is not None:
         if len(_MEMORIA) > 64:
             _MEMORIA.pop(next(iter(_MEMORIA)))
         _MEMORIA[chiave] = out
     return out
+
+
+# ============================================================================ a blocchi
+# Uno sketch grande (una serie di 75 asole: 760 vincoli) risolto e diagnosticato tutto insieme costava secondi,
+# e cresceva col cubo. Ma le copie di una serie sono attaccate al resto per un punto solo: si divide lo sketch nei
+# suoi blocchi (componenti biconnesse, tagliate sui punti) e si risolve un blocco alla volta, coi punti di
+# aggancio già risolti tenuti fissi. Se ogni blocco è pulito (niente vincoli doppi o in conflitto) il risultato è
+# lo stesso del calcolo intero; altrimenti si rifà il calcolo intero, che dà i messaggi giusti.
+_SOGLIA_BLOCCHI = 60
+
+
+def _fissi_di(sk: Sketch) -> set:
+    fissi = {c['refs'][0] for c in sk.constraints.values() if c['type'] == 'fix' and len(c['refs']) == 1
+             and sk.entities.get(c['refs'][0], {}).get('kind') == 'point'}
+    return fissi | {ORIGIN}
+
+
+def _riferimenti(sk: Sketch, e: dict) -> list:
+    return [e[k] for k in ('a', 'b', 'center', 'start', 'end') if k in e]
+
+
+def _blocchi(sk: Sketch) -> list:
+    """I blocchi dello sketch: [(entità, vincoli)]. Nodi: entità non fisse e vincoli; i punti fissi non
+    collegano niente (sono costanti)."""
+    fissi = _fissi_di(sk)
+    adj: dict = {}
+
+    def lega(u, v):
+        adj.setdefault(u, set()).add(v)
+        adj.setdefault(v, set()).add(u)
+
+    for eid, e in sk.entities.items():
+        if e['kind'] == 'point' and eid in fissi:
+            continue
+        adj.setdefault(('e', eid), set())
+        if e['kind'] != 'point':
+            for p in _riferimenti(sk, e):
+                if p not in fissi:
+                    lega(('e', eid), ('e', p))
+    for cid, c in sk.constraints.items():
+        if c['type'] == 'fix' and len(c['refs']) == 1 and c['refs'][0] in fissi:
+            continue
+        adj.setdefault(('c', cid), set())
+        for r in c['refs']:
+            if r in sk.entities and not (sk.entities[r]['kind'] == 'point' and r in fissi):
+                lega(('c', cid), ('e', r))
+    # componenti biconnesse (Tarjan, senza ricorsione: gli sketch grandi hanno migliaia di nodi)
+    num, low, comps, pila_archi, cont = {}, {}, [], [], [0]
+    for radice in adj:
+        if radice in num:
+            continue
+        cont[0] += 1
+        num[radice] = low[radice] = cont[0]
+        if not adj[radice]:
+            comps.append({radice})
+            continue
+        pila = [(radice, None, iter(adj[radice]))]
+        while pila:
+            u, padre, it = pila[-1]
+            avanti = False
+            for v in it:
+                if v == padre:
+                    continue
+                if v not in num:
+                    pila_archi.append((u, v))
+                    cont[0] += 1
+                    num[v] = low[v] = cont[0]
+                    pila.append((v, u, iter(adj[v])))
+                    avanti = True
+                    break
+                if num[v] < num[u]:
+                    pila_archi.append((u, v))
+                    low[u] = min(low[u], num[v])
+            if avanti:
+                continue
+            pila.pop()
+            if padre is not None:
+                low[padre] = min(low[padre], low[u])
+                if low[u] >= num[padre]:                     # padre è un punto di taglio (o la radice)
+                    comp = set()
+                    while pila_archi:
+                        a, b = pila_archi.pop()
+                        comp |= {a, b}
+                        if (a, b) == (padre, u):
+                            break
+                    comps.append(comp)
+    # si taglia solo sui punti: i blocchi che condividono una linea, un arco o un vincolo si riuniscono
+    capo = list(range(len(comps)))
+
+    def trova(i):
+        while capo[i] != i:
+            capo[i] = capo[capo[i]]
+            i = capo[i]
+        return i
+
+    dove: dict = {}
+    for i, comp in enumerate(comps):
+        for n in comp:
+            if n[0] == 'c' or sk.entities[n[1]]['kind'] != 'point':
+                if n in dove:
+                    capo[trova(i)] = trova(dove[n])
+                else:
+                    dove[n] = i
+    uniti: dict = {}
+    for i, comp in enumerate(comps):
+        uniti.setdefault(trova(i), set()).update(comp)
+    return [({n[1] for n in c if n[0] == 'e'}, {n[1] for n in c if n[0] == 'c'}) for c in uniti.values()]
+
+
+def _unisci(blocchi: list, gruppi: list) -> list:
+    """Unisce i blocchi indicati (ogni gruppo: indici da fondere in uno)."""
+    capo = list(range(len(blocchi)))
+
+    def trova(i):
+        while capo[i] != i:
+            capo[i] = capo[capo[i]]
+            i = capo[i]
+        return i
+
+    for g in gruppi:
+        for i in g[1:]:
+            capo[trova(i)] = trova(g[0])
+    out: dict = {}
+    for i, (ents, vinc) in enumerate(blocchi):
+        e, v = out.setdefault(trova(i), (set(), set()))
+        e |= ents
+        v |= vinc
+    return list(out.values())
+
+
+def _solve_a_blocchi(sk: Sketch, params: dict) -> SolvedSketch | None:
+    try:
+        blocchi = _blocchi(sk)
+    except Exception:  # noqa: BLE001 - nel dubbio, il calcolo intero
+        return None
+    fissi = _fissi_di(sk)
+    # i blocchi che toccano un solo punto (le quote di posizione di un punto dall'origine, una per X e una per Y)
+    # vanno insieme: separate, la seconda troverebbe il punto già fermo e sembrerebbe superflua
+    pendenti: dict = {}
+    for i, (ents, _) in enumerate(blocchi):
+        if len(ents) == 1:
+            pendenti.setdefault(next(iter(ents)), []).append(i)
+    blocchi = _unisci(blocchi, list(pendenti.values()))
+    for _giro in range(12):
+        if len(blocchi) < 2:
+            return None
+        esito = _risolvi_blocchi(sk, params, blocchi, fissi)
+        if isinstance(esito, SolvedSketch):
+            return esito
+        if esito is None:
+            return None
+        # il blocco esito non è pulito da solo: si unisce a tutti i blocchi con cui ha punti in comune e si riprova
+        ents = blocchi[esito][0]
+        vicini = [esito] + [j for j, (e2, _) in enumerate(blocchi) if j != esito and e2 & ents]
+        if len(vicini) == 1:
+            return None
+        blocchi = _unisci(blocchi, [vicini])
+    return None
+
+
+def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
+    """Risolve i blocchi in ordine. Dà la soluzione, oppure l'indice del blocco non pulito (None: errore vero)."""
+    # ordine: prima i blocchi ancorati ai punti fissi (le quote dall'origine o dai bordi del pezzo), poi in
+    # larghezza: così ogni blocco trova già risolti i punti con cui si aggancia
+    di_entita: dict = {}
+    for i, (ents, _) in enumerate(blocchi):
+        for e in ents:
+            di_entita.setdefault(e, []).append(i)
+
+    def ancorato(i):
+        return sum(1 for c in blocchi[i][1] for r in sk.constraints[c]['refs'] if r in fissi)
+
+    sorgenti = sorted((i for i in range(len(blocchi)) if ancorato(i)), key=lambda i: -ancorato(i))
+    ordine, visti, coda = [], set(sorgenti), list(sorgenti)
+    while len(ordine) < len(blocchi):
+        if not coda:
+            altro = max((i for i in range(len(blocchi)) if i not in visti), key=lambda i: len(blocchi[i][1]))
+            visti.add(altro)
+            coda.append(altro)
+        i = coda.pop(0)
+        ordine.append(i)
+        for e in blocchi[i][0]:
+            for j in di_entita[e]:
+                if j not in visti:
+                    visti.add(j)
+                    coda.append(j)
+    punti, cerchi, archi, linee, valori, dof = {}, {}, {}, {}, {}, 0
+    for i in ordine:
+        ents, vinc = blocchi[i]
+        usati = set(ents)
+        for e in ents:
+            usati.update(_riferimenti(sk, sk.entities[e]))
+        for c in vinc:
+            usati.update(r for r in sk.constraints[c]['refs'] if r in sk.entities)
+        for e in list(usati):                              # i punti delle linee e degli archi citati dai vincoli
+            usati.update(_riferimenti(sk, sk.entities[e]))
+        entita, vincoli = {}, {c: sk.constraints[c] for c in vinc}
+        for e in usati:
+            d = dict(sk.entities[e])
+            if d['kind'] == 'point' and e != ORIGIN and (e in fissi or e in punti or e not in ents):
+                if e in punti:                               # già risolto in un blocco prima: qui è fisso
+                    d['x'], d['y'] = punti[e]
+                vincoli[f'_fisso_{e}'] = {'type': 'fix', 'refs': [e]}
+            entita[e] = d
+        sub = Sketch(sk.id, sk.name, sk.plane, entita, vincoli)
+        try:
+            r = _solve(sub, params)
+        except SketchError:
+            return None                                      # il calcolo intero dirà l'errore giusto
+        if r.status.state in (OVER, REDUNDANT):
+            return i
+        if r.status.state not in (FULLY, UNDER):
+            return None
+        for k, v in r.points.items():
+            punti.setdefault(k, v)
+        cerchi.update({k: v for k, v in r.circles.items() if k in ents})
+        archi.update({k: v for k, v in r.arcs.items() if k in ents})
+        linee.update({k: v for k, v in r.lines.items() if k in ents})
+        valori.update(r.values)
+        dof += r.status.dof
+    for e, d in sk.entities.items():                         # punti isolati o fissi non toccati da nessun blocco
+        if d['kind'] == 'point' and e not in punti:
+            punti[e] = (d['x'], d['y'])
+    return SolvedSketch(sk, punti, cerchi, archi, linee, _status(sk, dof, [], [], valori), valori)
 
 
 def _solve(sk: Sketch, params: dict) -> SolvedSketch:
