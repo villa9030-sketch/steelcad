@@ -992,3 +992,26 @@ def test_dati_di_piega_predefiniti():
     s.new_project('lamiera', {'raggio': 2, 'k': 0.4})            # scritto a mano: vince quello
     assert (s.doc.feature('SM1')['radius'], s.doc.feature('SM1')['k']) == (2, 0.4)
     assert not s.set_bend_default({'method': 'k', 'k': 0.21})['ok']   # manca il raggio
+
+
+def test_pagina_iniziale_anteprime_e_date(tmp_path, monkeypatch):
+    """La pagina iniziale mostra i lavori recenti con l'anteprima (scattata dall'interfaccia) e la data detta come
+    la si dice: "oggi, 11:02", "ieri"."""
+    import base64
+    import os
+    import time
+    from app import service as S
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path / 'casa'))
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'Staffa', 'larghezza': 80, 'profondita': 50, 'spessore': 3})['ok']
+    p = tmp_path / 'staffa.steelcad'
+    assert s.save(str(p))['ok']
+    png = base64.b64encode(b'\x89PNG\r\n\x1a\n finto').decode()
+    assert s.save_thumbnail(str(p), 'data:image/png;base64,' + png)['ok']
+    assert not s.save_thumbnail(str(p), 'javascript:alert(1)')['ok']
+    r = s.home_info()['recent'][0]
+    assert r['name'] == 'staffa' and r['thumb'] == 'data:image/png;base64,' + png and r['when'].startswith('oggi, ')
+    ieri = time.time() - 86400
+    os.utime(p, (ieri, ieri))
+    assert s.home_info()['recent'][0]['when'] == 'ieri'
+    assert S._quando(time.time() - 40 * 86400)[0].isdigit()

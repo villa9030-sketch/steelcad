@@ -1513,13 +1513,13 @@ async function openProject(percorso) {
       salvataggio. Probabilmente il programma si è chiuso prima di salvare.</p>
       <div class="acts"><button class="btn" id="r-no">Apri il file salvato</button><button class="btn primary" id="r-ok">Recupera le modifiche</button></div>`,
     close => {
-      const vai = rec => { close(); primaVolta = true; clearSelection(); inCoda(async () => { if (await apply(await call('open_path', r.path, rec), rec ? 'Modifiche recuperate.' : null)) hideHome(); }); };
+      const vai = rec => { close(); primaVolta = true; clearSelection(); inCoda(async () => { if (await apply(await call('open_path', r.path, rec), rec ? 'Modifiche recuperate.' : null)) { hideHome(); fotoAnteprima(S.path); } }); };
       $('#r-no').onclick = () => vai(false); $('#r-ok').onclick = () => vai(true);
     });
     return;
   }
   if (r.ok) { primaVolta = true; clearSelection(); }
-  if (await apply(r)) hideHome();
+  if (await apply(r)) { hideHome(); fotoAnteprima(S.path); }
 }
 
 // ------------------------------------------------------------- import DXF / DWG
@@ -1623,20 +1623,32 @@ async function showHome(info) {
   info = info || await call('home_info');
   if (!info.ok) return;
   if (SK) exitSketch();
-  const rec = info.recent.map(x => `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
-      <img src="icons/box.svg" alt=""><div><b>${esc(x.name)}</b><span>${esc(x.folder)}</span></div><small>${esc(x.when)}</small>
-      <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti">×</button></div>`).join('')
-    || '<p class="hint">Ancora nessun progetto. Quelli che apri o salvi compaiono qui.</p>';
+  // i lavori recenti con l'anteprima vera (scattata dall'app quando il lavoro è stato aperto o salvato)
+  const rec = info.recent.slice(0, 8).map(x => `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
+      <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
+      <div><b>${esc(x.name)}</b><small>${esc(x.when)}${x.assembly ? ' · assieme' : ''}</small></div>
+      <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti" aria-label="Togli dai recenti">×</button></div>`).join('')
+    || '<p class="hint">Ancora nessun lavoro. Quelli che apri o salvi compaiono qui, con l’anteprima.</p>';
   $('#home-recent').innerHTML = rec;
-  $('#home-unsaved').innerHTML = info.unsaved ? `<div class="home-unsaved"><div><b>Lavoro non salvato</b>
-      <span>Salvataggio automatico del ${esc(info.unsaved.when)}: un progetto mai salvato con un nome.</span></div>
-      <button class="btn" id="home-recover">Recupera</button></div>` : '';
-  $('#home-close').hidden = !!info.show;              // all'avvio non c'è un progetto da cui tornare
+  $('#home-unsaved').innerHTML = info.unsaved ? `<div class="home-unsaved"><div><b>Hai un lavoro non salvato</b>
+      <span>lasciato ${esc(info.unsaved.when)}: riprendilo e salvalo con un nome.</span></div>
+      <button class="btn primary" id="home-recover">Riprendilo</button></div>` : '';
+  $('#home-close').hidden = !!info.show;              // all'avvio non c'è un lavoro a cui tornare
   $('#home').hidden = false;
   document.body.classList.add('at-home');
+  // prima la scelta grande (lamiera, struttura, cono), poi sotto il tipo, con le foto
+  const scegli = cat => {
+    $('#home').querySelectorAll('.home-cat').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
+    $('#home').querySelectorAll('.home-tipi').forEach(s => { s.hidden = s.dataset.of !== cat; });
+    const s = $(`#home .home-tipi[data-of="${cat}"]`);
+    if (s) s.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  $('#home').querySelectorAll('.home-cat').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
+  scegli(null);
   $('#home').querySelectorAll('[data-new]').forEach(b => {
     b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'importa' ? inCoda(importDialog) : newDialog(b.dataset.new, true));
   });
+  $('#home').querySelectorAll('[data-altro="importa"]').forEach(b => { b.onclick = () => inCoda(importDialog); });
   $('#home-open').onclick = () => inCoda(() => openProject());
   $('#home-close').onclick = hideHome;
   $('#home').querySelectorAll('.home-rec').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
@@ -1649,6 +1661,32 @@ async function showHome(info) {
 function hideHome() {
   $('#home').hidden = true;
   document.body.classList.remove('at-home');
+}
+
+// l'anteprima del lavoro per la pagina iniziale: la vista 3D di adesso, ritagliata attorno al pezzo
+async function fotoAnteprima(percorso) {
+  try {
+    if (!percorso || !objs.size) return;
+    const box = new THREE.Box3().setFromObject(model);
+    if (box.isEmpty()) return;
+    renderer.render(scene, camera);
+    const W = canvas.width, H = canvas.height;
+    let x0 = W, y0 = H, x1 = 0, y1 = 0;
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      const v = new THREE.Vector3(x, y, z).project(camera);
+      const px = (v.x + 1) / 2 * W, py = (1 - v.y) / 2 * H;
+      x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+    }
+    const m = 0.04 * Math.max(x1 - x0, y1 - y0);
+    x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
+    if (x1 - x0 < 4 || y1 - y0 < 4) return;
+    const out = document.createElement('canvas');
+    out.width = 320; out.height = 240;
+    const k = Math.min(out.width / (x1 - x0), out.height / (y1 - y0));
+    const w = (x1 - x0) * k, h = (y1 - y0) * k;
+    out.getContext('2d').drawImage(canvas, x0, y0, x1 - x0, y1 - y0, (out.width - w) / 2, (out.height - h) / 2, w, h);
+    await call('save_thumbnail', percorso, out.toDataURL('image/png'));
+  } catch (e) { /* l'anteprima è una comodità: se non riesce, pazienza */ }
 }
 
 const CMDS = [
@@ -1667,8 +1705,8 @@ const CMDS = [
   { id: 'asm_back', label: 'Torna all’assieme', run: () => inCoda(async () => { primaVolta = true; clearSelection(); await apply(await call('asm_back')); }) },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
-  { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => apply(await call('save', false), 'Salvato.')) },
-  { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => apply(await call('save', true), 'Salvato.')) },
+  { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path); }) },
+  { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => { if (await apply(await call('save', true), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
   { id: 'export_dxf', label: 'Esporta DXF di taglio…', run: () => inCoda(async () => apply(await call('export', 'dxf'))) },
   { id: 'undo', label: 'Annulla', keys: 'Ctrl+Z', run: () => S?.undo[0] && inCoda(async () => apply(await call('undo'))) },

@@ -1944,18 +1944,33 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
     # ================================================================ pagina iniziale
     def home_info(self) -> dict:
         """Per la pagina iniziale: i progetti recenti (quelli che esistono ancora) e il lavoro non salvato."""
-        from datetime import datetime
         recenti = []
         for p in _read_recent():
             q = Path(p)
             if q.exists():
                 recenti.append({'path': str(q), 'name': q.stem, 'folder': str(q.parent),
-                                'when': datetime.fromtimestamp(q.stat().st_mtime).strftime('%d/%m/%Y %H:%M')})
+                                'assembly': q.suffix == '.steelcad-asm',
+                                'when': _quando(q.stat().st_mtime), 'thumb': _anteprima(q)})
         auto = project_io.autosave_path(_UNSAVED)
         nonsalvato = None
         if auto.exists():
-            nonsalvato = {'when': datetime.fromtimestamp(auto.stat().st_mtime).strftime('%d/%m/%Y %H:%M')}
+            nonsalvato = {'when': _quando(auto.stat().st_mtime)}
         return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato)
+
+    def save_thumbnail(self, path: str, data_url: str) -> dict:
+        """L'anteprima del lavoro (la vista 3D, presa dall'interfaccia quando apri o salvi) per la pagina iniziale.
+        Sta accanto alla lista dei recenti, non nel file del progetto."""
+        import base64
+        try:
+            testa = 'data:image/png;base64,'
+            if not isinstance(data_url, str) or not data_url.startswith(testa) or len(data_url) > 2_000_000:
+                return {'ok': False, 'message': 'Anteprima non valida.'}
+            f = _file_anteprima(Path(path))
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(base64.b64decode(data_url[len(testa):]))
+            return {'ok': True}
+        except (OSError, ValueError) as ex:
+            return {'ok': False, 'message': str(ex)}
 
     def recover_unsaved(self) -> dict:
         """Riapre il salvataggio automatico del progetto mai salvato (va poi salvato con un nome)."""
@@ -2093,6 +2108,36 @@ def _recent_file() -> Path:
     import os
     base = os.environ.get('STEELCAD_HOME') or os.path.join(os.environ.get('APPDATA') or str(Path.home()), 'SteelCAD')
     return Path(base) / 'recenti.json'
+
+
+def _file_anteprima(path: Path) -> Path:
+    import hashlib
+    chiave = hashlib.sha1(str(Path(path).resolve()).lower().encode('utf-8')).hexdigest()[:20]
+    return _recent_file().parent / 'anteprime' / f'{chiave}.png'
+
+
+def _anteprima(path: Path) -> str | None:
+    import base64
+    try:
+        return 'data:image/png;base64,' + base64.b64encode(_file_anteprima(path).read_bytes()).decode('ascii')
+    except OSError:
+        return None
+
+
+def _quando(ts: float) -> str:
+    """Quando, come lo si dice: "oggi, 11:02", "ieri", "lunedì", "17 ottobre"."""
+    from datetime import date, datetime
+    d = datetime.fromtimestamp(ts)
+    giorni = (date.today() - d.date()).days
+    if giorni == 0:
+        return f'oggi, {d:%H:%M}'
+    if giorni == 1:
+        return 'ieri'
+    if 1 < giorni < 7:
+        return ('lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica')[d.weekday()]
+    mesi = ('gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre',
+            'novembre', 'dicembre')
+    return f'{d.day} {mesi[d.month - 1]}' + (f' {d.year}' if d.year != date.today().year else '')
 
 
 def _read_recent() -> list:

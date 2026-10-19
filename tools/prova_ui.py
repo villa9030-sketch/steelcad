@@ -149,6 +149,7 @@ def main():
 
 def nuovo_subito(pg, ok):
     """Bug 16/10: appena aperta l'app, Nuovo → il pezzo nuovo deve sostituire quello vecchio a video."""
+    pg.click('#home [data-cat="lamiera"]')
     pg.click('#home [data-new="piastra"]')
     pg.click('#n-ok')
     pg.wait_for_function("window.__steelcad.state.name === 'Piastra'")

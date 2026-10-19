@@ -272,6 +272,9 @@ class Api:
     def forget_recent(self, path):
         return self._call(self._svc.forget_recent, path)
 
+    def save_thumbnail(self, path, data_url):
+        return self._call(self._svc.save_thumbnail, path, data_url)
+
     # import di uno sviluppo da DXF/DWG
     def import_dxf_dialog(self):
         p = self._dialog(webview.OPEN_DIALOG, FILTRO_DISEGNO)

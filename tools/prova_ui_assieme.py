@@ -37,6 +37,10 @@ try:
         pg.click('#top .brand'); pg.wait_for_selector('#home:not([hidden])')
         pg.click('#home [data-new="assieme"]'); pg.fill('#n-name', 'Prova assieme'); pg.click('#n-ok')
         pg.wait_for_function("window.__steelcad.state.mode === 'assembly'")
+        try:  # la pagina iniziale si chiude quando l'assieme ha finito di caricarsi (subito dopo lo stato)
+            pg.wait_for_function("document.querySelector('#home').hidden", timeout=10000)
+        except Exception:
+            pass
         ok('pagina iniziale → nuovo assieme', pg.evaluate("document.querySelector('#home').hidden"))
         ok('scheda ASSIEME e niente Parametri', pg.is_visible('.rtabs [data-rtab="assieme"]') and not pg.is_visible('#params'))
         for f in ('piastra', 'staffa'):

@@ -55,6 +55,8 @@ def main():
 
             # 1. scaffale dalla pagina iniziale
             home()
+            if not pg.is_visible('[data-new="scaffale"]'):
+                pg.click('[data-cat="struttura"]')
             pg.click('[data-new="scaffale"]')
             pg.fill('[data-f="H"]', '2000')
             pg.click('#n-ok')
@@ -77,6 +79,8 @@ def main():
 
             # 2. cancello
             home()
+            if not pg.is_visible('[data-new="cancello"]'):
+                pg.click('[data-cat="struttura"]')
             pg.click('[data-new="cancello"]')
             pg.click('#n-ok')
             pg.wait_for_function("window.__steelcad.state.name === 'Cancello' && window.__steelcad.state.cutlist.pieces === 15")
@@ -86,6 +90,8 @@ def main():
 
             # 3. struttura da disegno: rettangolo di fronte, traverso a metà, ripetuta dietro e collegata
             home()
+            if not pg.is_visible('[data-new="disegno"]'):
+                pg.click('[data-cat="struttura"]')
             pg.click('[data-new="disegno"]')
             pg.select_option('[data-f="piano"]', 'XZ')
             pg.click('#n-ok')
