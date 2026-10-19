@@ -126,7 +126,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
-            'bend_default': self.bend_default(),
+            'bend_default': self.bend_default(), 'from_template': bool(self._modelli()),
         }
 
     def _parameters(self):
@@ -134,7 +134,26 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             risolti = self.doc.resolved_parameters()
         except SteelCADError:
             risolti = {}
-        return [{'name': k, 'value': v, 'resolved': risolti.get(k)} for k, v in self.doc.parameters.items()]
+        nomi = self._etichette_parametri()
+        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': nomi.get(k)}
+                for k, v in self.doc.parameters.items()]
+
+    # le sigle dei parametri in parole, per il pannello: prima quelle dei campi del modello, poi le solite
+    ETICHETTE_PARAMETRI = {'W': 'Larghezza', 'P': 'Profondità', 'L': 'Lunghezza', 'H': 'Altezza', 'sp': 'Spessore',
+                           'ps': 'Passo sbarre', 'pr': 'Passo ripiani', 'D1': 'Ø grande', 'D2': 'Ø piccolo',
+                           'D': 'Distanza', 'A': 'Lato A', 'B': 'Lato B', 'ex': 'Spostamento X', 'ey': 'Spostamento Y'}
+
+    def _etichette_parametri(self) -> dict:
+        nomi = dict(self.ETICHETTE_PARAMETRI)
+        for t in self._modelli():
+            for c in self.MODELLI_ST[t['kind']][1]:
+                nomi[{'spessore': 'sp'}.get(c[0], c[0])] = c[1].split(' (')[0]
+        return nomi
+
+    def _modelli(self) -> list:
+        """I modelli a misure (cancello, scaffale, cono…) da cui nasce il progetto."""
+        return [f['template'] for f in self.doc.features if not isinstance(f, Sketch)
+                and (f.get('template') or {}).get('kind') in self.MODELLI_ST]
 
     def _dimensions(self):
         """Le quote degli sketch da mostrare sul modello: clic, scrivi, Invio."""
@@ -308,14 +327,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 forma = self._shape_template()
                 if forma:
                     dati['tpl_id'], dati['template'] = forma
-                dati['commands'] = [{'id': 'export_dxf', 'label': 'Esporta DXF di taglio'},
-                                    {'id': 'export_step', 'label': 'Esporta STEP'}]
-                if getattr(self.result.body, 'sheet', None) is not None:
-                    dati['commands'] += [{'id': 'unfold', 'label': 'Spiega'}]
-                    if forma:                       # coni e raccordi: tabella pieghe per la piegatrice
-                        dati['commands'] += [{'id': 'export_bendtable', 'label': 'Tabella pieghe'}]
-                    else:
-                        dati['commands'] += [{'id': 'flat_sketch', 'label': 'Disegna sullo sviluppo'}]
+                # esporta, spiega, sullo sviluppo: stanno nella barra in alto, non qui
                 return _ok(selection=dati)
             if ':' in obj_id:
                 return _ok(selection=self._node_selection(obj_id))

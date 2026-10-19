@@ -107,6 +107,8 @@ def main():
             pg.keyboard.press('Escape')
 
             # parametro sbagliato: messaggio chiaro, niente rottura
+            if not pg.evaluate("document.querySelector('#params-box').open"):
+                pg.click('#params-box > summary')          # telaio da modello: i parametri sono tra le avanzate
             pg.fill('#params input[data-p="P"]', 'P*2')
             pg.keyboard.press('Enter')
             pg.wait_for_selector('.toast.err')
@@ -125,7 +127,7 @@ def main():
             pg.wait_for_function("window.__steelcad.state.info.part && Math.round(window.__steelcad.state.info.part.size_mm[0]) === 400")
             ok('larghezza 400 → pezzo 400 largo', True)
             pg.screenshot(path=str(SHOTS / '3_piastra.png'))
-            pg.keyboard.press('Control+K'); pg.keyboard.type('dxf'); pg.keyboard.press('Enter')
+            pg.keyboard.press('Control+K'); pg.keyboard.type('esporta dxf'); pg.keyboard.press('Enter')
             pg.wait_for_selector('.toast:has-text("DXF salvato")')
             ok('export DXF: ' + pg.inner_text('.toast:has-text("DXF")'), True)
             pg.keyboard.press('Control+S')
@@ -413,7 +415,8 @@ def lamiera(pg, ok):
     pg.wait_for_selector('#flat-svg')
     time.sleep(0.3)
     pg.screenshot(path=str(SHOTS_G / '6_lamiera.png'))
-    pg.click('#tab-sheet [data-cmd="export_dxf"]')
+    pg.click('.rbody:not([hidden]) .rb-export')            # Esporta ▾ nella barra in alto
+    pg.click('.rmenu.open [data-cmd="export_dxf"]')
     pg.wait_for_selector('.toast:has-text("Sviluppo salvato")')
     ok('export sviluppo: ' + pg.inner_text('.toast:has-text("Sviluppo salvato")')[:90], True)
 

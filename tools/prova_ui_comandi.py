@@ -253,10 +253,13 @@ def main():
                pg.evaluate("document.querySelector('.tabs [data-tab=cut]').hidden"))
             for tab in ('lamiera',):
                 pg.click(f'.rtabs [data-rtab="{tab}"]')
-                for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].map(b => b.dataset.cmd)", tab):
+                for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].map(b => (b.closest('.drop') ? 'menu:' : '') + b.dataset.cmd)", tab):
                     if cmd == 'unfold' or cmd == 'flat_sketch':
                         continue                               # provati a parte
                     pg.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
+                    if cmd.startswith('menu:'):                # le voci di Esporta ▾: si apre il menu e si sceglie
+                        cmd = cmd[5:]
+                        pg.click(f'.rbody[data-rbody="{tab}"] .rb-export')
                     pg.click(f'.rbody[data-rbody="{tab}"] [data-cmd="{cmd}"]')
                     tipo = attesi.get(cmd, '?')
                     if tipo == 'modal':
@@ -299,11 +302,7 @@ def main():
             time.sleep(0.6)
             d = direzione()
             ok('casetta del cubo: isometrica', d[2] < -0.3 and d[1] > 0.3)
-            n = pg.locator('#tl-items .tl').count()
-            ok(f'storia delle operazioni: {n} voci', n >= 3)
-            pg.click('#tl-items .tl >> nth=-1')
-            pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
-            ok('storia: clic sull’ultima voce seleziona la flangia', True)
+            ok('niente barra "Storia" (ripeteva l’albero)', pg.locator('#tl-items').count() == 0)
             scuro = pg.evaluate("document.body.classList.contains('dark')")
             pg.click('#navbar [data-cmd="toggle_theme"]')
             ok('tema: il pulsante ◐ cambia tema', pg.evaluate("document.body.classList.contains('dark')") != scuro)

@@ -511,7 +511,8 @@ def main():
             pg.click('[data-rule-apply]')
             pg.wait_for_function("window.__steelcad.state.sheet.def.radius === 2")
             ok('regola applicata: raggio di nuovo 2', True)
-            pg.click('#ribbon [data-cmd="export_bendtable"]')
+            pg.click('.rbody:not([hidden]) .rb-export')         # Esporta ▾
+            pg.click('.rmenu.open [data-cmd="export_bendtable"]')
             pg.wait_for_selector('.toast:has-text("Tabella pieghe salvata")')
             ok('tabella pieghe esportata dalla barra', True)
             pg.screenshot(path=str(SHOTS / '16_lamiera_barra.png'))
