@@ -1918,20 +1918,74 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
+    def _doc_modello(self, kind: str, values: dict | None) -> Document:
+        if kind in ('lamiera', 'cono', 'tramoggia'):
+            d = self.bend_default()
+            values = dict(values or {})
+            for campo, k in (('raggio', 'radius'), ('k', 'k')):
+                if str(values.get(campo, '') or '').strip() == '' and d.get(k) is not None:
+                    values[campo] = d[k]
+        values = {k: _number(v) for k, v in (values or {}).items()}
+        return {'telaio': templates.telaio, 'piastra': templates.piastra,
+                'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
+                'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
+                'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
+                'cono': templates.cono, 'tramoggia': templates.tramoggia}[kind](**values)
+
+    def new_project_preview(self, kind: str, values: dict | None = None) -> dict:
+        """Mentre si scrivono le misure di un pezzo nuovo: cosa viene fuori, a parole (quante sbarre e che luce,
+        quanto pesa, quanto è lo sviluppo). Il pezzo si costruisce a parte: il progetto aperto non cambia."""
+        def kg(v):
+            return f'{v:.1f}'.replace('.', ',')
+        try:
+            doc = self._doc_modello(kind, values)
+            r = doc.rebuild()
+            if r.errors:
+                return {'ok': True, 'text': None, 'warning': r.errors[0].message}
+            frasi = []
+            if r.structures:
+                cl = cut_list(r.structures)
+                if kind == 'cancello':
+                    sbarre = [m for st in r.structures for m in st.members if m.group == 'Sbarre']
+                    xs = sorted({round((m.start.X + m.end.X) / 2, 3) for m in sbarre})
+                    if len(xs) >= 2:
+                        passo = xs[1] - xs[0]
+                        luce = passo - sbarre[0].profile.width
+                        frasi.append(f'Escono {len(xs)} sbarre ogni {fmt_mm(round(passo, 1))} mm: tra una e l’altra restano '
+                                     f'{fmt_mm(round(luce, 1))} mm di luce.')
+                if kind in ('scaffale', 'armadio'):
+                    t = (doc.features[-1].get('template') or {}).get('values', {}) if doc.features else {}
+                    n, h = int(_number(t.get('ripiani', 0)) or 0), _number(t.get('H', 0))
+                    if n > 1 and h:
+                        frasi.append(f'{n} piani, uno ogni {fmt_mm(round(h / (n - 1), 1))} mm.')
+                import build123d as bd
+                bb = bd.Compound([m.solid for st in r.structures for m in st.members]).bounding_box().size
+                fuori = [round(v) for v in (bb.X, bb.Y, bb.Z) if v > 1e-6]
+                if kind == 'cancello':
+                    fuori = [round(bb.X), round(bb.Z)]
+                frasi.append('Fuori tutto ' + ' × '.join(fmt_mm(v) for v in fuori) + ' mm.')
+                frasi.append(f'Circa {kg(cl["kg"])} kg: {cl["pieces"]} pezzi di tubo da tagliare, {len(cl["rows"])} misure diverse.')
+            if r.body is not None:
+                massa = properties(r.body.shape, doc.material)['mass_kg']
+                sd = getattr(r.body, 'sheet', None)
+                if sd is not None:
+                    info = getattr(sd, 'shape_info', None) or {}
+                    if info.get('kind') == 'cone' and not info.get('pieghe'):
+                        frasi.append(f'Calandrato: lo sviluppo è una corona di {fmt_mm(round(sd.flat_size[0], 1))} × '
+                                     f'{fmt_mm(round(sd.flat_size[1], 1))} mm.')
+                    else:
+                        n_pieghe = info.get('pieghe') if info else len(sd.flanges)
+                        frasi.append(f'Sviluppo {fmt_mm(round(sd.flat_size[0], 1))} × {fmt_mm(round(sd.flat_size[1], 1))} mm'
+                                     + (f', {n_pieghe} pieghe' if n_pieghe else '') + '.')
+                frasi.append(f'Circa {kg(massa)} kg.')
+            return {'ok': True, 'text': ' '.join(frasi) or None}
+        except Exception as ex:  # noqa: BLE001 - misure a metà mentre si scrive: niente riassunto, niente errore
+            msg = ex.message if isinstance(ex, SteelCADError) else None
+            return {'ok': True, 'text': None, 'warning': msg}
+
     def new_project(self, kind: str, values: dict | None = None) -> dict:
         try:
-            if kind in ('lamiera', 'cono', 'tramoggia'):
-                d = self.bend_default()
-                values = dict(values or {})
-                for campo, k in (('raggio', 'radius'), ('k', 'k')):
-                    if str(values.get(campo, '') or '').strip() == '' and d.get(k) is not None:
-                        values[campo] = d[k]
-            values = {k: _number(v) for k, v in (values or {}).items()}
-            doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
-                   'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
-                   'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
-                   'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
-                   'cono': templates.cono, 'tramoggia': templates.tramoggia}[kind](**values)
+            doc = self._doc_modello(kind, values)
             self._set(doc)
             self.path = None
             self.blank = False

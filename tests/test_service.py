@@ -1015,3 +1015,15 @@ def test_pagina_iniziale_anteprime_e_date(tmp_path, monkeypatch):
     os.utime(p, (ieri, ieri))
     assert s.home_info()['recent'][0]['when'] == 'ieri'
     assert S._quando(time.time() - 40 * 86400)[0].isdigit()
+
+
+def test_pezzo_nuovo_il_riassunto_a_parole():
+    """Mentre si scrivono le misure: cosa viene fuori, a parole, senza toccare il progetto aperto."""
+    s = Service()
+    r = s.new_project_preview('cancello', {'L': 1500, 'H': 1200, 'telaio': '60x60x3', 'sbarre': '20x20x2', 'passo': 120})
+    assert r['ok'] and 'Escono 11 sbarre ogni 125 mm' in r['text'] and 'Fuori tutto 1560 × 1260 mm' in r['text']
+    assert 'Sviluppo 500 × 300 mm' in s.new_project_preview('lamiera', {'larghezza': 500, 'profondita': 300, 'spessore': 2})['text']
+    assert 'Calandrato' in s.new_project_preview('cono', {'modo': 'rolled'})['text']
+    male = s.new_project_preview('telaio', {'L': -5})
+    assert male['ok'] and not male['text'] and male['warning']
+    assert s.result.body is None and not s.result.structures            # il progetto aperto non è cambiato

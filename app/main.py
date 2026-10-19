@@ -272,6 +272,9 @@ class Api:
     def forget_recent(self, path):
         return self._call(self._svc.forget_recent, path)
 
+    def new_project_preview(self, kind, values=None):
+        return self._call(self._svc.new_project_preview, kind, values)
+
     def save_thumbnail(self, path, data_url):
         return self._call(self._svc.save_thumbnail, path, data_url)
 

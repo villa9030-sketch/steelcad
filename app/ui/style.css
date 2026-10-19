@@ -600,3 +600,44 @@ body.assembly #left .panel:nth-child(2) { display: none; }
 /* finestre lunghe (raccordo, cono): si scorre dentro, non escono dallo schermo */
 .modal-box { max-height: calc(100vh - 40px); overflow: auto; }
 .modal-box .choice.kinds + .form, .modal-box .choice.kinds ~ .form { margin-top: 14px; }
+
+/* ---------------------------------------------------- pezzo nuovo: le misure sul disegno, con le lettere */
+.modal-box.nuovo { width: min(1080px, 96vw); max-width: none; }
+.modal-box.nuovo h3 { font-size: 22px; }
+.n-kinds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 14px; }
+.n-kinds span { font-size: 12px; color: var(--ink-3); margin: 0 4px 0 10px; }
+.n-kinds span:first-child { margin-left: 0; }
+.n-kinds button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.n-kinds button.on { border-color: var(--hover); background: var(--on-bg); }
+.n-main { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 26px; align-items: start; }
+.n-main.senza { grid-template-columns: minmax(0, 1fr); }
+.n-pic { border-radius: 10px; border: 1px solid var(--line); padding: 10px;
+  background: radial-gradient(ellipse at 50% 40%, var(--view-top), var(--view-bot) 90%); }
+.n-pic svg { width: 100%; height: auto; display: block; }
+.n-pic .ln { fill: none; stroke: var(--ink-2); stroke-width: 2.4; stroke-linejoin: round; }
+.n-pic .pz { fill: var(--row); }
+.n-pic .q { fill: none; stroke: var(--hover); stroke-width: 2; }
+.n-pic .lt circle { fill: var(--action); }
+.n-pic .lt text, .n-pic .nota { font: 700 17px "Segoe UI", sans-serif; fill: #fff; text-anchor: middle; }
+.n-pic .nota { fill: var(--hover); font-size: 15px; text-anchor: start; }
+.n-campi { display: flex; flex-direction: column; gap: 10px; }
+.n-campi > .hint { margin: 0 0 4px; font-size: 14px; }
+.nc { display: grid; grid-template-columns: 30px minmax(0, 1fr) 190px; align-items: center; gap: 10px; font-size: 15px; }
+.nc .nl { width: 28px; height: 28px; border-radius: 50%; background: var(--action); color: #fff; font-weight: 700; display: flex;
+  align-items: center; justify-content: center; }
+.nc .nl.vuota { background: none; }
+.nc .nv { display: flex; align-items: center; gap: 6px; }
+.nc .field { width: 100%; font-size: 17px; padding: 8px 10px; }
+.nc select.field { font-size: 15px; }
+.nc small { color: var(--ink-3); font-size: 13px; }
+.nc.bad .field { border-color: var(--err); box-shadow: 0 0 0 1px var(--err); }
+.n-altro { border-top: 1px solid var(--line); padding-top: 8px; }
+.n-altro summary { cursor: pointer; color: var(--ink-2); font-size: 14px; padding: 4px 0; }
+.n-altro[open] summary { margin-bottom: 8px; }
+.n-altro .nc { margin-bottom: 8px; }
+.n-ris { min-height: 22px; font-size: 15px; line-height: 1.5; border-radius: 8px; }
+.n-ris.ok { padding: 12px 14px; background: color-mix(in srgb, var(--ok) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent); }
+.n-ris.warn { padding: 12px 14px; background: var(--warn-bg); border: 1px solid var(--warn); }
+.btn.big { padding: 10px 26px; font-size: 16px; font-weight: 600; }
+@media (max-width: 900px) { .n-main { grid-template-columns: 1fr; } }
+.modal-box .n-kinds.choice { margin-bottom: 14px; } .modal-box .n-kinds.choice button { flex: none; }
