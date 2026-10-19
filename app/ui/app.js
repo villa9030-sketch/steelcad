@@ -190,6 +190,7 @@ function selectEdge(e) {
   selTok++; selGen++;
   sel = { id: 'edge=' + e.id };
   hover = null;
+  aggiornaLayout();
   paint(); renderTree(); paintNodes();
   const punta = e.kind === 'tip';
   const d = punta ? ultimaPunta : ultimaFlangia;
@@ -646,10 +647,13 @@ function renderPanels() {
   if (!assieme && ASM.tool) asmTool(null);
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi();
   aggiornaLayout();
-  if (!sel && !SK) $('#props').innerHTML = cosaPuoiFare();
+  if (!sel && !SK) $('#props').innerHTML = '';
 }
+// il pannello a destra si apre solo quando c'è qualcosa di selezionato (le proprietà); i comandi stanno nella barra in alto
 function aggiornaLayout() {
-  document.body.classList.toggle('lavoro', !!S && S.mode !== 'assembly' && !SK);
+  const chiuso = !sel || !!SK;
+  if (document.body.classList.contains('senza-destra') === chiuso) return;
+  document.body.classList.toggle('senza-destra', chiuso);
   requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 }
 
@@ -761,62 +765,15 @@ async function select(id, face = null, ids = null, silenzioso = false) {
   if (r.selection.highlight) { sel.hl = r.selection.highlight; paint(); }
   if (r.selection.kind === 'structure') { sel.ids = r.selection.members; paint(); }
   renderProps(r.selection);
+  aggiornaLayout();
 }
 function clearSelection() {
   selTok++; selGen++;
   sel = null; paint(); renderTree(); paintNodes();
-  $('#props').innerHTML = cosaPuoiFare();
+  $('#props').innerHTML = '';
+  aggiornaLayout();
 }
 
-// ------------------------------------------------------------- cosa puoi fare adesso (senza selezione)
-// Le 4-5 cose che si fanno con questo pezzo, ognuna con una riga che dice come; le rare sotto "Altre lavorazioni…"
-const ICO = {
-  piega: '<path d="M5 27h18l9-15"/>', fori: '<rect x="3" y="8" width="30" height="21" rx="2"/><circle cx="13" cy="18.5" r="4"/><rect x="21" y="15" width="9" height="7" rx="3.5"/>',
-  taglia: '<path d="M3 8h30v21H3z"/><path d="M22 8v9h11"/>', forme: '<path d="M8 12h20M8 19h20M8 26h20"/>',
-  piegatrice: '<circle cx="18" cy="18" r="12"/><path d="M18 11v7l5 4"/>', misure: '<path d="M4 26h28M4 22v8M32 22v8M10 26v-3M16 26v-4M22 26v-3M28 26v-4"/>',
-  tubo: '<rect x="6" y="6" width="24" height="24" rx="3"/><rect x="11" y="11" width="14" height="14" rx="2"/>', asta: '<path d="M6 30 30 6M24 6h6v6"/>',
-  giunti: '<path d="M6 30V8h22"/><circle cx="6" cy="8" r="3.5"/>', sviluppo: '<path d="M4 24l9-14h10l9 14z"/><path d="M13 10v14M23 10v14"/>',
-};
-function cosaPuoiFare() {
-  if (!S || S.mode === 'assembly' || SK) return '<p class="empty">Clicca un pezzo nel modello o nell’albero.</p>';
-  const lam = !!S.sheet?.data && !S.sheet?.shape, forma = !!S.sheet?.shape;
-  const struttura = !!S.cutlist?.rows?.length && !S.sheet;
-  const piastra = !S.sheet && JSON.stringify(S.tree || {}).includes('"kind":"extrude"');
-  const az = (id, ico, t, d, prima) => `<button class="az${prima ? ' prima' : ''}" data-azione="${id}"><svg viewBox="0 0 36 36" aria-hidden="true">${ICO[ico]}</svg>
-    <span><b>${t}</b><span>${d}</span></span></button>`;
-  const r = S.bend_default || {};
-  const pieg = `Raggio ${virgola(S.sheet?.data?.tech?.radius ?? r.radius) || '?'} · K ${virgola(S.sheet?.data?.tech?.k ?? r.k) || '?'}`;
-  let h = '';
-  if (lam) h = az('piega', 'piega', 'Aggiungi una piega', 'Clicca il bordo dove la vuoi', true) + az('fori', 'fori', 'Fai fori o asole', 'Sulla faccia di sopra')
-    + az('taglia', 'taglia', 'Taglia via un angolo o un pezzo', 'Smussi, scantonature, finestre') + az('forme', 'forme', 'Persiane o bugne', 'Per l’aria o per irrigidire')
-    + az('piegatrice', 'piegatrice', 'Materiale e piegatrice', pieg);
-  else if (forma) h = az('misure', 'misure', 'Cambia le misure', 'Diametri, altezza, spessore', true) + az('sviluppo', 'sviluppo', 'Vedi lo sviluppo', 'La lamiera stesa, con le pieghe')
-    + az('piegatrice', 'piegatrice', 'Materiale e piegatrice', pieg);
-  else if (struttura) h = az('misure', 'misure', 'Cambia le misure', 'Larghezza, altezza, tubi', true) + az('tubo', 'tubo', 'Cambia un tubo', 'Clicca l’asta nel modello')
-    + az('asta', 'asta', 'Aggiungi un’asta', 'Parte da un pallino (nodo)') + az('giunti', 'giunti', 'Come si uniscono gli angoli', 'A 45°, di testa, passante');
-  else if (piastra) h = az('fori', 'fori', 'Fai fori o asole', 'Sulla faccia di sopra', true) + az('taglia', 'taglia', 'Taglia via un angolo o un pezzo', 'Smussi, scantonature, finestre')
-    + az('misure', 'misure', 'Cambia le misure', 'Larghezza, altezza, spessore');
-  else return '<p class="empty">Clicca un pezzo nel modello o nell’albero.</p>';
-  return `<div class="cosa"><h3>Cosa puoi fare adesso</h3>${h}<button class="altre" data-azione="altre">Altre lavorazioni…</button></div>`;
-}
-function altreLavorazioni() {
-  const lam = !!S.sheet?.data && !S.sheet?.shape;
-  const v = (id, t, d, cerca) => `<button class="voce" data-azione="${id}" data-cerca="${esc((t + ' ' + d + ' ' + (cerca || '')).toLowerCase())}"><b>${t}</b><span>${d}</span></button>`;
-  const gruppi = [];
-  if (lam) gruppi.push(['Pieghe', v('orlo', 'Orlo', 'Bordo ripiegato su se stesso, per non tagliarsi o per irrigidire', 'piega 180 schiacciata')
-    + v('piega_linea', 'Piega in mezzo al pezzo', 'Si piega lungo una linea che disegni, non su un bordo', 'piega su linea sviluppo')
-    + v('profilo', 'Profilo piegato da disegno', 'Disegni la sezione (una Z, un omega) e diventa una fila di pieghe', 'lamiera a contorno')
-    + v('angoli', 'Chiudi gli angoli', 'Due pieghe che si incontrano: quale va sopra, quanto gioco lasciare', 'gioco sovrapposizione')]);
-  if (lam) gruppi.push(['Materiale in più o in meno', v('linguetta', 'Linguetta', 'Un’aletta di lamiera in più sul bordo, per fissare o incastrare', 'aletta incastro')
-    + v('contorno', 'Disegna un contorno libero', 'Per forme che non sono fori, asole o tagli d’angolo', 'sketch')]);
-  else gruppi.push(['Disegno', v('contorno', 'Disegna un contorno libero', 'Per forme che non sono fori, asole o tagli d’angolo', 'sketch')]);
-  gruppi.push(['Misure e dati', v('parametri', 'Misure collegate', 'Una misura che segue un’altra (la profondità è metà della larghezza)', 'parametri formule')
-    + (S.sheet ? v('regole', 'Regole della piegatrice', 'Raggi e K salvati per materiale e spessore', 'regole k-factor raggio') : '')
-    + (S.sheet ? v('sviluppo', 'Vedi lo sviluppo', 'La lamiera stesa, con le linee di piega', 'spiega') : '')]);
-  return `<div class="cosa"><div class="indietro"><button data-azione="cosa" aria-label="Indietro">←</button><h3 style="margin:0">Altre lavorazioni</h3></div>
-    <input class="field cerca" id="cosa-cerca" placeholder="Cerca: orlo, linguetta, scantonatura…">
-    ${gruppi.map(([g, h]) => `<div class="gr">${g}</div>${h}`).join('')}</div>`;
-}
 async function disegnaSopra(aiuto) {
   // la faccia di sopra del pezzo: lì si disegnano fori, tagli, persiane
   const facce = objs.get('body')?.data?.faces || [];
@@ -829,8 +786,6 @@ function azione(id) {
   const t = (m, k) => toast(m, k || '');
   const sel1 = async q => { await select(q); };
   switch (id) {
-    case 'cosa': $('#props').innerHTML = cosaPuoiFare(); return;
-    case 'altre': $('#props').innerHTML = altreLavorazioni(); $('#cosa-cerca')?.focus(); return;
     case 'piega': runCmd('flange_help'); return;
     case 'fori': inCoda(() => foriDialog()); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
@@ -854,16 +809,6 @@ function azione(id) {
   }
 }
 $('#props').addEventListener('click', ev => { const b = ev.target.closest('[data-azione]'); if (b) azione(b.dataset.azione); });
-$('#props').addEventListener('input', ev => {
-  if (ev.target.id !== 'cosa-cerca') return;
-  const q = ev.target.value.trim().toLowerCase();
-  document.querySelectorAll('#props .voce').forEach(v => { v.hidden = !!q && !v.dataset.cerca.includes(q); });
-  document.querySelectorAll('#props .gr').forEach(g => {              // il titolo di un gruppo senza voci visibili sparisce
-    let c = 0;
-    for (let n = g.nextElementSibling; n && !n.classList.contains('gr'); n = n.nextElementSibling) if (!n.hidden) c++;
-    g.hidden = c === 0;
-  });
-});
 
 // ------------------------------------------------------------- prepara per il laser / l'officina
 async function preparaDialog() {
@@ -2549,8 +2494,7 @@ function drawSketch() {
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
   $('#sk-status').textContent = testo;
-  $('#sk-selbar').hidden = !SK.sel.size;
-  $('#sk-nsel').textContent = SK.sel.size === 1 ? '1 elemento' : `${SK.sel.size} elementi`;
+  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"])').forEach(b => { b.disabled = !SK.sel.size; });
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);
   $('#sk-finish-box').hidden = !libero;
@@ -2560,14 +2504,14 @@ function drawSketch() {
   $('#sk-make').hidden = suPezzo;
   $('#sk-face').hidden = !suPezzo;
   $('#sk-boss').hidden = !!v.on_sheet;
-  document.querySelectorAll('#sk-finish-box button').forEach(b => { b.disabled = !pronto; });
+  document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => { b.disabled = !pronto; });
   $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn));
   $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);   // bastano linee aperte   // da bordo a bordo: la chiudo io
   for (const q of ['#sk-louver', '#sk-dimple']) { $(q).hidden = !(v.on_sheet && v.on_face); $(q).disabled = !v.drawn; }
   $('#sk-fold').hidden = !(v.on_flat || (v.on_sheet && /\/(sopra|sotto)$/.test(v.on_face || '')));
-  // sullo sviluppo si disegna quasi sempre per piegare: lì la piega è il pulsante principale, altrove sta in Altro
-  if (v.on_flat) $('#sk-face').prepend($('#sk-fold')); else $('#sk-more .sk-more-btns').prepend($('#sk-fold'));
-  $('#sk-fold').classList.toggle('primary', !!v.on_flat);
+  // sullo sviluppo si disegna quasi sempre per piegare: lì la piega è un pulsante grande, altrove sta in Altro
+  $('#sk-fold-big').hidden = !v.on_flat; $('#sk-fold-big').disabled = !v.drawn;
+  if (v.on_flat) $('#sk-fold').hidden = true;
   $('#sk-face [data-make="cut"]').classList.toggle('primary', !v.on_flat);
   $('#sk-fold').disabled = !v.drawn;
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
@@ -2576,9 +2520,9 @@ function drawSketch() {
   $('#sk-contour').disabled = !v.drawn || !v.lines.some(l => !l.construction);
   $('.sk-legend .l-ref').parentElement.hidden = !suPezzo;
   // "Altro" solo se dentro c'è qualcosa; i pulsanti spenti dicono perché
-  $('#sk-more').hidden = [...document.querySelectorAll('#sk-more button')].every(b => b.hidden);
+  $('#sk-more').hidden = [...document.querySelectorAll('#sk-more .drop button')].every(b => b.hidden);
   const perche = !v.drawn ? 'prima disegna qualcosa' : !pronto ? 'il contorno non è chiuso: torna sul primo punto' : '';
-  document.querySelectorAll('#sk-finish-box button').forEach(b => {
+  document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';
     b.title = b.disabled ? `Non disponibile: ${b.dataset.make === 'structure' ? 'disegna almeno una linea' : perche || 'serve un contorno chiuso'}` : b.dataset.title;
   });
@@ -3569,14 +3513,6 @@ canvas.addEventListener('dblclick', ev => {
   if (!h || !SK.v.lines.some(l => l.id === h)) return;
   SK.sel = chainOf(h); drawSketch();
 });
-$('#sk-panel').addEventListener('click', ev => {
-  const b = ev.target.closest('button');
-  if (!b || !SK) return;
-  if (b.id === 'sk-grid') { SK.grid = aggancioGriglia = !SK.grid; drawSketch(); return; }
-  if (b.dataset.act) { skAction(b.dataset.act); return; }
-  if (b.dataset.tool) setTool(b.dataset.tool);
-  else if (b.dataset.make) makeDialog(b.dataset.make);
-});
 
 // ===================================================================== barra a schede (stile SolidCraft)
 let schedaPrima = 'lamiera';
@@ -3612,18 +3548,22 @@ function aggiornaComandi() {
     b.title = no ? `${b.dataset.title} · Non disponibile: ${no}` : b.dataset.title;
     if (b.hasAttribute('data-no-shape')) b.hidden = forma;
   });
+  document.querySelectorAll('#ribbon .rb[data-serve="lam"]').forEach(b => {
+    if (b.dataset.title === undefined) b.dataset.title = b.title || '';
+    b.disabled = !S?.sheet?.data; b.title = b.disabled ? `${b.dataset.title} · Non disponibile: prima serve una lamiera` : b.dataset.title;
+    if (b.hasAttribute('data-no-shape')) b.hidden = forma;
+  });
   document.querySelectorAll('.rmenu .drop [data-cmd]').forEach(b => { b.hidden = !!motivoNo(b.dataset.cmd); });
   document.querySelectorAll('#top .drop [data-cmd^="export_"]').forEach(b => {
     const no = motivoNo(b.dataset.cmd);
     b.disabled = !!no; b.title = no ? 'Non disponibile: ' + no : '';
   });
-  $('#navbar [data-cmd="unfold"]').hidden = !S?.sheet?.data;
   gruppiVuoti();
 }
 // un gruppo del ribbon senza pulsanti visibili sparisce, nome compreso
 function gruppiVuoti() {
   document.querySelectorAll('#ribbon .rgroup').forEach(g => {
-    const bs = g.querySelectorAll('.rbtns > .rb, .rbtns > .rmenu');
+    const bs = g.querySelectorAll('.rbtns .rb');
     g.hidden = bs.length > 0 && [...bs].every(b => b.hidden);
   });
 }
@@ -3634,10 +3574,14 @@ function showRibbon(t) {
 $('#ribbon').addEventListener('click', ev => {
   const tab = ev.target.closest('.rtabs button');
   if (tab) { showRibbon(tab.dataset.rtab); if (tab.dataset.rtab !== 'sketch') schedaPrima = tab.dataset.rtab; return; }
+  const mk = ev.target.closest('[data-make]');
+  if (mk) { mk.closest('.menu-item')?.classList.remove('open'); if (SK && !mk.disabled) makeDialog(mk.dataset.make); return; }
   const b = ev.target.closest('.rb');
   if (!b || b.disabled) return;
   if (b.dataset.cmd) return;                         // ci pensa il gestore generale dei data-cmd
+  if (b.dataset.azione) { azione(b.dataset.azione); return; }
   if (!SK) return;
+  if (b.id === 'sk-grid') { SK.grid = aggancioGriglia = !SK.grid; drawSketch(); return; }
   if (b.id === 'rb-constr') { SK.constr = !SK.constr; drawSketch(); return; }
   if (b.id === 'rb-xray') { toggleXray(); return; }
   if (b.id === 'sk-ghost') { SK.ghost = !SK.ghost; applyLook(); return; }

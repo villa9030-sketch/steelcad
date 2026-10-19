@@ -96,14 +96,14 @@ def main():
             ok(f'smusso 6 sullo spigolo ({v()["profiles"]} contorno)', v()['profiles'] == 1)
             pg.screenshot(path=str(SHOTS / '1_raccordi.png'))
             # due linee staccate: raggio 0 le unisce in uno spigolo vivo
-            pg.keyboard.press('l'); clic([15, 15]); clic([45, 15]); pg.keyboard.press('Escape')
-            pg.keyboard.press('l'); clic([60, 22]); clic([60, 40]); pg.keyboard.press('Escape')
+            pg.keyboard.press('l'); clic([10, 10]); clic([40, 10]); pg.keyboard.press('Escape')
+            pg.keyboard.press('l'); clic([60, 20]); clic([60, 40]); pg.keyboard.press('Escape')
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 7')
             pg.click('#ribbon [data-tool="fillet"]')
-            clic([30, 15]); clic([60, 32])
+            clic([30, 10]); clic([60, 30])
             pg.keyboard.press('Control+A'); pg.keyboard.type('0'); pg.keyboard.press('Enter')
-            pg.wait_for_function("window.__steelcad.sketch.v.lines.some(l => Math.abs(l.xb[0] - 60) < 1e-6 && Math.abs(l.xb[1] - 15) < 1e-6 || Math.abs(l.xa[0] - 60) < 1e-6 && Math.abs(l.xa[1] - 15) < 1e-6)", timeout=8000)
-            ok('raccordo R0: le due linee staccate si uniscono nello spigolo (60; 15)', True)
+            pg.wait_for_function("window.__steelcad.sketch.v.lines.some(l => Math.abs(l.xb[0] - 60) < 1e-6 && Math.abs(l.xb[1] - 10) < 1e-6 || Math.abs(l.xa[0] - 60) < 1e-6 && Math.abs(l.xa[1] - 10) < 1e-6)", timeout=8000)
+            ok('raccordo R0: le due linee staccate si uniscono nello spigolo (60; 10)', True)
             pg.screenshot(path=str(SHOTS / '2_raccordo_r0.png'))
             pg.click('#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
@@ -176,7 +176,7 @@ def main():
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 4")
             ok('stato: la spezzata aperta può diventare lamiera', 'Lamiera a contorno' in pg.inner_text('#sk-status'))
             pg.screenshot(path=str(SHOTS / '0a_sezione.png'))
-            pg.click('#sk-more summary'); pg.click('#sk-contour')
+            pg.click('#sk-more > button'); pg.click('#sk-contour')
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             pieghe = [(b['flange'], b['parent'], round(b['length'], 2), round(b['angle'], 1), b['direction']) for b in st['sheet']['data']['bends']]
@@ -276,12 +276,11 @@ def main():
                         risposta = False
                     testo = pg.inner_text('#toasts')[:70].replace('\n', ' ') if tipo == 'toast' else ''
                     ok(f'barra {tab.upper()} → {cmd}: risponde {testo!r}', risposta)
-            ok('schermata del pezzo: niente barra in alto, a destra "Cosa puoi fare adesso"',
-               not pg.is_visible('#ribbon') and pg.is_visible('#props [data-azione="piega"]'))
-            pg.click('#props [data-azione="altre"]')
-            pg.click('#props [data-azione="sviluppo"]')
+            ok('schermata del pezzo: comandi nella barra in alto, pannello a destra chiuso',
+               pg.is_visible('#ribbon [data-azione="fori"]') and not pg.is_visible('#right'))
+            pg.click('#ribbon [data-cmd="unfold"]')
             time.sleep(0.5)
-            ok('Altre lavorazioni → Vedi lo sviluppo: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
+            ok('barra → Spiega: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
             pg.evaluate("window.__steelcad.runCmd('unfold')")
             time.sleep(0.4)
             pg.evaluate("window.__steelcad.runCmd('flat_sketch')")

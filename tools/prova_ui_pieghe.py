@@ -194,7 +194,7 @@ def main():
                not st['errors'] and v0 - st['info']['part']['volume_mm3'] > 1000)
 
             # 3) spiega
-            pg.click('#navbar [data-cmd="unfold"]')
+            pg.click('#ribbon [data-cmd="unfold"]')
             time.sleep(0.5)
             look = pg.evaluate('window.__steelcad.look')
             ok(f'spiega: sviluppo a video {look}', look['flat'] and not look['model'])
@@ -496,8 +496,7 @@ def main():
             pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.length === 1")
             ok('scheda LAMIERA per un progetto in lamiera', pg.evaluate("document.querySelector('[data-rtab=\"lamiera\"]').classList.contains('on')"))
-            pg.click('#props [data-azione="altre"]')            # Altre lavorazioni → Regole della piegatrice
-            pg.click('#props [data-azione="regole"]')
+            pg.click('#ribbon [data-cmd="sheet_rules"]')            # barra → Regole piega
             pg.wait_for_selector('#r-name')
             pg.fill('#r-name', 'S235 sp. 2 R2 K0,4')
             pg.click('#r-save')
@@ -507,8 +506,7 @@ def main():
             pg.evaluate("fetch('/api/set_sheet_tech', {method: 'POST', body: JSON.stringify(['SM1', {radius: 5}])})")
             time.sleep(0.4); pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.def.radius === 5")
-            pg.click('#props [data-azione="altre"]')
-            pg.click('#props [data-azione="regole"]')
+            pg.click('#ribbon [data-cmd="sheet_rules"]')
             pg.wait_for_selector('[data-rule-apply]')
             pg.click('[data-rule-apply]')
             pg.wait_for_function("window.__steelcad.state.sheet.def.radius === 2")
