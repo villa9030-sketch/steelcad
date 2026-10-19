@@ -2242,6 +2242,7 @@ const skRubber = new THREE.Group();
 scene.add(skGroup, skGrid, skRubber);
 const SK_LINE = new THREE.LineBasicMaterial({ color: 0x1F5FBF });
 const SK_SEL = new THREE.LineBasicMaterial({ color: 0xE09A00 });
+const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
 const SK_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF });
 const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5FBF, dashSize: 6, gapSize: 4 });
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE });
@@ -2447,7 +2448,7 @@ function drawSketch() {
   skGrid.position.copy(v3(v.z_dir).multiplyScalar(-0.05));
   for (const l of v.lines) {
     const mat = SK.sel.has(l.id) ? (l.construction && !l.ref ? SK_CONSTR_SEL : SK_SEL) : SK.hover === l.id ? SK_HOV
-      : l.xray ? SK_XRAY : l.ref ? SK_REF : l.construction ? SK_CONSTR : SK_LINE;
+      : l.xray ? SK_XRAY : l.ref ? SK_REF : l.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(l.id) ? SK_SCIOLTA : SK_LINE;
     const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat);
     if ((l.construction && !l.ref) || l.xray) ln.computeLineDistances();
     skGroup.add(ln);
@@ -2473,7 +2474,7 @@ function drawSketch() {
   for (const a of v.arcs || []) {
     const pts = [], ctr = v3(a.center), x = v3(v.x_dir), y = v3(v.y_dir);
     for (let i = 0; i <= 64; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 64; pts.push(ctr.clone().addScaledVector(x, a.r * Math.cos(t)).addScaledVector(y, a.r * Math.sin(t))); }
-    const mat = SK.sel.has(a.id) ? SK_SEL : SK.hover === a.id ? SK_HOV : a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : SK_LINE;
+    const mat = SK.sel.has(a.id) ? SK_SEL : SK.hover === a.id ? SK_HOV : a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(a.id) ? SK_SCIOLTA : SK_LINE;
     const al = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
     if ((a.construction && !a.ref) || a.xray) al.computeLineDistances();
     skGroup.add(al);
@@ -2488,7 +2489,8 @@ function drawSketch() {
   else if (!v.drawn) testo = suPezzo
     ? 'Vuoto. Scegli Rettangolo o Cerchio e disegna sulla faccia. Le misure partono dall’angolo in basso a sinistra (0;0); i bordi del pezzo sono in arancio: ci si aggancia e ci si fa l’offset.'
     : 'Vuoto. Scegli Linea o Rettangolo e disegna il contorno.';
-  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`; }
+  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`;
+    if (v.sciolte?.length) { cls = 'todo'; testo += ' ⚠ ' + v.status; } }
   else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: Altro → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
   else { cls = 'bad'; testo = (v.status || '').startsWith('Lo sketch') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
