@@ -85,3 +85,18 @@ def test_tabella_pieghe_in_ordine_lungo_il_pezzo():
     assert [r['flange'] for r in righe] == ['PL1', 'PL2', 'PL3', 'PL4']
     pos = [r['line_at'] for r in righe]
     assert pos == sorted(pos) and all(r['edge'].startswith('linea a ') for r in righe)
+
+
+def test_due_linee_da_bordo_a_bordo_e_un_foro():
+    """19/10: due linee da bordo a bordo (offset a 190 dalle testate, per accorciare) davano "estremità libera":
+    la chiusura lungo il bordo ne faceva una sola. Ora ognuna toglie il suo pezzo più piccolo, e il foro resta foro."""
+    s, sid = _faccia_sopra()
+    v0 = volume(s.result.body.shape)
+    assert s.sketch_add_polyline(sid, [[0, 40], [300, 40]], False)['ok']
+    assert s.sketch_add_polyline(sid, [[0, 250], [300, 250]], False)['ok']
+    assert s.sketch_add_circle(sid, [150, 150], 10)['ok']
+    r = s.create_from_sketch(sid, 'cut', {})
+    assert r['ok'], r.get('message')
+    import math
+    atteso = (40 * 300 + 50 * 300 + math.pi * 10 ** 2) * 2
+    assert abs((v0 - volume(s.result.body.shape)) - atteso) < 1.0
