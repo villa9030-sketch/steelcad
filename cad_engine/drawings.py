@@ -62,7 +62,8 @@ def proietta(shape, vista: str) -> dict:
     from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
     from OCP.HLRAlgo import HLRAlgo_Projector
     from OCP.HLRBRep import HLRBRep_Algo, HLRBRep_HLRToShape
-    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
     from OCP.TopExp import TopExp_Explorer
 
     d, up = VISTE[vista]
@@ -90,7 +91,13 @@ def proietta(shape, vista: str) -> dict:
             a, b = e.start_point(), e.end_point()
             return [(a.X, a.Y), (b.X, b.Y)]
         n = max(8, min(96, int(e.length / 1.5)))
-        return [(p.X, p.Y) for p in e.positions([i / n for i in range(n + 1)])]
+        # punti presi direttamente sulla curva (positions di build123d, a lunghezza d'arco, era il 70% del
+        # tempo delle tavole di una struttura: migliaia di archetti sugli spigoli dei tubi)
+        c = BRepAdaptor_Curve(e.wrapped)
+        u0, u1 = c.FirstParameter(), c.LastParameter()
+        if e.wrapped.Orientation() == TopAbs_REVERSED:
+            u0, u1 = u1, u0
+        return [(q.X(), q.Y()) for q in (c.Value(u0 + (u1 - u0) * i / n) for i in range(n + 1))]
 
     res = {'visti': [], 'tangenti': [], 'nascosti': [], 'cerchi': []}
     for comp in (h.VCompound(), h.OutLineVCompound()):
