@@ -1057,6 +1057,8 @@ async function drawingsDialog() {
     $('#tav-pdf').onclick = () => esporta('pdf');
     $('#tav-dxf').onclick = () => esporta('dxf');
     if ($('#tav-tutte')) $('#tav-tutte').onchange = anteprima;
+    // il formato cambia l'impaginazione: l'anteprima si rifà subito, così il PDF è uguale a quello che vedi
+    document.querySelector('#modal-box [data-c="formato"]')?.addEventListener('change', anteprima);
     anteprima();
   });
   $('#modal-box').classList.add('wide');

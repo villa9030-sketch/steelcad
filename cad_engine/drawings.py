@@ -14,7 +14,7 @@ import math
 from dataclasses import dataclass, field
 
 FORMATI = {'A4': (297.0, 210.0), 'A3': (420.0, 297.0), 'A2': (594.0, 420.0)}
-SCALE = [10, 5, 2, 1, 1 / 2, 1 / 2.5, 1 / 5, 1 / 10, 1 / 20, 1 / 50]
+SCALE = [10, 5, 2, 1, 1 / 2, 1 / 2.5, 1 / 5, 1 / 10, 1 / 20, 1 / 25, 1 / 50, 1 / 100]
 LAYER = {'contorno': (7, 0.5), 'nascoste': (8, 0.25), 'tangenti': (8, 0.18), 'piega': (1, 0.25), 'quote': (5, 0.18),
          'testo': (7, 0.25), 'cornice': (7, 0.5), 'cartiglio': (7, 0.25), 'tabella': (7, 0.25)}
 
@@ -130,23 +130,31 @@ def proietta_punto(vista: str, p) -> tuple:
     return (q.X(), q.Y())
 
 
+def piano_catene(file: list, vista: str = 'fronte') -> list:
+    """Quali file di aste diventano una catena di quote: [(fila, 0 = orizzontale | 1 = verticale, posizioni, passo)]."""
+    out = []
+    for fila in file or []:
+        assi = fila['assi'] if isinstance(fila, dict) else fila
+        pts = [proietta_punto(vista, p) for p in assi]
+        for coord in (0, 1):
+            lista = sorted(q[coord] for q in pts)
+            if len(lista) < 3 or lista[-1] - lista[0] < 1e-6:
+                continue
+            passi = [b - a for a, b in zip(lista, lista[1:])]
+            if min(passi) < 1e-6 or max(passi) - min(passi) > 0.5:
+                continue                                   # non a passo costante (o aste una dietro l'altra)
+            out.append((fila, coord, lista, sum(passi) / len(passi)))
+    return out
+
+
 def catene_di_passo(f: Foglio, v: dict, s: float, T, file: list, vista: str = 'fronte'):
     """Quote delle file di aste uguali a passo costante (sbarre di un cancello, ripiani di uno scaffale):
     dal bordo alla prima, la campata "n × passo", dall'ultima al bordo. file: [[punti 3D degli assi]]."""
     x0, y0, x1, y1 = v['bbox']
     giu, sx = 0, 0
-    for fila in file:
-        assi = fila['assi'] if isinstance(fila, dict) else fila
-        pts = [proietta_punto(vista, p) for p in assi]
-        xs, ys = sorted(q[0] for q in pts), sorted(q[1] for q in pts)
-        for coord, lista in ((0, xs), (1, ys)):
-            if len(lista) < 3 or lista[-1] - lista[0] < 1e-6:
-                continue
-            passi = [b - a for a, b in zip(lista, lista[1:])]
-            if max(passi) - min(passi) > 0.5:
-                continue                                   # non a passo costante
-            passo = sum(passi) / len(passi)
-            n = len(passi)
+    for fila, coord, lista, passo in piano_catene(file, vista):
+        if True:
+            n = len(lista) - 1
             if coord == 0:                                 # in orizzontale: catena sotto la quota d'ingombro
                 giu += 1
                 y = y0
@@ -213,9 +221,9 @@ def _cornice(f: Foglio, campi: dict):
     ]
     for x, y, w, et, val in celle:
         f.text(L, (x + 1.5, y + 7.2), et, 1.8)
-        f.text('testo', (x + 1.5, y + 2), _taglia(val, w, 3.2 if w > 100 else 2.8), 3.2 if w > 100 else 2.8)
+        f.text(L, (x + 1.5, y + 2), _taglia(val, w, 3.2 if w > 100 else 2.8), 3.2 if w > 100 else 2.8)
     if campi.get('note'):
-        f.text('testo', (22, 13), 'Note: ' + campi['note'], 2.5)
+        f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5), 2.5)   # non sotto il cartiglio
     return (20 + 5, 10 + 5, W - 10 - 5, H - 10 - 5), (x0, y0, x1, y1)
 
 
@@ -335,60 +343,98 @@ def _scegli_scala(dims: list, area_w: float, area_h: float) -> float:
 
 
 # ------------------------------------------------------------------------------------------ le tavole
+def _zone_libere(area, cart, m=8):
+    """Le due zone dove si può disegnare senza toccare il cartiglio: sopra di lui (tutta la larghezza) e alla sua
+    sinistra (tutta l'altezza). Il cartiglio ha misura fissa: su un A4 occupa più di metà foglio in larghezza."""
+    return [(area[0], cart[3] + m, area[2], area[3]), (area[0], area[1], cart[0] - m, area[3])]
+
+
+def _taglia_cartiglio(r, cart, m=8):
+    """Un rettangolo libero, ristretto perché non entri nel cartiglio (si alza sopra o si stringe a sinistra)."""
+    x0, y0, x1, y1 = r
+    if x1 <= cart[0] - m or y0 >= cart[3] + m:
+        return r
+    alto = (x0, max(y0, cart[3] + m), x1, y1)
+    sinistra = (x0, y0, min(x1, cart[0] - m), y1)
+    area = lambda q: max(0, q[2] - q[0]) * max(0, q[3] - q[1])  # noqa: E731
+    return max((alto, sinistra), key=area)
+
+
 def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3', file_passo=None) -> Foglio:
-    """Fronte, alto, sinistra (europea) + isometrica, con ingombri e note dei fori."""
+    """Fronte, alto, sinistra (europea) + isometrica, con ingombri e note dei fori. Le viste vanno nella zona
+    libera più grande (sopra o a sinistra del cartiglio), con il posto per le quote e le catene di passo."""
     f = Foglio(formato, campi.get('titolo', ''))
     area, cart = _cornice(f, campi)
     v = {k: proietta(shape, k) for k in ('fronte', 'alto', 'sinistra', 'iso')}
     wF, hF = v['fronte']['bbox'][2] - v['fronte']['bbox'][0], v['fronte']['bbox'][3] - v['fronte']['bbox'][1]
     wL = v['sinistra']['bbox'][2] - v['sinistra']['bbox'][0]
+    hL = v['sinistra']['bbox'][3] - v['sinistra']['bbox'][1]
     hT = v['alto']['bbox'][3] - v['alto']['bbox'][1]
-    g = 30                                                # spazio per le quote tra le viste
-    aw, ah = (area[2] - area[0]) - 3 * g - 40, (area[3] - area[1]) - 3 * g
-    s = _scegli_scala((wF + wL, hF + hT), aw, ah)
+    piano = piano_catene(file_passo) if file_passo else []
+    n_or = sum(1 for _, c, _, _ in piano if c == 0)
+    n_ve = sum(1 for _, c, _, _ in piano if c == 1)
+    gL = 16 + 9 * n_ve                     # a sinistra: quota d'altezza (+ catene verticali)
+    gS = 26                                # tra fronte e fianco: la quota d'altezza del fianco
+    gF = 22 + 18 * n_or                    # sotto la fronte: quota di larghezza, catene di passo e note, titolo dell'alto
+    gT = 14                                # sotto l'alto: la sua quota
+    gTop = 10                              # sopra la fronte: il titolo
+
+    def scala_zona(r):
+        aw = (r[2] - r[0]) - gL - gS - 6
+        ah = (r[3] - r[1]) - gT - gF - gTop
+        if aw <= 0 or ah <= 0:
+            return 0, 0
+        sc = _scegli_scala((wF + wL, max(hF, hL) + hT), aw, ah)
+        ok = (wF + wL) * sc <= aw and (max(hF, hL) + hT) * sc <= ah
+        return (sc if ok else sc * 0.999), aw * ah
+    zona = max(_zone_libere(area, cart), key=lambda r: scala_zona(r))
+    s = scala_zona(zona)[0] or SCALE[-1]
+    aw_z, ah_z = (zona[2] - zona[0]) - gL - gS - 6, (zona[3] - zona[1]) - gT - gF - gTop
+    if (wF + wL) * s > aw_z or (max(hF, hL) + hT) * s > ah_z:     # non entra neanche all'1:100: scala fuori serie
+        s = max(1e-3, min(aw_z / max(wF + wL, 1e-6), ah_z / max(max(hF, hL) + hT, 1e-6)))
     campi = {**campi, 'scala': scala_testo(s)}
     f.testi = []
     f.linee, f.cerchi, f.pieni = [], [], []
     area, cart = _cornice(f, campi)
-    ox = area[0] + g
-    oyT = area[1] + g + 5
-    oyF = oyT + hT * s + g
-    if file_passo:                                        # più spazio sotto e a sinistra per le catene di quote
-        ox += 18
-        oyT += 0
+    ox = zona[0] + gL
+    oyT = zona[1] + gT
+    oyF = oyT + hT * s + gF
     TF, _, _ = _metti_vista(f, v['fronte'], s, ox, oyF)
     if file_passo:
         catene_di_passo(f, v['fronte'], s, TF, file_passo)
     TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
-    TL, _, _ = _metti_vista(f, v['sinistra'], s, ox + wF * s + g, oyF)
+    xL = ox + wF * s + gS
+    TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF)
     for nome, (x, y) in (('VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
-                         ('VISTA DA SINISTRA', (ox + wF * s + g, oyF + v['sinistra']['bbox'][3] * 0 + (v['sinistra']['bbox'][3] - v['sinistra']['bbox'][1]) * s + 4))):
+                         ('VISTA DA SINISTRA', (xL, oyF + hL * s + 4))):
         f.text('testo', (x, y), nome, 2.5)
     gia: set = set()
     et = etichette or {}
     _fori(f, v['alto'], TT, s, et, gia)
     _fori(f, v['fronte'], TF, s, et, gia)
     _fori(f, v['sinistra'], TL, s, et, gia)
-    # isometrica nello spazio libero più grande: a destra delle viste o sopra le viste (scala sua)
+    # isometrica nello spazio libero più grande che resta: a destra delle viste o sopra, mai nel cartiglio
     vi = v['iso']
     wi, hi = vi['bbox'][2] - vi['bbox'][0], vi['bbox'][3] - vi['bbox'][1]
-    hL = v['sinistra']['bbox'][3] - v['sinistra']['bbox'][1]
+    destra_viste = xL + wL * s + 10
     cima = oyF + max(hF, hL) * s + 12
-    candidati = [(ox + (wF + wL) * s + 2 * g, cart[3] + 10, area[2], area[3]),       # a destra
-                 (area[0], cima, area[2], area[3])]                                   # sopra
+    candidati = [_taglia_cartiglio((destra_viste, area[1], area[2], area[3]), cart),
+                 _taglia_cartiglio((area[0], cima, area[2], area[3]), cart)]
+
     def scala_in(r):
         return min((r[2] - r[0] - 10) / max(wi, 1e-6), (r[3] - r[1] - 15) / max(hi, 1e-6))
     xi0, yi0, xi1, yi1 = max(candidati, key=scala_in)
     si = scala_in((xi0, yi0, xi1, yi1))
-    if si > 0:
+    if si > 0 and min(wi, hi) * si > 15:              # un'isometrica minuscola non serve: meglio niente
         _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
                      quote_su=False)
-    f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
+        f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
     return f
 
 
 def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> Foglio:
-    """Lo sviluppo quotato, con le linee di piega e la tabella pieghe."""
+    """Lo sviluppo quotato, con le linee di piega e la tabella pieghe (sopra il cartiglio, righe più basse se sono
+    tante); lo sviluppo nella zona libera più grande, senza toccare tabella e cartiglio."""
     f = Foglio(formato, campi.get('titolo', ''))
     poly = []
     for pl in data.outline():
@@ -399,30 +445,88 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     xs = [p[0] for pl in poly for p in pl]
     ys = [p[1] for pl in poly for p in pl]
     x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
-    W, H = FORMATI[formato]
+    area, cart = _cornice(f, {**campi, 'scala': ''})
+    # la tabella pieghe: sopra il cartiglio, con l'altezza delle righe che si adatta a quante sono
     righe_tab = len(piegature)
-    aw = (W - 40) * 0.62
-    ah = H - 40 - 20
-    s = _scegli_scala((x1 - x0, y1 - y0), aw - 40, ah - 30)
+    forma = bool(piegature) and str(piegature[0][1]).startswith('P')        # coni e raccordi
+    if forma:                                                              # P, angolo, linea, correzione
+        col = [0, 10, 30, 52, 72]
+        intest = ['P', 'Angolo', 'Linea', 'Correz.']
+        piegature = [[r[0], r[3], r[2], r[7]] for r in piegature]
+    else:
+        col = [0, 14, 34, 64, 84, 104, 124, 144, 180]
+        intest = ['P', 'Flangia', 'Lungh. est.', 'Angolo', 'Verso', 'R int.', 'K', 'Largh.']
+    spazio = (area[3] - 12) - (cart[3] + 10) - 6
+    h_riga = 7.0
+    n_col = 1
+    while righe_tab and h_riga * (-(-righe_tab // n_col) + 1) > spazio:
+        if h_riga > 3.6:
+            h_riga = max(3.6, spazio / (-(-righe_tab // n_col) + 1))
+        elif (n_col + 1) * (col[-1] + 4) <= (area[2] - area[0]) * 0.75:
+            n_col += 1
+            h_riga = 7.0
+        else:
+            h_riga = spazio / (-(-righe_tab // n_col) + 1)
+            break
+    per_col = -(-righe_tab // n_col) if righe_tab else 0
+    alto_tab = h_riga * (per_col + 1) + 6 if righe_tab else 0
+    larg_tab = n_col * (col[-1] + 4)
+    tab_x0 = min(cart[0], area[2] - larg_tab)
+    tab_top = cart[3] + 10 + alto_tab
+    zone = [(area[0], area[1], min(cart[0], tab_x0) - 10, area[3]), (area[0], tab_top + 8, area[2], area[3])]
+    gq = 22                                          # posto per le quote (sotto e a sinistra) e il titolo sopra
+
+    def scala_zona(r):
+        aw, ah = (r[2] - r[0]) - gq - 8, (r[3] - r[1]) - gq - 12
+        if aw <= 0 or ah <= 0:
+            return 0
+        sc = _scegli_scala((x1 - x0, y1 - y0), aw, ah)
+        return sc if (x1 - x0) * sc <= aw and (y1 - y0) * sc <= ah else sc * 0.999
+    zona = max(zone, key=scala_zona)
+    s = scala_zona(zona) or SCALE[-1]
+    f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     campi = {**campi, 'scala': scala_testo(s)}
     area, cart = _cornice(f, campi)
-    ox, oy = area[0] + 25, cart[1] + 30
+    ox, oy = zona[0] + gq, zona[1] + gq
     T = lambda p: (ox + (p[0] - x0) * s, oy + (p[1] - y0) * s)  # noqa: E731
+    forma = bool(getattr(data, 'bend_rows', None))
     for pl in poly:
         f.line('contorno', *[T(p) for p in pl])
-    for a, b, testo in data.bend_lines:
+    punti_et = [(T(a)[0] + (T(b)[0] - T(a)[0]) * 0.86, T(a)[1] + (T(b)[1] - T(a)[1]) * 0.86) for a, b, _ in data.bend_lines]
+    fitte = len(punti_et) > 1 and min(math.dist(p, q) for p, q in zip(punti_et, punti_et[1:])) < 3.0
+    for i, (a, b, testo) in enumerate(data.bend_lines, 1):
         A, B = T(a), T(b)
         f.line('piega', A, B)
-        m = ((A[0] + B[0]) / 2, (A[1] + B[1]) / 2)
-        f.text('piega', (m[0] + 1, m[1] + 1), testo, 2.2)
+        if forma:                       # coni e raccordi: solo il numero, verso il bordo tondo (le linee lì sono larghe)
+            if fitte and not (i == 1 or i % 5 == 0 or i == len(data.bend_lines)):
+                continue                # linee troppo vicine a questa scala: un numero ogni 5 (tutti nel DXF)
+            q = punti_et[i - 1]
+            f.text('piega', (q[0] + 0.6, q[1] + 0.6), str(i), 1.8)
+        else:
+            m = ((A[0] + B[0]) / 2, (A[1] + B[1]) / 2)
+            f.text('piega', (m[0] + 1, m[1] + 1), testo, 2.2 if len(data.bend_lines) < 20 else 1.6)
     quota(f, T((x0, y0)), T((x1, y0)), -8, x1 - x0)
     quota(f, T((x0, y0)), T((x0, y1)), 8, y1 - y0)
-    f.text('testo', (ox, oy + (y1 - y0) * s + 6), 'SVILUPPO visto dal lato dello sketch · linee di piega in rosso: flangia, verso, angolo, raggio', 2.5)
-    # tabella pieghe a destra, sopra il cartiglio
-    tx, ty = cart[0], cart[3] + 10 + 7 * (righe_tab + 1)
-    col = [0, 14, 34, 64, 84, 104, 124, 144, 180]
-    intest = ['P', 'Flangia', 'Lungh. est.', 'Angolo', 'Verso', 'R int.', 'K', 'Largh.']
-    _tabella(f, tx, ty, col, [intest] + piegature, 'TABELLA PIEGHE')
+    didascalia = ('SVILUPPO visto dal lato dello sketch · pieghe in rosso, numerate: angoli in tabella' if forma else
+                  'SVILUPPO visto dal lato dello sketch · linee di piega in rosso: numero, angolo, verso, raggio')
+    larg_zona = zona[2] - ox - 4
+    riga, righe_d = '', []
+    for parola in didascalia.split(' '):              # a capo dentro la zona del disegno (non sopra la tabella)
+        prova = (riga + ' ' + parola).strip()
+        if len(prova) * 2.5 * 0.55 > larg_zona and riga:
+            righe_d.append(riga)
+            riga = parola
+        else:
+            riga = prova
+    righe_d.append(riga)
+    for k, testo_d in enumerate(righe_d):
+        f.text('testo', (ox, oy + (y1 - y0) * s + 6 + 4 * (len(righe_d) - 1 - k)), testo_d, 2.5)
+    if righe_tab:
+        for c in range(n_col):
+            pezzo = piegature[c * per_col:(c + 1) * per_col]
+            if pezzo:
+                _tabella(f, tab_x0 + c * (col[-1] + 4), tab_top, col, [intest] + pezzo,
+                         'TABELLA PIEGHE' if c == 0 else None, h=h_riga)
     return f
 
 
@@ -441,15 +545,15 @@ def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -
     return f
 
 
-def _tabella(f: Foglio, x, ytop, col, righe, titolo=None):
-    h = 7
+def _tabella(f: Foglio, x, ytop, col, righe, titolo=None, h=7.0):
     if titolo:
         f.text('testo', (x, ytop + 2), titolo, 2.8)
     for i, r in enumerate(righe):
         y = ytop - i * h
         f.line('tabella', (x, y), (x + col[-1], y))
         for j, val in enumerate(r):
-            f.text('tabella' if i else 'testo', (x + col[j] + 1.2, y - 5), _taglia(str(val), col[j + 1] - col[j], 2.4), 2.4)
+            th = min(2.4, h * 0.55)
+            f.text('tabella' if i else 'testo', (x + col[j] + 1.2, y - h * 0.72), _taglia(str(val), col[j + 1] - col[j], th), th)
     yb = ytop - len(righe) * h
     f.line('tabella', (x, yb), (x + col[-1], yb))
     for c in col:
@@ -467,7 +571,10 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     hT = vT['bbox'][3] - vT['bbox'][1]
     W, H = FORMATI[formato]
     g = 28
-    s = _scegli_scala((wF, hF + hT), (W - 40) * 0.42 - g, H - 40 - 2 * g)
+    area, cart = _cornice(f, {**campi, 'scala': ''})
+    larg_viste = min((W - 40) * 0.42, cart[0] - 10 - area[0])          # a sinistra del cartiglio, sempre
+    s = _scegli_scala((wF, hF + hT), larg_viste - g - 6, (area[3] - area[1]) - 2 * g - 10)
+    f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     campi = {**campi, 'scala': scala_testo(s)}
     area, cart = _cornice(f, campi)
     ox, oyT = area[0] + g, area[1] + g
@@ -477,7 +584,10 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     f.text('testo', (ox, oyF + hF * s + 4), 'VISTA DI FRONTE', 2.5)
     f.text('testo', (ox, oyT + hT * s + 4), 'VISTA DALL’ALTO', 2.5)
     # isometrica con palloncini
-    xi0, yi0 = area[0] + (area[2] - area[0]) * 0.45, cart[3] + 12 + 7 * (len(distinta) + 1) + 6
+    spazio = (area[3] - 40) - (cart[3] + 10)
+    h_riga = max(3.4, min(7.0, spazio * 0.5 / max(len(distinta) + 1, 1)))
+    xi0 = max(area[0] + (area[2] - area[0]) * 0.45, ox + wF * s + 14)
+    yi0 = cart[3] + 12 + h_riga * (len(distinta) + 1) + 6
     xi1, yi1 = area[2], area[3]
     wi, hi = vI['bbox'][2] - vI['bbox'][0], vI['bbox'][3] - vI['bbox'][1]
     si = min((xi1 - xi0 - 20) / max(wi, 1e-6), (yi1 - yi0 - 20) / max(hi, 1e-6))
@@ -511,7 +621,7 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
     col = [0, 12, 76, 90, 116, 140, 180]
     intest = ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Peso kg']
-    _tabella(f, cart[0], cart[3] + 10 + 7 * (len(distinta) + 1), col, [intest] + distinta, 'DISTINTA')
+    _tabella(f, cart[0], cart[3] + 10 + h_riga * (len(distinta) + 1), col, [intest] + distinta, 'DISTINTA', h=h_riga)
     return f
 
 
