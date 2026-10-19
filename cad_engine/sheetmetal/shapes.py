@@ -164,8 +164,14 @@ def _pulisci_contorno(face, tol=0.05):
     """Il contorno dello sviluppo senza i microsegmenti lasciati dalle sovrapposizioni delle correzioni
     (pezzetti di centesimi agli angoli): punti troppo vicini uniti, punti in linea tolti. Così il DXF passa i
     controlli di taglio."""
-    pts = [e.start_point() for e in face.outer_wire().order_edges()] if hasattr(face.outer_wire(), 'order_edges')         else [v for v in face.outer_wire().vertices()]
-    pts = [(q.X, q.Y) for q in pts]
+    # i vertici nell'ordine del giro (order_edges di build123d ci metteva un terzo di secondo)
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepTools import BRepTools_WireExplorer
+    pts, ex = [], BRepTools_WireExplorer(face.outer_wire().wrapped, face.wrapped)
+    while ex.More():
+        q = BRep_Tool.Pnt_s(ex.CurrentVertex())
+        pts.append((q.X(), q.Y()))
+        ex.Next()
     out = []
     for q in pts:
         if not out or math.dist(q, out[-1]) > tol:
@@ -185,13 +191,25 @@ def _pulisci_contorno(face, tol=0.05):
     return bd.Face(bd.Wire.make_polygon([(x, y, 0) for x, y in out], close=True))
 
 
+def _faccia_piana(pts):
+    """Una faccia piana dai suoi punti, fatta direttamente con OpenCascade (con build123d era il collo di
+    bottiglia: centinaia di facce per ogni forma)."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon
+    from OCP.gp import gp_Pnt
+    poli = BRepBuilderAPI_MakePolygon()
+    for q in pts:
+        poli.Add(gp_Pnt(q[0], q[1], q[2] if len(q) > 2 else 0.0))
+    poli.Close()
+    return BRepBuilderAPI_MakeFace(poli.Wire(), True).Face()
+
+
 def _solido(S: Facce, t: float):
     """Il solido costruito direttamente: le facce in asse spostate di ±t/2 (pelle esterna e interna) più le
     fasce sui bordi, cucite in un guscio chiuso. Ispessire faccia per faccia e fondere tutto (build123d) era
     lento (secondi su un raccordo) e lasciava centinaia di facce spezzate."""
     import numpy as np
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
-    from OCP.ShapeFix import ShapeFix_Solid
+    from OCP.BRepLib import BRepLib
     from OCP.TopAbs import TopAbs_SHELL
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopoDS import TopoDS
@@ -244,15 +262,14 @@ def _solido(S: Facce, t: float):
             facce += poligoni([fuori[b], fuori[a], dentro[a], dentro[b]])
     cuci = BRepBuilderAPI_Sewing(1e-4)
     for pts in facce:
-        cuci.Add(bd.Face(bd.Wire.make_polygon(pts, close=True)).wrapped)
+        cuci.Add(_faccia_piana(pts))
     cuci.Perform()
     ex = TopExp_Explorer(cuci.SewedShape(), TopAbs_SHELL)
     if not ex.More():
         raise FeatureError('Non riesco a fare il solido della forma (guscio non chiuso).')
-    ms = BRepBuilderAPI_MakeSolid(TopoDS.Shell(ex.Current()))
-    fix = ShapeFix_Solid(ms.Solid())
-    fix.Perform()
-    return bd.Solid(fix.Solid())
+    solido = BRepBuilderAPI_MakeSolid(TopoDS.Shell(ex.Current())).Solid()
+    BRepLib.OrientClosedSolid_s(solido)                    # la pelle con la normale verso fuori
+    return bd.Solid(solido)
 
 
 def _passo_auto(r: float) -> float:
@@ -415,11 +432,15 @@ def _sviluppo_facce(S: Facce, r_piega, k_piega, t):
         flat = bd.Face(bd.Wire.make_polygon([(q[0], q[1], 0) for q in giro], close=True))
     else:
         # facce spostate della correzione: si uniscono (dove Δ > 0 si aggiunge la striscia della piega)
-        pezzi = [bd.Face(bd.Wire.make_polygon([(q[0], q[1], 0) for q in poly], close=True)) for poly in piani]
+        pezzi = [bd.Face(_faccia_piana(poly)) for poly in piani]
         for *_, d, (A2, B2, A3, B3) in linee:
             if d > 1e-9:
-                pezzi.append(bd.Face(bd.Wire.make_polygon([(*A2, 0), (*B2, 0), (*B3, 0), (*A3, 0)], close=True)))
-        flat = pezzi[0].fuse(*pezzi[1:]).clean()
+                pezzi.append(bd.Face(_faccia_piana([A2, B2, B3, A3])))
+        # a gruppi di 4 facce vicine, poi i gruppi: sui raccordi (tanti triangoli a ventaglio sugli angoli)
+        # un'unione unica di tutto costava due secondi, così un decimo, con lo stesso risultato
+        gruppi = [pezzi[i:i + 4] for i in range(0, len(pezzi), 4)]
+        gruppi = [g[0].fuse(*g[1:]).clean() if len(g) > 1 else g[0] for g in gruppi]
+        flat = gruppi[0].fuse(*gruppi[1:]).clean() if len(gruppi) > 1 else gruppi[0]
         facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
         if len(facce) != 1:
             raise FeatureError('Lo sviluppo con la correzione di piega non è venuto un pezzo unico.')
