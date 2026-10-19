@@ -260,17 +260,30 @@ window.addEventListener('pointerup', ev => {
   const dentro = p => p[0] >= X0 && p[0] <= X1 && p[1] >= Y0 && p[1] <= Y1;
   const tocca = ev.clientX < inizio.x;
   const scr = p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * view.clientWidth, (1 - q.y) / 2 * view.clientHeight]; };
+  // un tratto taglia il riquadro? (un estremo dentro, oppure attraversa uno dei quattro lati)
+  const incrocia = (p, q, r1, r2) => {
+    const d = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    return d(p, q, r1) * d(p, q, r2) <= 0 && d(r1, r2, p) * d(r1, r2, q) <= 0;
+  };
+  const angoli = [[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]];
+  const taglia = (p, q) => dentro(p) || dentro(q) || angoli.some((c, i) => incrocia(p, q, c, angoli[(i + 1) % 4]));
+  // spezzata a video: da sinistra a destra va presa tutta dentro, da destra a sinistra basta che un tratto tocchi
+  const prendi = (id, pts) => {
+    const ok = tocca ? pts.some((p, i) => i > 0 && taglia(pts[i - 1], p)) : pts.every(dentro);
+    if (ok) SK.sel.add(id);
+  };
+  const giro = (centro, r, a0, a1, n) => {
+    const ctr = skToLocal(v3(centro));
+    return Array.from({ length: n + 1 }, (_, k) => {
+      const t = a0 + (a1 - a0) * k / n;
+      return scr(skToWorld([ctr[0] + r * Math.cos(t), ctr[1] + r * Math.sin(t)]));
+    });
+  };
   if (!ev.shiftKey) SK.sel.clear();
-  for (const l of SK.v.lines) {
-    const a = scr(l.pa), b = scr(l.pb);
-    const ok = tocca ? (dentro(a) || dentro(b) || [0.25, 0.5, 0.75].some(t => dentro([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]))) : dentro(a) && dentro(b);
-    if (ok) SK.sel.add(l.id);
-  }
-  for (const c of SK.v.circles) {
-    const ctr = skToLocal(v3(c.center));
-    const pts = [0, 1, 2, 3].map(k => scr(skToWorld([ctr[0] + c.r * Math.cos(k * Math.PI / 2), ctr[1] + c.r * Math.sin(k * Math.PI / 2)])));
-    if (tocca ? pts.some(dentro) : pts.every(dentro)) SK.sel.add(c.id);
-  }
+  for (const l of SK.v.lines) prendi(l.id, [scr(l.pa), scr(l.pb)]);
+  for (const c of SK.v.circles) prendi(c.id, giro(c.center, c.r, 0, 2 * Math.PI, 32));
+  // archi: i mezzi tondi delle asole e i raccordi (prima la finestra non li prendeva mai)
+  for (const a of SK.v.arcs) prendi(a.id, giro(a.center, a.r, a.a0, a.a1, 16));
   drawSketch();
 });
 canvas.addEventListener('pointermove', ev => {
