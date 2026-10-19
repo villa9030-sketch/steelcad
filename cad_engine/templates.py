@@ -26,7 +26,8 @@ def telaio(name: str = 'Telaio', L=2000, P=1000, H=900, profilo='40x40x3', gambe
             'profile': profilo} for i in range(4)]
     mem += [{'id': f'G{i + 1}', 'group': 'Gambe', 'from': f'F{i}', 'to': f'T{i}', 'profile': gambe}
             for i in range(4)]
-    doc.add_feature('structure', 'Telaio', points=pts, members=mem, material=material)
+    doc.add_feature('structure', 'Telaio', points=pts, members=mem, material=material,
+                    template={'kind': 'telaio', 'values': {'L': L, 'P': P, 'H': H, 'profilo': profilo, 'gambe': gambe}})
     return doc
 
 
@@ -125,14 +126,19 @@ def scaffale(name: str = 'Scaffale', L=1000, P=400, H=1800, ripiani=4, montanti=
     _spalla(sk, 'P', 'H', ['0'] + [f'{i}*pr' for i in range(1, n - 1)] + ['H'])
     doc.add_feature('structure', name, points={}, members=[], material=material, skeletons=[{
         'id': 'K1', 'sketch': sk.id, 'profile': montanti, 'group': 'Spalle',
-        'copies': [[0, 0, 0], ['L', 0, 0]], 'connect': {'profile': traversi, 'group': 'Traversi ripiani'}}])
+        'copies': [[0, 0, 0], ['L', 0, 0]], 'connect': {'profile': traversi, 'group': 'Traversi ripiani'}}],
+        template={'kind': 'scaffale', 'values': {'L': L, 'P': P, 'H': H, 'ripiani': n, 'montanti': montanti,
+                                                 'traversi': traversi}})
     return doc
 
 
 def armadio(name: str = 'Telaio armadio', L=800, P=600, H=2000, ripiani=3, profilo='40x40x2',
             material='S235') -> Document:
     """Telaio di un armadio: come lo scaffale, tutto nello stesso profilo (poi si chiude con la lamiera)."""
-    return scaffale(name, L, P, H, ripiani, profilo, profilo, material)
+    doc = scaffale(name, L, P, H, ripiani, profilo, profilo, material)
+    st = next(f for f in doc.features if not hasattr(f, 'entities') and f.get('type') == 'structure')
+    st['template'] = {'kind': 'armadio', 'values': {'L': L, 'P': P, 'H': H, 'ripiani': ripiani, 'profilo': profilo}}
+    return doc
 
 
 def cancello(name: str = 'Cancello', L=1500, H=1200, telaio='60x60x3', sbarre='20x20x2', passo=120,
@@ -159,7 +165,9 @@ def cancello(name: str = 'Cancello', L=1500, H=1200, telaio='60x60x3', sbarre='2
         sk.constrain('vertical', lid, auto=True)
         ritocchi[f'K1.1.{lid}'] = {'profile': sbarre, 'group': 'Sbarre'}
     doc.add_feature('structure', name, points={}, members=[], material=material, overrides=ritocchi,
-                    skeletons=[{'id': 'K1', 'sketch': sk.id, 'profile': telaio, 'group': 'Telaio'}])
+                    skeletons=[{'id': 'K1', 'sketch': sk.id, 'profile': telaio, 'group': 'Telaio'}],
+                    template={'kind': 'cancello', 'values': {'L': L, 'H': H, 'telaio': telaio, 'sbarre': sbarre,
+                                                             'passo': passo}})
     return doc
 
 

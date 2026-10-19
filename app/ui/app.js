@@ -648,7 +648,7 @@ const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole
 function renderTree() {
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
-    const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? membersOf(n.ref)
+    const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? ['struct=' + n.ref]
       : n.kind === 'flange' ? ['flange=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
       : n.kind === 'instance' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref]
@@ -722,6 +722,7 @@ async function select(id, face = null, ids = null, silenzioso = false) {
   const fi = r.selection.face?.index;
   if (fi != null && fi !== face) { sel.face = fi; paint(); }     // il pezzo era stato ricostruito nel frattempo
   if (r.selection.highlight) { sel.hl = r.selection.highlight; paint(); }
+  if (r.selection.kind === 'structure') { sel.ids = r.selection.members; paint(); }
   renderProps(r.selection);
 }
 function clearSelection() {
@@ -733,9 +734,28 @@ function clearSelection() {
 let profili = null;
 async function renderProps(s) {
   const tab = rows => `<table class="grid">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
-  const quanti = sel?.ids?.length > 1 ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
+  const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
   if (!profili) profili = await call('profile_suggestions');
+  if (s.kind === 'structure') {
+    const t = s.template;
+    h += t ? `<div class="sub">${esc(t.title)}: misure e profili</div><p class="hint" style="margin:0 0 6px">Cambia e premi Applica: la struttura si rifà. Le aste ritoccate a mano restano.</p>
+      <div class="form st-tpl">${t.fields.map(([k, l, v]) => `<label class="lbl">${esc(l)}<input class="field" data-tf="${esc(k)}" list="dl-prof" value="${esc(String(v ?? '').replace('.', ','))}"></label>`).join('')}</div>
+      <datalist id="dl-prof">${profili.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+      <div class="row-btns"><button class="btn primary" id="tpl-apply">Applica</button></div>`
+      : '<p class="hint">Struttura disegnata: le misure si cambiano dallo sketch (clic sullo sketch nell’albero), il profilo cliccando le aste.</p>';
+    $('#props').innerHTML = h;
+    if (t) {
+      const vai = () => {
+        const v = {};
+        document.querySelectorAll('[data-tf]').forEach(i => { v[i.dataset.tf] = i.value.trim(); });
+        inCoda(async () => { if (await apply(await call('structure_template_apply', s.id, v), 'Struttura rifatta con le misure nuove.')) await select('struct=' + s.id); });
+      };
+      $('#tpl-apply').onclick = vai;
+      document.querySelectorAll('[data-tf]').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+    }
+    return;
+  }
   if (s.kind === 'member') {
     const anc = Object.entries(s.anchors).map(([k, v]) => `<option value="${k}"${k === s.anchor ? ' selected' : ''}>${esc(v)}</option>`).join('');
     h += `<div class="group-row"><label class="lbl" for="p-prof">Profilo</label>
@@ -1346,6 +1366,7 @@ function newDialog(iniziale = 'lamiera') {
         if (!(await apply(await call('new_project', kind, v)))) return;
         hideHome();
         if (kind === 'zero' || kind === 'disegno') await enterSketch('S1');
+        if (['scaffale', 'armadio', 'cancello', 'telaio'].includes(kind)) await select('struct=ST1');
       });
     };
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
@@ -3029,7 +3050,7 @@ $('#tl-items').addEventListener('click', ev => {
   if (!b) return;
   const id = b.dataset.tl;
   if (id.startsWith('sketch=')) { enterSketch(id.slice(7)); return; }
-  if (id.startsWith('st=')) { const ids = membersOf(id.slice(3)); if (ids.length) select(ids[0], null, ids); return; }
+  if (id.startsWith('st=')) { select('struct=' + id.slice(3)); return; }
   select(id);
 });
 // ---------------------------------------------------------------- riga di comando: apre la palette

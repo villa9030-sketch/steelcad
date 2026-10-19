@@ -124,6 +124,9 @@ class Api:
     def set_corner(self, fid, flid, other, mode, gap=0):
         return self._call(self._svc.set_corner, fid, flid, other, mode, gap)
 
+    def structure_template_apply(self, st_id, values):
+        return self._call(self._svc.structure_template_apply, st_id, values)
+
     def sketch_on_face(self, face_name):
         return self._call(self._svc.sketch_on_face, face_name)
 

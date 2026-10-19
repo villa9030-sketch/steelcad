@@ -312,6 +312,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 return _ok(selection=dati)
             if ':' in obj_id:
                 return _ok(selection=self._node_selection(obj_id))
+            if obj_id.startswith('struct='):
+                return _ok(selection=self._structure_selection(obj_id[7:]))
             if obj_id.startswith('flange='):
                 fid_, flid_ = obj_id[7:].split('/')
                 if any(x['id'] == flid_ for x in (self._sheet_def(fid_) or {}).get('folds') or []):
@@ -1363,6 +1365,77 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         def fn():
             sketch_ops.refresh_reference_edges(sk, bd.Face(body.face(nome)[0]), plane_of(body, nome, sk), body.shape)
         return self._change('Bordi del pezzo rifatti', fn, keep_broken=True)['ok']
+
+    # i campi dei modelli a misure, come nella finestra "Nuovo progetto"
+    MODELLI_ST = {
+        'telaio': ('Telaio / tavolo', [('L', 'Lunghezza'), ('P', 'Profondità'), ('H', 'Altezza'),
+                                       ('profilo', 'Profilo telaio'), ('gambe', 'Profilo gambe')]),
+        'scaffale': ('Scaffale', [('L', 'Lunghezza'), ('P', 'Profondità'), ('H', 'Altezza'),
+                                  ('ripiani', 'Ripiani (a terra e in cima compresi)'), ('montanti', 'Profilo montanti'),
+                                  ('traversi', 'Profilo traversi')]),
+        'armadio': ('Telaio armadio', [('L', 'Larghezza'), ('P', 'Profondità'), ('H', 'Altezza'),
+                                       ('ripiani', 'Livelli (sotto e sopra compresi)'), ('profilo', 'Profilo')]),
+        'cancello': ('Cancello', [('L', 'Larghezza'), ('H', 'Altezza'), ('telaio', 'Profilo telaio'),
+                                  ('sbarre', 'Profilo sbarre'), ('passo', 'Passo sbarre (circa)')]),
+    }
+    _PARAM_MODELLO = {'L', 'P', 'H'}            # questi vivono anche come parametri: il valore vero è lì
+
+    def _structure_selection(self, st_id: str) -> dict:
+        fdef = self.doc.feature(st_id)
+        st = next((s for s in self.result.structures if s.id == st_id), None)
+        aste = st.members if st else []
+        metri = sum(m.length for m in aste) / 1000
+        kg = sum(m.kg() for m in aste)
+        out = {'kind': 'structure', 'id': st_id, 'title': fdef.get('name') or st_id,
+               'rows': [['Aste', str(len(aste))], ['Metri di tubolare', f'{metri:.2f}'.replace('.', ',')],
+                        ['Peso', f'{kg:.2f} kg'.replace('.', ',')]],
+               'members': [f'{st_id}/{m.id}' for m in aste]}
+        t = fdef.get('template')
+        if t and t.get('kind') in self.MODELLI_ST:
+            titolo, campi = self.MODELLI_ST[t['kind']]
+            par = self.doc.parameters
+            valori = {k: (par[k] if k in self._PARAM_MODELLO and k in par else t['values'].get(k)) for k, _ in campi}
+            out['template'] = {'kind': t['kind'], 'title': titolo,
+                               'fields': [[k, l, valori.get(k)] for k, l in campi]}
+        return out
+
+    def structure_template_apply(self, st_id: str, values: dict) -> dict:
+        """Rifà la struttura di un modello a misure con i dati nuovi (anche ripiani, profili, passo).
+        Le modifiche fatte a mano sulle singole aste restano, per le aste che ci sono ancora."""
+        try:
+            old = self.doc.feature(st_id)
+            t = old.get('template')
+            if not t or t.get('kind') not in self.MODELLI_ST:
+                raise SteelCADError('Questa struttura non nasce da un modello a misure: si modifica dallo sketch '
+                                    'o cliccando le aste.', code='modello')
+            for k in ('profilo', 'gambe', 'montanti', 'traversi', 'telaio', 'sbarre'):
+                if k in values:
+                    parse(str(values[k]))
+            vals = {**t['values'], **{k: _number(v) for k, v in values.items() if str(v).strip() != ''}}
+            nuovo = getattr(templates, t['kind'])(old.get('name') or self.MODELLI_ST[t['kind']][0], **vals)
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+        def fn():
+            vecchi_sketch = self.doc._sketch_refs(old)
+            new_st = next(f for f in nuovo.features if not isinstance(f, Sketch) and f.get('type') == 'structure')
+            new_sk = [f for f in nuovo.features if isinstance(f, Sketch)]
+            # le aste ritoccate a mano restano (se esistono ancora), e anche i giunti scelti a mano
+            if old.get('overrides'):
+                new_st.setdefault('overrides', {})
+                for mid, r in old['overrides'].items():
+                    new_st['overrides'].setdefault(mid, {}).update(r)
+            if old.get('joints'):
+                new_st['joints'] = old['joints']
+            new_st['id'] = st_id
+            pos = self.doc.features.index(old)
+            resto = [f for f in self.doc.features if f is not old
+                     and not (isinstance(f, Sketch) and f.id in vecchi_sketch)]
+            pos = sum(1 for f in self.doc.features[:pos] if f in resto)
+            self.doc.features = resto[:pos] + new_sk + [new_st] + resto[pos:]
+            for k, v in nuovo.parameters.items():
+                self.doc.parameters[k] = v
+        return self._change(f'{self.MODELLI_ST[t["kind"]][0]}: nuove misure', fn)
 
     def _structure_from_sketch(self, sid, sk, v) -> dict:
         """Le linee dello sketch diventano tubolari. Con "ripetizioni" lo scheletro si ripete a distanza

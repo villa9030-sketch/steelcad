@@ -88,3 +88,20 @@ def test_scheletro_aperto_va_bene():
     assert v['open'] and 'struttura' in v['status']
     r = s.create_from_sketch('S1', 'structure', {'profile': '40x40x3'})
     assert r['ok'] and r['state']['cutlist']['pieces'] == 2
+
+
+def test_modello_si_modifica_dopo():
+    """I dati del modello (anche ripiani e profili) si cambiano dopo: la struttura si rifà, i ritocchi restano."""
+    s = Service()
+    s.new_project('scaffale', {})
+    sel = s.select('struct=ST1')['selection']
+    assert [f[0] for f in sel['template']['fields']] == ['L', 'P', 'H', 'ripiani', 'montanti', 'traversi']
+    asta = s.result.structures[0].members[0].id
+    assert s.edit_member(f'ST1/{asta}', {'profile': '50x50x3'})['ok']
+    r = s.structure_template_apply('ST1', {'ripiani': 5, 'H': 2200, 'traversi': '40x30x2'})
+    assert r['ok'], r.get('message')
+    assert r['state']['cutlist']['pieces'] == 24
+    assert s.doc.feature('ST1')['overrides'][asta] == {'profile': '50x50x3'}
+    assert next(p for p in r['state']['parameters'] if p['name'] == 'H')['value'] == 2200
+    assert s.undo()['ok'] and s.state()['cutlist']['pieces'] == 20
+    assert not s.structure_template_apply('ST1', {'montanti': '40x40'})['ok']

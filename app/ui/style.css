@@ -142,6 +142,8 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
   background: var(--surface); border: 1px solid #9FB3C8; color: var(--action); font-weight: 600; font-variant-numeric: tabular-nums;
   padding: 1px 6px; border-radius: 3px; font-size: 12px; white-space: nowrap; transition: border-color .12s;
 }
+.st-tpl { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+.st-tpl .lbl { display: grid; gap: 2px; }
 .dim:hover { border-color: var(--hover); }
 .dim.dia { transform: translate(8px, -130%); }      /* accanto al cerchio, non sopra: il cerchio si deve poter cliccare */
 #sk-box { position: absolute; border: 1px solid #1F5FBF; background: rgba(31, 95, 191, .08); pointer-events: none; display: none; }
