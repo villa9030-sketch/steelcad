@@ -35,3 +35,16 @@ def test_lato_opposto_del_rettangolo_prende_il_posto_della_quota():
     lati = sorted(round(math.dist(l['xa'], l['xb']), 6) for l in v['lines'] if not l.get('ref'))
     assert lati == [50, 50, 80, 80]
     assert v['ok']
+
+
+def test_angolo_scritto_come_formula_non_blocca_lo_schermo():
+    """19/10: flangia sulla punta con angolo "180-64": il pezzo era giusto ma lo stato saltava (scritta dell'albero),
+    lo schermo restava vecchio e ogni nuovo tentativo diceva "sulla punta c'è già una flangia"."""
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 300, 'profondita': 300, 'spessore': 2})['ok']
+    assert s.set_sheet_tech('SM1', {'radius': 1, 'method': 'k', 'k': 0.33})['ok']
+    assert s.add_flange('SM1', 'L4', {'length': '100'})['ok']
+    r = s.add_flange('SM1', None, {'length': '50', 'angle': '180-64'}, parent='FL1')
+    assert r['ok'], r.get('message')
+    testi = str(r['state']['tree'])
+    assert '116°' in testi

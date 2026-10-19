@@ -58,6 +58,20 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         self._set(Document('Nuovo progetto'))
         self.blank = True                  # appena aperto, niente progetto: la UI mostra la pagina iniziale
 
+    @staticmethod
+    def _albero(doc, r) -> dict:
+        """L'albero del progetto. Un errore in una scritta non deve mai bloccare lo stato: se no il pezzo cambia ma lo
+        schermo resta al vecchio, e l'utente rifà la stessa cosa sentendosi dire che c'è già (19/10, angolo "180-64")."""
+        try:
+            return project_tree(doc, r)
+        except Exception:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            from cad_engine.tree import _n
+            figli = [_n(f.name or f.id, 'sketch', f.id) if isinstance(f, Sketch) else _n(f.get('name') or f['id'], f['type'], f['id'])
+                     for f in doc.features]
+            return _n(doc.meta.get('name') or 'Progetto', 'project', children=figli)
+
     def _set(self, doc: Document):
         for f in doc.features:                     # file fatti prima: pieghe su linea in ordine lungo il pezzo
             if not isinstance(f, Sketch) and f.get('type') == 'sheet':
@@ -124,7 +138,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             'name': doc.meta.get('name'), 'path': str(self.path) if self.path else None,
             'dirty': self.history.dirty, 'undo': self.history.labels()['undo'][:1],
             'redo': self.history.labels()['redo'][:1],
-            'tree': project_tree(doc, r), 'parameters': self._parameters(), 'mode': 'part',
+            'tree': self._albero(doc, r), 'parameters': self._parameters(), 'mode': 'part',
             'can_back': bool(getattr(self, '_asm_ritorno', None)),
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
