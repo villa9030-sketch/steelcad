@@ -645,10 +645,20 @@ function renderPanels() {
   $('#b-back').hidden = !S.can_back;
   if (!assieme && ASM.tool) asmTool(null);
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi();
+  aggiornaLayout();
+  if (!sel && !SK) $('#props').innerHTML = cosaPuoiFare();
+}
+function aggiornaLayout() {
+  document.body.classList.toggle('lavoro', !!S && S.mode !== 'assembly' && !SK);
+  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 }
 
 function renderTop() {
   const nome = esc(S.name || 'Senza nome');
+  const bp = $('#b-prepara');
+  const vuoto = !S.tree?.children?.length && !S.cutlist?.rows?.length && S.mode !== 'assembly';
+  bp.hidden = vuoto;
+  bp.textContent = S.mode === 'assembly' || (S.cutlist?.rows?.length && !S.sheet) ? 'Prepara per l’officina' : 'Prepara per il laser';
   $('#docname').innerHTML = `${S.dirty ? '<span class="dirty">● </span>' : ''}${nome}` +
     (S.path ? ` <span style="color:var(--ink-3)">— ${esc(S.path)}</span>` : ' <span style="color:var(--ink-3)">— non salvato</span>');
   for (const [b, k, t] of [['#b-undo', 'undo', 'Annulla'], ['#b-redo', 'redo', 'Ripeti']]) {
@@ -755,7 +765,141 @@ async function select(id, face = null, ids = null, silenzioso = false) {
 function clearSelection() {
   selTok++; selGen++;
   sel = null; paint(); renderTree(); paintNodes();
-  $('#props').innerHTML = '<p class="empty">Clicca un pezzo nel modello o nell’albero.</p>';
+  $('#props').innerHTML = cosaPuoiFare();
+}
+
+// ------------------------------------------------------------- cosa puoi fare adesso (senza selezione)
+// Le 4-5 cose che si fanno con questo pezzo, ognuna con una riga che dice come; le rare sotto "Altre lavorazioni…"
+const ICO = {
+  piega: '<path d="M5 27h18l9-15"/>', fori: '<rect x="3" y="8" width="30" height="21" rx="2"/><circle cx="13" cy="18.5" r="4"/><rect x="21" y="15" width="9" height="7" rx="3.5"/>',
+  taglia: '<path d="M3 8h30v21H3z"/><path d="M22 8v9h11"/>', forme: '<path d="M8 12h20M8 19h20M8 26h20"/>',
+  piegatrice: '<circle cx="18" cy="18" r="12"/><path d="M18 11v7l5 4"/>', misure: '<path d="M4 26h28M4 22v8M32 22v8M10 26v-3M16 26v-4M22 26v-3M28 26v-4"/>',
+  tubo: '<rect x="6" y="6" width="24" height="24" rx="3"/><rect x="11" y="11" width="14" height="14" rx="2"/>', asta: '<path d="M6 30 30 6M24 6h6v6"/>',
+  giunti: '<path d="M6 30V8h22"/><circle cx="6" cy="8" r="3.5"/>', sviluppo: '<path d="M4 24l9-14h10l9 14z"/><path d="M13 10v14M23 10v14"/>',
+};
+function cosaPuoiFare() {
+  if (!S || S.mode === 'assembly' || SK) return '<p class="empty">Clicca un pezzo nel modello o nell’albero.</p>';
+  const lam = !!S.sheet?.data && !S.sheet?.shape, forma = !!S.sheet?.shape;
+  const struttura = !!S.cutlist?.rows?.length && !S.sheet;
+  const piastra = !S.sheet && JSON.stringify(S.tree || {}).includes('"kind":"extrude"');
+  const az = (id, ico, t, d, prima) => `<button class="az${prima ? ' prima' : ''}" data-azione="${id}"><svg viewBox="0 0 36 36" aria-hidden="true">${ICO[ico]}</svg>
+    <span><b>${t}</b><span>${d}</span></span></button>`;
+  const r = S.bend_default || {};
+  const pieg = `Raggio ${virgola(S.sheet?.data?.tech?.radius ?? r.radius) || '?'} · K ${virgola(S.sheet?.data?.tech?.k ?? r.k) || '?'}`;
+  let h = '';
+  if (lam) h = az('piega', 'piega', 'Aggiungi una piega', 'Clicca il bordo dove la vuoi', true) + az('fori', 'fori', 'Fai fori o asole', 'Sulla faccia di sopra')
+    + az('taglia', 'taglia', 'Taglia via un angolo o un pezzo', 'Smussi, scantonature, finestre') + az('forme', 'forme', 'Persiane o bugne', 'Per l’aria o per irrigidire')
+    + az('piegatrice', 'piegatrice', 'Materiale e piegatrice', pieg);
+  else if (forma) h = az('misure', 'misure', 'Cambia le misure', 'Diametri, altezza, spessore', true) + az('sviluppo', 'sviluppo', 'Vedi lo sviluppo', 'La lamiera stesa, con le pieghe')
+    + az('piegatrice', 'piegatrice', 'Materiale e piegatrice', pieg);
+  else if (struttura) h = az('misure', 'misure', 'Cambia le misure', 'Larghezza, altezza, tubi', true) + az('tubo', 'tubo', 'Cambia un tubo', 'Clicca l’asta nel modello')
+    + az('asta', 'asta', 'Aggiungi un’asta', 'Parte da un pallino (nodo)') + az('giunti', 'giunti', 'Come si uniscono gli angoli', 'A 45°, di testa, passante');
+  else if (piastra) h = az('fori', 'fori', 'Fai fori o asole', 'Sulla faccia di sopra', true) + az('taglia', 'taglia', 'Taglia via un angolo o un pezzo', 'Smussi, scantonature, finestre')
+    + az('misure', 'misure', 'Cambia le misure', 'Larghezza, altezza, spessore');
+  else return '<p class="empty">Clicca un pezzo nel modello o nell’albero.</p>';
+  return `<div class="cosa"><h3>Cosa puoi fare adesso</h3>${h}<button class="altre" data-azione="altre">Altre lavorazioni…</button></div>`;
+}
+function altreLavorazioni() {
+  const lam = !!S.sheet?.data && !S.sheet?.shape;
+  const v = (id, t, d, cerca) => `<button class="voce" data-azione="${id}" data-cerca="${esc((t + ' ' + d + ' ' + (cerca || '')).toLowerCase())}"><b>${t}</b><span>${d}</span></button>`;
+  const gruppi = [];
+  if (lam) gruppi.push(['Pieghe', v('orlo', 'Orlo', 'Bordo ripiegato su se stesso, per non tagliarsi o per irrigidire', 'piega 180 schiacciata')
+    + v('piega_linea', 'Piega in mezzo al pezzo', 'Si piega lungo una linea che disegni, non su un bordo', 'piega su linea sviluppo')
+    + v('profilo', 'Profilo piegato da disegno', 'Disegni la sezione (una Z, un omega) e diventa una fila di pieghe', 'lamiera a contorno')
+    + v('angoli', 'Chiudi gli angoli', 'Due pieghe che si incontrano: quale va sopra, quanto gioco lasciare', 'gioco sovrapposizione')]);
+  if (lam) gruppi.push(['Materiale in più o in meno', v('linguetta', 'Linguetta', 'Un’aletta di lamiera in più sul bordo, per fissare o incastrare', 'aletta incastro')
+    + v('contorno', 'Disegna un contorno libero', 'Per forme che non sono fori, asole o tagli d’angolo', 'sketch')]);
+  else gruppi.push(['Disegno', v('contorno', 'Disegna un contorno libero', 'Per forme che non sono fori, asole o tagli d’angolo', 'sketch')]);
+  gruppi.push(['Misure e dati', v('parametri', 'Misure collegate', 'Una misura che segue un’altra (la profondità è metà della larghezza)', 'parametri formule')
+    + (S.sheet ? v('regole', 'Regole della piegatrice', 'Raggi e K salvati per materiale e spessore', 'regole k-factor raggio') : '')
+    + (S.sheet ? v('sviluppo', 'Vedi lo sviluppo', 'La lamiera stesa, con le linee di piega', 'spiega') : '')]);
+  return `<div class="cosa"><div class="indietro"><button data-azione="cosa" aria-label="Indietro">←</button><h3 style="margin:0">Altre lavorazioni</h3></div>
+    <input class="field cerca" id="cosa-cerca" placeholder="Cerca: orlo, linguetta, scantonatura…">
+    ${gruppi.map(([g, h]) => `<div class="gr">${g}</div>${h}`).join('')}</div>`;
+}
+async function disegnaSopra(aiuto) {
+  // la faccia di sopra del pezzo: lì si disegnano fori, tagli, persiane
+  const facce = objs.get('body')?.data?.faces || [];
+  const f = facce.find(x => x.name === `${S.sheet?.feature}/sopra`) || facce.find(x => /\/fine$/.test(x.name || ''));
+  if (!f) { toast('Clicca la faccia su cui lavorare, poi «Disegna su questa faccia».'); return; }
+  const r = await call('sketch_on_face', f.name);
+  if (await apply(r)) { await enterSketch(r.sketch); if (aiuto) toast(aiuto); }
+}
+function azione(id) {
+  const t = (m, k) => toast(m, k || '');
+  const sel1 = async q => { await select(q); };
+  switch (id) {
+    case 'cosa': $('#props').innerHTML = cosaPuoiFare(); return;
+    case 'altre': $('#props').innerHTML = altreLavorazioni(); $('#cosa-cerca')?.focus(); return;
+    case 'piega': runCmd('flange_help'); return;
+    case 'fori': inCoda(() => disegnaSopra('Fori: scegli Cerchio o Asola, clicca dove va, scrivi la misura. Poi «Taglia attraverso».')); return;
+    case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Taglia attraverso».')); return;
+    case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
+    case 'contorno': inCoda(() => disegnaSopra()); return;
+    case 'linguetta': inCoda(() => disegnaSopra('Disegna la linguetta partendo da un bordo e tornando sullo stesso bordo, poi «Aggiungi materiale».')); return;
+    case 'piegatrice': showTab('sheet', true); return;
+    case 'regole': runCmd('sheet_rules'); return;
+    case 'sviluppo': runCmd('unfold'); return;
+    case 'piega_linea': runCmd('flat_sketch'); return;
+    case 'profilo': runCmd('contour_help'); return;
+    case 'orlo': t('Clicca la piega da ripiegare: nel suo pannello apri «Piega sulla punta» e scegli 180°.'); return;
+    case 'angoli': t('Clicca una delle due pieghe che si incontrano: nel pannello trovi gli angoli.'); return;
+    case 'parametri': { const d = $('#params-box'); if (d) { d.open = true; d.scrollIntoView({ block: 'nearest' }); } t('Le misure collegate sono a sinistra, sotto «Misure».'); return; }
+    case 'misure': if (S.sheet?.shape) inCoda(() => sel1('body')); else if (S.cutlist?.rows?.length) inCoda(() => sel1('struct=ST1'));
+      else { const d = $('#params-box'); if (d) d.open = true; t('Le misure sono a sinistra: cambia il numero e premi Invio.'); } return;
+    case 'tubo': t('Clicca un’asta nel modello: nel pannello scegli il tubo (anche per tutte le aste uguali).'); return;
+    case 'asta': runCmd('member_help'); return;
+    case 'giunti': t('Clicca un pallino in un angolo: nel pannello scegli come si uniscono i tubi.'); return;
+    default: return;
+  }
+}
+$('#props').addEventListener('click', ev => { const b = ev.target.closest('[data-azione]'); if (b) azione(b.dataset.azione); });
+$('#props').addEventListener('input', ev => {
+  if (ev.target.id !== 'cosa-cerca') return;
+  const q = ev.target.value.trim().toLowerCase();
+  document.querySelectorAll('#props .voce').forEach(v => { v.hidden = !!q && !v.dataset.cerca.includes(q); });
+  document.querySelectorAll('#props .gr').forEach(g => {              // il titolo di un gruppo senza voci visibili sparisce
+    let c = 0;
+    for (let n = g.nextElementSibling; n && !n.classList.contains('gr'); n = n.nextElementSibling) if (!n.hidden) c++;
+    g.hidden = c === 0;
+  });
+});
+
+// ------------------------------------------------------------- prepara per il laser / l'officina
+async function preparaDialog() {
+  const info = await call('prepara_info');
+  if (!info.ok) { toast(info.message, 'err'); return; }
+  let cartella = info.cartella;
+  const c = info.controllo;
+  const voci = info.voci.map(v => `<label class="${v.si ? '' : 'no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
+      <input type="checkbox" data-voce="${v.id}" ${v.scelta ? 'checked' : ''} ${v.si ? '' : 'disabled'}>
+      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small></span></label>`).join('');
+  modal(`<h3>Cosa ti serve?</h3>
+    ${c ? `<div class="prep-ok${c.ok ? '' : ' no'}">${c.ok ? '<b>Il pezzo è a posto per il laser.</b> ' : '<b>Attenzione:</b> '}${esc(c.ok ? 'Contorno chiuso, fori e pieghe controllati.' : c.testo)}</div>` : ''}
+    <div class="prep-voci">${voci}</div>
+    <div class="prep-dove">Si salvano in <b id="prep-dir">${esc(cartella)}</b> <button class="link" id="prep-cambia">Cambia cartella</button></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
+    $('#modal-box').classList.add('prepara');
+    const conta = () => {
+      const n = document.querySelectorAll('#modal-box [data-voce]:checked').length;
+      $('#m-ok').textContent = n ? `Salva ${n === 1 ? 'il file' : `i ${n} file`}` : 'Scegli cosa ti serve';
+      $('#m-ok').disabled = !n;
+    };
+    document.querySelectorAll('#modal-box [data-voce]').forEach(i => { i.onchange = conta; });
+    conta();
+    $('#m-no').onclick = close;
+    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; } });
+    $('#m-ok').onclick = () => {
+      const scelte = [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
+      close();
+      inCoda(async () => {
+        const r = await call('prepara', cartella, scelte);
+        if (!r.ok) { toast(r.message || 'Non riuscito.', 'err'); return; }
+        toast(r.message);
+        await call('apri_cartella', r.cartella);
+      });
+    };
+  });
 }
 
 let profili = null;
@@ -1803,6 +1947,7 @@ const CMDS = [
   { id: 'home', label: 'Pagina iniziale', run: () => inCoda(() => showHome()) },
   { id: 'new_asm', label: 'Nuovo assieme…', run: newAssemblyDialog },
   { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
+  { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(preparaDialog) },
   { id: 'asm_insert', label: 'Assieme: inserisci pezzo…', run: () => inCoda(async () => { const r = await call('asm_insert_dialog'); if (await apply(r) && r.select) await select(r.select); }) },
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
@@ -2053,6 +2198,7 @@ async function enterSketch(sid) {
   const r = await call('sketch_view', sid);
   if (!r.ok) { toast(r.message, 'err'); return; }
   SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '', constr: false, pick: null, dimPick: [], ghost: false, grid: aggancioGriglia };
+  aggiornaLayout();
   if (flatView) flatView = false;
   clearSelection();
   controls.enableRotate = false;
@@ -2084,6 +2230,7 @@ function exitSketch() {
   if (!SK) return;
   const era = SK;
   SK = null;
+  aggiornaLayout();
   // uno sketch su faccia/sviluppo lasciato vuoto non resta nell'albero
   if (era.v.on_face || era.v.on_flat) inCoda(async () => apply(await call('sketch_close', era.sid)));
   controls.enableRotate = true;
@@ -3372,7 +3519,7 @@ async function start() {
   const casa = await call('home_info');
   if (casa.ok && casa.show) await showHome(casa);
   requestAnimationFrame(loop);
-  window.__steelcad = { ready: true, get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
+  window.__steelcad = { ready: true, runCmd: id => runCmd(id), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, skScreen: xy => skScreen(xy), enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }

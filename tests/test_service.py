@@ -1027,3 +1027,23 @@ def test_pezzo_nuovo_il_riassunto_a_parole():
     male = s.new_project_preview('telaio', {'L': -5})
     assert male['ok'] and not male['text'] and male['warning']
     assert s.result.body is None and not s.result.structures            # il progetto aperto non è cambiato
+
+
+def test_prepara_per_il_laser(tmp_path):
+    """Un pulsante solo: si sceglie a chi serve (laser, piegatrice, officina, altro CAD) e i file finiscono insieme
+    nella cartella del lavoro, con i nomi già fatti; il controllo del laser si vede prima."""
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'Canalina 500 × 300', 'larghezza': 500, 'profondita': 300, 'spessore': 2,
+                                     'raggio': 1, 'k': 0.21})['ok']
+    assert s.add_flange('SM1', 'L1', {'length': '40'})['ok']
+    info = s.prepara_info()
+    voci = {v['id']: v for v in info['voci']}
+    assert info['controllo']['ok'] and voci['laser']['si'] and voci['piegatrice']['scelta']
+    assert voci['laser']['file'] == 'Canalina 500 x 300_sviluppo.dxf'
+    r = s.prepara(str(tmp_path / 'out'), ['laser', 'piegatrice', 'officina', 'step'])
+    assert r['ok'], r.get('message')
+    assert sorted(p.name for p in (tmp_path / 'out').iterdir()) == sorted(v['file'] for v in info['voci'])
+    s2 = Service()
+    assert s2.new_project('cancello', {})['ok']
+    v2 = {v['id']: v for v in s2.prepara_info()['voci']}
+    assert not v2['laser']['si'] and v2['officina']['scelta'] and 'lista di taglio' in v2['officina']['desc']

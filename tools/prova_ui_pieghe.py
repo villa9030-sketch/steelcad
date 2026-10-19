@@ -119,7 +119,7 @@ def main():
             st = pg.evaluate('window.__steelcad.state')
             ok(f'scatola bordata: 8 pieghe, nessun errore ({len(st["sheet"]["data"]["bends"])}, {len(st["errors"])})',
                len(st['sheet']['data']['bends']) == 8 and not st['errors'])
-            ok('albero: "sulla punta di FL1"', 'sulla punta di FL1' in pg.inner_text('#tree'))
+            ok('albero in parole: "sulla piega davanti"', 'sulla piega davanti' in pg.inner_text('#tree'))
             madri = sorted(b['parent'] for b in st['sheet']['data']['bends'] if b['parent'])
             ok(f'ogni bordo sulla parete cliccata ({madri})', madri == ['FL1', 'FL2', 'FL3', 'FL4'])
             ok('nessuna altra domanda dopo la scelta', pg.locator('#modal:not([hidden])').count() == 0)
@@ -496,7 +496,8 @@ def main():
             pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.length === 1")
             ok('scheda LAMIERA per un progetto in lamiera', pg.evaluate("document.querySelector('[data-rtab=\"lamiera\"]').classList.contains('on')"))
-            pg.click('#ribbon [data-cmd="sheet_rules"]')
+            pg.click('#props [data-azione="altre"]')            # Altre lavorazioni → Regole della piegatrice
+            pg.click('#props [data-azione="regole"]')
             pg.wait_for_selector('#r-name')
             pg.fill('#r-name', 'S235 sp. 2 R2 K0,4')
             pg.click('#r-save')
@@ -506,15 +507,19 @@ def main():
             pg.evaluate("fetch('/api/set_sheet_tech', {method: 'POST', body: JSON.stringify(['SM1', {radius: 5}])})")
             time.sleep(0.4); pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.def.radius === 5")
-            pg.click('#ribbon [data-cmd="sheet_rules"]')
+            pg.click('#props [data-azione="altre"]')
+            pg.click('#props [data-azione="regole"]')
             pg.wait_for_selector('[data-rule-apply]')
             pg.click('[data-rule-apply]')
             pg.wait_for_function("window.__steelcad.state.sheet.def.radius === 2")
             ok('regola applicata: raggio di nuovo 2', True)
-            pg.click('.rbody:not([hidden]) .rb-export')         # Esporta ▾
-            pg.click('.rmenu.open [data-cmd="export_bendtable"]')
-            pg.wait_for_selector('.toast:has-text("Tabella pieghe salvata")')
-            ok('tabella pieghe esportata dalla barra', True)
+            pg.click('#b-prepara')                              # Prepara per il laser → solo la piegatrice
+            pg.wait_for_selector('#modal-box [data-voce="piegatrice"]')
+            pg.uncheck('#modal-box [data-voce="laser"]')
+            pg.check('#modal-box [data-voce="piegatrice"]')
+            pg.click('#m-ok')
+            pg.wait_for_selector('.toast:has-text("Salvati 1 file")')
+            ok('tabella pieghe da «Prepara per il laser»', True)
             pg.screenshot(path=str(SHOTS / '16_lamiera_barra.png'))
             ok('nessun errore in console', not errori)
             for e in errori:

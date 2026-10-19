@@ -2090,6 +2090,71 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
+    # ================================================================ prepara per il laser / l'officina
+    def _nome_file(self) -> str:
+        nome = (self.asm.name if self.asm is not None else self.doc.meta.get('name')) or (self.path.stem if self.path else 'pezzo')
+        nome = str(nome).replace('×', 'x')             # il segno × nei nomi dei file non piace a tutti i programmi
+        return re.sub(r'[\\/:*?"<>|]+', '-', nome).strip() or 'pezzo'
+
+    def prepara_info(self) -> dict:
+        """Cosa si può preparare per questo pezzo, a chi serve, in che cartella, e se i controlli sono passati."""
+        import tempfile
+        nome = self._nome_file()
+        base = self.path.parent if self.path else Path.home() / 'Documents' / 'SteelCAD'
+        corpo = self.result.body if self.asm is None else None
+        sheet = getattr(corpo, 'sheet', None) if corpo is not None else None
+        strutture = bool(self.result.structures) if self.asm is None else False
+        pieghe = bool(sheet is not None and ((getattr(sheet, 'bend_rows', None) or []) or sheet.flanges
+                                             or getattr(sheet, 'folds', None)))
+        controllo = None
+        if corpo is not None:
+            with tempfile.TemporaryDirectory() as d:
+                r = self.export_dxf(str(Path(d) / 'prova.dxf'))
+            controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', '')}
+        laser = controllo is not None and controllo['ok']
+        voci = [
+            {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
+             'file': f'{nome}_sviluppo.dxf', 'si': laser, 'scelta': laser,
+             'motivo': None if laser else (controllo['testo'] if controllo else 'serve una lamiera o una piastra')},
+            {'id': 'piegatrice', 'titolo': 'Per la piegatrice', 'desc': 'Le pieghe in ordine: angolo, misura, correzione (si apre con Excel).',
+             'file': f'{nome}_pieghe.csv', 'si': pieghe, 'scelta': pieghe, 'motivo': None if pieghe else 'il pezzo non ha pieghe'},
+            {'id': 'officina', 'titolo': 'Per l’officina o il cliente',
+             'desc': 'I disegni quotati con il cartiglio, da stampare' + (', con la lista di taglio dei tubi.' if strutture else '.'),
+             'file': f'{nome}_disegni.pdf', 'si': corpo is not None or strutture or self.asm is not None,
+             'scelta': strutture or self.asm is not None, 'motivo': None},
+            {'id': 'step', 'titolo': 'Per un altro programma 3D', 'desc': 'Il pezzo in 3D (STEP), per chi usa SolidWorks, Inventor e simili.',
+             'file': f'{nome}.step', 'si': corpo is not None or strutture or self.asm is not None, 'scelta': False, 'motivo': None},
+        ]
+        return {'ok': True, 'nome': nome, 'cartella': str(base / nome), 'voci': voci, 'controllo': controllo}
+
+    def prepara(self, cartella: str, scelte: list, campi: dict | None = None) -> dict:
+        """Salva insieme i file scelti nella cartella del lavoro, con i nomi già fatti."""
+        try:
+            info = self.prepara_info()
+            d = Path(cartella)
+            d.mkdir(parents=True, exist_ok=True)
+            fatti, problemi = [], []
+            for v in info['voci']:
+                if v['id'] not in scelte or not v['si']:
+                    continue
+                p = d / v['file']
+                if v['id'] == 'laser':
+                    r = self.export_dxf(str(p))
+                elif v['id'] == 'piegatrice':
+                    r = self.export_bend_table(str(p))
+                elif v['id'] == 'officina':
+                    c = {**self.drawing_fields().get('fields', {}), **(campi or {})}
+                    r = self.export_drawings(str(p), c, True)
+                else:
+                    r = self.export_step(str(p))
+                (fatti if r.get('ok') else problemi).append(v['file'] if r.get('ok') else f'{v["titolo"]}: {r.get("message")}')
+            if not fatti and not problemi:
+                return {'ok': False, 'message': 'Scegli almeno una cosa da preparare.'}
+            msg = (f'Salvati {len(fatti)} file in {d}.' if fatti else '') + (' Non riusciti: ' + '; '.join(problemi) if problemi else '')
+            return {'ok': not problemi, 'files': fatti, 'cartella': str(d), 'message': msg.strip()}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
     def export_step(self, path: str) -> dict:
         if self.asm is not None:
             try:

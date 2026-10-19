@@ -37,6 +37,18 @@ class ApiProva(Api):
             return str(dis[0]) if dis else None
         return str(self._dir / nome)
 
+    def scegli_cartella(self):
+        return {'ok': True, 'cartella': str(self._dir / 'scelta')}
+
+    def apri_cartella(self, path):                  # nelle prove non si apre niente sul desktop
+        return {'ok': True}
+
+    def prepara_info(self):                         # nelle prove i file vanno nella cartella di prova, non nei Documenti
+        r = super().prepara_info()
+        if r.get('ok'):
+            r['cartella'] = str(self._dir / Path(r['cartella']).name)
+        return r
+
 
 def crea_server(api, porta: int) -> ThreadingHTTPServer:
     """Il server dell'interfaccia di prova sull'Api data (serve anche alla diretta di tools/vetrina_quadro.py)."""

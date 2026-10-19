@@ -26,8 +26,8 @@
     </div>
   </div>
   <button class="tbtn" data-cmd="save" title="Salva (Ctrl+S)"><img src="icons/save.svg" alt=""></button>
-  <button class="tbtn" data-cmd="undo" id="b-undo" title="Annulla"><img src="icons/undo.svg" alt=""></button>
-  <button class="tbtn" data-cmd="redo" id="b-redo" title="Ripeti"><img src="icons/redo.svg" alt=""></button>
+  <button class="tbtn testo" data-cmd="undo" id="b-undo" title="Annulla"><img src="icons/undo.svg" alt=""><span>Annulla</span></button>
+  <button class="tbtn testo" data-cmd="redo" id="b-redo" title="Rifai"><img src="icons/redo.svg" alt=""><span>Rifai</span></button>
   <div class="menu-item"><button class="tbtn" title="Vista"><span>Vista</span></button>
     <div class="drop">
       <button data-cmd="view_iso">Isometrica<kbd>0</kbd></button>
@@ -43,6 +43,7 @@
   </div>
   <button class="tbtn" id="b-back" data-cmd="asm_back" hidden title="Torna all’assieme da cui hai aperto questo pezzo">← Assieme</button>
   <div id="doctab"><span id="docname"></span></div>
+  <button id="b-prepara" data-cmd="prepara" hidden>Prepara per il laser</button>
   <button id="palette-btn" data-cmd="palette" title="Cerca un comando o scrivi una quota (Ctrl+K)">Cerca un comando…<kbd>Ctrl+K</kbd></button>
 </header>
 

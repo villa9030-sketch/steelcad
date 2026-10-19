@@ -272,6 +272,27 @@ class Api:
     def forget_recent(self, path):
         return self._call(self._svc.forget_recent, path)
 
+    # prepara per il laser / l'officina: i file scelti, insieme, nella cartella del lavoro
+    def prepara_info(self):
+        return self._call(self._svc.prepara_info)
+
+    def prepara(self, cartella, scelte, campi=None):
+        return self._call(self._svc.prepara, cartella, scelte, campi)
+
+    def scegli_cartella(self):
+        r = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if not r:
+            return {'ok': False, 'cancelled': True}
+        return {'ok': True, 'cartella': r if isinstance(r, str) else r[0]}
+
+    def apri_cartella(self, path):
+        import os
+        try:
+            os.startfile(path)                      # Esplora risorse sulla cartella appena salvata
+            return {'ok': True}
+        except OSError as ex:
+            return {'ok': False, 'message': str(ex)}
+
     def new_project_preview(self, kind, values=None):
         return self._call(self._svc.new_project_preview, kind, values)
 

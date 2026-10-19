@@ -252,15 +252,15 @@ def main():
             ok('progetto in lamiera: niente scheda Cut list (non ci sono strutture)',
                pg.evaluate("document.querySelector('.tabs [data-tab=cut]').hidden"))
             for tab in ('lamiera',):
-                pg.click(f'.rtabs [data-rtab="{tab}"]')
+                # nella schermata del pezzo la barra non si vede (c'è "Cosa puoi fare adesso"): i suoi comandi si
+                # lanciano per nome, come da Ctrl+K e dai pannelli
                 for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].map(b => (b.closest('.drop') ? 'menu:' : '') + b.dataset.cmd)", tab):
                     if cmd == 'unfold' or cmd == 'flat_sketch':
                         continue                               # provati a parte
                     pg.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
-                    if cmd.startswith('menu:'):                # le voci di Esporta ▾: si apre il menu e si sceglie
+                    if cmd.startswith('menu:'):                # le voci di Esporta ▾
                         cmd = cmd[5:]
-                        pg.click(f'.rbody[data-rbody="{tab}"] .rb-export')
-                    pg.click(f'.rbody[data-rbody="{tab}"] [data-cmd="{cmd}"]')
+                    pg.evaluate("(c) => window.__steelcad.runCmd(c)", cmd)
                     tipo = attesi.get(cmd, '?')
                     if tipo == 'modal':
                         pg.wait_for_selector('#modal:not([hidden])', timeout=5000)
@@ -276,13 +276,15 @@ def main():
                         risposta = False
                     testo = pg.inner_text('#toasts')[:70].replace('\n', ' ') if tipo == 'toast' else ''
                     ok(f'barra {tab.upper()} → {cmd}: risponde {testo!r}', risposta)
-            pg.click('.rtabs [data-rtab="lamiera"]')
-            pg.click('.rbody[data-rbody="lamiera"] [data-cmd="unfold"]')
+            ok('schermata del pezzo: niente barra in alto, a destra "Cosa puoi fare adesso"',
+               not pg.is_visible('#ribbon') and pg.is_visible('#props [data-azione="piega"]'))
+            pg.click('#props [data-azione="altre"]')
+            pg.click('#props [data-azione="sviluppo"]')
             time.sleep(0.5)
-            ok('barra → Spiega: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
-            pg.click('.rbody[data-rbody="lamiera"] [data-cmd="unfold"]')
+            ok('Altre lavorazioni → Vedi lo sviluppo: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
+            pg.evaluate("window.__steelcad.runCmd('unfold')")
             time.sleep(0.4)
-            pg.click('.rbody[data-rbody="lamiera"] [data-cmd="flat_sketch"]')
+            pg.evaluate("window.__steelcad.runCmd('flat_sketch')")
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_flat")
             ok('barra → Sullo sviluppo: sketch sullo sviluppo', True)
             pg.click('#ribbon [data-skdone]')
