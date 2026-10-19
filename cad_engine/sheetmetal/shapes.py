@@ -221,45 +221,81 @@ def _solido(S: Facce, t: float):
         idx.append(unico.setdefault(tuple(round(c, 6) for c in q), len(unico)))
     P = np.array(list(unico), dtype=float)
     S = Facce([], [[idx[i] for i in f] for f in S.facce])
+    normali = []
     vicine = [[] for _ in P]                               # normali delle facce attorno a ogni punto
     for f in S.facce:
         a, b, c = (P[i] for i in f[:3])
         n = np.cross(b - a, c - a)
         n /= np.linalg.norm(n)
+        normali.append(n)
         for i in f:
             vicine[i].append(n)
-    # per ogni punto lo spostamento v che sta a distanza 1 da tutti i piani vicini (minimi quadrati: esatto
-    # dove i piani sono 1–3, scarto minimo dove sono di più, per esempio sugli angoli della base del raccordo)
+    usi = {}                                               # lato -> [(faccia, (a, b))]
+    for k, f in enumerate(S.facce):
+        for a, b in zip(f, f[1:] + f[:1]):
+            usi.setdefault(frozenset((a, b)), []).append((k, (a, b)))
+    sul_bordo = {i for lati in usi.values() if len(lati) == 1 for i in lati[0][1]}
+    # Ogni punto si sposta di v, a t/2 dai piani delle facce attorno: esatto dove le facce sono 1–3 (lo spigolo di
+    # una piega a quartabuono). Sugli angoli della base del raccordo arriva tutto il ventaglio (6–10 facce): lì un
+    # punto solo non può stare a t/2 da tutte (o l'angolo sporge, o le facce si assottigliano: −5% di peso). Come
+    # nella lamiera vera, ogni faccia ha il suo punto d'angolo a t/2, e tra una faccia e l'altra c'è un raccordo
+    # piccolo; il taglio del bordo, lì, è un ventaglio di triangoli attorno al punto in asse.
+    ventaglio = {i for i, ns in enumerate(vicine) if len(ns) > 3 and i in sul_bordo}
     off = np.zeros_like(P)
     for i, ns in enumerate(vicine):
-        if ns:
-            N = np.array(ns)
+        if not ns or i in ventaglio:
+            continue
+        N = np.array(ns)
+        if len(ns) <= 3:
             off[i] = np.linalg.lstsq(N, np.ones(len(ns)), rcond=None)[0] * (t / 2)
-    fuori, dentro = P + off, P - off
+        else:                                              # (dentro la superficie: non succede nelle forme di oggi)
+            m = N.sum(axis=0)
+            m /= np.linalg.norm(m)
+            off[i] = m * (t / 2) / max(0.5, float(np.mean(N @ m)))
+
+    def fuori(k, i):
+        return P[i] + (normali[k] * (t / 2) if i in ventaglio else off[i])
+
+    def dentro(k, i):
+        return P[i] - (normali[k] * (t / 2) if i in ventaglio else off[i])
 
     def poligoni(pts):
-        """Un poligono, o i suoi triangoli se i punti spostati non stanno più in un piano."""
+        """Un poligono, o i suoi triangoli se i punti spostati non stanno più in un piano; niente se è nullo."""
         pts = [tuple(map(float, q)) for q in pts]
+        q = np.array(pts)
+        if sum(np.linalg.norm(np.cross(q[j] - q[0], q[j + 1] - q[0])) for j in range(1, len(q) - 1)) < 1e-8:
+            return []
         if len(pts) > 3:
-            q = np.array(pts)
             n = np.cross(q[1] - q[0], q[2] - q[0])
             n /= np.linalg.norm(n) or 1
             if max(abs(np.dot(x - q[0], n)) for x in q) > 1e-4:
-                return [[pts[0], pts[k], pts[k + 1]] for k in range(1, len(pts) - 1)]
+                return [t3 for k in range(1, len(pts) - 1) for t3 in poligoni([pts[0], pts[k], pts[k + 1]])]
         return [pts]
 
     facce = []
-    for f in S.facce:
-        facce += poligoni([fuori[i] for i in f])
-        facce += poligoni([dentro[i] for i in reversed(f)])
-    usi = {}
-    for f in S.facce:                                      # i lati usati da una faccia sola sono il bordo
-        for a, b in zip(f, f[1:] + f[:1]):
-            usi.setdefault(frozenset((a, b)), []).append((a, b))
+    for k, f in enumerate(S.facce):
+        facce += poligoni([fuori(k, i) for i in f])
+        facce += poligoni([dentro(k, i) for i in reversed(f)])
+    tappo = set()                                          # (faccia, punto) già chiusi sul bordo
     for lati in usi.values():
-        if len(lati) == 1:
-            a, b = lati[0]
-            facce += poligoni([fuori[b], fuori[a], dentro[a], dentro[b]])
+        if len(lati) == 1:                                 # bordo: la fascia del taglio
+            k, (a, b) = lati[0]
+            facce += poligoni([fuori(k, b), fuori(k, a), dentro(k, a), dentro(k, b)])
+            for c in (a, b):
+                if c in ventaglio and (k, c) not in tappo:
+                    tappo.add((k, c))
+                    facce += poligoni([P[c], dentro(k, c), fuori(k, c)])
+            continue
+        (k, (a, b)), (g, _) = lati[0], lati[1]
+        if a not in ventaglio and b not in ventaglio:
+            continue
+        # tra due facce del ventaglio: il raccordo sulla pelle esterna e su quella interna
+        facce += poligoni([fuori(k, a), fuori(g, a), fuori(g, b), fuori(k, b)])
+        facce += poligoni([dentro(k, b), dentro(g, b), dentro(g, a), dentro(k, a)])
+        for c in (a, b):                                   # e il ventaglio del taglio attorno al punto in asse
+            if c in ventaglio:
+                facce += poligoni([P[c], fuori(k, c), fuori(g, c)])
+                facce += poligoni([P[c], dentro(g, c), dentro(k, c)])
     cuci = BRepBuilderAPI_Sewing(1e-4)
     for pts in facce:
         cuci.Add(_faccia_piana(pts))

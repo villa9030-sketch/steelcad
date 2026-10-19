@@ -136,3 +136,18 @@ def test_interferenze_e_incastri_tra_pezzi(tmp_path):
     assert s.asm_interferences()['interferences'] == []
     vb = s.asm_parts[s.asm.instance('I1')['file']]
     assert any('Asole' in (f.get('name') or '') for f in vb.doc.features if isinstance(f, dict))
+
+
+def test_struttura_pesa_uguale_nel_pezzo_e_nell_assieme(tmp_path):
+    """Le aste si pesano come nella distinta del pezzo (kg/m × taglio): nell'assieme la stessa struttura pesava
+    il 2–3% in meno perché si usava il volume del solido."""
+    s = Service()
+    assert s.new_project('telaio', {'name': 'Banco'})['ok']
+    kg = s.state()['bom_kg']
+    p = tmp_path / 'banco.steelcad'
+    assert s.save(str(p))['ok']
+    a = Service()
+    a.new_assembly('Prova')
+    assert a.asm_insert(str(p))['ok']
+    righe = A.bom(a.asm, a.asm_parts)
+    assert righe[0]['mass_kg'] == pytest.approx(kg, rel=1e-9)

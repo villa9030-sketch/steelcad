@@ -98,3 +98,19 @@ def test_dal_servizio_con_dxf_tabella_tavole(tmp_path):
     r = s.structure_template_apply(sel['tpl_id'], {'D': 300, 'H': 400})
     assert r['ok'] and next(p for p in r['state']['parameters'] if p['name'] == 'D')['value'] == 300
     assert s.undo()['ok']
+
+
+@pytest.mark.parametrize('a, b, d, h, t, ex, ey, n', [
+    (800, 500, 250, 300, 1.5, 0, 0, 8), (800, 500, 250, 400, 1.5, 0, 60, 8), (600, 400, 200, 300, 5, 80, 40, 6),
+    (600, 400, 250, 300, 2, 0, 0, 12),
+])
+def test_spessore_del_raccordo_agli_angoli(a, b, d, h, t, ex, ey, n):
+    """Sugli angoli della base arriva tutto il ventaglio: il solido deve avere il peso giusto (area in asse ×
+    spessore) e non sporgere oltre le misure esterne. Prima o l'angolo usciva di 2 mm (cappa da 800 → 802,4)
+    o le facce si assottigliavano (−5% di peso)."""
+    S, _ = F.raccordo_facce(a, b, d, h, t, ex, ey, 'esterno', 'esterno', n)
+    so = F._solido(S, t)
+    assert so.volume == pytest.approx(_area3d(S) * t, rel=1e-3)
+    bb = so.bounding_box().size
+    assert bb.X <= a + 1e-6 and bb.Y <= b + 1e-6
+    assert bb.X >= a - 2 and bb.Y >= b - 2

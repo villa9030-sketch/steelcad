@@ -455,7 +455,8 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     area, cart = _cornice(f, {**campi, 'scala': ''})
     # la tabella pieghe: sopra il cartiglio, con l'altezza delle righe che si adatta a quante sono
     righe_tab = len(piegature)
-    forma = bool(piegature) and str(piegature[0][1]).startswith('P')        # coni e raccordi
+    # coni e raccordi (non dal nome della piega: anche le pieghe su linea si chiamano PL1, PL2…)
+    forma = bool(piegature) and bool(getattr(data, 'shape_info', None))
     if forma:                                                              # P, angolo, linea, correzione
         col = [0, 10, 30, 52, 72]
         intest = ['P', 'Angolo', 'Linea', 'Correz.']

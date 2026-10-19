@@ -59,3 +59,16 @@ def test_tavole_dell_assieme(tmp_path):
 def test_formati_e_scale():
     assert D.scala_testo(0.5) == '1:2' and D.scala_testo(1 / 2.5) == '1:2,5' and D.scala_testo(2) == '2:1'
     assert D._scegli_scala((300, 200), 150, 100) == 0.5
+
+
+def test_tabella_pieghe_con_piega_su_linea():
+    """Una piega su linea si chiama PL1: la tabella non deve scambiarla per un cono (colonne Angolo/Linea/Correz.)."""
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'Carter', 'larghezza': 300, 'profondita': 200, 'spessore': 1.5,
+                                     'raggio': 1, 'k': 0.21})['ok']
+    sid = s.sketch_on_flat('SM1')['sketch']
+    assert s.sketch_add_polyline(sid, [[-5, 150], [305, 150]], False)['ok']
+    assert s.sheet_fold(sid, 90, 'up')['ok']
+    p = s.drawing_preview()
+    sviluppo = p['sheets'][1]['svg']
+    assert 'PL1' in sviluppo and 'Flangia' in sviluppo and 'Correz.' not in sviluppo

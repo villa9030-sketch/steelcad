@@ -98,6 +98,14 @@ def part_props(part: Part) -> dict:
     from .analysis import properties
     if part.props is None:
         part.props = properties(part.shape, part.doc.material)
+        strutture = getattr(part.result, 'structures', None)
+        if strutture:
+            # le aste si pesano come nella distinta del pezzo: kg/m del profilo × lunghezza di taglio (come si
+            # compra la barra). Il volume del solido (spigoli tondi, tagli a 45°) dava 2–3% in meno, e la stessa
+            # struttura pesava diverso nel pezzo e nell'assieme
+            from .structures import cut_list
+            corpo = properties(part.result.body.shape, part.doc.material)['mass_kg'] if part.result.body is not None else 0
+            part.props = {**part.props, 'mass_kg': corpo + cut_list(strutture)['kg']}
     return part.props
 
 
