@@ -88,6 +88,66 @@ def _vec(v, params, what) -> bd.Vector:
     return bd.Vector(*(evaluate(c, params, what=what) for c in v))
 
 
+def _skeletons(fdef, params, sketches, pts, nome, fid) -> list:
+    righe = []
+    for sk_def in fdef.get('skeletons') or []:
+        kid, sid = sk_def.get('id', 'K'), sk_def.get('sketch')
+        if not sketches or sid not in sketches:
+            raise FeatureError(f'Lo scheletro {kid} di "{nome}" usa lo sketch {sid}, che non esiste o ha un errore.',
+                               feature=fid)
+        solved, prof = sketches[sid]
+        ents = solved.sketch.entities
+        linee = {lid: ab for lid, ab in solved.lines.items() if not ents.get(lid, {}).get('construction')}
+        if not linee:
+            raise FeatureError(f'Lo sketch {sid} non ha linee: disegna lo scheletro (le linee di costruzione non '
+                               'diventano aste).', feature=fid)
+        copie = sk_def.get('copies') or [[0, 0, 0]]
+        # punti nello stesso posto (disegnati due volte senza aggancio) sono lo stesso nodo
+        uguale = {}
+        for p in sorted({p for ab in linee.values() for p in ab}):
+            x, y = solved.points[p]
+            chiave = (round(x, 4), round(y, 4))
+            uguale.setdefault(chiave, p)
+        canon = {p: uguale[(round(solved.points[p][0], 4), round(solved.points[p][1], 4))]
+                 for ab in linee.values() for p in ab}
+        linee = {lid: (canon[a], canon[b]) for lid, (a, b) in linee.items() if canon[a] != canon[b]}
+        doppie, viste = [], set()
+        for lid, (a, b) in list(linee.items()):
+            if frozenset((a, b)) in viste:
+                doppie.append(lid)
+                del linee[lid]
+            viste.add(frozenset((a, b)))
+        usati = sorted({p for ab in linee.values() for p in ab})
+        for k, off in enumerate(copie, start=1):
+            d = _vec(off, params, f'lo spostamento della ripetizione {k} di {kid}')
+            for p in usati:
+                pts[f'{kid}.{k}.{p}'] = prof.plane.from_local_coords(solved.points[p]) + d
+            for lid, (a, b) in linee.items():
+                righe.append({'id': f'{kid}.{k}.{lid}', 'from': f'{kid}.{k}.{a}', 'to': f'{kid}.{k}.{b}',
+                              'profile': sk_def.get('profile'), 'group': sk_def.get('group', ''),
+                              **({'material': sk_def['material']} if sk_def.get('material') else {})})
+        con = sk_def.get('connect')
+        if con and len(copie) > 1:
+            quali = usati if con.get('points', 'all') == 'all' else [p for p in con['points'] if p in usati]
+            for k in range(1, len(copie)):
+                for p in quali:
+                    righe.append({'id': f'{kid}.{k}-{k + 1}.{p}', 'from': f'{kid}.{k}.{p}', 'to': f'{kid}.{k + 1}.{p}',
+                                  'profile': con.get('profile') or sk_def.get('profile'),
+                                  'group': con.get('group', 'Collegamenti')})
+    for m in fdef.get('members') or []:
+        if 'line' in m and 'sketch' in m:
+            sid, lid = m['sketch'], m['line']
+            if not sketches or sid not in sketches or lid not in sketches[sid][0].lines:
+                raise FeatureError(f"L'asta {m.get('id')} di \"{nome}\" usa la linea {lid} dello sketch {sid}, che non esiste.",
+                                   feature=fid)
+            a, b = sketches[sid][0].lines[lid]
+            for q in (a, b):
+                pts.setdefault(f'{sid}.{q}', _point(q, {'sketch': sid, 'point': q}, params, sketches, nome, fid))
+            m = {**m, 'from': f'{sid}.{a}', 'to': f'{sid}.{b}'}
+        righe.append(m)
+    return righe
+
+
 def _point(k, v, params, sketches, nome, fid, _resolve=None) -> bd.Vector:
     """Un punto dello scheletro: [x, y, z], un punto di uno sketch, oppure un altro punto
     dello scheletro ("from"); negli ultimi due casi con uno spostamento [dx, dy, dz]."""
@@ -134,21 +194,16 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         in_corso.pop()
         return pts[k]
 
+    # scheletri: tutte le linee (non di costruzione) di uno sketch diventano aste, anche ripetute a distanza
+    # (la seconda spalla di uno scaffale) e collegate nodo per nodo. Cambi lo sketch, cambia la struttura.
+    # Vengono prima dei punti a mano: un nodo aggiunto dopo può partire da un nodo dello scheletro.
+    righe = _skeletons(fdef, params, sketches, pts, nome, fid)
     for k in defs:
         _resolve(k)
-    # aste prese dalle linee di uno sketch (scheletro 2D)
-    righe = []
-    for m in fdef.get('members') or []:
-        if 'line' in m and 'sketch' in m:
-            sid, lid = m['sketch'], m['line']
-            if not sketches or sid not in sketches or lid not in sketches[sid][0].lines:
-                raise FeatureError(f"L'asta {m.get('id')} di \"{nome}\" usa la linea {lid} dello sketch {sid}, che non esiste.",
-                                   feature=fid)
-            a, b = sketches[sid][0].lines[lid]
-            for q in (a, b):
-                pts.setdefault(f'{sid}.{q}', _point(q, {'sketch': sid, 'point': q}, params, sketches, nome, fid))
-            m = {**m, 'from': f'{sid}.{a}', 'to': f'{sid}.{b}'}
-        righe.append(m)
+    # eccezioni per singola asta (profilo, rotazione, gruppo, tolta): restano anche se lo sketch cambia
+    ritocchi = fdef.get('overrides') or {}
+    righe = [{**m, **{k: v for k, v in ritocchi.get(m['id'], {}).items() if k != 'deleted'}}
+             for m in righe if not ritocchi.get(m['id'], {}).get('deleted')]
     members = []
     for m in righe:
         mid = m.get('id')

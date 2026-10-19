@@ -134,7 +134,7 @@
     </div>
     <div id="sk-finish-box"><div class="sub">Quando il contorno è chiuso</div>
     <div class="sk-finish">
-      <span id="sk-make"><button data-make="sheet" class="btn primary">Crea lamiera…</button><button data-make="plate" class="btn">Crea piastra…</button></span>
+      <span id="sk-make"><button data-make="sheet" class="btn primary">Crea lamiera…</button><button data-make="plate" class="btn">Crea piastra…</button><button data-make="structure" class="btn primary" title="Ogni linea dello sketch diventa un tubolare; si può ripetere a distanza e collegare (scaffali, armadi)">Crea struttura…</button></span>
       <span id="sk-face"><button data-make="tab" id="sk-tab" class="btn primary" title="Il contorno disegnato diventa lamiera dello stesso spessore nel piano della faccia (anche nello sviluppo). Se parte e finisce sul bordo della faccia, lo chiudo io lungo il bordo.">Aggiungi materiale</button><button data-make="contour" id="sk-contour" class="btn primary" title="La spezzata disegnata (aperta, che parte dallo spigolo di un bordo libero) diventa lamiera piegata">Lamiera a contorno</button><button data-make="fold" id="sk-fold" class="btn primary" title="La linea disegnata sulla base è dove la lamiera si piega (spigolo esterno); la parte più piccola sale, lo sviluppo resta quello disegnato">Piega su questa linea…</button><button data-make="louver" id="sk-louver" class="btn" title="Una linea per ogni persiana: è il bordo aperto della feritoia; la cappa sale a sinistra della linea (dal primo punto al secondo)">Persiane…</button><button data-make="dimple" id="sk-dimple" class="btn" title="Un cerchio per ogni imbutitura (bugna tonda): il cerchio è il suo diametro">Imbutiture…</button><button data-make="cut" class="btn primary" title="Toglie il materiale dentro il contorno chiuso. Con una spezzata aperta da bordo a bordo della faccia (linee arancio), la chiudo io lungo il bordo e tolgo il pezzo più piccolo: così si rifila una parete che sporge.">Taglia attraverso</button><button data-make="boss" id="sk-boss" class="btn">Estrudi…</button></span>
     </div></div>
     <div class="sk-legend">
@@ -188,7 +188,10 @@
           <button data-new="zero"><img src="icons/sketch.svg" alt=""><b>Disegna il contorno</b><span>Parti dallo sketch: poi diventa lamiera o piastra</span></button>
           <button data-new="piastra"><img src="icons/hole.svg" alt=""><b>Piastra</b><span>Lamiera piana con fori, per il DXF di taglio</span></button>
           <button data-new="telaio"><img src="icons/joint.svg" alt=""><b>Telaio / tavolo</b><span>Telaio e gambe in tubolare, con cut list</span></button>
-          <button data-new="vuoto"><img src="icons/point.svg" alt=""><b>Struttura libera</b><span>Parti da un nodo e tiri le aste</span></button>
+          <button data-new="disegno"><img src="icons/sketch.svg" alt=""><b>Struttura da disegno</b><span>Disegni lo scheletro con le linee, diventano tubolari</span></button>
+          <button data-new="scaffale"><img src="icons/list.svg" alt=""><b>Scaffale</b><span>Spalle con ripiani, a misure: L, P, H, ripiani</span></button>
+          <button data-new="armadio"><img src="icons/box.svg" alt=""><b>Telaio armadio</b><span>Telaio in tubolare da chiudere con la lamiera</span></button>
+          <button data-new="cancello"><img src="icons/rect.svg" alt=""><b>Cancello</b><span>Telaio e sbarre a passo uguale</span></button>
           <button data-new="importa"><img src="icons/dxf.svg" alt=""><b>Importa DXF / DWG</b><span>Dallo sviluppo piano al pezzo piegato, con fori e pieghe</span></button>
           <button data-new="assieme"><img src="icons/joint.svg" alt=""><b>Assieme</b><span>Più pezzi insieme: faccia su faccia, foro su foro, distinta</span></button>
         </div>

@@ -38,10 +38,15 @@ def view(doc, sid: str, body=None) -> dict:
         pts = {k: (e['x'], e['y']) for k, e in sk.entities.items() if e['kind'] == 'point'}
         stato = ex.message
     fr = next((f for f in (doc.last.features if doc.last else []) if f.id == sid), None)
+    aperto = False
     if fr is not None and not fr.ok:
         stato = fr.message
+        if stato.startswith('Il profilo non è chiuso'):
+            aperto = True               # per uno scheletro di struttura le linee aperte vanno bene
+            stato = ('Linee aperte: vanno bene per una struttura (Crea struttura). '
+                     'Per lamiera o piastra il contorno va chiuso.')
     g = lambda p: [(q := pl.from_local_coords(p)).X, q.Y, q.Z]  # noqa: E731
-    out = {'id': sid, 'name': sk.name, 'plane': sk.plane, 'status': stato, 'ok': bool(fr and fr.ok),
+    out = {'id': sid, 'name': sk.name, 'plane': sk.plane, 'status': stato, 'ok': bool(fr and fr.ok), 'open': aperto,
            'origin': g((0, 0)), 'x_dir': [pl.x_dir.X, pl.x_dir.Y, pl.x_dir.Z], 'y_dir': [pl.y_dir.X, pl.y_dir.Y, pl.y_dir.Z],
            'z_dir': [pl.z_dir.X, pl.z_dir.Y, pl.z_dir.Z],
            'points': [{'id': k, 'xy': list(v), 'xyz': g(v)} for k, v in pts.items()

@@ -165,10 +165,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     if m.group(1) != '1':
                         continue
                     param = m.group(2)
-                if param and c['type'] in ('pldistance', 'length') and f.entities.get(c['refs'][-1], {}).get('construction', c['type'] == 'pldistance'):
-                    if param in visti:
+                if param:                       # la stessa misura (stesso parametro) si mostra una volta sola
+                    if (param, c['type']) in visti:
                         continue
-                    visti.add(param)
+                    visti.add((param, c['type']))
                 if c['type'] == 'length':
                     a, b = ss.lines[c['refs'][0]]
                     pa, pb = ss.points[a], ss.points[b]
@@ -321,7 +321,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             st = next(s for s in self.result.structures if s.id == st_id)
             m = next(x for x in st.members if x.id == mid)
             fdef = self.doc.feature(st_id)
-            mdef = next(x for x in fdef['members'] if x['id'] == mid)
+            mdef = next((x for x in fdef.get('members') or [] if x['id'] == mid), None)
+            if mdef is None:            # asta dello scheletro: profilo dello scheletro + le sue eccezioni
+                k = next((x for x in fdef.get('skeletons') or [] if mid.startswith(x.get('id', '') + '.')), {})
+                base = {'profile': k.get('profile')}
+                if '-' in mid.split('.')[1] and k.get('connect'):
+                    base['profile'] = k['connect'].get('profile') or base['profile']
+                mdef = {**base, **(fdef.get('overrides') or {}).get(mid, {})}
             return _ok(selection={
                 'kind': 'member', 'id': obj_id, 'title': f'{m.group or "Asta"} {m.id}',
                 'profile': mdef.get('profile'), 'group': m.group, 'material': m.material,
@@ -1135,6 +1141,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return self._change('Persiane' if kind == 'louver' else 'Imbutiture', fn)
         if isinstance(sk.plane, dict) and kind in ('cut', 'boss'):
             return self._from_face_sketch(sid, sk, kind, v)
+        if kind == 'structure':
+            return self._structure_from_sketch(sid, sk, v)
         fr = next((f for f in self.result.features if f.id == sid), None)
         if fr is None or not fr.ok:
             return {'ok': False, 'code': 'sketch', 'message': 'Prima chiudi il contorno: '
@@ -1356,6 +1364,52 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             sketch_ops.refresh_reference_edges(sk, bd.Face(body.face(nome)[0]), plane_of(body, nome, sk), body.shape)
         return self._change('Bordi del pezzo rifatti', fn, keep_broken=True)['ok']
 
+    def _structure_from_sketch(self, sid, sk, v) -> dict:
+        """Le linee dello sketch diventano tubolari. Con "ripetizioni" lo scheletro si ripete a distanza
+        (perpendicolare al piano dello sketch) e i nodi si collegano con i traversi: scaffali, armadi."""
+        if not isinstance(sk.plane, str):
+            return {'ok': False, 'code': 'piano', 'message': 'Le strutture si disegnano sui piani XY, XZ o YZ.'}
+        try:
+            parse(str(v.get('profile', '')))
+            if v.get('connect') and v.get('connect_profile'):
+                parse(str(v['connect_profile']))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+        n = int(v.get('copies', 1) or 1)
+        normale = {'XY': (2, 1), 'XZ': (1, -1), 'YZ': (0, 1)}[sk.plane]      # asse e segno della normale
+        verso = -1 if v.get('side') == 'back' else 1
+
+        def fn():
+            copie = [[0, 0, 0]]
+            if n > 1:
+                nome = 'D'
+                i = 1
+                while nome in self.doc.parameters:
+                    i += 1
+                    nome = f'D{i}'
+                self.doc.set_parameter(nome, v.get('distance', 500))
+                for k in range(1, n):
+                    off = [0, 0, 0]
+                    off[normale[0]] = f'{k * normale[1] * verso}*{nome}'
+                    copie.append(off)
+            sk_def = {'id': 'K1', 'sketch': sid, 'profile': str(v['profile']), 'group': v.get('group') or 'Telaio',
+                      'copies': copie}
+            if n > 1 and v.get('connect'):
+                sk_def['connect'] = {'profile': str(v.get('connect_profile') or v['profile']),
+                                     'group': v.get('connect_group') or 'Collegamenti'}
+            st = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'structure'), None)
+            if st is None:
+                self.doc.add_feature('structure', self.doc.meta.get('name') or 'Struttura', points={}, members=[],
+                                     skeletons=[sk_def])
+            else:                       # nella stessa struttura: i giunti tra vecchio e nuovo funzionano
+                usati = {k['id'] for k in st.get('skeletons') or []}
+                j = 1
+                while f'K{j}' in usati:
+                    j += 1
+                sk_def['id'] = f'K{j}'
+                st.setdefault('skeletons', []).append(sk_def)
+        return self._change('Crea struttura dallo sketch', fn)
+
     def _from_face_sketch(self, sid, sk, kind, v) -> dict:
         chiudi = None
         if kind == 'cut':
@@ -1438,17 +1492,21 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
         def fn():
             fdef = self.doc.feature(st_id)
-            target = next(x for x in fdef['members'] if x['id'] == mid)
-            gruppo = target.get('group')
-            for x in fdef['members']:
-                if x is target or (whole_group and gruppo and x.get('group') == gruppo):
-                    for k, v in fields.items():
-                        if k == 'rotate_by':
-                            x['rotate'] = (float(x.get('rotate', 0)) + float(v)) % 360
-                        elif k == 'toggle_flip':
-                            x['flip'] = not x.get('flip', False)
-                        else:
-                            x[k] = v
+            st = next(s for s in self.result.structures if s.id == st_id)
+            gruppo = next((m.group for m in st.members if m.id == mid), None)
+            ids = [m.id for m in st.members if m.id == mid or (whole_group and gruppo and m.group == gruppo)]
+            a_mano = {x['id']: x for x in fdef.get('members') or []}
+            for i in ids:
+                # un'asta dello scheletro (nata da una linea di sketch) si cambia con un'eccezione:
+                # resta anche quando lo sketch cambia
+                x = a_mano.get(i) or fdef.setdefault('overrides', {}).setdefault(i, {})
+                for k, v in fields.items():
+                    if k == 'rotate_by':
+                        x['rotate'] = (float(x.get('rotate', 0)) + float(v)) % 360
+                    elif k == 'toggle_flip':
+                        x['flip'] = not x.get('flip', False)
+                    else:
+                        x[k] = v
         nomi = {'profile': 'profilo', 'rotate_by': 'ruota', 'toggle_flip': 'inverti', 'anchor': 'asse'}
         etichetta = ', '.join(nomi.get(k, k) + ('' if k == 'toggle_flip' else f' {v}') for k, v in fields.items())
         return self._change(f'{mid}: {etichetta}', fn)
@@ -1545,6 +1603,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             for st_id in {o.split('/')[0] for o in obj_ids}:
                 fdef = self.doc.feature(st_id)
                 via = {o.split('/')[1] for o in obj_ids if o.startswith(st_id + '/')}
+                a_mano = {m['id'] for m in fdef.get('members') or []}
+                for i in via - a_mano:                      # aste dello scheletro: si spengono
+                    fdef.setdefault('overrides', {}).setdefault(i, {})['deleted'] = True
                 fdef['members'] = [m for m in fdef.get('members') or [] if m['id'] not in via]
                 for j in (fdef.get('joints') or {}).values():
                     if 'through' in j:
@@ -1636,7 +1697,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             values = {k: _number(v) for k, v in (values or {}).items()}
             doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
                    'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
-                   'zero': templates.da_zero}[kind](**values)
+                   'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
+                   'cancello': templates.cancello, 'disegno': templates.struttura_disegno}[kind](**values)
             self._set(doc)
             self.path = None
             self.blank = False

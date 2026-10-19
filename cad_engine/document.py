@@ -207,8 +207,11 @@ class Document:
                                 prof = profile_mod.build(solved, plane)
                             except SteelCADError:
                                 # le persiane si disegnano con linee aperte: per loro il contorno chiuso non serve
+                                # e così gli scheletri delle strutture: linee aperte, non contorni
                                 if not any(not isinstance(x, Sketch) and x.get('type') == 'sheet_form'
-                                           and x.get('kind') == 'louver' and x.get('sketch') == fid for x in self.features):
+                                           and x.get('kind') == 'louver' and x.get('sketch') == fid for x in self.features) \
+                                        and not any(not isinstance(x, Sketch) and x.get('type') == 'structure'
+                                                    and fid in self._sketch_refs(x) for x in self.features):
                                     raise
                                 prof = profile_mod.Profile(plane, [], [])
                     except SteelCADError as ex:
@@ -291,6 +294,9 @@ class Document:
         for m in f.get('members') or []:
             if m.get('sketch'):
                 out.add(m['sketch'])
+        for k in f.get('skeletons') or []:
+            if k.get('sketch'):
+                out.add(k['sketch'])
         return out
 
     def _used(self, f, params: dict) -> dict:
@@ -305,6 +311,13 @@ class Document:
                     nomi |= names_in(c)
             for m in f.get('members') or []:
                 for c in m.get('offset') or []:
+                    nomi |= names_in(c)
+            for k in f.get('skeletons') or []:
+                for off in k.get('copies') or []:
+                    for c in off:
+                        nomi |= names_in(c)
+            for r in (f.get('overrides') or {}).values():
+                for c in r.get('offset') or []:
                     nomi |= names_in(c)
         else:
             for k in VALUE_FIELDS.get(f['type'], ()):

@@ -7,6 +7,7 @@ Tutte le misure sono parametri: si cambiano dopo, e il modello si rigenera.
 from __future__ import annotations
 
 from .document import Document
+from .errors import SteelCADError
 
 
 def telaio(name: str = 'Telaio', L=2000, P=1000, H=900, profilo='40x40x3', gambe='40x40x3',
@@ -74,4 +75,98 @@ def da_zero(name: str = 'Pezzo', material='S235') -> Document:
     """Solo uno sketch vuoto sul piano XY: si disegna il contorno, poi si sceglie lamiera o piastra."""
     doc = Document(name, material)
     doc.add_sketch('XY', 'Contorno')
+    return doc
+
+
+# =============================================================================== strutture a misure
+# Spalla disegnata su un piano, ripetuta a distanza e collegata nodo per nodo (vedi frame._skeletons).
+# Tutte le misure sono parametri: cambi H o L e la struttura si ricalcola.
+
+def _spalla(sk, larg: str, alt: str, livelli: list[str]):
+    """Due montanti alti `alt` a distanza `larg`, traversi alle altezze `livelli` (espressioni).
+    Il primo livello deve essere 0 (a terra) e l'ultimo l'altezza piena."""
+    O = 'O'
+    br = sk.point(1, 0)                       # in basso a destra
+    tl = sk.point(0, 1)                       # in alto a sinistra
+    tr = sk.point(1, 1)
+    sk.dimension('hdistance', O, br, value=larg)
+    sx = sk.line(O, tl, label='montante sinistro')
+    dx = sk.line(br, tr, label='montante destro')
+    sk.constrain('vertical', sx, auto=True)
+    sk.constrain('vertical', dx, auto=True)
+    sk.dimension('length', sx, value=alt)
+    sk.dimension('length', dx, value=alt)
+    for i, h in enumerate(livelli):
+        if i == 0:
+            a, b = O, br
+        elif i == len(livelli) - 1:
+            a, b = tl, tr
+        else:
+            a, b = sk.point(0, i), sk.point(1, i)
+            sk.constrain('on_line', a, sx)
+            sk.constrain('on_line', b, dx)
+            sk.dimension('vdistance', O, a, value=h)
+        t = sk.line(a, b, label=f'traverso {i + 1}')
+        if i < len(livelli) - 1:              # quello in cima è già orizzontale: montanti uguali e verticali
+            sk.constrain('horizontal', t, auto=True)
+
+
+def scaffale(name: str = 'Scaffale', L=1000, P=400, H=1800, ripiani=4, montanti='30x30x2',
+             traversi='40x20x2', material='S235') -> Document:
+    """Scaffale: due spalle (montanti + traversi di fianco) a distanza L, collegate a ogni ripiano."""
+    n = int(ripiani)
+    if n < 2:
+        raise SteelCADError('Uno scaffale ha almeno 2 ripiani (a terra e in cima).', code='ripiani')
+    doc = Document(name, material)
+    for k, v in (('L', L), ('P', P), ('H', H)):
+        doc.set_parameter(k, v)
+    doc.set_parameter('pr', f'H/{n - 1}')              # passo dei ripiani: uguali, seguono H
+    sk = doc.add_sketch('YZ', 'Spalla')
+    _spalla(sk, 'P', 'H', ['0'] + [f'{i}*pr' for i in range(1, n - 1)] + ['H'])
+    doc.add_feature('structure', name, points={}, members=[], material=material, skeletons=[{
+        'id': 'K1', 'sketch': sk.id, 'profile': montanti, 'group': 'Spalle',
+        'copies': [[0, 0, 0], ['L', 0, 0]], 'connect': {'profile': traversi, 'group': 'Traversi ripiani'}}])
+    return doc
+
+
+def armadio(name: str = 'Telaio armadio', L=800, P=600, H=2000, ripiani=3, profilo='40x40x2',
+            material='S235') -> Document:
+    """Telaio di un armadio: come lo scaffale, tutto nello stesso profilo (poi si chiude con la lamiera)."""
+    return scaffale(name, L, P, H, ripiani, profilo, profilo, material)
+
+
+def cancello(name: str = 'Cancello', L=1500, H=1200, telaio='60x60x3', sbarre='20x20x2', passo=120,
+             material='S235') -> Document:
+    """Cancello: telaio rettangolare e sbarre verticali a passo uguale (sul piano di fronte, XZ)."""
+    doc = Document(name, material)
+    for k, v in (('L', L), ('H', H)):
+        doc.set_parameter(k, v)
+    n = max(1, int(round(float(L) / float(passo))) - 1)        # sbarre
+    doc.set_parameter('ps', f'L/{n + 1}')              # passo delle sbarre: uguali, seguono L
+    sk = doc.add_sketch('XZ', 'Cancello')
+    r = sk.rectangle(0, 0, float(L) * 0.97, float(H) * 0.97)
+    sk.constrain('coincident', r['corners'][0], 'O')
+    sk.dimension('length', r['bottom'], value='L')
+    sk.dimension('length', r['left'], value='H')
+    ritocchi = {}
+    for i in range(1, n + 1):
+        a = sk.point(float(L) * i / (n + 1), 0)
+        b = sk.point(float(L) * i / (n + 1), float(H))
+        sk.constrain('on_line', a, r['bottom'])
+        sk.constrain('on_line', b, r['top'])
+        sk.dimension('hdistance', 'O', a, value=f'{i}*ps')
+        lid = sk.line(a, b, label=f'sbarra {i}')
+        sk.constrain('vertical', lid, auto=True)
+        ritocchi[f'K1.1.{lid}'] = {'profile': sbarre, 'group': 'Sbarre'}
+    doc.add_feature('structure', name, points={}, members=[], material=material, overrides=ritocchi,
+                    skeletons=[{'id': 'K1', 'sketch': sk.id, 'profile': telaio, 'group': 'Telaio'}])
+    return doc
+
+
+def struttura_disegno(name: str = 'Struttura', piano='XZ', material='S235') -> Document:
+    """Sketch vuoto sul piano scelto: disegni lo scheletro, poi "Crea struttura" mette i tubolari."""
+    if piano not in ('XY', 'XZ', 'YZ'):
+        raise SteelCADError('Piano sconosciuto: XY (pianta), XZ (fronte) o YZ (fianco).', code='piano')
+    doc = Document(name, material)
+    doc.add_sketch(piano, 'Scheletro')
     return doc

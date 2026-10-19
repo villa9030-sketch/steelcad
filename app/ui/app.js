@@ -1305,7 +1305,16 @@ function newDialog(iniziale = 'lamiera') {
     telaio: { titolo: 'Telaio / tavolo', nota: 'Telaio sopra e 4 gambe in tubolare',
       campi: [['L', 'Lunghezza', 2000], ['P', 'Profondità', 1000], ['H', 'Altezza', 900], ['profilo', 'Profilo telaio', '40x40x3'], ['gambe', 'Profilo gambe', '40x40x3']] },
     zero: { titolo: 'Da zero', nota: 'Disegni il contorno, poi lamiera o piastra', campi: [] },
-    vuoto: { titolo: 'Struttura libera', nota: 'Parti da un nodo e tira le aste', campi: [] },
+    disegno: { titolo: 'Struttura da disegno', nota: 'Disegni lo scheletro, poi Crea struttura',
+      campi: [['piano', 'Su quale piano disegni', 'XZ', { XZ: 'Di fronte (XZ): cancelli, spalle', XY: 'Pianta (XY): basamenti, telai a terra', YZ: 'Di fianco (YZ)' }]] },
+    scaffale: { titolo: 'Scaffale', nota: 'Due spalle collegate a ogni ripiano',
+      campi: [['L', 'Lunghezza', 1000], ['P', 'Profondità', 400], ['H', 'Altezza', 1800], ['ripiani', 'Ripiani (a terra e in cima compresi)', 4],
+        ['montanti', 'Profilo montanti', '30x30x2'], ['traversi', 'Profilo traversi', '40x20x2']] },
+    armadio: { titolo: 'Telaio armadio', nota: 'Telaio da chiudere con la lamiera',
+      campi: [['L', 'Larghezza', 800], ['P', 'Profondità', 600], ['H', 'Altezza', 2000], ['ripiani', 'Livelli (sotto e sopra compresi)', 3], ['profilo', 'Profilo', '40x40x2']] },
+    cancello: { titolo: 'Cancello', nota: 'Telaio e sbarre a passo uguale',
+      campi: [['L', 'Larghezza', 1500], ['H', 'Altezza', 1200], ['telaio', 'Profilo telaio', '60x60x3'], ['sbarre', 'Profilo sbarre', '20x20x2'], ['passo', 'Passo sbarre', 120]] },
+    vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste', campi: [] },
     lamiera: { titolo: 'Lamiera', nota: 'Base piegata: poi clic su un lato per la flangia',
       campi: [['larghezza', 'Larghezza', 500], ['profondita', 'Profondità', 300], ['spessore', 'Spessore', 2],
         ['raggio', 'Raggio interno di piega', ''], ['k', 'K-factor', '']] },
@@ -1317,8 +1326,10 @@ function newDialog(iniziale = 'lamiera') {
     const m = MODELLI[kind];
     return `<h3>Nuovo progetto</h3>
       <div class="choice">${Object.entries(MODELLI).map(([k, v]) => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${esc(v.titolo)}<small>${esc(v.nota)}</small></button>`).join('')}</div>
-      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura', lamiera: 'Lamiera', zero: 'Pezzo' }[kind]}"></label>
-      ${m.campi.map(([k, l, v]) => `<label>${esc(l)}<input class="field" data-f="${k}" value="${esc(v)}"></label>`).join('')}</div>
+      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura', lamiera: 'Lamiera', zero: 'Pezzo', disegno: 'Struttura', scaffale: 'Scaffale', armadio: 'Telaio armadio', cancello: 'Cancello' }[kind]}"></label>
+      ${m.campi.map(([k, l, v, scelte]) => scelte
+        ? `<label style="grid-column:1/-1">${esc(l)}<select class="field" data-f="${k}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
+        : `<label>${esc(l)}<input class="field" data-f="${k}" value="${esc(v)}"></label>`).join('')}</div>
       ${S?.dirty ? '<div class="msg warn">Le modifiche non salvate del progetto aperto andranno perse (resta il salvataggio automatico).</div>' : ''}
       <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea</button></div>`;
   };
@@ -1334,7 +1345,7 @@ function newDialog(iniziale = 'lamiera') {
       inCoda(async () => {
         if (!(await apply(await call('new_project', kind, v)))) return;
         hideHome();
-        if (kind === 'zero') await enterSketch('S1');
+        if (kind === 'zero' || kind === 'disegno') await enterSketch('S1');
       });
     };
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
@@ -1940,7 +1951,8 @@ function drawSketch() {
   $('#sk-face').hidden = !suPezzo;
   $('#sk-boss').hidden = !!v.on_sheet;
   document.querySelectorAll('#sk-finish-box button').forEach(b => { b.disabled = !pronto; });
-  $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn));   // da bordo a bordo: la chiudo io
+  $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn));
+  $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);   // bastano linee aperte   // da bordo a bordo: la chiudo io
   for (const q of ['#sk-louver', '#sk-dimple']) { $(q).hidden = !(v.on_sheet && v.on_face); $(q).disabled = !v.drawn; }
   $('#sk-fold').hidden = !(v.on_flat || (v.on_sheet && /\/(sopra|sotto)$/.test(v.on_face || '')));
   $('#sk-fold').disabled = !v.drawn;
@@ -2803,7 +2815,39 @@ function skDimClick(ev) {
   });
 }
 
+async function structureDialog() {
+  if (!profili) profili = await call('profile_suggestions');
+  const sid = SK.sid, piano = SK.v.plane;
+  const versi = { XZ: { front: 'davanti (Y−)', back: 'dietro (Y+)' }, XY: { front: 'sopra (Z+)', back: 'sotto (Z−)' },
+    YZ: { front: 'a destra (X+)', back: 'a sinistra (X−)' } }[piano] || { front: 'avanti', back: 'indietro' };
+  const lista = (profili || []).map(x => `<option value="${esc(x)}">`).join('');
+  modal(`<h3>Crea struttura</h3>
+    <p class="hint">Ogni linea dello sketch (non le guide) diventa un tubolare. Se cambi lo sketch, la struttura si aggiorna.</p>
+    <datalist id="dl-st">${lista}</datalist>
+    <div class="form"><label>Profilo<input class="field" id="st-p" list="dl-st" value="40x40x3"></label>
+      <label>Gruppo (per la distinta)<input class="field" id="st-g" value="Telaio"></label>
+      <label>Quante volte (1 = solo questo)<input class="field" id="st-n" value="1"></label>
+      <label>A distanza (mm)<input class="field" id="st-d" value="600"></label>
+      <label>Verso<select class="field" id="st-s"><option value="back">${esc(versi.back)}</option><option value="front">${esc(versi.front)}</option></select></label>
+      <label class="check" style="align-self:end"><input type="checkbox" id="st-c" checked> Collega i nodi con traversi</label>
+      <label>Profilo traversi<input class="field" id="st-cp" list="dl-st" value="40x20x2"></label>
+      <label>Gruppo traversi<input class="field" id="st-cg" value="Traversi"></label></div>
+    <p class="hint">Esempio scaffale: disegni la spalla di fianco, «Quante volte» 2 a distanza L, collega i nodi: escono i traversi dei ripiani. La distanza diventa un parametro (D).</p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea struttura</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const v = { profile: $('#st-p').value.trim(), group: $('#st-g').value.trim(), copies: $('#st-n').value.trim(),
+        distance: $('#st-d').value.trim(), side: $('#st-s').value, connect: $('#st-c').checked,
+        connect_profile: $('#st-cp').value.trim(), connect_group: $('#st-cg').value.trim() };
+      close();
+      inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'structure', v), 'Struttura creata: la cut list è in basso.')) exitSketch(); });
+    };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+  });
+}
+
 function makeDialog(kind) {
+  if (kind === 'structure') { structureDialog(); return; }
   if (kind === 'tab') {
     const sid = SK.sid;
     inCoda(async () => { if (await apply(await call('sheet_tab', sid))) exitSketch(); });
