@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 
 import build123d as bd
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
-from OCP.TopExp import TopExp_Explorer
+from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
+from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as TopTools_IndexedMapOfShape
 
 from ..errors import LostReferenceError
 
@@ -26,13 +27,11 @@ def _faces_of(shape: TopoDS_Shape) -> list:
 
 
 def _edges_of(shape: TopoDS_Shape) -> list:
-    out, ex = [], TopExp_Explorer(shape, TopAbs_EDGE)
-    while ex.More():
-        e = TopoDS.Edge(ex.Current())
-        if not any(e.IsSame(x) for x in out):
-            out.append(e)
-        ex.Next()
-    return out
+    # mappa indicizzata (stesso criterio di IsSame, nello stesso ordine): confrontare ogni spigolo con tutti
+    # gli altri erano un milione di confronti su un raccordo
+    m = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_EDGE, m)
+    return [TopoDS.Edge(m(i)) for i in range(1, m.Extent() + 1)]
 
 
 def _contains(lst, s) -> bool:

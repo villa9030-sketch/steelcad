@@ -422,23 +422,19 @@ def _member_solid(m: Member, nodes, by_id, fid):
     prof = m.profile
     ext = max(prof.width, prof.height) * 3 + 20
     w = m.w
-    start = m.start + m.origin_shift - w * ext
-    plane = bd.Plane(origin=start, x_dir=m.x, z_dir=w)
-    solid = bd.extrude(plane.location * prof.section(), amount=m.axis_length + 2 * ext)
-    if isinstance(solid, bd.Compound):
-        solid = solid.solids()[0]
-    angoli = []
+    base = m.start + m.origin_shift
+    # prima si decidono i tagli di ogni estremità: ('piano', punto, normale) oppure ('sella', asta tonda)
+    tagli, angoli = ([], []), []
     for i in (0, 1):
         kind, node, info = nodes[(m.id, i)]
         u = w if i == 0 else -w          # verso dall'estremità dentro l'asta
         p_end = node + m.origin_shift
         if kind == 'square':
-            solid = _cut_keep(solid, p_end, u)
+            tagli[i].append(('piano', p_end, u))
             angoli.append(0.0)
         elif kind == 'angle':
             a = math.radians(info)
-            n = (u * math.cos(a) + m.x * math.sin(a)).normalized()
-            solid = _cut_keep(solid, p_end, n)
+            tagli[i].append(('piano', p_end, (u * math.cos(a) + m.x * math.sin(a)).normalized()))
             angoli.append(abs(info))
         elif kind == 'miter':
             other, j = info
@@ -447,36 +443,59 @@ def _member_solid(m: Member, nodes, by_id, fid):
             if n.length < 1e-9:
                 n = u
             n = n.normalized()
-            solid = _cut_keep(solid, node, n)
+            tagli[i].append(('piano', node, n))
             angoli.append(round(math.degrees(math.acos(min(1.0, abs(n.dot(w))))), 6))
         elif kind == 'butt':
-            solid = _cut_keep(solid, p_end, u)
+            tagli[i].append(('piano', p_end, u))
             angolo = 0.0
             for o in info:
-                if solid is None:
-                    break
                 if o.profile.family == 'CHS':
-                    # contro un tubo tondo: taglio a sella (si toglie la sagoma del tubo)
-                    cut = solid.cut(_envelope_solid(o))
-                    pezzi = cut.solids() if hasattr(cut, 'solids') else [cut]
-                    if not pezzi:
-                        raise FeatureError(f"L'asta {m.id} sparisce dentro {o.id}: controlla i punti.", feature=fid)
-                    mid = m.start + m.origin_shift + w * (m.axis_length / 2)
-                    solid = min(pezzi, key=lambda s: (s.center() - mid).length)
+                    tagli[i].append(('sella', o))     # contro un tubo tondo: taglio a sella
                 else:
                     # contro tubolari e profilati: taglio piano sulla faccia rivolta verso l'asta
                     q, n = _facing_plane(o, node, u)
-                    solid = _cut_keep(solid, q, n)
+                    tagli[i].append(('piano', q, n))
                     angolo = max(angolo, round(math.degrees(math.acos(min(1.0, abs(n.dot(w))))), 6))
             angoli.append(angolo)
         elif kind == 'extend':
             extra = 0.0
             for o, _ in info:
                 extra = max(extra, abs(o.x.dot(w)) * o.profile.width / 2 + abs(o.y.dot(w)) * o.profile.height / 2)
-            solid = _cut_keep(solid, p_end - u * extra, u)
+            tagli[i].append(('piano', p_end - u * extra, u))
             angoli.append(0.0)
+    # le estremità tagliate solo a squadra (sbarre, battute, prolunghe) non si tagliano: l'asta si estrude già
+    # della lunghezza giusta. Il taglio vero (lento) resta per quartabuoni, tagli inclinati e selle
+    lo, hi = -ext, m.axis_length + ext
+    da_tagliare = []
+    for i in (0, 1):
+        u = w if i == 0 else -w
+        a_squadra = all(t[0] == 'piano' and t[2].dot(u) > 1 - 1e-9 for t in tagli[i])
+        if not a_squadra:
+            da_tagliare += tagli[i]
+            continue
+        for _, q, _n in tagli[i]:
+            c = (q - base).dot(w)
+            lo, hi = (max(lo, c), hi) if i == 0 else (lo, min(hi, c))
+    if hi - lo < 1e-6:
+        raise FeatureError(f"L'asta {m.id} si annulla con i tagli alle estremità: è più corta dei profili che "
+                           'la tagliano.', feature=fid)
+    plane = bd.Plane(origin=base + w * lo, x_dir=m.x, z_dir=w)
+    solid = bd.extrude(plane.location * prof.section(), amount=hi - lo)
+    if isinstance(solid, bd.Compound):
+        solid = solid.solids()[0]
+    for t in da_tagliare:
+        if t[0] == 'piano':
+            solid = _cut_keep(solid, t[1], t[2])
+        else:
+            o = t[1]
+            cut = solid.cut(_envelope_solid(o))
+            pezzi = cut.solids() if hasattr(cut, 'solids') else [cut]
+            if not pezzi:
+                raise FeatureError(f"L'asta {m.id} sparisce dentro {o.id}: controlla i punti.", feature=fid)
+            mid = base + w * (m.axis_length / 2)
+            solid = min(pezzi, key=lambda s: (s.center() - mid).length)
         if solid is None:
-            raise FeatureError(f'L\'asta {m.id} si annulla con i tagli alle estremità: è più corta dei profili che '
+            raise FeatureError(f"L'asta {m.id} si annulla con i tagli alle estremità: è più corta dei profili che "
                                'la tagliano.', feature=fid)
     return solid, tuple(angoli)
 

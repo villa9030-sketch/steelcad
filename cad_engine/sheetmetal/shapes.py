@@ -186,9 +186,73 @@ def _pulisci_contorno(face, tol=0.05):
 
 
 def _solido(S: Facce, t: float):
-    facce = [bd.Face(bd.Wire.make_polygon([S.punti[i] for i in f], close=True)) for f in S.facce]
-    guscio = bd.Shell(facce)
-    return bd.thicken(guscio, t / 2, both=True)
+    """Il solido costruito direttamente: le facce in asse spostate di ±t/2 (pelle esterna e interna) più le
+    fasce sui bordi, cucite in un guscio chiuso. Ispessire faccia per faccia e fondere tutto (build123d) era
+    lento (secondi su un raccordo) e lasciava centinaia di facce spezzate."""
+    import numpy as np
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+    from OCP.ShapeFix import ShapeFix_Solid
+    from OCP.TopAbs import TopAbs_SHELL
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    # i punti doppi della giunzione (lo sviluppo apre l'anello lì) nel solido sono uno solo: niente pareti
+    # appiccicate sulla giunzione
+    unico, idx = {}, []
+    for q in S.punti:
+        idx.append(unico.setdefault(tuple(round(c, 6) for c in q), len(unico)))
+    P = np.array(list(unico), dtype=float)
+    S = Facce([], [[idx[i] for i in f] for f in S.facce])
+    vicine = [[] for _ in P]                               # normali delle facce attorno a ogni punto
+    for f in S.facce:
+        a, b, c = (P[i] for i in f[:3])
+        n = np.cross(b - a, c - a)
+        n /= np.linalg.norm(n)
+        for i in f:
+            vicine[i].append(n)
+    # per ogni punto lo spostamento v che sta a distanza 1 da tutti i piani vicini (minimi quadrati: esatto
+    # dove i piani sono 1–3, scarto minimo dove sono di più, per esempio sugli angoli della base del raccordo)
+    off = np.zeros_like(P)
+    for i, ns in enumerate(vicine):
+        if ns:
+            N = np.array(ns)
+            off[i] = np.linalg.lstsq(N, np.ones(len(ns)), rcond=None)[0] * (t / 2)
+    fuori, dentro = P + off, P - off
+
+    def poligoni(pts):
+        """Un poligono, o i suoi triangoli se i punti spostati non stanno più in un piano."""
+        pts = [tuple(map(float, q)) for q in pts]
+        if len(pts) > 3:
+            q = np.array(pts)
+            n = np.cross(q[1] - q[0], q[2] - q[0])
+            n /= np.linalg.norm(n) or 1
+            if max(abs(np.dot(x - q[0], n)) for x in q) > 1e-4:
+                return [[pts[0], pts[k], pts[k + 1]] for k in range(1, len(pts) - 1)]
+        return [pts]
+
+    facce = []
+    for f in S.facce:
+        facce += poligoni([fuori[i] for i in f])
+        facce += poligoni([dentro[i] for i in reversed(f)])
+    usi = {}
+    for f in S.facce:                                      # i lati usati da una faccia sola sono il bordo
+        for a, b in zip(f, f[1:] + f[:1]):
+            usi.setdefault(frozenset((a, b)), []).append((a, b))
+    for lati in usi.values():
+        if len(lati) == 1:
+            a, b = lati[0]
+            facce += poligoni([fuori[b], fuori[a], dentro[a], dentro[b]])
+    cuci = BRepBuilderAPI_Sewing(1e-4)
+    for pts in facce:
+        cuci.Add(bd.Face(bd.Wire.make_polygon(pts, close=True)).wrapped)
+    cuci.Perform()
+    ex = TopExp_Explorer(cuci.SewedShape(), TopAbs_SHELL)
+    if not ex.More():
+        raise FeatureError('Non riesco a fare il solido della forma (guscio non chiuso).')
+    ms = BRepBuilderAPI_MakeSolid(TopoDS.Shell(ex.Current()))
+    fix = ShapeFix_Solid(ms.Solid())
+    fix.Perform()
+    return bd.Solid(fix.Solid())
 
 
 def _passo_auto(r: float) -> float:

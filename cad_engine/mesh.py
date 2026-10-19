@@ -9,8 +9,11 @@ from __future__ import annotations
 import build123d as bd
 from OCP.BRep import BRep_Tool
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
-from OCP.TopAbs import TopAbs_REVERSED
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
+from OCP.TopExp import TopExp_Explorer
 from OCP.TopLoc import TopLoc_Location
+from OCP.TopoDS import TopoDS
+from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as TopTools_IndexedMapOfShape
 
 from .topology.naming import _edges_of, _faces_of
 
@@ -20,10 +23,14 @@ def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angula
     pos: list[float] = []
     idx: list[int] = []
     faces = []
-    nome_di = {}
+    # le facce con nome in una mappa indicizzata: trovare il nome di una faccia non è più un giro su tutte
+    con_nome, nomi = TopTools_IndexedMapOfShape(), []
     for nome, fs in (names or {}).items():
         for f in fs:
-            nome_di.setdefault(f, nome)
+            if not con_nome.Contains(f):
+                con_nome.Add(f)
+                nomi.append(nome)
+    edges, visti = [], TopTools_IndexedMapOfShape()
     for k, f in enumerate(_faces_of(shape)):
         loc = TopLoc_Location()
         tri = BRep_Tool.Triangulation_s(f, loc)
@@ -41,11 +48,26 @@ def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angula
             if rev:
                 b, c = c, b
             idx.extend((base + a - 1, base + b - 1, base + c - 1))
-        nome = next((n for g, n in nome_di.items() if g.IsSame(f)), None)
+        i_nome = con_nome.FindIndex(f)
+        nome = nomi[i_nome - 1] if i_nome else None
         faces.append({'name': nome, 'index': k, 'start': start, 'count': len(idx) - start})
-    edges = []
-    for e in _edges_of(shape):
-        if BRep_Tool.Degenerated_s(e):
+        # gli spigoli della faccia: la loro spezzata è già nella triangolazione (ricalcolarli punto per punto
+        # sulla curva era metà del tempo della scena)
+        ex = TopExp_Explorer(f, TopAbs_EDGE)
+        while ex.More():
+            e = TopoDS.Edge(ex.Current())
+            ex.Next()
+            if visti.Contains(e) or BRep_Tool.Degenerated_s(e):
+                continue
+            poly = BRep_Tool.PolygonOnTriangulation_s(e, tri, loc)
+            if poly is None or poly.NbNodes() < 2:
+                continue
+            visti.Add(e)
+            nodi = poly.Nodes()
+            pts = [tri.Node(nodi.Value(j)).Transformed(trsf) for j in range(nodi.Lower(), nodi.Upper() + 1)]
+            edges.append([round(c, 4) for q in pts for c in (q.X(), q.Y(), q.Z())])
+    for e in _edges_of(shape):                  # gli spigoli rimasti fuori (senza triangolazione): sulla curva
+        if visti.Contains(e) or BRep_Tool.Degenerated_s(e):
             continue                        # lo spigolo "a punto" del polo di una sfera: niente da disegnare
         be = bd.Edge(e)
         if be.length < 1e-9:
