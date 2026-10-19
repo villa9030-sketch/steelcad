@@ -1,0 +1,9730 @@
+{
+ "format": "steelcad",
+ "version": 1,
+ "meta": {
+  "name": "Porta",
+  "created": "2026-10-19T11:16:02",
+  "modified": "2026-10-19T11:16:29"
+ },
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "mass": "kg"
+ },
+ "parameters": {
+  "W": 605,
+  "P": 805,
+  "sp": 1.5
+ },
+ "material": "S235",
+ "features": [
+  {
+   "id": "S1",
+   "type": "sketch",
+   "name": "Base",
+   "plane": "XY",
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P2": {
+     "kind": "point",
+     "x": 586.85,
+     "y": 0.0,
+     "construction": false
+    },
+    "P3": {
+     "kind": "point",
+     "x": 586.85,
+     "y": 780.85,
+     "construction": false
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 780.85,
+     "construction": false
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P3",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P4",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P1",
+     "construction": false,
+     "label": "lato sinistro"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "horizontal",
+     "refs": [
+      "L1"
+     ],
+     "auto": true
+    },
+    "K2": {
+     "type": "vertical",
+     "refs": [
+      "L2"
+     ],
+     "auto": true
+    },
+    "K3": {
+     "type": "horizontal",
+     "refs": [
+      "L3"
+     ],
+     "auto": true
+    },
+    "K4": {
+     "type": "vertical",
+     "refs": [
+      "L4"
+     ],
+     "auto": true
+    },
+    "K5": {
+     "type": "coincident",
+     "refs": [
+      "P1",
+      "O"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "length",
+     "refs": [
+      "L1"
+     ],
+     "value": "W"
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L4"
+     ],
+     "value": "P"
+    }
+   }
+  },
+  {
+   "id": "SM1",
+   "type": "sheet",
+   "name": "Porta",
+   "sketch": "S1",
+   "thickness": "sp",
+   "radius": 1.5,
+   "method": "k",
+   "k": 0.4,
+   "flanges": [
+    {
+     "id": "FL1",
+     "edge": "L1",
+     "length": 22,
+     "angle": 90
+    },
+    {
+     "id": "FL2",
+     "edge": "L2",
+     "length": 22,
+     "angle": 90
+    },
+    {
+     "id": "FL3",
+     "edge": "L3",
+     "length": 22,
+     "angle": 90
+    },
+    {
+     "id": "FL4",
+     "edge": "L4",
+     "length": 22,
+     "angle": 90
+    },
+    {
+     "id": "FL5",
+     "parent": "FL4",
+     "extend": [
+      1.0,
+      1.0
+     ],
+     "length": 10,
+     "angle": 180,
+     "direction": "down"
+    }
+   ],
+   "corners": [
+    {
+     "over": "FL1",
+     "under": "FL2",
+     "gap": 0.5
+    },
+    {
+     "over": "FL1",
+     "under": "FL4",
+     "gap": 0.5
+    },
+    {
+     "over": "FL3",
+     "under": "FL2",
+     "gap": 0.5
+    },
+    {
+     "over": "FL3",
+     "under": "FL4",
+     "gap": 0.5
+    }
+   ]
+  },
+  {
+   "id": "S2",
+   "type": "sketch",
+   "name": "Sketch: la faccia esterna della flangia FL2 di Porta",
+   "plane": {
+    "face": "SM1/FL2/esterno"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 1.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 800.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 19.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": 801.0,
+     "y": 19.0,
+     "construction": true,
+     "ref": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P5",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": 801.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P6",
+     "b": "P5",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P6",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": 171.1,
+     "y": 12.5,
+     "construction": false
+    },
+    "C1": {
+     "kind": "circle",
+     "center": "P7",
+     "r": 2.6,
+     "construction": false
+    },
+    "P8": {
+     "kind": "point",
+     "x": 171.1,
+     "y": 3.5,
+     "construction": false
+    },
+    "C2": {
+     "kind": "circle",
+     "center": "P8",
+     "r": 2.6,
+     "construction": false
+    },
+    "P9": {
+     "kind": "point",
+     "x": 661.1,
+     "y": 12.5,
+     "construction": false
+    },
+    "C3": {
+     "kind": "circle",
+     "center": "P9",
+     "r": 2.6,
+     "construction": false
+    },
+    "P10": {
+     "kind": "point",
+     "x": 661.1,
+     "y": 3.5,
+     "construction": false
+    },
+    "C4": {
+     "kind": "circle",
+     "center": "P10",
+     "r": 2.6,
+     "construction": false
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "diameter",
+     "refs": [
+      "C1"
+     ],
+     "value": 5.2
+    },
+    "D2": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P7"
+     ],
+     "value": 171.1
+    },
+    "D3": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P7"
+     ],
+     "value": 12.5
+    },
+    "D4": {
+     "type": "diameter",
+     "refs": [
+      "C2"
+     ],
+     "value": 5.2
+    },
+    "D5": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P8"
+     ],
+     "value": 171.1
+    },
+    "D6": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P8"
+     ],
+     "value": 3.5
+    },
+    "D7": {
+     "type": "diameter",
+     "refs": [
+      "C3"
+     ],
+     "value": 5.2
+    },
+    "D8": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P9"
+     ],
+     "value": 661.1
+    },
+    "D9": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P9"
+     ],
+     "value": 12.5
+    },
+    "D10": {
+     "type": "diameter",
+     "refs": [
+      "C4"
+     ],
+     "value": 5.2
+    },
+    "D11": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P10"
+     ],
+     "value": 661.1
+    },
+    "D12": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P10"
+     ],
+     "value": 3.5
+    }
+   }
+  },
+  {
+   "id": "TG1",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S2"
+  },
+  {
+   "id": "S3",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Porta",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P5",
+     "b": "P6",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P8": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P7",
+     "b": "P8",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L7": {
+     "kind": "line",
+     "a": "P6",
+     "b": "P7",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L8": {
+     "kind": "line",
+     "a": "P8",
+     "b": "P5",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P9": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "P10": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L9": {
+     "kind": "line",
+     "a": "P9",
+     "b": "P10",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P11": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P12": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "L10": {
+     "kind": "line",
+     "a": "P11",
+     "b": "P12",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L11": {
+     "kind": "line",
+     "a": "P10",
+     "b": "P11",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L12": {
+     "kind": "line",
+     "a": "P12",
+     "b": "P9",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P13": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P14": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L13": {
+     "kind": "line",
+     "a": "P13",
+     "b": "P14",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P15": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P16": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L14": {
+     "kind": "line",
+     "a": "P15",
+     "b": "P16",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L15": {
+     "kind": "line",
+     "a": "P14",
+     "b": "P15",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L16": {
+     "kind": "line",
+     "a": "P16",
+     "b": "P13",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P17": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P18": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L17": {
+     "kind": "line",
+     "a": "P17",
+     "b": "P18",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P19": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P20": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L18": {
+     "kind": "line",
+     "a": "P19",
+     "b": "P20",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L19": {
+     "kind": "line",
+     "a": "P18",
+     "b": "P19",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L20": {
+     "kind": "line",
+     "a": "P20",
+     "b": "P17",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P21": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P22": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L21": {
+     "kind": "line",
+     "a": "P21",
+     "b": "P22",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P23": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P24": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L22": {
+     "kind": "line",
+     "a": "P23",
+     "b": "P24",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L23": {
+     "kind": "line",
+     "a": "P22",
+     "b": "P23",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L24": {
+     "kind": "line",
+     "a": "P24",
+     "b": "P21",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P25": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P26": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L25": {
+     "kind": "line",
+     "a": "P25",
+     "b": "P26",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P27": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P28": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L26": {
+     "kind": "line",
+     "a": "P27",
+     "b": "P28",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L27": {
+     "kind": "line",
+     "a": "P26",
+     "b": "P27",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L28": {
+     "kind": "line",
+     "a": "P28",
+     "b": "P25",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P29": {
+     "kind": "point",
+     "x": 600.5,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P30": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L29": {
+     "kind": "line",
+     "a": "P29",
+     "b": "P30",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P31": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P32": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L30": {
+     "kind": "line",
+     "a": "P31",
+     "b": "P32",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L31": {
+     "kind": "line",
+     "a": "P30",
+     "b": "P31",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L32": {
+     "kind": "line",
+     "a": "P32",
+     "b": "P29",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P33": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P34": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L33": {
+     "kind": "line",
+     "a": "P33",
+     "b": "P34",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P35": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P36": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L34": {
+     "kind": "line",
+     "a": "P35",
+     "b": "P36",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L35": {
+     "kind": "line",
+     "a": "P34",
+     "b": "P35",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L36": {
+     "kind": "line",
+     "a": "P36",
+     "b": "P33",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L37": {
+     "kind": "line",
+     "a": "P41",
+     "b": "P44",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L38": {
+     "kind": "line",
+     "a": "P45",
+     "b": "P47",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L39": {
+     "kind": "line",
+     "a": "P48",
+     "b": "P50",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L40": {
+     "kind": "line",
+     "a": "P51",
+     "b": "P42",
+     "construction": false,
+     "label": "lato sinistro"
+    },
+    "P41": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 482.5,
+     "construction": false
+    },
+    "P42": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 497.5,
+     "construction": false
+    },
+    "P43": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 497.5,
+     "construction": false
+    },
+    "A1": {
+     "kind": "arc",
+     "center": "P43",
+     "start": "P42",
+     "end": "P41",
+     "construction": false
+    },
+    "P44": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 482.5,
+     "construction": false
+    },
+    "P45": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 497.5,
+     "construction": false
+    },
+    "P46": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 497.5,
+     "construction": false
+    },
+    "A2": {
+     "kind": "arc",
+     "center": "P46",
+     "start": "P44",
+     "end": "P45",
+     "construction": false
+    },
+    "P47": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 687.5,
+     "construction": false
+    },
+    "P48": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 702.5,
+     "construction": false
+    },
+    "P49": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 687.5,
+     "construction": false
+    },
+    "A3": {
+     "kind": "arc",
+     "center": "P49",
+     "start": "P47",
+     "end": "P48",
+     "construction": false
+    },
+    "P50": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 702.5,
+     "construction": false
+    },
+    "P51": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 687.5,
+     "construction": false
+    },
+    "P52": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 687.5,
+     "construction": false
+    },
+    "A4": {
+     "kind": "arc",
+     "center": "P52",
+     "start": "P50",
+     "end": "P51",
+     "construction": false
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "K7": {
+     "type": "fix",
+     "refs": [
+      "P7"
+     ],
+     "auto": false
+    },
+    "K8": {
+     "type": "fix",
+     "refs": [
+      "P8"
+     ],
+     "auto": false
+    },
+    "K9": {
+     "type": "fix",
+     "refs": [
+      "P9"
+     ],
+     "auto": false
+    },
+    "K10": {
+     "type": "fix",
+     "refs": [
+      "P10"
+     ],
+     "auto": false
+    },
+    "K11": {
+     "type": "fix",
+     "refs": [
+      "P11"
+     ],
+     "auto": false
+    },
+    "K12": {
+     "type": "fix",
+     "refs": [
+      "P12"
+     ],
+     "auto": false
+    },
+    "K13": {
+     "type": "fix",
+     "refs": [
+      "P13"
+     ],
+     "auto": false
+    },
+    "K14": {
+     "type": "fix",
+     "refs": [
+      "P14"
+     ],
+     "auto": false
+    },
+    "K15": {
+     "type": "fix",
+     "refs": [
+      "P15"
+     ],
+     "auto": false
+    },
+    "K16": {
+     "type": "fix",
+     "refs": [
+      "P16"
+     ],
+     "auto": false
+    },
+    "K17": {
+     "type": "fix",
+     "refs": [
+      "P17"
+     ],
+     "auto": false
+    },
+    "K18": {
+     "type": "fix",
+     "refs": [
+      "P18"
+     ],
+     "auto": false
+    },
+    "K19": {
+     "type": "fix",
+     "refs": [
+      "P19"
+     ],
+     "auto": false
+    },
+    "K20": {
+     "type": "fix",
+     "refs": [
+      "P20"
+     ],
+     "auto": false
+    },
+    "K21": {
+     "type": "fix",
+     "refs": [
+      "P21"
+     ],
+     "auto": false
+    },
+    "K22": {
+     "type": "fix",
+     "refs": [
+      "P22"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "fix",
+     "refs": [
+      "P23"
+     ],
+     "auto": false
+    },
+    "K24": {
+     "type": "fix",
+     "refs": [
+      "P24"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "fix",
+     "refs": [
+      "P25"
+     ],
+     "auto": false
+    },
+    "K26": {
+     "type": "fix",
+     "refs": [
+      "P26"
+     ],
+     "auto": false
+    },
+    "K27": {
+     "type": "fix",
+     "refs": [
+      "P27"
+     ],
+     "auto": false
+    },
+    "K28": {
+     "type": "fix",
+     "refs": [
+      "P28"
+     ],
+     "auto": false
+    },
+    "K29": {
+     "type": "fix",
+     "refs": [
+      "P29"
+     ],
+     "auto": false
+    },
+    "K30": {
+     "type": "fix",
+     "refs": [
+      "P30"
+     ],
+     "auto": false
+    },
+    "K31": {
+     "type": "fix",
+     "refs": [
+      "P31"
+     ],
+     "auto": false
+    },
+    "K32": {
+     "type": "fix",
+     "refs": [
+      "P32"
+     ],
+     "auto": false
+    },
+    "K33": {
+     "type": "fix",
+     "refs": [
+      "P33"
+     ],
+     "auto": false
+    },
+    "K34": {
+     "type": "fix",
+     "refs": [
+      "P34"
+     ],
+     "auto": false
+    },
+    "K35": {
+     "type": "fix",
+     "refs": [
+      "P35"
+     ],
+     "auto": false
+    },
+    "K36": {
+     "type": "fix",
+     "refs": [
+      "P36"
+     ],
+     "auto": false
+    },
+    "K37": {
+     "type": "horizontal",
+     "refs": [
+      "L37"
+     ],
+     "auto": true
+    },
+    "K38": {
+     "type": "vertical",
+     "refs": [
+      "L38"
+     ],
+     "auto": true
+    },
+    "K39": {
+     "type": "horizontal",
+     "refs": [
+      "L39"
+     ],
+     "auto": true
+    },
+    "K40": {
+     "type": "vertical",
+     "refs": [
+      "L40"
+     ],
+     "auto": true
+    },
+    "K41": {
+     "type": "tangent",
+     "refs": [
+      "L37",
+      "A1"
+     ],
+     "auto": false
+    },
+    "K42": {
+     "type": "tangent",
+     "refs": [
+      "L40",
+      "A1"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "radius",
+     "refs": [
+      "A1"
+     ],
+     "value": 15
+    },
+    "K43": {
+     "type": "tangent",
+     "refs": [
+      "L37",
+      "A2"
+     ],
+     "auto": false
+    },
+    "K44": {
+     "type": "tangent",
+     "refs": [
+      "L38",
+      "A2"
+     ],
+     "auto": false
+    },
+    "D2": {
+     "type": "radius",
+     "refs": [
+      "A2"
+     ],
+     "value": 15
+    },
+    "K45": {
+     "type": "tangent",
+     "refs": [
+      "L38",
+      "A3"
+     ],
+     "auto": false
+    },
+    "K46": {
+     "type": "tangent",
+     "refs": [
+      "L39",
+      "A3"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "radius",
+     "refs": [
+      "A3"
+     ],
+     "value": 15
+    },
+    "K47": {
+     "type": "tangent",
+     "refs": [
+      "L39",
+      "A4"
+     ],
+     "auto": false
+    },
+    "K48": {
+     "type": "tangent",
+     "refs": [
+      "L40",
+      "A4"
+     ],
+     "auto": false
+    },
+    "D4": {
+     "type": "radius",
+     "refs": [
+      "A4"
+     ],
+     "value": 15
+    }
+   }
+  },
+  {
+   "id": "TG2",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S3"
+  },
+  {
+   "id": "S4",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Porta",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P5",
+     "b": "P6",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P8": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 497.5000000000001,
+     "construction": true,
+     "ref": true
+    },
+    "A1": {
+     "kind": "arc",
+     "center": "P8",
+     "start": "P5",
+     "end": "P7",
+     "construction": true,
+     "ref": true
+    },
+    "P9": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P9",
+     "b": "P7",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P10": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P11": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 687.4999999999999,
+     "construction": true,
+     "ref": true
+    },
+    "A2": {
+     "kind": "arc",
+     "center": "P11",
+     "start": "P9",
+     "end": "P10",
+     "construction": true,
+     "ref": true
+    },
+    "P12": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "L7": {
+     "kind": "line",
+     "a": "P12",
+     "b": "P10",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P13": {
+     "kind": "point",
+     "x": 92.50000000000003,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "P14": {
+     "kind": "point",
+     "x": 107.50000000000006,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "A3": {
+     "kind": "arc",
+     "center": "P14",
+     "start": "P12",
+     "end": "P13",
+     "construction": true,
+     "ref": true
+    },
+    "P15": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "L8": {
+     "kind": "line",
+     "a": "P15",
+     "b": "P13",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P16": {
+     "kind": "point",
+     "x": 107.50000000000004,
+     "y": 497.50000000000006,
+     "construction": true,
+     "ref": true
+    },
+    "A4": {
+     "kind": "arc",
+     "center": "P16",
+     "start": "P15",
+     "end": "P6",
+     "construction": true,
+     "ref": true
+    },
+    "P17": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P18": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L9": {
+     "kind": "line",
+     "a": "P17",
+     "b": "P18",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P19": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P20": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L10": {
+     "kind": "line",
+     "a": "P19",
+     "b": "P20",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L11": {
+     "kind": "line",
+     "a": "P18",
+     "b": "P19",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L12": {
+     "kind": "line",
+     "a": "P20",
+     "b": "P17",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P21": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "P22": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L13": {
+     "kind": "line",
+     "a": "P21",
+     "b": "P22",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P23": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P24": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "L14": {
+     "kind": "line",
+     "a": "P23",
+     "b": "P24",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L15": {
+     "kind": "line",
+     "a": "P22",
+     "b": "P23",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L16": {
+     "kind": "line",
+     "a": "P24",
+     "b": "P21",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P25": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P26": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L17": {
+     "kind": "line",
+     "a": "P25",
+     "b": "P26",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P27": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P28": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L18": {
+     "kind": "line",
+     "a": "P27",
+     "b": "P28",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L19": {
+     "kind": "line",
+     "a": "P26",
+     "b": "P27",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L20": {
+     "kind": "line",
+     "a": "P28",
+     "b": "P25",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P29": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P30": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L21": {
+     "kind": "line",
+     "a": "P29",
+     "b": "P30",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P31": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P32": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L22": {
+     "kind": "line",
+     "a": "P31",
+     "b": "P32",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L23": {
+     "kind": "line",
+     "a": "P30",
+     "b": "P31",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L24": {
+     "kind": "line",
+     "a": "P32",
+     "b": "P29",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P33": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P34": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L25": {
+     "kind": "line",
+     "a": "P33",
+     "b": "P34",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P35": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P36": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L26": {
+     "kind": "line",
+     "a": "P35",
+     "b": "P36",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L27": {
+     "kind": "line",
+     "a": "P34",
+     "b": "P35",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L28": {
+     "kind": "line",
+     "a": "P36",
+     "b": "P33",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P37": {
+     "kind": "point",
+     "x": 600.5,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P38": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L29": {
+     "kind": "line",
+     "a": "P37",
+     "b": "P38",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P39": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P40": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L30": {
+     "kind": "line",
+     "a": "P39",
+     "b": "P40",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L31": {
+     "kind": "line",
+     "a": "P38",
+     "b": "P39",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L32": {
+     "kind": "line",
+     "a": "P40",
+     "b": "P37",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P41": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P42": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L33": {
+     "kind": "line",
+     "a": "P41",
+     "b": "P42",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P43": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P44": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L34": {
+     "kind": "line",
+     "a": "P43",
+     "b": "P44",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L35": {
+     "kind": "line",
+     "a": "P42",
+     "b": "P43",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L36": {
+     "kind": "line",
+     "a": "P44",
+     "b": "P41",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P45": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P46": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L37": {
+     "kind": "line",
+     "a": "P45",
+     "b": "P46",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P47": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P48": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L38": {
+     "kind": "line",
+     "a": "P47",
+     "b": "P48",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L39": {
+     "kind": "line",
+     "a": "P46",
+     "b": "P47",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L40": {
+     "kind": "line",
+     "a": "P48",
+     "b": "P45",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P49": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 467.5,
+     "construction": false
+    },
+    "C1": {
+     "kind": "circle",
+     "center": "P49",
+     "r": 2.25,
+     "construction": false
+    },
+    "P50": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 717.5,
+     "construction": false
+    },
+    "C2": {
+     "kind": "circle",
+     "center": "P50",
+     "r": 2.25,
+     "construction": false
+    },
+    "P51": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 467.5,
+     "construction": false
+    },
+    "C3": {
+     "kind": "circle",
+     "center": "P51",
+     "r": 2.25,
+     "construction": false
+    },
+    "P52": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 717.5,
+     "construction": false
+    },
+    "C4": {
+     "kind": "circle",
+     "center": "P52",
+     "r": 2.25,
+     "construction": false
+    },
+    "P53": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 467.5,
+     "construction": false
+    },
+    "C5": {
+     "kind": "circle",
+     "center": "P53",
+     "r": 2.25,
+     "construction": false
+    },
+    "P54": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 717.5,
+     "construction": false
+    },
+    "C6": {
+     "kind": "circle",
+     "center": "P54",
+     "r": 2.25,
+     "construction": false
+    },
+    "P55": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 592.5,
+     "construction": false
+    },
+    "C7": {
+     "kind": "circle",
+     "center": "P55",
+     "r": 2.25,
+     "construction": false
+    },
+    "P56": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 592.5,
+     "construction": false
+    },
+    "C8": {
+     "kind": "circle",
+     "center": "P56",
+     "r": 2.25,
+     "construction": false
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "K7": {
+     "type": "fix",
+     "refs": [
+      "P7"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "radius",
+     "refs": [
+      "A1"
+     ],
+     "value": 15
+    },
+    "K8": {
+     "type": "fix",
+     "refs": [
+      "P9"
+     ],
+     "auto": false
+    },
+    "K9": {
+     "type": "fix",
+     "refs": [
+      "P10"
+     ],
+     "auto": false
+    },
+    "D2": {
+     "type": "radius",
+     "refs": [
+      "A2"
+     ],
+     "value": 15
+    },
+    "K10": {
+     "type": "fix",
+     "refs": [
+      "P12"
+     ],
+     "auto": false
+    },
+    "K11": {
+     "type": "fix",
+     "refs": [
+      "P13"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "radius",
+     "refs": [
+      "A3"
+     ],
+     "value": 15
+    },
+    "K12": {
+     "type": "fix",
+     "refs": [
+      "P15"
+     ],
+     "auto": false
+    },
+    "D4": {
+     "type": "radius",
+     "refs": [
+      "A4"
+     ],
+     "value": 15
+    },
+    "K13": {
+     "type": "fix",
+     "refs": [
+      "P17"
+     ],
+     "auto": false
+    },
+    "K14": {
+     "type": "fix",
+     "refs": [
+      "P18"
+     ],
+     "auto": false
+    },
+    "K15": {
+     "type": "fix",
+     "refs": [
+      "P19"
+     ],
+     "auto": false
+    },
+    "K16": {
+     "type": "fix",
+     "refs": [
+      "P20"
+     ],
+     "auto": false
+    },
+    "K17": {
+     "type": "fix",
+     "refs": [
+      "P21"
+     ],
+     "auto": false
+    },
+    "K18": {
+     "type": "fix",
+     "refs": [
+      "P22"
+     ],
+     "auto": false
+    },
+    "K19": {
+     "type": "fix",
+     "refs": [
+      "P23"
+     ],
+     "auto": false
+    },
+    "K20": {
+     "type": "fix",
+     "refs": [
+      "P24"
+     ],
+     "auto": false
+    },
+    "K21": {
+     "type": "fix",
+     "refs": [
+      "P25"
+     ],
+     "auto": false
+    },
+    "K22": {
+     "type": "fix",
+     "refs": [
+      "P26"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "fix",
+     "refs": [
+      "P27"
+     ],
+     "auto": false
+    },
+    "K24": {
+     "type": "fix",
+     "refs": [
+      "P28"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "fix",
+     "refs": [
+      "P29"
+     ],
+     "auto": false
+    },
+    "K26": {
+     "type": "fix",
+     "refs": [
+      "P30"
+     ],
+     "auto": false
+    },
+    "K27": {
+     "type": "fix",
+     "refs": [
+      "P31"
+     ],
+     "auto": false
+    },
+    "K28": {
+     "type": "fix",
+     "refs": [
+      "P32"
+     ],
+     "auto": false
+    },
+    "K29": {
+     "type": "fix",
+     "refs": [
+      "P33"
+     ],
+     "auto": false
+    },
+    "K30": {
+     "type": "fix",
+     "refs": [
+      "P34"
+     ],
+     "auto": false
+    },
+    "K31": {
+     "type": "fix",
+     "refs": [
+      "P35"
+     ],
+     "auto": false
+    },
+    "K32": {
+     "type": "fix",
+     "refs": [
+      "P36"
+     ],
+     "auto": false
+    },
+    "K33": {
+     "type": "fix",
+     "refs": [
+      "P37"
+     ],
+     "auto": false
+    },
+    "K34": {
+     "type": "fix",
+     "refs": [
+      "P38"
+     ],
+     "auto": false
+    },
+    "K35": {
+     "type": "fix",
+     "refs": [
+      "P39"
+     ],
+     "auto": false
+    },
+    "K36": {
+     "type": "fix",
+     "refs": [
+      "P40"
+     ],
+     "auto": false
+    },
+    "K37": {
+     "type": "fix",
+     "refs": [
+      "P41"
+     ],
+     "auto": false
+    },
+    "K38": {
+     "type": "fix",
+     "refs": [
+      "P42"
+     ],
+     "auto": false
+    },
+    "K39": {
+     "type": "fix",
+     "refs": [
+      "P43"
+     ],
+     "auto": false
+    },
+    "K40": {
+     "type": "fix",
+     "refs": [
+      "P44"
+     ],
+     "auto": false
+    },
+    "K41": {
+     "type": "fix",
+     "refs": [
+      "P45"
+     ],
+     "auto": false
+    },
+    "K42": {
+     "type": "fix",
+     "refs": [
+      "P46"
+     ],
+     "auto": false
+    },
+    "K43": {
+     "type": "fix",
+     "refs": [
+      "P47"
+     ],
+     "auto": false
+    },
+    "K44": {
+     "type": "fix",
+     "refs": [
+      "P48"
+     ],
+     "auto": false
+    },
+    "D5": {
+     "type": "diameter",
+     "refs": [
+      "C1"
+     ],
+     "value": 4.5
+    },
+    "D6": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P49"
+     ],
+     "value": 77.5
+    },
+    "D7": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P49"
+     ],
+     "value": 467.5
+    },
+    "D8": {
+     "type": "diameter",
+     "refs": [
+      "C2"
+     ],
+     "value": 4.5
+    },
+    "D9": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P50"
+     ],
+     "value": 77.5
+    },
+    "D10": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P50"
+     ],
+     "value": 717.5
+    },
+    "D11": {
+     "type": "diameter",
+     "refs": [
+      "C3"
+     ],
+     "value": 4.5
+    },
+    "D12": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P51"
+     ],
+     "value": 302.5
+    },
+    "D13": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P51"
+     ],
+     "value": 467.5
+    },
+    "D14": {
+     "type": "diameter",
+     "refs": [
+      "C4"
+     ],
+     "value": 4.5
+    },
+    "D15": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P52"
+     ],
+     "value": 302.5
+    },
+    "D16": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P52"
+     ],
+     "value": 717.5
+    },
+    "D17": {
+     "type": "diameter",
+     "refs": [
+      "C5"
+     ],
+     "value": 4.5
+    },
+    "D18": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P53"
+     ],
+     "value": 527.5
+    },
+    "D19": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P53"
+     ],
+     "value": 467.5
+    },
+    "D20": {
+     "type": "diameter",
+     "refs": [
+      "C6"
+     ],
+     "value": 4.5
+    },
+    "D21": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P54"
+     ],
+     "value": 527.5
+    },
+    "D22": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P54"
+     ],
+     "value": 717.5
+    },
+    "D23": {
+     "type": "diameter",
+     "refs": [
+      "C7"
+     ],
+     "value": 4.5
+    },
+    "D24": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P55"
+     ],
+     "value": 77.5
+    },
+    "D25": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P55"
+     ],
+     "value": 592.5
+    },
+    "D26": {
+     "type": "diameter",
+     "refs": [
+      "C8"
+     ],
+     "value": 4.5
+    },
+    "D27": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P56"
+     ],
+     "value": 527.5
+    },
+    "D28": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P56"
+     ],
+     "value": 592.5
+    }
+   }
+  },
+  {
+   "id": "TG3",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S4"
+  },
+  {
+   "id": "S5",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Porta",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C1": {
+     "kind": "circle",
+     "center": "P5",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 592.5,
+     "construction": true,
+     "ref": true
+    },
+    "C2": {
+     "kind": "circle",
+     "center": "P6",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C3": {
+     "kind": "circle",
+     "center": "P7",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P8": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C4": {
+     "kind": "circle",
+     "center": "P8",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P9": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "P10": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P9",
+     "b": "P10",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P11": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P12": {
+     "kind": "point",
+     "x": 107.50000000000004,
+     "y": 497.50000000000006,
+     "construction": true,
+     "ref": true
+    },
+    "A1": {
+     "kind": "arc",
+     "center": "P12",
+     "start": "P11",
+     "end": "P10",
+     "construction": true,
+     "ref": true
+    },
+    "P13": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P14": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 497.5000000000001,
+     "construction": true,
+     "ref": true
+    },
+    "A2": {
+     "kind": "arc",
+     "center": "P14",
+     "start": "P9",
+     "end": "P13",
+     "construction": true,
+     "ref": true
+    },
+    "P15": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P11",
+     "b": "P15",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P16": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L7": {
+     "kind": "line",
+     "a": "P16",
+     "b": "P13",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P17": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P18": {
+     "kind": "point",
+     "x": 107.50000000000006,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "A3": {
+     "kind": "arc",
+     "center": "P18",
+     "start": "P17",
+     "end": "P15",
+     "construction": true,
+     "ref": true
+    },
+    "P19": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P20": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 687.4999999999999,
+     "construction": true,
+     "ref": true
+    },
+    "A4": {
+     "kind": "arc",
+     "center": "P20",
+     "start": "P16",
+     "end": "P19",
+     "construction": true,
+     "ref": true
+    },
+    "L8": {
+     "kind": "line",
+     "a": "P17",
+     "b": "P19",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P21": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 592.5,
+     "construction": true,
+     "ref": true
+    },
+    "C5": {
+     "kind": "circle",
+     "center": "P21",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P22": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C6": {
+     "kind": "circle",
+     "center": "P22",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P23": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C7": {
+     "kind": "circle",
+     "center": "P23",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P24": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C8": {
+     "kind": "circle",
+     "center": "P24",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P25": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P26": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L9": {
+     "kind": "line",
+     "a": "P25",
+     "b": "P26",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P27": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P28": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L10": {
+     "kind": "line",
+     "a": "P27",
+     "b": "P28",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L11": {
+     "kind": "line",
+     "a": "P26",
+     "b": "P27",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L12": {
+     "kind": "line",
+     "a": "P28",
+     "b": "P25",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P29": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "P30": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L13": {
+     "kind": "line",
+     "a": "P29",
+     "b": "P30",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P31": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P32": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "L14": {
+     "kind": "line",
+     "a": "P31",
+     "b": "P32",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L15": {
+     "kind": "line",
+     "a": "P30",
+     "b": "P31",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L16": {
+     "kind": "line",
+     "a": "P32",
+     "b": "P29",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P33": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P34": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L17": {
+     "kind": "line",
+     "a": "P33",
+     "b": "P34",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P35": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P36": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L18": {
+     "kind": "line",
+     "a": "P35",
+     "b": "P36",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L19": {
+     "kind": "line",
+     "a": "P34",
+     "b": "P35",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L20": {
+     "kind": "line",
+     "a": "P36",
+     "b": "P33",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P37": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P38": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L21": {
+     "kind": "line",
+     "a": "P37",
+     "b": "P38",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P39": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P40": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L22": {
+     "kind": "line",
+     "a": "P39",
+     "b": "P40",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L23": {
+     "kind": "line",
+     "a": "P38",
+     "b": "P39",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L24": {
+     "kind": "line",
+     "a": "P40",
+     "b": "P37",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P41": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P42": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L25": {
+     "kind": "line",
+     "a": "P41",
+     "b": "P42",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P43": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P44": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L26": {
+     "kind": "line",
+     "a": "P43",
+     "b": "P44",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L27": {
+     "kind": "line",
+     "a": "P42",
+     "b": "P43",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L28": {
+     "kind": "line",
+     "a": "P44",
+     "b": "P41",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P45": {
+     "kind": "point",
+     "x": 600.5,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P46": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L29": {
+     "kind": "line",
+     "a": "P45",
+     "b": "P46",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P47": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P48": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L30": {
+     "kind": "line",
+     "a": "P47",
+     "b": "P48",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L31": {
+     "kind": "line",
+     "a": "P46",
+     "b": "P47",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L32": {
+     "kind": "line",
+     "a": "P48",
+     "b": "P45",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P49": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P50": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L33": {
+     "kind": "line",
+     "a": "P49",
+     "b": "P50",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P51": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P52": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L34": {
+     "kind": "line",
+     "a": "P51",
+     "b": "P52",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L35": {
+     "kind": "line",
+     "a": "P50",
+     "b": "P51",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L36": {
+     "kind": "line",
+     "a": "P52",
+     "b": "P49",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P53": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P54": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L37": {
+     "kind": "line",
+     "a": "P53",
+     "b": "P54",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P55": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P56": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L38": {
+     "kind": "line",
+     "a": "P55",
+     "b": "P56",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L39": {
+     "kind": "line",
+     "a": "P54",
+     "b": "P55",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L40": {
+     "kind": "line",
+     "a": "P56",
+     "b": "P53",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P57": {
+     "kind": "point",
+     "x": 45.5,
+     "y": 413.316653826392,
+     "construction": false
+    },
+    "P58": {
+     "kind": "point",
+     "x": 42.920438540901856,
+     "y": 412.50138074679404,
+     "construction": false
+    },
+    "P59": {
+     "kind": "point",
+     "x": 40.61787649357987,
+     "y": 411.08116402607357,
+     "construction": false
+    },
+    "P60": {
+     "kind": "point",
+     "x": 38.731586654869034,
+     "y": 409.14190691058894,
+     "construction": false
+    },
+    "P61": {
+     "kind": "point",
+     "x": 37.375663175580264,
+     "y": 406.8009073305174,
+     "construction": false
+    },
+    "P62": {
+     "kind": "point",
+     "x": 36.632120460265405,
+     "y": 404.19976301578134,
+     "construction": false
+    },
+    "P63": {
+     "kind": "point",
+     "x": 36.5459324429162,
+     "y": 401.4958068139824,
+     "construction": false
+    },
+    "P64": {
+     "kind": "point",
+     "x": 37.12231229302959,
+     "y": 398.8525902538109,
+     "construction": false
+    },
+    "P65": {
+     "kind": "point",
+     "x": 38.326397091772186,
+     "y": 396.4299909652329,
+     "construction": false
+    },
+    "P66": {
+     "kind": "point",
+     "x": 40.08535655092551,
+     "y": 394.37454231916155,
+     "construction": false
+    },
+    "P67": {
+     "kind": "point",
+     "x": 42.292798226611446,
+     "y": 392.81057020814853,
+     "construction": false
+    },
+    "P68": {
+     "kind": "point",
+     "x": 44.81520277398518,
+     "y": 391.8326730688901,
+     "construction": false
+    },
+    "P69": {
+     "kind": "point",
+     "x": 47.5,
+     "y": 391.5,
+     "construction": false
+    },
+    "P70": {
+     "kind": "point",
+     "x": 50.184797226014815,
+     "y": 391.8326730688901,
+     "construction": false
+    },
+    "P71": {
+     "kind": "point",
+     "x": 52.707201773388554,
+     "y": 392.81057020814853,
+     "construction": false
+    },
+    "P72": {
+     "kind": "point",
+     "x": 54.91464344907448,
+     "y": 394.37454231916155,
+     "construction": false
+    },
+    "P73": {
+     "kind": "point",
+     "x": 56.673602908227814,
+     "y": 396.4299909652329,
+     "construction": false
+    },
+    "P74": {
+     "kind": "point",
+     "x": 57.877687706970406,
+     "y": 398.8525902538109,
+     "construction": false
+    },
+    "P75": {
+     "kind": "point",
+     "x": 58.454067557083796,
+     "y": 401.49580681398237,
+     "construction": false
+    },
+    "P76": {
+     "kind": "point",
+     "x": 58.367879539734595,
+     "y": 404.19976301578134,
+     "construction": false
+    },
+    "P77": {
+     "kind": "point",
+     "x": 57.62433682441973,
+     "y": 406.8009073305174,
+     "construction": false
+    },
+    "P78": {
+     "kind": "point",
+     "x": 56.268413345130966,
+     "y": 409.14190691058894,
+     "construction": false
+    },
+    "P79": {
+     "kind": "point",
+     "x": 54.38212350642012,
+     "y": 411.0811640260736,
+     "construction": false
+    },
+    "P80": {
+     "kind": "point",
+     "x": 52.07956145909814,
+     "y": 412.50138074679404,
+     "construction": false
+    },
+    "P81": {
+     "kind": "point",
+     "x": 49.5,
+     "y": 413.316653826392,
+     "construction": false
+    },
+    "P82": {
+     "kind": "point",
+     "x": 49.5,
+     "y": 416.0,
+     "construction": false
+    },
+    "P83": {
+     "kind": "point",
+     "x": 45.5,
+     "y": 416.0,
+     "construction": false
+    },
+    "L41": {
+     "kind": "line",
+     "a": "P57",
+     "b": "P58",
+     "construction": false,
+     "label": "lato L41"
+    },
+    "L42": {
+     "kind": "line",
+     "a": "P58",
+     "b": "P59",
+     "construction": false,
+     "label": "lato L42"
+    },
+    "L43": {
+     "kind": "line",
+     "a": "P59",
+     "b": "P60",
+     "construction": false,
+     "label": "lato L43"
+    },
+    "L44": {
+     "kind": "line",
+     "a": "P60",
+     "b": "P61",
+     "construction": false,
+     "label": "lato L44"
+    },
+    "L45": {
+     "kind": "line",
+     "a": "P61",
+     "b": "P62",
+     "construction": false,
+     "label": "lato L45"
+    },
+    "L46": {
+     "kind": "line",
+     "a": "P62",
+     "b": "P63",
+     "construction": false,
+     "label": "lato L46"
+    },
+    "L47": {
+     "kind": "line",
+     "a": "P63",
+     "b": "P64",
+     "construction": false,
+     "label": "lato L47"
+    },
+    "L48": {
+     "kind": "line",
+     "a": "P64",
+     "b": "P65",
+     "construction": false,
+     "label": "lato L48"
+    },
+    "L49": {
+     "kind": "line",
+     "a": "P65",
+     "b": "P66",
+     "construction": false,
+     "label": "lato L49"
+    },
+    "L50": {
+     "kind": "line",
+     "a": "P66",
+     "b": "P67",
+     "construction": false,
+     "label": "lato L50"
+    },
+    "L51": {
+     "kind": "line",
+     "a": "P67",
+     "b": "P68",
+     "construction": false,
+     "label": "lato L51"
+    },
+    "L52": {
+     "kind": "line",
+     "a": "P68",
+     "b": "P69",
+     "construction": false,
+     "label": "lato L52"
+    },
+    "L53": {
+     "kind": "line",
+     "a": "P69",
+     "b": "P70",
+     "construction": false,
+     "label": "lato L53"
+    },
+    "L54": {
+     "kind": "line",
+     "a": "P70",
+     "b": "P71",
+     "construction": false,
+     "label": "lato L54"
+    },
+    "L55": {
+     "kind": "line",
+     "a": "P71",
+     "b": "P72",
+     "construction": false,
+     "label": "lato L55"
+    },
+    "L56": {
+     "kind": "line",
+     "a": "P72",
+     "b": "P73",
+     "construction": false,
+     "label": "lato L56"
+    },
+    "L57": {
+     "kind": "line",
+     "a": "P73",
+     "b": "P74",
+     "construction": false,
+     "label": "lato L57"
+    },
+    "L58": {
+     "kind": "line",
+     "a": "P74",
+     "b": "P75",
+     "construction": false,
+     "label": "lato L58"
+    },
+    "L59": {
+     "kind": "line",
+     "a": "P75",
+     "b": "P76",
+     "construction": false,
+     "label": "lato L59"
+    },
+    "L60": {
+     "kind": "line",
+     "a": "P76",
+     "b": "P77",
+     "construction": false,
+     "label": "lato L60"
+    },
+    "L61": {
+     "kind": "line",
+     "a": "P77",
+     "b": "P78",
+     "construction": false,
+     "label": "lato L61"
+    },
+    "L62": {
+     "kind": "line",
+     "a": "P78",
+     "b": "P79",
+     "construction": false,
+     "label": "lato L62"
+    },
+    "L63": {
+     "kind": "line",
+     "a": "P79",
+     "b": "P80",
+     "construction": false,
+     "label": "lato L63"
+    },
+    "L64": {
+     "kind": "line",
+     "a": "P80",
+     "b": "P81",
+     "construction": false,
+     "label": "lato L64"
+    },
+    "L65": {
+     "kind": "line",
+     "a": "P81",
+     "b": "P82",
+     "construction": false,
+     "label": "lato L65"
+    },
+    "L66": {
+     "kind": "line",
+     "a": "P82",
+     "b": "P83",
+     "construction": false,
+     "label": "lato L66"
+    },
+    "L67": {
+     "kind": "line",
+     "a": "P83",
+     "b": "P57",
+     "construction": false,
+     "label": "lato L67"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "diameter",
+     "refs": [
+      "C1"
+     ],
+     "value": 4.5
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "D2": {
+     "type": "diameter",
+     "refs": [
+      "C2"
+     ],
+     "value": 4.5
+    },
+    "K7": {
+     "type": "fix",
+     "refs": [
+      "P7"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "diameter",
+     "refs": [
+      "C3"
+     ],
+     "value": 4.5
+    },
+    "K8": {
+     "type": "fix",
+     "refs": [
+      "P8"
+     ],
+     "auto": false
+    },
+    "D4": {
+     "type": "diameter",
+     "refs": [
+      "C4"
+     ],
+     "value": 4.5
+    },
+    "K9": {
+     "type": "fix",
+     "refs": [
+      "P9"
+     ],
+     "auto": false
+    },
+    "K10": {
+     "type": "fix",
+     "refs": [
+      "P10"
+     ],
+     "auto": false
+    },
+    "K11": {
+     "type": "fix",
+     "refs": [
+      "P11"
+     ],
+     "auto": false
+    },
+    "D5": {
+     "type": "radius",
+     "refs": [
+      "A1"
+     ],
+     "value": 15
+    },
+    "K12": {
+     "type": "fix",
+     "refs": [
+      "P13"
+     ],
+     "auto": false
+    },
+    "D6": {
+     "type": "radius",
+     "refs": [
+      "A2"
+     ],
+     "value": 15
+    },
+    "K13": {
+     "type": "fix",
+     "refs": [
+      "P15"
+     ],
+     "auto": false
+    },
+    "K14": {
+     "type": "fix",
+     "refs": [
+      "P16"
+     ],
+     "auto": false
+    },
+    "K15": {
+     "type": "fix",
+     "refs": [
+      "P17"
+     ],
+     "auto": false
+    },
+    "D7": {
+     "type": "radius",
+     "refs": [
+      "A3"
+     ],
+     "value": 15
+    },
+    "K16": {
+     "type": "fix",
+     "refs": [
+      "P19"
+     ],
+     "auto": false
+    },
+    "D8": {
+     "type": "radius",
+     "refs": [
+      "A4"
+     ],
+     "value": 15
+    },
+    "K17": {
+     "type": "fix",
+     "refs": [
+      "P21"
+     ],
+     "auto": false
+    },
+    "D9": {
+     "type": "diameter",
+     "refs": [
+      "C5"
+     ],
+     "value": 4.5
+    },
+    "K18": {
+     "type": "fix",
+     "refs": [
+      "P22"
+     ],
+     "auto": false
+    },
+    "D10": {
+     "type": "diameter",
+     "refs": [
+      "C6"
+     ],
+     "value": 4.5
+    },
+    "K19": {
+     "type": "fix",
+     "refs": [
+      "P23"
+     ],
+     "auto": false
+    },
+    "D11": {
+     "type": "diameter",
+     "refs": [
+      "C7"
+     ],
+     "value": 4.5
+    },
+    "K20": {
+     "type": "fix",
+     "refs": [
+      "P24"
+     ],
+     "auto": false
+    },
+    "D12": {
+     "type": "diameter",
+     "refs": [
+      "C8"
+     ],
+     "value": 4.5
+    },
+    "K21": {
+     "type": "fix",
+     "refs": [
+      "P25"
+     ],
+     "auto": false
+    },
+    "K22": {
+     "type": "fix",
+     "refs": [
+      "P26"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "fix",
+     "refs": [
+      "P27"
+     ],
+     "auto": false
+    },
+    "K24": {
+     "type": "fix",
+     "refs": [
+      "P28"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "fix",
+     "refs": [
+      "P29"
+     ],
+     "auto": false
+    },
+    "K26": {
+     "type": "fix",
+     "refs": [
+      "P30"
+     ],
+     "auto": false
+    },
+    "K27": {
+     "type": "fix",
+     "refs": [
+      "P31"
+     ],
+     "auto": false
+    },
+    "K28": {
+     "type": "fix",
+     "refs": [
+      "P32"
+     ],
+     "auto": false
+    },
+    "K29": {
+     "type": "fix",
+     "refs": [
+      "P33"
+     ],
+     "auto": false
+    },
+    "K30": {
+     "type": "fix",
+     "refs": [
+      "P34"
+     ],
+     "auto": false
+    },
+    "K31": {
+     "type": "fix",
+     "refs": [
+      "P35"
+     ],
+     "auto": false
+    },
+    "K32": {
+     "type": "fix",
+     "refs": [
+      "P36"
+     ],
+     "auto": false
+    },
+    "K33": {
+     "type": "fix",
+     "refs": [
+      "P37"
+     ],
+     "auto": false
+    },
+    "K34": {
+     "type": "fix",
+     "refs": [
+      "P38"
+     ],
+     "auto": false
+    },
+    "K35": {
+     "type": "fix",
+     "refs": [
+      "P39"
+     ],
+     "auto": false
+    },
+    "K36": {
+     "type": "fix",
+     "refs": [
+      "P40"
+     ],
+     "auto": false
+    },
+    "K37": {
+     "type": "fix",
+     "refs": [
+      "P41"
+     ],
+     "auto": false
+    },
+    "K38": {
+     "type": "fix",
+     "refs": [
+      "P42"
+     ],
+     "auto": false
+    },
+    "K39": {
+     "type": "fix",
+     "refs": [
+      "P43"
+     ],
+     "auto": false
+    },
+    "K40": {
+     "type": "fix",
+     "refs": [
+      "P44"
+     ],
+     "auto": false
+    },
+    "K41": {
+     "type": "fix",
+     "refs": [
+      "P45"
+     ],
+     "auto": false
+    },
+    "K42": {
+     "type": "fix",
+     "refs": [
+      "P46"
+     ],
+     "auto": false
+    },
+    "K43": {
+     "type": "fix",
+     "refs": [
+      "P47"
+     ],
+     "auto": false
+    },
+    "K44": {
+     "type": "fix",
+     "refs": [
+      "P48"
+     ],
+     "auto": false
+    },
+    "K45": {
+     "type": "fix",
+     "refs": [
+      "P49"
+     ],
+     "auto": false
+    },
+    "K46": {
+     "type": "fix",
+     "refs": [
+      "P50"
+     ],
+     "auto": false
+    },
+    "K47": {
+     "type": "fix",
+     "refs": [
+      "P51"
+     ],
+     "auto": false
+    },
+    "K48": {
+     "type": "fix",
+     "refs": [
+      "P52"
+     ],
+     "auto": false
+    },
+    "K49": {
+     "type": "fix",
+     "refs": [
+      "P53"
+     ],
+     "auto": false
+    },
+    "K50": {
+     "type": "fix",
+     "refs": [
+      "P54"
+     ],
+     "auto": false
+    },
+    "K51": {
+     "type": "fix",
+     "refs": [
+      "P55"
+     ],
+     "auto": false
+    },
+    "K52": {
+     "type": "fix",
+     "refs": [
+      "P56"
+     ],
+     "auto": false
+    },
+    "K53": {
+     "type": "vertical",
+     "refs": [
+      "L46"
+     ],
+     "auto": true
+    },
+    "K54": {
+     "type": "vertical",
+     "refs": [
+      "L59"
+     ],
+     "auto": true
+    },
+    "K55": {
+     "type": "vertical",
+     "refs": [
+      "L65"
+     ],
+     "auto": true
+    },
+    "K56": {
+     "type": "horizontal",
+     "refs": [
+      "L66"
+     ],
+     "auto": true
+    },
+    "K57": {
+     "type": "vertical",
+     "refs": [
+      "L67"
+     ],
+     "auto": true
+    },
+    "D13": {
+     "type": "length",
+     "refs": [
+      "L41"
+     ],
+     "value": 2.71
+    },
+    "D14": {
+     "type": "length",
+     "refs": [
+      "L42"
+     ],
+     "value": 2.71
+    },
+    "D15": {
+     "type": "length",
+     "refs": [
+      "L43"
+     ],
+     "value": 2.71
+    },
+    "D16": {
+     "type": "length",
+     "refs": [
+      "L44"
+     ],
+     "value": 2.71
+    },
+    "D17": {
+     "type": "length",
+     "refs": [
+      "L45"
+     ],
+     "value": 2.71
+    },
+    "D18": {
+     "type": "length",
+     "refs": [
+      "L46"
+     ],
+     "value": 2.71
+    },
+    "D19": {
+     "type": "length",
+     "refs": [
+      "L47"
+     ],
+     "value": 2.71
+    },
+    "D20": {
+     "type": "length",
+     "refs": [
+      "L48"
+     ],
+     "value": 2.71
+    },
+    "D21": {
+     "type": "length",
+     "refs": [
+      "L49"
+     ],
+     "value": 2.71
+    },
+    "D22": {
+     "type": "length",
+     "refs": [
+      "L50"
+     ],
+     "value": 2.71
+    },
+    "D23": {
+     "type": "length",
+     "refs": [
+      "L51"
+     ],
+     "value": 2.71
+    },
+    "D24": {
+     "type": "length",
+     "refs": [
+      "L52"
+     ],
+     "value": 2.71
+    },
+    "D25": {
+     "type": "length",
+     "refs": [
+      "L53"
+     ],
+     "value": 2.71
+    },
+    "D26": {
+     "type": "length",
+     "refs": [
+      "L54"
+     ],
+     "value": 2.71
+    },
+    "D27": {
+     "type": "length",
+     "refs": [
+      "L55"
+     ],
+     "value": 2.71
+    },
+    "D28": {
+     "type": "length",
+     "refs": [
+      "L56"
+     ],
+     "value": 2.71
+    },
+    "D29": {
+     "type": "length",
+     "refs": [
+      "L57"
+     ],
+     "value": 2.71
+    },
+    "D30": {
+     "type": "length",
+     "refs": [
+      "L58"
+     ],
+     "value": 2.71
+    },
+    "D31": {
+     "type": "length",
+     "refs": [
+      "L59"
+     ],
+     "value": 2.71
+    },
+    "D32": {
+     "type": "length",
+     "refs": [
+      "L60"
+     ],
+     "value": 2.71
+    },
+    "D33": {
+     "type": "length",
+     "refs": [
+      "L61"
+     ],
+     "value": 2.71
+    },
+    "D34": {
+     "type": "length",
+     "refs": [
+      "L62"
+     ],
+     "value": 2.71
+    },
+    "D35": {
+     "type": "length",
+     "refs": [
+      "L63"
+     ],
+     "value": 2.71
+    },
+    "D36": {
+     "type": "length",
+     "refs": [
+      "L64"
+     ],
+     "value": 2.71
+    },
+    "D37": {
+     "type": "length",
+     "refs": [
+      "L65"
+     ],
+     "value": 2.68
+    },
+    "D38": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P57"
+     ],
+     "value": 45.5
+    },
+    "D39": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P57"
+     ],
+     "value": 413.32
+    }
+   }
+  },
+  {
+   "id": "TG4",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S5"
+  },
+  {
+   "id": "S6",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Porta",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": 45.5,
+     "y": 413.32,
+     "construction": true,
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": 45.5,
+     "y": 415.99922800662586,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P5",
+     "b": "P6",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": 42.9165003655773,
+     "y": 412.5016909881116,
+     "construction": true,
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P7",
+     "b": "P5",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P8": {
+     "kind": "point",
+     "x": 40.60851629914487,
+     "y": 411.08137076045375,
+     "construction": true,
+     "ref": true
+    },
+    "L7": {
+     "kind": "line",
+     "a": "P8",
+     "b": "P7",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P9": {
+     "kind": "point",
+     "x": 38.731375409344224,
+     "y": 409.1267756412952,
+     "construction": true,
+     "ref": true
+    },
+    "L8": {
+     "kind": "line",
+     "a": "P9",
+     "b": "P8",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P10": {
+     "kind": "point",
+     "x": 37.37370153581905,
+     "y": 406.7813925908859,
+     "construction": true,
+     "ref": true
+    },
+    "L9": {
+     "kind": "line",
+     "a": "P10",
+     "b": "P9",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P11": {
+     "kind": "point",
+     "x": 36.547124444061296,
+     "y": 404.2005263968764,
+     "construction": true,
+     "ref": true
+    },
+    "L10": {
+     "kind": "line",
+     "a": "P11",
+     "b": "P10",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P12": {
+     "kind": "point",
+     "x": 36.547124444061296,
+     "y": 401.49052639687636,
+     "construction": true,
+     "ref": true
+    },
+    "L11": {
+     "kind": "line",
+     "a": "P12",
+     "b": "P11",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P13": {
+     "kind": "point",
+     "x": 37.122062277433876,
+     "y": 398.8422162776198,
+     "construction": true,
+     "ref": true
+    },
+    "L12": {
+     "kind": "line",
+     "a": "P13",
+     "b": "P12",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P14": {
+     "kind": "point",
+     "x": 38.32617608456319,
+     "y": 396.41441687497536,
+     "construction": true,
+     "ref": true
+    },
+    "L13": {
+     "kind": "line",
+     "a": "P14",
+     "b": "P13",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P15": {
+     "kind": "point",
+     "x": 40.11005195586952,
+     "y": 394.3743465634981,
+     "construction": true,
+     "ref": true
+    },
+    "L14": {
+     "kind": "line",
+     "a": "P15",
+     "b": "P14",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P16": {
+     "kind": "point",
+     "x": 42.323188503349385,
+     "y": 392.81033677382,
+     "construction": true,
+     "ref": true
+    },
+    "L15": {
+     "kind": "line",
+     "a": "P16",
+     "b": "P15",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P17": {
+     "kind": "point",
+     "x": 44.85059252875131,
+     "y": 391.8324160754082,
+     "construction": true,
+     "ref": true
+    },
+    "L16": {
+     "kind": "line",
+     "a": "P17",
+     "b": "P16",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P18": {
+     "kind": "point",
+     "x": 47.54009495423073,
+     "y": 391.4997349918758,
+     "construction": true,
+     "ref": true
+    },
+    "L17": {
+     "kind": "line",
+     "a": "P18",
+     "b": "P17",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P19": {
+     "kind": "point",
+     "x": 50.22959737971016,
+     "y": 391.8324160754082,
+     "construction": true,
+     "ref": true
+    },
+    "L18": {
+     "kind": "line",
+     "a": "P19",
+     "b": "P18",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P20": {
+     "kind": "point",
+     "x": 52.75700140511208,
+     "y": 392.81033677382,
+     "construction": true,
+     "ref": true
+    },
+    "L19": {
+     "kind": "line",
+     "a": "P20",
+     "b": "P19",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P21": {
+     "kind": "point",
+     "x": 54.95220824561574,
+     "y": 394.39941415626737,
+     "construction": true,
+     "ref": true
+    },
+    "L20": {
+     "kind": "line",
+     "a": "P21",
+     "b": "P20",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P22": {
+     "kind": "point",
+     "x": 56.673823915436806,
+     "y": 396.49229243400515,
+     "construction": true,
+     "ref": true
+    },
+    "L21": {
+     "kind": "line",
+     "a": "P22",
+     "b": "P21",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P23": {
+     "kind": "point",
+     "x": 57.87793772256612,
+     "y": 398.9200918366496,
+     "construction": true,
+     "ref": true
+    },
+    "L22": {
+     "kind": "line",
+     "a": "P23",
+     "b": "P22",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P24": {
+     "kind": "point",
+     "x": 58.452875555938704,
+     "y": 401.56840195590615,
+     "construction": true,
+     "ref": true
+    },
+    "L23": {
+     "kind": "line",
+     "a": "P24",
+     "b": "P23",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P25": {
+     "kind": "point",
+     "x": 58.452875555938704,
+     "y": 404.27840195590613,
+     "construction": true,
+     "ref": true
+    },
+    "L24": {
+     "kind": "line",
+     "a": "P25",
+     "b": "P24",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P26": {
+     "kind": "point",
+     "x": 57.62629846418094,
+     "y": 406.8592681499157,
+     "construction": true,
+     "ref": true
+    },
+    "L25": {
+     "kind": "line",
+     "a": "P26",
+     "b": "P25",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P27": {
+     "kind": "point",
+     "x": 56.26862459065577,
+     "y": 409.204651200325,
+     "construction": true,
+     "ref": true
+    },
+    "L26": {
+     "kind": "line",
+     "a": "P27",
+     "b": "P26",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P28": {
+     "kind": "point",
+     "x": 54.31362492502148,
+     "y": 411.0813707604538,
+     "construction": true,
+     "ref": true
+    },
+    "L27": {
+     "kind": "line",
+     "a": "P28",
+     "b": "P27",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P29": {
+     "kind": "point",
+     "x": 52.00559821838215,
+     "y": 412.50162169653504,
+     "construction": true,
+     "ref": true
+    },
+    "L28": {
+     "kind": "line",
+     "a": "P29",
+     "b": "P28",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P30": {
+     "kind": "point",
+     "x": 49.42187611225315,
+     "y": 413.31922800662585,
+     "construction": true,
+     "ref": true
+    },
+    "L29": {
+     "kind": "line",
+     "a": "P30",
+     "b": "P29",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P31": {
+     "kind": "point",
+     "x": 49.42187611225315,
+     "y": 415.99922800662586,
+     "construction": true,
+     "ref": true
+    },
+    "L30": {
+     "kind": "line",
+     "a": "P31",
+     "b": "P30",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "L31": {
+     "kind": "line",
+     "a": "P6",
+     "b": "P31",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P32": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C1": {
+     "kind": "circle",
+     "center": "P32",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P33": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C2": {
+     "kind": "circle",
+     "center": "P33",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P34": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C3": {
+     "kind": "circle",
+     "center": "P34",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P35": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 592.5,
+     "construction": true,
+     "ref": true
+    },
+    "C4": {
+     "kind": "circle",
+     "center": "P35",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P36": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C5": {
+     "kind": "circle",
+     "center": "P36",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P37": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "P38": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "L32": {
+     "kind": "line",
+     "a": "P37",
+     "b": "P38",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P39": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P40": {
+     "kind": "point",
+     "x": 107.50000000000004,
+     "y": 497.50000000000006,
+     "construction": true,
+     "ref": true
+    },
+    "A1": {
+     "kind": "arc",
+     "center": "P40",
+     "start": "P39",
+     "end": "P38",
+     "construction": true,
+     "ref": true
+    },
+    "P41": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P42": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 497.5000000000001,
+     "construction": true,
+     "ref": true
+    },
+    "A2": {
+     "kind": "arc",
+     "center": "P42",
+     "start": "P37",
+     "end": "P41",
+     "construction": true,
+     "ref": true
+    },
+    "P43": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L33": {
+     "kind": "line",
+     "a": "P39",
+     "b": "P43",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P44": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L34": {
+     "kind": "line",
+     "a": "P44",
+     "b": "P41",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P45": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P46": {
+     "kind": "point",
+     "x": 107.50000000000006,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "A3": {
+     "kind": "arc",
+     "center": "P46",
+     "start": "P45",
+     "end": "P43",
+     "construction": true,
+     "ref": true
+    },
+    "P47": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P48": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 687.4999999999999,
+     "construction": true,
+     "ref": true
+    },
+    "A4": {
+     "kind": "arc",
+     "center": "P48",
+     "start": "P44",
+     "end": "P47",
+     "construction": true,
+     "ref": true
+    },
+    "L35": {
+     "kind": "line",
+     "a": "P45",
+     "b": "P47",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P49": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 592.5,
+     "construction": true,
+     "ref": true
+    },
+    "C6": {
+     "kind": "circle",
+     "center": "P49",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P50": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C7": {
+     "kind": "circle",
+     "center": "P50",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P51": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C8": {
+     "kind": "circle",
+     "center": "P51",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P52": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P53": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L36": {
+     "kind": "line",
+     "a": "P52",
+     "b": "P53",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P54": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P55": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L37": {
+     "kind": "line",
+     "a": "P54",
+     "b": "P55",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L38": {
+     "kind": "line",
+     "a": "P53",
+     "b": "P54",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L39": {
+     "kind": "line",
+     "a": "P55",
+     "b": "P52",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P56": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "P57": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L40": {
+     "kind": "line",
+     "a": "P56",
+     "b": "P57",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P58": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P59": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "L41": {
+     "kind": "line",
+     "a": "P58",
+     "b": "P59",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L42": {
+     "kind": "line",
+     "a": "P57",
+     "b": "P58",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L43": {
+     "kind": "line",
+     "a": "P59",
+     "b": "P56",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P60": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P61": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L44": {
+     "kind": "line",
+     "a": "P60",
+     "b": "P61",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P62": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P63": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L45": {
+     "kind": "line",
+     "a": "P62",
+     "b": "P63",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L46": {
+     "kind": "line",
+     "a": "P61",
+     "b": "P62",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L47": {
+     "kind": "line",
+     "a": "P63",
+     "b": "P60",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P64": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P65": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L48": {
+     "kind": "line",
+     "a": "P64",
+     "b": "P65",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P66": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P67": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L49": {
+     "kind": "line",
+     "a": "P66",
+     "b": "P67",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L50": {
+     "kind": "line",
+     "a": "P65",
+     "b": "P66",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L51": {
+     "kind": "line",
+     "a": "P67",
+     "b": "P64",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P68": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P69": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L52": {
+     "kind": "line",
+     "a": "P68",
+     "b": "P69",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P70": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P71": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L53": {
+     "kind": "line",
+     "a": "P70",
+     "b": "P71",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L54": {
+     "kind": "line",
+     "a": "P69",
+     "b": "P70",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L55": {
+     "kind": "line",
+     "a": "P71",
+     "b": "P68",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P72": {
+     "kind": "point",
+     "x": 600.5,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P73": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L56": {
+     "kind": "line",
+     "a": "P72",
+     "b": "P73",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P74": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P75": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L57": {
+     "kind": "line",
+     "a": "P74",
+     "b": "P75",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L58": {
+     "kind": "line",
+     "a": "P73",
+     "b": "P74",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L59": {
+     "kind": "line",
+     "a": "P75",
+     "b": "P72",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P76": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P77": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L60": {
+     "kind": "line",
+     "a": "P76",
+     "b": "P77",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P78": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P79": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L61": {
+     "kind": "line",
+     "a": "P78",
+     "b": "P79",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L62": {
+     "kind": "line",
+     "a": "P77",
+     "b": "P78",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L63": {
+     "kind": "line",
+     "a": "P79",
+     "b": "P76",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P80": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P81": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L64": {
+     "kind": "line",
+     "a": "P80",
+     "b": "P81",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P82": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P83": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L65": {
+     "kind": "line",
+     "a": "P82",
+     "b": "P83",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L66": {
+     "kind": "line",
+     "a": "P81",
+     "b": "P82",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L67": {
+     "kind": "line",
+     "a": "P83",
+     "b": "P80",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P84": {
+     "kind": "point",
+     "x": 47.5,
+     "y": 332.5,
+     "construction": false
+    },
+    "C9": {
+     "kind": "circle",
+     "center": "P84",
+     "r": 14.0,
+     "construction": true
+    },
+    "P85": {
+     "kind": "point",
+     "x": 61.5,
+     "y": 332.5,
+     "construction": false
+    },
+    "P86": {
+     "kind": "point",
+     "x": 54.5,
+     "y": 344.62435565298216,
+     "construction": false
+    },
+    "P87": {
+     "kind": "point",
+     "x": 40.5,
+     "y": 344.62435565298216,
+     "construction": false
+    },
+    "P88": {
+     "kind": "point",
+     "x": 33.5,
+     "y": 332.5,
+     "construction": false
+    },
+    "P89": {
+     "kind": "point",
+     "x": 40.49999999999999,
+     "y": 320.37564434701784,
+     "construction": false
+    },
+    "P90": {
+     "kind": "point",
+     "x": 54.5,
+     "y": 320.37564434701784,
+     "construction": false
+    },
+    "L68": {
+     "kind": "line",
+     "a": "P85",
+     "b": "P86",
+     "construction": false,
+     "label": "lato L68"
+    },
+    "L69": {
+     "kind": "line",
+     "a": "P86",
+     "b": "P87",
+     "construction": false,
+     "label": "lato L69"
+    },
+    "L70": {
+     "kind": "line",
+     "a": "P87",
+     "b": "P88",
+     "construction": false,
+     "label": "lato L70"
+    },
+    "L71": {
+     "kind": "line",
+     "a": "P88",
+     "b": "P89",
+     "construction": false,
+     "label": "lato L71"
+    },
+    "L72": {
+     "kind": "line",
+     "a": "P89",
+     "b": "P90",
+     "construction": false,
+     "label": "lato L72"
+    },
+    "L73": {
+     "kind": "line",
+     "a": "P90",
+     "b": "P85",
+     "construction": false,
+     "label": "lato L73"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "K7": {
+     "type": "fix",
+     "refs": [
+      "P7"
+     ],
+     "auto": false
+    },
+    "K8": {
+     "type": "fix",
+     "refs": [
+      "P8"
+     ],
+     "auto": false
+    },
+    "K9": {
+     "type": "fix",
+     "refs": [
+      "P9"
+     ],
+     "auto": false
+    },
+    "K10": {
+     "type": "fix",
+     "refs": [
+      "P10"
+     ],
+     "auto": false
+    },
+    "K11": {
+     "type": "fix",
+     "refs": [
+      "P11"
+     ],
+     "auto": false
+    },
+    "K12": {
+     "type": "fix",
+     "refs": [
+      "P12"
+     ],
+     "auto": false
+    },
+    "K13": {
+     "type": "fix",
+     "refs": [
+      "P13"
+     ],
+     "auto": false
+    },
+    "K14": {
+     "type": "fix",
+     "refs": [
+      "P14"
+     ],
+     "auto": false
+    },
+    "K15": {
+     "type": "fix",
+     "refs": [
+      "P15"
+     ],
+     "auto": false
+    },
+    "K16": {
+     "type": "fix",
+     "refs": [
+      "P16"
+     ],
+     "auto": false
+    },
+    "K17": {
+     "type": "fix",
+     "refs": [
+      "P17"
+     ],
+     "auto": false
+    },
+    "K18": {
+     "type": "fix",
+     "refs": [
+      "P18"
+     ],
+     "auto": false
+    },
+    "K19": {
+     "type": "fix",
+     "refs": [
+      "P19"
+     ],
+     "auto": false
+    },
+    "K20": {
+     "type": "fix",
+     "refs": [
+      "P20"
+     ],
+     "auto": false
+    },
+    "K21": {
+     "type": "fix",
+     "refs": [
+      "P21"
+     ],
+     "auto": false
+    },
+    "K22": {
+     "type": "fix",
+     "refs": [
+      "P22"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "fix",
+     "refs": [
+      "P23"
+     ],
+     "auto": false
+    },
+    "K24": {
+     "type": "fix",
+     "refs": [
+      "P24"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "fix",
+     "refs": [
+      "P25"
+     ],
+     "auto": false
+    },
+    "K26": {
+     "type": "fix",
+     "refs": [
+      "P26"
+     ],
+     "auto": false
+    },
+    "K27": {
+     "type": "fix",
+     "refs": [
+      "P27"
+     ],
+     "auto": false
+    },
+    "K28": {
+     "type": "fix",
+     "refs": [
+      "P28"
+     ],
+     "auto": false
+    },
+    "K29": {
+     "type": "fix",
+     "refs": [
+      "P29"
+     ],
+     "auto": false
+    },
+    "K30": {
+     "type": "fix",
+     "refs": [
+      "P30"
+     ],
+     "auto": false
+    },
+    "K31": {
+     "type": "fix",
+     "refs": [
+      "P31"
+     ],
+     "auto": false
+    },
+    "K32": {
+     "type": "fix",
+     "refs": [
+      "P32"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "diameter",
+     "refs": [
+      "C1"
+     ],
+     "value": 4.5
+    },
+    "K33": {
+     "type": "fix",
+     "refs": [
+      "P33"
+     ],
+     "auto": false
+    },
+    "D2": {
+     "type": "diameter",
+     "refs": [
+      "C2"
+     ],
+     "value": 4.5
+    },
+    "K34": {
+     "type": "fix",
+     "refs": [
+      "P34"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "diameter",
+     "refs": [
+      "C3"
+     ],
+     "value": 4.5
+    },
+    "K35": {
+     "type": "fix",
+     "refs": [
+      "P35"
+     ],
+     "auto": false
+    },
+    "D4": {
+     "type": "diameter",
+     "refs": [
+      "C4"
+     ],
+     "value": 4.5
+    },
+    "K36": {
+     "type": "fix",
+     "refs": [
+      "P36"
+     ],
+     "auto": false
+    },
+    "D5": {
+     "type": "diameter",
+     "refs": [
+      "C5"
+     ],
+     "value": 4.5
+    },
+    "K37": {
+     "type": "fix",
+     "refs": [
+      "P37"
+     ],
+     "auto": false
+    },
+    "K38": {
+     "type": "fix",
+     "refs": [
+      "P38"
+     ],
+     "auto": false
+    },
+    "K39": {
+     "type": "fix",
+     "refs": [
+      "P39"
+     ],
+     "auto": false
+    },
+    "D6": {
+     "type": "radius",
+     "refs": [
+      "A1"
+     ],
+     "value": 15
+    },
+    "K40": {
+     "type": "fix",
+     "refs": [
+      "P41"
+     ],
+     "auto": false
+    },
+    "D7": {
+     "type": "radius",
+     "refs": [
+      "A2"
+     ],
+     "value": 15
+    },
+    "K41": {
+     "type": "fix",
+     "refs": [
+      "P43"
+     ],
+     "auto": false
+    },
+    "K42": {
+     "type": "fix",
+     "refs": [
+      "P44"
+     ],
+     "auto": false
+    },
+    "K43": {
+     "type": "fix",
+     "refs": [
+      "P45"
+     ],
+     "auto": false
+    },
+    "D8": {
+     "type": "radius",
+     "refs": [
+      "A3"
+     ],
+     "value": 15
+    },
+    "K44": {
+     "type": "fix",
+     "refs": [
+      "P47"
+     ],
+     "auto": false
+    },
+    "D9": {
+     "type": "radius",
+     "refs": [
+      "A4"
+     ],
+     "value": 15
+    },
+    "K45": {
+     "type": "fix",
+     "refs": [
+      "P49"
+     ],
+     "auto": false
+    },
+    "D10": {
+     "type": "diameter",
+     "refs": [
+      "C6"
+     ],
+     "value": 4.5
+    },
+    "K46": {
+     "type": "fix",
+     "refs": [
+      "P50"
+     ],
+     "auto": false
+    },
+    "D11": {
+     "type": "diameter",
+     "refs": [
+      "C7"
+     ],
+     "value": 4.5
+    },
+    "K47": {
+     "type": "fix",
+     "refs": [
+      "P51"
+     ],
+     "auto": false
+    },
+    "D12": {
+     "type": "diameter",
+     "refs": [
+      "C8"
+     ],
+     "value": 4.5
+    },
+    "K48": {
+     "type": "fix",
+     "refs": [
+      "P52"
+     ],
+     "auto": false
+    },
+    "K49": {
+     "type": "fix",
+     "refs": [
+      "P53"
+     ],
+     "auto": false
+    },
+    "K50": {
+     "type": "fix",
+     "refs": [
+      "P54"
+     ],
+     "auto": false
+    },
+    "K51": {
+     "type": "fix",
+     "refs": [
+      "P55"
+     ],
+     "auto": false
+    },
+    "K52": {
+     "type": "fix",
+     "refs": [
+      "P56"
+     ],
+     "auto": false
+    },
+    "K53": {
+     "type": "fix",
+     "refs": [
+      "P57"
+     ],
+     "auto": false
+    },
+    "K54": {
+     "type": "fix",
+     "refs": [
+      "P58"
+     ],
+     "auto": false
+    },
+    "K55": {
+     "type": "fix",
+     "refs": [
+      "P59"
+     ],
+     "auto": false
+    },
+    "K56": {
+     "type": "fix",
+     "refs": [
+      "P60"
+     ],
+     "auto": false
+    },
+    "K57": {
+     "type": "fix",
+     "refs": [
+      "P61"
+     ],
+     "auto": false
+    },
+    "K58": {
+     "type": "fix",
+     "refs": [
+      "P62"
+     ],
+     "auto": false
+    },
+    "K59": {
+     "type": "fix",
+     "refs": [
+      "P63"
+     ],
+     "auto": false
+    },
+    "K60": {
+     "type": "fix",
+     "refs": [
+      "P64"
+     ],
+     "auto": false
+    },
+    "K61": {
+     "type": "fix",
+     "refs": [
+      "P65"
+     ],
+     "auto": false
+    },
+    "K62": {
+     "type": "fix",
+     "refs": [
+      "P66"
+     ],
+     "auto": false
+    },
+    "K63": {
+     "type": "fix",
+     "refs": [
+      "P67"
+     ],
+     "auto": false
+    },
+    "K64": {
+     "type": "fix",
+     "refs": [
+      "P68"
+     ],
+     "auto": false
+    },
+    "K65": {
+     "type": "fix",
+     "refs": [
+      "P69"
+     ],
+     "auto": false
+    },
+    "K66": {
+     "type": "fix",
+     "refs": [
+      "P70"
+     ],
+     "auto": false
+    },
+    "K67": {
+     "type": "fix",
+     "refs": [
+      "P71"
+     ],
+     "auto": false
+    },
+    "K68": {
+     "type": "fix",
+     "refs": [
+      "P72"
+     ],
+     "auto": false
+    },
+    "K69": {
+     "type": "fix",
+     "refs": [
+      "P73"
+     ],
+     "auto": false
+    },
+    "K70": {
+     "type": "fix",
+     "refs": [
+      "P74"
+     ],
+     "auto": false
+    },
+    "K71": {
+     "type": "fix",
+     "refs": [
+      "P75"
+     ],
+     "auto": false
+    },
+    "K72": {
+     "type": "fix",
+     "refs": [
+      "P76"
+     ],
+     "auto": false
+    },
+    "K73": {
+     "type": "fix",
+     "refs": [
+      "P77"
+     ],
+     "auto": false
+    },
+    "K74": {
+     "type": "fix",
+     "refs": [
+      "P78"
+     ],
+     "auto": false
+    },
+    "K75": {
+     "type": "fix",
+     "refs": [
+      "P79"
+     ],
+     "auto": false
+    },
+    "K76": {
+     "type": "fix",
+     "refs": [
+      "P80"
+     ],
+     "auto": false
+    },
+    "K77": {
+     "type": "fix",
+     "refs": [
+      "P81"
+     ],
+     "auto": false
+    },
+    "K78": {
+     "type": "fix",
+     "refs": [
+      "P82"
+     ],
+     "auto": false
+    },
+    "K79": {
+     "type": "fix",
+     "refs": [
+      "P83"
+     ],
+     "auto": false
+    },
+    "D13": {
+     "type": "diameter",
+     "refs": [
+      "C9"
+     ],
+     "value": 28
+    },
+    "K80": {
+     "type": "on_line",
+     "refs": [
+      "P85",
+      "C9"
+     ],
+     "auto": false
+    },
+    "K81": {
+     "type": "on_line",
+     "refs": [
+      "P86",
+      "C9"
+     ],
+     "auto": false
+    },
+    "K82": {
+     "type": "on_line",
+     "refs": [
+      "P87",
+      "C9"
+     ],
+     "auto": false
+    },
+    "K83": {
+     "type": "on_line",
+     "refs": [
+      "P88",
+      "C9"
+     ],
+     "auto": false
+    },
+    "K84": {
+     "type": "on_line",
+     "refs": [
+      "P89",
+      "C9"
+     ],
+     "auto": false
+    },
+    "K85": {
+     "type": "on_line",
+     "refs": [
+      "P90",
+      "C9"
+     ],
+     "auto": false
+    },
+    "K86": {
+     "type": "equal",
+     "refs": [
+      "L68",
+      "L69"
+     ],
+     "auto": false
+    },
+    "K87": {
+     "type": "equal",
+     "refs": [
+      "L68",
+      "L70"
+     ],
+     "auto": false
+    },
+    "K88": {
+     "type": "equal",
+     "refs": [
+      "L68",
+      "L71"
+     ],
+     "auto": false
+    },
+    "K89": {
+     "type": "equal",
+     "refs": [
+      "L68",
+      "L72"
+     ],
+     "auto": false
+    },
+    "K90": {
+     "type": "equal",
+     "refs": [
+      "L68",
+      "L73"
+     ],
+     "auto": false
+    },
+    "D14": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P84"
+     ],
+     "value": 47.5
+    },
+    "D15": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P84"
+     ],
+     "value": 332.5
+    }
+   }
+  },
+  {
+   "id": "TG5",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S6"
+  },
+  {
+   "id": "S7",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Porta",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": 54.5,
+     "y": 344.62435565298216,
+     "construction": true,
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": 61.5,
+     "y": 332.5,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P5",
+     "b": "P6",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": 40.5,
+     "y": 344.62435565298216,
+     "construction": true,
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P7",
+     "b": "P5",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P8": {
+     "kind": "point",
+     "x": 33.5,
+     "y": 332.5,
+     "construction": true,
+     "ref": true
+    },
+    "L7": {
+     "kind": "line",
+     "a": "P8",
+     "b": "P7",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P9": {
+     "kind": "point",
+     "x": 40.49999999999999,
+     "y": 320.37564434701784,
+     "construction": true,
+     "ref": true
+    },
+    "L8": {
+     "kind": "line",
+     "a": "P9",
+     "b": "P8",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P10": {
+     "kind": "point",
+     "x": 54.5,
+     "y": 320.37564434701784,
+     "construction": true,
+     "ref": true
+    },
+    "L9": {
+     "kind": "line",
+     "a": "P10",
+     "b": "P9",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "L10": {
+     "kind": "line",
+     "a": "P6",
+     "b": "P10",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P11": {
+     "kind": "point",
+     "x": 45.5,
+     "y": 413.32,
+     "construction": true,
+     "ref": true
+    },
+    "P12": {
+     "kind": "point",
+     "x": 45.5,
+     "y": 415.99922800662586,
+     "construction": true,
+     "ref": true
+    },
+    "L11": {
+     "kind": "line",
+     "a": "P11",
+     "b": "P12",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P13": {
+     "kind": "point",
+     "x": 49.42187611225315,
+     "y": 415.99922800662586,
+     "construction": true,
+     "ref": true
+    },
+    "L12": {
+     "kind": "line",
+     "a": "P12",
+     "b": "P13",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P14": {
+     "kind": "point",
+     "x": 42.9165003655773,
+     "y": 412.5016909881116,
+     "construction": true,
+     "ref": true
+    },
+    "L13": {
+     "kind": "line",
+     "a": "P14",
+     "b": "P11",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P15": {
+     "kind": "point",
+     "x": 49.42187611225315,
+     "y": 413.31922800662585,
+     "construction": true,
+     "ref": true
+    },
+    "L14": {
+     "kind": "line",
+     "a": "P13",
+     "b": "P15",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P16": {
+     "kind": "point",
+     "x": 40.60851629914487,
+     "y": 411.08137076045375,
+     "construction": true,
+     "ref": true
+    },
+    "L15": {
+     "kind": "line",
+     "a": "P16",
+     "b": "P14",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P17": {
+     "kind": "point",
+     "x": 52.00559821838215,
+     "y": 412.50162169653504,
+     "construction": true,
+     "ref": true
+    },
+    "L16": {
+     "kind": "line",
+     "a": "P15",
+     "b": "P17",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P18": {
+     "kind": "point",
+     "x": 38.731375409344224,
+     "y": 409.1267756412952,
+     "construction": true,
+     "ref": true
+    },
+    "L17": {
+     "kind": "line",
+     "a": "P18",
+     "b": "P16",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P19": {
+     "kind": "point",
+     "x": 54.31362492502148,
+     "y": 411.0813707604538,
+     "construction": true,
+     "ref": true
+    },
+    "L18": {
+     "kind": "line",
+     "a": "P17",
+     "b": "P19",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P20": {
+     "kind": "point",
+     "x": 37.37370153581905,
+     "y": 406.7813925908859,
+     "construction": true,
+     "ref": true
+    },
+    "L19": {
+     "kind": "line",
+     "a": "P20",
+     "b": "P18",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P21": {
+     "kind": "point",
+     "x": 56.26862459065577,
+     "y": 409.204651200325,
+     "construction": true,
+     "ref": true
+    },
+    "L20": {
+     "kind": "line",
+     "a": "P19",
+     "b": "P21",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P22": {
+     "kind": "point",
+     "x": 36.547124444061296,
+     "y": 404.2005263968764,
+     "construction": true,
+     "ref": true
+    },
+    "L21": {
+     "kind": "line",
+     "a": "P22",
+     "b": "P20",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P23": {
+     "kind": "point",
+     "x": 57.62629846418094,
+     "y": 406.8592681499157,
+     "construction": true,
+     "ref": true
+    },
+    "L22": {
+     "kind": "line",
+     "a": "P21",
+     "b": "P23",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P24": {
+     "kind": "point",
+     "x": 36.547124444061296,
+     "y": 401.49052639687636,
+     "construction": true,
+     "ref": true
+    },
+    "L23": {
+     "kind": "line",
+     "a": "P24",
+     "b": "P22",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P25": {
+     "kind": "point",
+     "x": 58.452875555938704,
+     "y": 404.27840195590613,
+     "construction": true,
+     "ref": true
+    },
+    "L24": {
+     "kind": "line",
+     "a": "P23",
+     "b": "P25",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P26": {
+     "kind": "point",
+     "x": 37.122062277433876,
+     "y": 398.8422162776198,
+     "construction": true,
+     "ref": true
+    },
+    "L25": {
+     "kind": "line",
+     "a": "P26",
+     "b": "P24",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P27": {
+     "kind": "point",
+     "x": 58.452875555938704,
+     "y": 401.56840195590615,
+     "construction": true,
+     "ref": true
+    },
+    "L26": {
+     "kind": "line",
+     "a": "P25",
+     "b": "P27",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P28": {
+     "kind": "point",
+     "x": 38.32617608456319,
+     "y": 396.41441687497536,
+     "construction": true,
+     "ref": true
+    },
+    "L27": {
+     "kind": "line",
+     "a": "P28",
+     "b": "P26",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P29": {
+     "kind": "point",
+     "x": 57.87793772256612,
+     "y": 398.9200918366496,
+     "construction": true,
+     "ref": true
+    },
+    "L28": {
+     "kind": "line",
+     "a": "P27",
+     "b": "P29",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P30": {
+     "kind": "point",
+     "x": 40.11005195586952,
+     "y": 394.3743465634981,
+     "construction": true,
+     "ref": true
+    },
+    "L29": {
+     "kind": "line",
+     "a": "P30",
+     "b": "P28",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P31": {
+     "kind": "point",
+     "x": 56.673823915436806,
+     "y": 396.49229243400515,
+     "construction": true,
+     "ref": true
+    },
+    "L30": {
+     "kind": "line",
+     "a": "P29",
+     "b": "P31",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P32": {
+     "kind": "point",
+     "x": 42.323188503349385,
+     "y": 392.81033677382,
+     "construction": true,
+     "ref": true
+    },
+    "L31": {
+     "kind": "line",
+     "a": "P32",
+     "b": "P30",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P33": {
+     "kind": "point",
+     "x": 54.95220824561574,
+     "y": 394.39941415626737,
+     "construction": true,
+     "ref": true
+    },
+    "L32": {
+     "kind": "line",
+     "a": "P31",
+     "b": "P33",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P34": {
+     "kind": "point",
+     "x": 44.85059252875131,
+     "y": 391.8324160754082,
+     "construction": true,
+     "ref": true
+    },
+    "L33": {
+     "kind": "line",
+     "a": "P34",
+     "b": "P32",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P35": {
+     "kind": "point",
+     "x": 52.75700140511208,
+     "y": 392.81033677382,
+     "construction": true,
+     "ref": true
+    },
+    "L34": {
+     "kind": "line",
+     "a": "P33",
+     "b": "P35",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P36": {
+     "kind": "point",
+     "x": 47.54009495423073,
+     "y": 391.4997349918758,
+     "construction": true,
+     "ref": true
+    },
+    "L35": {
+     "kind": "line",
+     "a": "P36",
+     "b": "P34",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P37": {
+     "kind": "point",
+     "x": 50.22959737971016,
+     "y": 391.8324160754082,
+     "construction": true,
+     "ref": true
+    },
+    "L36": {
+     "kind": "line",
+     "a": "P35",
+     "b": "P37",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "L37": {
+     "kind": "line",
+     "a": "P37",
+     "b": "P36",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P38": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C1": {
+     "kind": "circle",
+     "center": "P38",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P39": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C2": {
+     "kind": "circle",
+     "center": "P39",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P40": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 467.5,
+     "construction": true,
+     "ref": true
+    },
+    "C3": {
+     "kind": "circle",
+     "center": "P40",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P41": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 592.5,
+     "construction": true,
+     "ref": true
+    },
+    "C4": {
+     "kind": "circle",
+     "center": "P41",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P42": {
+     "kind": "point",
+     "x": 77.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C5": {
+     "kind": "circle",
+     "center": "P42",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P43": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "P44": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 482.5,
+     "construction": true,
+     "ref": true
+    },
+    "L38": {
+     "kind": "line",
+     "a": "P43",
+     "b": "P44",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P45": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P46": {
+     "kind": "point",
+     "x": 107.50000000000004,
+     "y": 497.50000000000006,
+     "construction": true,
+     "ref": true
+    },
+    "A1": {
+     "kind": "arc",
+     "center": "P46",
+     "start": "P45",
+     "end": "P44",
+     "construction": true,
+     "ref": true
+    },
+    "P47": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 497.5,
+     "construction": true,
+     "ref": true
+    },
+    "P48": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 497.5000000000001,
+     "construction": true,
+     "ref": true
+    },
+    "A2": {
+     "kind": "arc",
+     "center": "P48",
+     "start": "P43",
+     "end": "P47",
+     "construction": true,
+     "ref": true
+    },
+    "P49": {
+     "kind": "point",
+     "x": 92.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L39": {
+     "kind": "line",
+     "a": "P45",
+     "b": "P49",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P50": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "L40": {
+     "kind": "line",
+     "a": "P50",
+     "b": "P47",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P51": {
+     "kind": "point",
+     "x": 107.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P52": {
+     "kind": "point",
+     "x": 107.50000000000006,
+     "y": 687.5,
+     "construction": true,
+     "ref": true
+    },
+    "A3": {
+     "kind": "arc",
+     "center": "P52",
+     "start": "P51",
+     "end": "P49",
+     "construction": true,
+     "ref": true
+    },
+    "P53": {
+     "kind": "point",
+     "x": 497.5,
+     "y": 702.5,
+     "construction": true,
+     "ref": true
+    },
+    "P54": {
+     "kind": "point",
+     "x": 497.4999999999999,
+     "y": 687.4999999999999,
+     "construction": true,
+     "ref": true
+    },
+    "A4": {
+     "kind": "arc",
+     "center": "P54",
+     "start": "P50",
+     "end": "P53",
+     "construction": true,
+     "ref": true
+    },
+    "L41": {
+     "kind": "line",
+     "a": "P51",
+     "b": "P53",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P55": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 592.5,
+     "construction": true,
+     "ref": true
+    },
+    "C6": {
+     "kind": "circle",
+     "center": "P55",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P56": {
+     "kind": "point",
+     "x": 302.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C7": {
+     "kind": "circle",
+     "center": "P56",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P57": {
+     "kind": "point",
+     "x": 527.5,
+     "y": 717.5,
+     "construction": true,
+     "ref": true
+    },
+    "C8": {
+     "kind": "circle",
+     "center": "P57",
+     "r": 2.25,
+     "construction": true,
+     "ref": true
+    },
+    "P58": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P59": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L42": {
+     "kind": "line",
+     "a": "P58",
+     "b": "P59",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P60": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P61": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L43": {
+     "kind": "line",
+     "a": "P60",
+     "b": "P61",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L44": {
+     "kind": "line",
+     "a": "P59",
+     "b": "P60",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L45": {
+     "kind": "line",
+     "a": "P61",
+     "b": "P58",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P62": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "P63": {
+     "kind": "point",
+     "x": -1.5000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L46": {
+     "kind": "line",
+     "a": "P62",
+     "b": "P63",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P64": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P65": {
+     "kind": "point",
+     "x": -3.0000000000000004,
+     "y": -4.440892098500626e-16,
+     "construction": true,
+     "ref": true
+    },
+    "L47": {
+     "kind": "line",
+     "a": "P64",
+     "b": "P65",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L48": {
+     "kind": "line",
+     "a": "P63",
+     "b": "P64",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L49": {
+     "kind": "line",
+     "a": "P65",
+     "b": "P62",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P66": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P67": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L50": {
+     "kind": "line",
+     "a": "P66",
+     "b": "P67",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P68": {
+     "kind": "point",
+     "x": -3.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P69": {
+     "kind": "point",
+     "x": -4.440892098500626e-16,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L51": {
+     "kind": "line",
+     "a": "P68",
+     "b": "P69",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L52": {
+     "kind": "line",
+     "a": "P67",
+     "b": "P68",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L53": {
+     "kind": "line",
+     "a": "P69",
+     "b": "P66",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P70": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P71": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L54": {
+     "kind": "line",
+     "a": "P70",
+     "b": "P71",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P72": {
+     "kind": "point",
+     "x": 0.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P73": {
+     "kind": "point",
+     "x": -3.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L55": {
+     "kind": "line",
+     "a": "P72",
+     "b": "P73",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L56": {
+     "kind": "line",
+     "a": "P71",
+     "b": "P72",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L57": {
+     "kind": "line",
+     "a": "P73",
+     "b": "P70",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P74": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P75": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.5000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L58": {
+     "kind": "line",
+     "a": "P74",
+     "b": "P75",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P76": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "P77": {
+     "kind": "point",
+     "x": 599.0,
+     "y": -3.0000000000000004,
+     "construction": true,
+     "ref": true
+    },
+    "L59": {
+     "kind": "line",
+     "a": "P76",
+     "b": "P77",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L60": {
+     "kind": "line",
+     "a": "P75",
+     "b": "P76",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L61": {
+     "kind": "line",
+     "a": "P77",
+     "b": "P74",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P78": {
+     "kind": "point",
+     "x": 600.5,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "P79": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L62": {
+     "kind": "line",
+     "a": "P78",
+     "b": "P79",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P80": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P81": {
+     "kind": "point",
+     "x": 602.0,
+     "y": -1.0,
+     "construction": true,
+     "ref": true
+    },
+    "L63": {
+     "kind": "line",
+     "a": "P80",
+     "b": "P81",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L64": {
+     "kind": "line",
+     "a": "P79",
+     "b": "P80",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L65": {
+     "kind": "line",
+     "a": "P81",
+     "b": "P78",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P82": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "P83": {
+     "kind": "point",
+     "x": 600.5,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "L66": {
+     "kind": "line",
+     "a": "P82",
+     "b": "P83",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P84": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.0,
+     "construction": true,
+     "ref": true
+    },
+    "P85": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 799.0,
+     "construction": true,
+     "ref": true
+    },
+    "L67": {
+     "kind": "line",
+     "a": "P84",
+     "b": "P85",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L68": {
+     "kind": "line",
+     "a": "P83",
+     "b": "P84",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L69": {
+     "kind": "line",
+     "a": "P85",
+     "b": "P82",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P86": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "P87": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 800.5,
+     "construction": true,
+     "ref": true
+    },
+    "L70": {
+     "kind": "line",
+     "a": "P86",
+     "b": "P87",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P88": {
+     "kind": "point",
+     "x": 599.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "P89": {
+     "kind": "point",
+     "x": 602.0,
+     "y": 802.0,
+     "construction": true,
+     "ref": true
+    },
+    "L71": {
+     "kind": "line",
+     "a": "P88",
+     "b": "P89",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L72": {
+     "kind": "line",
+     "a": "P87",
+     "b": "P88",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "L73": {
+     "kind": "line",
+     "a": "P89",
+     "b": "P86",
+     "construction": true,
+     "label": "sagoma vicina",
+     "ref": true,
+     "proj": true
+    },
+    "P90": {
+     "kind": "point",
+     "x": 72.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "P91": {
+     "kind": "point",
+     "x": 132.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "L74": {
+     "kind": "line",
+     "a": "P90",
+     "b": "P91",
+     "construction": false,
+     "label": "lato L74"
+    },
+    "P92": {
+     "kind": "point",
+     "x": 72.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "P93": {
+     "kind": "point",
+     "x": 132.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "L75": {
+     "kind": "line",
+     "a": "P92",
+     "b": "P93",
+     "construction": false,
+     "label": "lato L75"
+    },
+    "P94": {
+     "kind": "point",
+     "x": 72.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "P95": {
+     "kind": "point",
+     "x": 132.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "L76": {
+     "kind": "line",
+     "a": "P94",
+     "b": "P95",
+     "construction": false,
+     "label": "lato L76"
+    },
+    "P96": {
+     "kind": "point",
+     "x": 167.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "P97": {
+     "kind": "point",
+     "x": 227.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "L77": {
+     "kind": "line",
+     "a": "P96",
+     "b": "P97",
+     "construction": false,
+     "label": "lato L77"
+    },
+    "P98": {
+     "kind": "point",
+     "x": 167.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "P99": {
+     "kind": "point",
+     "x": 227.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "L78": {
+     "kind": "line",
+     "a": "P98",
+     "b": "P99",
+     "construction": false,
+     "label": "lato L78"
+    },
+    "P100": {
+     "kind": "point",
+     "x": 167.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "P101": {
+     "kind": "point",
+     "x": 227.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "L79": {
+     "kind": "line",
+     "a": "P100",
+     "b": "P101",
+     "construction": false,
+     "label": "lato L79"
+    },
+    "P102": {
+     "kind": "point",
+     "x": 262.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "P103": {
+     "kind": "point",
+     "x": 322.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "L80": {
+     "kind": "line",
+     "a": "P102",
+     "b": "P103",
+     "construction": false,
+     "label": "lato L80"
+    },
+    "P104": {
+     "kind": "point",
+     "x": 262.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "P105": {
+     "kind": "point",
+     "x": 322.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "L81": {
+     "kind": "line",
+     "a": "P104",
+     "b": "P105",
+     "construction": false,
+     "label": "lato L81"
+    },
+    "P106": {
+     "kind": "point",
+     "x": 262.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "P107": {
+     "kind": "point",
+     "x": 322.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "L82": {
+     "kind": "line",
+     "a": "P106",
+     "b": "P107",
+     "construction": false,
+     "label": "lato L82"
+    },
+    "P108": {
+     "kind": "point",
+     "x": 357.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "P109": {
+     "kind": "point",
+     "x": 417.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "L83": {
+     "kind": "line",
+     "a": "P108",
+     "b": "P109",
+     "construction": false,
+     "label": "lato L83"
+    },
+    "P110": {
+     "kind": "point",
+     "x": 357.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "P111": {
+     "kind": "point",
+     "x": 417.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "L84": {
+     "kind": "line",
+     "a": "P110",
+     "b": "P111",
+     "construction": false,
+     "label": "lato L84"
+    },
+    "P112": {
+     "kind": "point",
+     "x": 357.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "P113": {
+     "kind": "point",
+     "x": 417.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "L85": {
+     "kind": "line",
+     "a": "P112",
+     "b": "P113",
+     "construction": false,
+     "label": "lato L85"
+    },
+    "P114": {
+     "kind": "point",
+     "x": 452.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "P115": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 72.5,
+     "construction": false
+    },
+    "L86": {
+     "kind": "line",
+     "a": "P114",
+     "b": "P115",
+     "construction": false,
+     "label": "lato L86"
+    },
+    "P116": {
+     "kind": "point",
+     "x": 452.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "P117": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 94.5,
+     "construction": false
+    },
+    "L87": {
+     "kind": "line",
+     "a": "P116",
+     "b": "P117",
+     "construction": false,
+     "label": "lato L87"
+    },
+    "P118": {
+     "kind": "point",
+     "x": 452.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "P119": {
+     "kind": "point",
+     "x": 512.5,
+     "y": 116.5,
+     "construction": false
+    },
+    "L88": {
+     "kind": "line",
+     "a": "P118",
+     "b": "P119",
+     "construction": false,
+     "label": "lato L88"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "K7": {
+     "type": "fix",
+     "refs": [
+      "P7"
+     ],
+     "auto": false
+    },
+    "K8": {
+     "type": "fix",
+     "refs": [
+      "P8"
+     ],
+     "auto": false
+    },
+    "K9": {
+     "type": "fix",
+     "refs": [
+      "P9"
+     ],
+     "auto": false
+    },
+    "K10": {
+     "type": "fix",
+     "refs": [
+      "P10"
+     ],
+     "auto": false
+    },
+    "K11": {
+     "type": "fix",
+     "refs": [
+      "P11"
+     ],
+     "auto": false
+    },
+    "K12": {
+     "type": "fix",
+     "refs": [
+      "P12"
+     ],
+     "auto": false
+    },
+    "K13": {
+     "type": "fix",
+     "refs": [
+      "P13"
+     ],
+     "auto": false
+    },
+    "K14": {
+     "type": "fix",
+     "refs": [
+      "P14"
+     ],
+     "auto": false
+    },
+    "K15": {
+     "type": "fix",
+     "refs": [
+      "P15"
+     ],
+     "auto": false
+    },
+    "K16": {
+     "type": "fix",
+     "refs": [
+      "P16"
+     ],
+     "auto": false
+    },
+    "K17": {
+     "type": "fix",
+     "refs": [
+      "P17"
+     ],
+     "auto": false
+    },
+    "K18": {
+     "type": "fix",
+     "refs": [
+      "P18"
+     ],
+     "auto": false
+    },
+    "K19": {
+     "type": "fix",
+     "refs": [
+      "P19"
+     ],
+     "auto": false
+    },
+    "K20": {
+     "type": "fix",
+     "refs": [
+      "P20"
+     ],
+     "auto": false
+    },
+    "K21": {
+     "type": "fix",
+     "refs": [
+      "P21"
+     ],
+     "auto": false
+    },
+    "K22": {
+     "type": "fix",
+     "refs": [
+      "P22"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "fix",
+     "refs": [
+      "P23"
+     ],
+     "auto": false
+    },
+    "K24": {
+     "type": "fix",
+     "refs": [
+      "P24"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "fix",
+     "refs": [
+      "P25"
+     ],
+     "auto": false
+    },
+    "K26": {
+     "type": "fix",
+     "refs": [
+      "P26"
+     ],
+     "auto": false
+    },
+    "K27": {
+     "type": "fix",
+     "refs": [
+      "P27"
+     ],
+     "auto": false
+    },
+    "K28": {
+     "type": "fix",
+     "refs": [
+      "P28"
+     ],
+     "auto": false
+    },
+    "K29": {
+     "type": "fix",
+     "refs": [
+      "P29"
+     ],
+     "auto": false
+    },
+    "K30": {
+     "type": "fix",
+     "refs": [
+      "P30"
+     ],
+     "auto": false
+    },
+    "K31": {
+     "type": "fix",
+     "refs": [
+      "P31"
+     ],
+     "auto": false
+    },
+    "K32": {
+     "type": "fix",
+     "refs": [
+      "P32"
+     ],
+     "auto": false
+    },
+    "K33": {
+     "type": "fix",
+     "refs": [
+      "P33"
+     ],
+     "auto": false
+    },
+    "K34": {
+     "type": "fix",
+     "refs": [
+      "P34"
+     ],
+     "auto": false
+    },
+    "K35": {
+     "type": "fix",
+     "refs": [
+      "P35"
+     ],
+     "auto": false
+    },
+    "K36": {
+     "type": "fix",
+     "refs": [
+      "P36"
+     ],
+     "auto": false
+    },
+    "K37": {
+     "type": "fix",
+     "refs": [
+      "P37"
+     ],
+     "auto": false
+    },
+    "K38": {
+     "type": "fix",
+     "refs": [
+      "P38"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "diameter",
+     "refs": [
+      "C1"
+     ],
+     "value": 4.5
+    },
+    "K39": {
+     "type": "fix",
+     "refs": [
+      "P39"
+     ],
+     "auto": false
+    },
+    "D2": {
+     "type": "diameter",
+     "refs": [
+      "C2"
+     ],
+     "value": 4.5
+    },
+    "K40": {
+     "type": "fix",
+     "refs": [
+      "P40"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "diameter",
+     "refs": [
+      "C3"
+     ],
+     "value": 4.5
+    },
+    "K41": {
+     "type": "fix",
+     "refs": [
+      "P41"
+     ],
+     "auto": false
+    },
+    "D4": {
+     "type": "diameter",
+     "refs": [
+      "C4"
+     ],
+     "value": 4.5
+    },
+    "K42": {
+     "type": "fix",
+     "refs": [
+      "P42"
+     ],
+     "auto": false
+    },
+    "D5": {
+     "type": "diameter",
+     "refs": [
+      "C5"
+     ],
+     "value": 4.5
+    },
+    "K43": {
+     "type": "fix",
+     "refs": [
+      "P43"
+     ],
+     "auto": false
+    },
+    "K44": {
+     "type": "fix",
+     "refs": [
+      "P44"
+     ],
+     "auto": false
+    },
+    "K45": {
+     "type": "fix",
+     "refs": [
+      "P45"
+     ],
+     "auto": false
+    },
+    "D6": {
+     "type": "radius",
+     "refs": [
+      "A1"
+     ],
+     "value": 15
+    },
+    "K46": {
+     "type": "fix",
+     "refs": [
+      "P47"
+     ],
+     "auto": false
+    },
+    "D7": {
+     "type": "radius",
+     "refs": [
+      "A2"
+     ],
+     "value": 15
+    },
+    "K47": {
+     "type": "fix",
+     "refs": [
+      "P49"
+     ],
+     "auto": false
+    },
+    "K48": {
+     "type": "fix",
+     "refs": [
+      "P50"
+     ],
+     "auto": false
+    },
+    "K49": {
+     "type": "fix",
+     "refs": [
+      "P51"
+     ],
+     "auto": false
+    },
+    "D8": {
+     "type": "radius",
+     "refs": [
+      "A3"
+     ],
+     "value": 15
+    },
+    "K50": {
+     "type": "fix",
+     "refs": [
+      "P53"
+     ],
+     "auto": false
+    },
+    "D9": {
+     "type": "radius",
+     "refs": [
+      "A4"
+     ],
+     "value": 15
+    },
+    "K51": {
+     "type": "fix",
+     "refs": [
+      "P55"
+     ],
+     "auto": false
+    },
+    "D10": {
+     "type": "diameter",
+     "refs": [
+      "C6"
+     ],
+     "value": 4.5
+    },
+    "K52": {
+     "type": "fix",
+     "refs": [
+      "P56"
+     ],
+     "auto": false
+    },
+    "D11": {
+     "type": "diameter",
+     "refs": [
+      "C7"
+     ],
+     "value": 4.5
+    },
+    "K53": {
+     "type": "fix",
+     "refs": [
+      "P57"
+     ],
+     "auto": false
+    },
+    "D12": {
+     "type": "diameter",
+     "refs": [
+      "C8"
+     ],
+     "value": 4.5
+    },
+    "K54": {
+     "type": "fix",
+     "refs": [
+      "P58"
+     ],
+     "auto": false
+    },
+    "K55": {
+     "type": "fix",
+     "refs": [
+      "P59"
+     ],
+     "auto": false
+    },
+    "K56": {
+     "type": "fix",
+     "refs": [
+      "P60"
+     ],
+     "auto": false
+    },
+    "K57": {
+     "type": "fix",
+     "refs": [
+      "P61"
+     ],
+     "auto": false
+    },
+    "K58": {
+     "type": "fix",
+     "refs": [
+      "P62"
+     ],
+     "auto": false
+    },
+    "K59": {
+     "type": "fix",
+     "refs": [
+      "P63"
+     ],
+     "auto": false
+    },
+    "K60": {
+     "type": "fix",
+     "refs": [
+      "P64"
+     ],
+     "auto": false
+    },
+    "K61": {
+     "type": "fix",
+     "refs": [
+      "P65"
+     ],
+     "auto": false
+    },
+    "K62": {
+     "type": "fix",
+     "refs": [
+      "P66"
+     ],
+     "auto": false
+    },
+    "K63": {
+     "type": "fix",
+     "refs": [
+      "P67"
+     ],
+     "auto": false
+    },
+    "K64": {
+     "type": "fix",
+     "refs": [
+      "P68"
+     ],
+     "auto": false
+    },
+    "K65": {
+     "type": "fix",
+     "refs": [
+      "P69"
+     ],
+     "auto": false
+    },
+    "K66": {
+     "type": "fix",
+     "refs": [
+      "P70"
+     ],
+     "auto": false
+    },
+    "K67": {
+     "type": "fix",
+     "refs": [
+      "P71"
+     ],
+     "auto": false
+    },
+    "K68": {
+     "type": "fix",
+     "refs": [
+      "P72"
+     ],
+     "auto": false
+    },
+    "K69": {
+     "type": "fix",
+     "refs": [
+      "P73"
+     ],
+     "auto": false
+    },
+    "K70": {
+     "type": "fix",
+     "refs": [
+      "P74"
+     ],
+     "auto": false
+    },
+    "K71": {
+     "type": "fix",
+     "refs": [
+      "P75"
+     ],
+     "auto": false
+    },
+    "K72": {
+     "type": "fix",
+     "refs": [
+      "P76"
+     ],
+     "auto": false
+    },
+    "K73": {
+     "type": "fix",
+     "refs": [
+      "P77"
+     ],
+     "auto": false
+    },
+    "K74": {
+     "type": "fix",
+     "refs": [
+      "P78"
+     ],
+     "auto": false
+    },
+    "K75": {
+     "type": "fix",
+     "refs": [
+      "P79"
+     ],
+     "auto": false
+    },
+    "K76": {
+     "type": "fix",
+     "refs": [
+      "P80"
+     ],
+     "auto": false
+    },
+    "K77": {
+     "type": "fix",
+     "refs": [
+      "P81"
+     ],
+     "auto": false
+    },
+    "K78": {
+     "type": "fix",
+     "refs": [
+      "P82"
+     ],
+     "auto": false
+    },
+    "K79": {
+     "type": "fix",
+     "refs": [
+      "P83"
+     ],
+     "auto": false
+    },
+    "K80": {
+     "type": "fix",
+     "refs": [
+      "P84"
+     ],
+     "auto": false
+    },
+    "K81": {
+     "type": "fix",
+     "refs": [
+      "P85"
+     ],
+     "auto": false
+    },
+    "K82": {
+     "type": "fix",
+     "refs": [
+      "P86"
+     ],
+     "auto": false
+    },
+    "K83": {
+     "type": "fix",
+     "refs": [
+      "P87"
+     ],
+     "auto": false
+    },
+    "K84": {
+     "type": "fix",
+     "refs": [
+      "P88"
+     ],
+     "auto": false
+    },
+    "K85": {
+     "type": "fix",
+     "refs": [
+      "P89"
+     ],
+     "auto": false
+    },
+    "K86": {
+     "type": "horizontal",
+     "refs": [
+      "L74"
+     ],
+     "auto": true
+    },
+    "D13": {
+     "type": "length",
+     "refs": [
+      "L74"
+     ],
+     "value": 60
+    },
+    "D14": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P90"
+     ],
+     "value": 72.5
+    },
+    "D15": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P90"
+     ],
+     "value": 72.5
+    },
+    "K87": {
+     "type": "horizontal",
+     "refs": [
+      "L75"
+     ],
+     "auto": true
+    },
+    "D16": {
+     "type": "length",
+     "refs": [
+      "L75"
+     ],
+     "value": 60
+    },
+    "D17": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P92"
+     ],
+     "value": 72.5
+    },
+    "D18": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P92"
+     ],
+     "value": 94.5
+    },
+    "K88": {
+     "type": "horizontal",
+     "refs": [
+      "L76"
+     ],
+     "auto": true
+    },
+    "D19": {
+     "type": "length",
+     "refs": [
+      "L76"
+     ],
+     "value": 60
+    },
+    "D20": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P94"
+     ],
+     "value": 72.5
+    },
+    "D21": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P94"
+     ],
+     "value": 116.5
+    },
+    "K89": {
+     "type": "horizontal",
+     "refs": [
+      "L77"
+     ],
+     "auto": true
+    },
+    "D22": {
+     "type": "length",
+     "refs": [
+      "L77"
+     ],
+     "value": 60
+    },
+    "D23": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P96"
+     ],
+     "value": 167.5
+    },
+    "D24": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P96"
+     ],
+     "value": 72.5
+    },
+    "K90": {
+     "type": "horizontal",
+     "refs": [
+      "L78"
+     ],
+     "auto": true
+    },
+    "D25": {
+     "type": "length",
+     "refs": [
+      "L78"
+     ],
+     "value": 60
+    },
+    "D26": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P98"
+     ],
+     "value": 167.5
+    },
+    "D27": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P98"
+     ],
+     "value": 94.5
+    },
+    "K91": {
+     "type": "horizontal",
+     "refs": [
+      "L79"
+     ],
+     "auto": true
+    },
+    "D28": {
+     "type": "length",
+     "refs": [
+      "L79"
+     ],
+     "value": 60
+    },
+    "D29": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P100"
+     ],
+     "value": 167.5
+    },
+    "D30": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P100"
+     ],
+     "value": 116.5
+    },
+    "K92": {
+     "type": "horizontal",
+     "refs": [
+      "L80"
+     ],
+     "auto": true
+    },
+    "D31": {
+     "type": "length",
+     "refs": [
+      "L80"
+     ],
+     "value": 60
+    },
+    "D32": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P102"
+     ],
+     "value": 262.5
+    },
+    "D33": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P102"
+     ],
+     "value": 72.5
+    },
+    "K93": {
+     "type": "horizontal",
+     "refs": [
+      "L81"
+     ],
+     "auto": true
+    },
+    "D34": {
+     "type": "length",
+     "refs": [
+      "L81"
+     ],
+     "value": 60
+    },
+    "D35": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P104"
+     ],
+     "value": 262.5
+    },
+    "D36": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P104"
+     ],
+     "value": 94.5
+    },
+    "K94": {
+     "type": "horizontal",
+     "refs": [
+      "L82"
+     ],
+     "auto": true
+    },
+    "D37": {
+     "type": "length",
+     "refs": [
+      "L82"
+     ],
+     "value": 60
+    },
+    "D38": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P106"
+     ],
+     "value": 262.5
+    },
+    "D39": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P106"
+     ],
+     "value": 116.5
+    },
+    "K95": {
+     "type": "horizontal",
+     "refs": [
+      "L83"
+     ],
+     "auto": true
+    },
+    "D40": {
+     "type": "length",
+     "refs": [
+      "L83"
+     ],
+     "value": 60
+    },
+    "D41": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P108"
+     ],
+     "value": 357.5
+    },
+    "D42": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P108"
+     ],
+     "value": 72.5
+    },
+    "K96": {
+     "type": "horizontal",
+     "refs": [
+      "L84"
+     ],
+     "auto": true
+    },
+    "D43": {
+     "type": "length",
+     "refs": [
+      "L84"
+     ],
+     "value": 60
+    },
+    "D44": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P110"
+     ],
+     "value": 357.5
+    },
+    "D45": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P110"
+     ],
+     "value": 94.5
+    },
+    "K97": {
+     "type": "horizontal",
+     "refs": [
+      "L85"
+     ],
+     "auto": true
+    },
+    "D46": {
+     "type": "length",
+     "refs": [
+      "L85"
+     ],
+     "value": 60
+    },
+    "D47": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P112"
+     ],
+     "value": 357.5
+    },
+    "D48": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P112"
+     ],
+     "value": 116.5
+    },
+    "K98": {
+     "type": "horizontal",
+     "refs": [
+      "L86"
+     ],
+     "auto": true
+    },
+    "D49": {
+     "type": "length",
+     "refs": [
+      "L86"
+     ],
+     "value": 60
+    },
+    "D50": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P114"
+     ],
+     "value": 452.5
+    },
+    "D51": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P114"
+     ],
+     "value": 72.5
+    },
+    "K99": {
+     "type": "horizontal",
+     "refs": [
+      "L87"
+     ],
+     "auto": true
+    },
+    "D52": {
+     "type": "length",
+     "refs": [
+      "L87"
+     ],
+     "value": 60
+    },
+    "D53": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P116"
+     ],
+     "value": 452.5
+    },
+    "D54": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P116"
+     ],
+     "value": 94.5
+    },
+    "K100": {
+     "type": "horizontal",
+     "refs": [
+      "L88"
+     ],
+     "auto": true
+    },
+    "D55": {
+     "type": "length",
+     "refs": [
+      "L88"
+     ],
+     "value": 60
+    },
+    "D56": {
+     "type": "hdistance",
+     "refs": [
+      "O",
+      "P118"
+     ],
+     "value": 452.5
+    },
+    "D57": {
+     "type": "vdistance",
+     "refs": [
+      "O",
+      "P118"
+     ],
+     "value": 116.5
+    }
+   }
+  },
+  {
+   "id": "FM1",
+   "type": "sheet_form",
+   "name": "Persiane",
+   "sketch": "S7",
+   "kind": "louver",
+   "width": 6,
+   "height": 3
+  }
+ ]
+}

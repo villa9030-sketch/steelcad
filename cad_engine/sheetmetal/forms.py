@@ -79,17 +79,38 @@ def build_form(fdef: dict, ctx):
     else:
         raise FeatureError(f'Forma "{tipo}" sconosciuta.', feature=fid)
 
+    # un taglio con tutti gli attrezzi e un'unione con tutti i pezzi: una booleana (e un giro dei nomi delle facce)
+    # per forma costava 11 dei 18 secondi della cassa del quadro, che ha 24 persiane
+    from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as Mappa
+    from OCP.collections import List_TopoDS_Shape
+
+    def tutti(op, base, pezzi):
+        arg, att = List_TopoDS_Shape(), List_TopoDS_Shape()
+        arg.Append(base)
+        for x in pezzi:
+            att.Append(x.wrapped)
+        op.SetArguments(arg)
+        op.SetTools(att)
+        op.Build()
+        if not op.IsDone():
+            raise FeatureError('Il kernel non è riuscito a fare la forma.', feature=fid)
+        return op
+
     ns = body
-    for attrezzo in togli:
-        op = BRepAlgoAPI_Cut(ns.shape, attrezzo.wrapped)
+    if togli:
+        op = tutti(BRepAlgoAPI_Cut(), ns.shape, togli)
         ns = ns.after(op, op.Shape())
-    for pezzo in metti:
-        op = BRepAlgoAPI_Fuse(ns.shape, pezzo.wrapped)
+    if metti:
+        op = tutti(BRepAlgoAPI_Fuse(), ns.shape, metti)
         ns = ns.after(op, op.Shape())
     if len(bd.Shape.cast(ns.shape).solids()) != 1:
         raise FeatureError('La forma stacca un pezzo o esce dalla lamiera: spostala più dentro la faccia.', feature=fid)
+    con_nome = Mappa()
+    for fs in ns.names.values():
+        for f in fs:
+            con_nome.Add(f)
     for f in _faces_of(ns.shape):
-        if not ns.names_of(f):
+        if not con_nome.Contains(f):
             ns.names.setdefault(f'{fid}/forma', []).append(f)
     flat = data.flat
     if lance:

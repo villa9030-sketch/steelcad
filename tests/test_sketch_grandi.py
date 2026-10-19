@@ -69,3 +69,24 @@ def test_vincolo_doppio_non_blocca_il_taglio():
     r = s.create_from_sketch(sid, 'cut', {})
     assert r['ok'], r.get('message')
     assert 'Ho tolto' in r['message'] and 'doppi' in r['message'] or 'doppio' in r['message']
+
+
+def test_sketch_grande_non_del_tutto_vincolato_si_risolve_sempre_uguale():
+    """Il calcolo a blocchi non deve dipendere dall'ordine casuale degli insiemi di Python (cambia a ogni avvio):
+    la porta del quadro elettrico (sketch S5 da 96 vincoli, non del tutto vincolato) riaperta con due ordini
+    diversi deve dare gli stessi punti. Prima cambiavano di qualche centesimo, e il volume di un mm³."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    radice = Path(__file__).resolve().parents[1]
+    porta = radice / 'tests' / 'data' / 'porta_quadro.steelcad'
+    codice = ('import sys; sys.path.insert(0, r"%s"); from app.service import Service; s = Service(); '
+              's.open(r"%s"); ss = s.doc.solved_sketch("S5"); '
+              'print(sorted((k, round(x, 9), round(y, 9)) for k, (x, y) in ss.points.items()))' % (radice, porta))
+    uscite = []
+    for seme in ('1', '2'):
+        env = dict(os.environ, PYTHONHASHSEED=seme)
+        uscite.append(subprocess.run([sys.executable, '-c', codice], capture_output=True, text=True, env=env,
+                                     timeout=300).stdout)
+    assert uscite[0] and uscite[0] == uscite[1]

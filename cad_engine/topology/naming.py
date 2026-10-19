@@ -111,17 +111,40 @@ class NamedShape:
     # ---------------------------------------------------------- scrittura
     def after(self, maker, new_shape: TopoDS_Shape, tool: 'NamedShape | None' = None) -> 'NamedShape':
         """Nomi dopo un'operazione con storico (booleana, raccordo, …)."""
-        nuove = _faces_of(new_shape)
+        # le facce nuove in una mappa indicizzata, e lo storico di ogni faccia chiesto una volta sola (una faccia
+        # sta sotto più nomi): prima erano milioni di confronti uno a uno, 12 dei 18 secondi della cassa del quadro
+        mappa = TopTools_IndexedMapOfShape()
+        for g in _faces_of(new_shape):
+            mappa.Add(g)
+        nuove = [TopoDS.Face(mappa(i)) for i in range(1, mappa.Extent() + 1)]
+        visti = TopTools_IndexedMapOfShape()
+        storia: list = []
+
+        def dove(f) -> list:
+            k = visti.FindIndex(f)
+            if k:
+                return storia[k - 1]
+            if maker.IsDeleted(f):
+                idx = []
+            else:
+                mod = [x for x in _list(maker.Modified(f)) if x.ShapeType() == TopAbs_FACE]
+                idx = sorted({mappa.FindIndex(x) for x in mod} - {0}) if mod else \
+                    ([mappa.FindIndex(f)] if mappa.FindIndex(f) else [])
+            visti.Add(f)
+            storia.append(idx)
+            return idx
+
         out: dict[str, list] = {}
         for src in (self, tool):
             if src is None:
                 continue
             for nome, fs in src.names.items():
+                presi: set = set()
                 for f in fs:
-                    for g in _propagate(maker, f, nuove):
-                        lst = out.setdefault(nome, [])
-                        if not _contains(lst, g):
-                            lst.append(g)
+                    for i in dove(f):
+                        if i not in presi:
+                            presi.add(i)
+                            out.setdefault(nome, []).append(nuove[i - 1])
         return NamedShape(new_shape, out)
 
 

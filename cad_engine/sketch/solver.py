@@ -104,14 +104,17 @@ def _blocchi(sk: Sketch) -> list:
     fissi = _fissi_di(sk)
     adj: dict = {}
 
+    # vicini come dizionari (insiemi ordinati): tutto segue l'ordine del disegno, mai quello casuale degli insiemi
+    # di Python, che cambia a ogni avvio (uno sketch non del tutto vincolato veniva risolto in modo un po' diverso
+    # ogni volta che si apriva il file)
     def lega(u, v):
-        adj.setdefault(u, set()).add(v)
-        adj.setdefault(v, set()).add(u)
+        adj.setdefault(u, {})[v] = None
+        adj.setdefault(v, {})[u] = None
 
     for eid, e in sk.entities.items():
         if e['kind'] == 'point' and eid in fissi:
             continue
-        adj.setdefault(('e', eid), set())
+        adj.setdefault(('e', eid), {})
         if e['kind'] != 'point':
             for p in _riferimenti(sk, e):
                 if p not in fissi:
@@ -119,7 +122,7 @@ def _blocchi(sk: Sketch) -> list:
     for cid, c in sk.constraints.items():
         if c['type'] == 'fix' and len(c['refs']) == 1 and c['refs'][0] in fissi:
             continue
-        adj.setdefault(('c', cid), set())
+        adj.setdefault(('c', cid), {})
         for r in c['refs']:
             if r in sk.entities and not (sk.entities[r]['kind'] == 'point' and r in fissi):
                 lega(('c', cid), ('e', r))
@@ -249,6 +252,7 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
     def ancorato(i):
         return sum(1 for c in blocchi[i][1] for r in sk.constraints[c]['refs'] if r in fissi)
 
+    pos = {e: k for k, e in enumerate(sk.entities)}
     sorgenti = sorted((i for i in range(len(blocchi)) if ancorato(i)), key=lambda i: -ancorato(i))
     ordine, visti, coda = [], set(sorgenti), list(sorgenti)
     while len(ordine) < len(blocchi):
@@ -258,7 +262,7 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
             coda.append(altro)
         i = coda.pop(0)
         ordine.append(i)
-        for e in blocchi[i][0]:
+        for e in sorted(blocchi[i][0], key=pos.get):
             for j in di_entita[e]:
                 if j not in visti:
                     visti.add(j)
@@ -273,8 +277,8 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
             usati.update(r for r in sk.constraints[c]['refs'] if r in sk.entities)
         for e in list(usati):                              # i punti delle linee e degli archi citati dai vincoli
             usati.update(_riferimenti(sk, sk.entities[e]))
-        entita, vincoli = {}, {c: sk.constraints[c] for c in vinc}
-        for e in usati:
+        entita, vincoli = {}, {c: v for c, v in sk.constraints.items() if c in vinc}
+        for e in (x for x in sk.entities if x in usati):
             d = dict(sk.entities[e])
             if d['kind'] == 'point' and e != ORIGIN and (e in fissi or e in punti or e not in ents):
                 if e in punti:                               # già risolto in un blocco prima: qui è fisso
