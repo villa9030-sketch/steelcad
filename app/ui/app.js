@@ -832,7 +832,7 @@ function azione(id) {
     case 'cosa': $('#props').innerHTML = cosaPuoiFare(); return;
     case 'altre': $('#props').innerHTML = altreLavorazioni(); $('#cosa-cerca')?.focus(); return;
     case 'piega': runCmd('flange_help'); return;
-    case 'fori': inCoda(() => disegnaSopra('Fori: scegli Cerchio o Asola, clicca dove va, scrivi la misura. Poi «Taglia attraverso».')); return;
+    case 'fori': inCoda(() => foriDialog()); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Taglia attraverso».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
     case 'contorno': inCoda(() => disegnaSopra()); return;
@@ -983,7 +983,143 @@ async function renderProps(s) {
 
 function faceSketchButton(s) {
   if (!s.face?.planar || !s.face.name) return '';
-  return `<div class="row-btns"><button class="btn primary" data-face-sketch="${esc(s.face.name)}">Disegna su questa faccia</button></div>`;
+  return `<div class="row-btns"><button class="btn primary" data-fori-qui="${esc(s.face.name)}">Fori o asole qui</button>
+    <button class="btn" data-face-sketch="${esc(s.face.name)}">Disegna su questa faccia</button></div>`;
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-fori-qui]');
+  if (b) inCoda(() => foriDialog(b.dataset.foriQui));
+});
+
+// ------------------------------------------------------------- fori e asole, senza sketch
+// Come si segnano sul pezzo: misura, centro dal bordo sinistro e dal bordo davanti (fuori tutto), e se serve una
+// fila. A sinistra la faccia vista da sopra con l'anteprima; un clic nel disegno sposta il foro lì.
+let ultimiFori = { tipo: 'tondo', d: '8', lungh: '40', larg: '12', x: '50', y: '50', fila: false, n: '5', passo: '60', verso: 'x', verticale: false };
+async function foriDialog(face) {
+  const info = await call('fori_info', face || null);
+  if (!info.ok) { toast(info.message || 'Qui non si possono fare fori.', 'err'); return; }
+  const [W, H] = info.outer;
+  const t = info.thickness || 0, r0 = info.radius || 0;
+  const minimo = t ? Math.round((2 * t + r0) * 10) / 10 : 0;          // sotto questa distanza dalla piega il foro si deforma
+  const v = { ...ultimiFori };
+  const num = x => parseFloat(String(x).replace(',', '.'));
+  const M = 40, k = Math.min(560 / (W + 2 * M), 400 / (H + 2 * M));
+  const X = x => (x + M) * k, Y = y => (H - y + M) * k;
+  const forme = () => {                                                  // le forme da fare: [{x, y, w, h, tondo}]
+    const out = [], n = v.fila ? Math.max(1, Math.round(num(v.n)) || 1) : 1, ps = num(v.passo) || 0;
+    for (let i = 0; i < n; i++) {
+      const x = num(v.x) + (v.verso === 'x' ? i * ps : 0), y = num(v.y) + (v.verso === 'y' ? i * ps : 0);
+      if (v.tipo === 'tondo') out.push({ x, y, w: num(v.d), h: num(v.d), r: num(v.d) / 2 });
+      else if (v.tipo === 'asola') { const L = num(v.lungh), B = num(v.larg); out.push(v.verticale ? { x, y, w: B, h: L, r: B / 2 } : { x, y, w: L, h: B, r: B / 2 }); }
+      else out.push({ x, y, w: num(v.lungh), h: num(v.larg), r: 0 });
+    }
+    return out;
+  };
+  const distSeg = (px, py, [ax, ay, bx, by]) => {
+    const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy || 1;
+    const u = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l));
+    return Math.hypot(px - ax - u * dx, py - ay - u * dy);
+  };
+  const controlla = fs => {
+    if (fs.some(f => [f.x, f.y, f.w, f.h].some(Number.isNaN) || f.w <= 0 || f.h <= 0)) return { no: 'Scrivi le misure con i numeri.' };
+    if (fs.some(f => f.x - f.w / 2 < 0 || f.y - f.h / 2 < 0 || f.x + f.w / 2 > W || f.y + f.h / 2 > H)) return { no: 'Un foro esce dal pezzo: controlla le distanze.' };
+    let vicino = Infinity;
+    for (const f of fs) for (const l of info.lines) vicino = Math.min(vicino, distSeg(f.x, f.y, l) - Math.max(f.w, f.h) / 2);
+    if (minimo && vicino < minimo) return { av: `Un foro è a ${virgola(Math.max(0, Math.round(vicino * 10) / 10))} mm dal bordo della parte piana: sotto ${virgola(minimo)} mm vicino a una piega può deformarsi.` };
+    return {};
+  };
+  const nomi = { tondo: ['foro', 'fori'], asola: ['asola', 'asole'], finestra: ['finestra', 'finestre'] };
+  const disegno = () => {
+    const fs = forme();
+    const pezzo = `<rect class="out" x="${X(0)}" y="${Y(H)}" width="${W * k}" height="${H * k}"/>`;
+    const facce = info.lines.map(([ax, ay, bx, by]) => `<line class="fl" x1="${X(ax)}" y1="${Y(ay)}" x2="${X(bx)}" y2="${Y(by)}"/>`).join('');
+    const vecchi = info.circles.map(([cx, cy, r]) => `<circle class="old" cx="${X(cx)}" cy="${Y(cy)}" r="${r * k}"/>`).join('');
+    const nuovi = fs.map(f => `<rect class="nf" x="${X(f.x - f.w / 2)}" y="${Y(f.y + f.h / 2)}" width="${f.w * k}" height="${f.h * k}" rx="${f.r * k}"/>`).join('');
+    const f0 = fs[0];
+    let q = '';
+    if (f0 && !Number.isNaN(f0.x)) {
+      q += `<line class="q" x1="${X(0)}" y1="${Y(f0.y) - 16}" x2="${X(f0.x)}" y2="${Y(f0.y) - 16}"/><text class="qt" x="${(X(0) + X(f0.x)) / 2}" y="${Y(f0.y) - 22}">${esc(virgola(f0.x))}</text>`;
+      q += `<line class="q" x1="${X(f0.x) - 16}" y1="${Y(0)}" x2="${X(f0.x) - 16}" y2="${Y(f0.y)}"/><text class="qt" x="${X(f0.x) - 22}" y="${(Y(0) + Y(f0.y)) / 2 + 5}" text-anchor="end">${esc(virgola(f0.y))}</text>`;
+      if (fs.length > 1) {
+        const f1 = fs[1];
+        q += v.verso === 'x' ? `<line class="q" x1="${X(f0.x)}" y1="${Y(f0.y) + 22}" x2="${X(f1.x)}" y2="${Y(f1.y) + 22}"/><text class="qt" x="${(X(f0.x) + X(f1.x)) / 2}" y="${Y(f0.y) + 40}">${esc(virgola(v.passo))}</text>`
+          : `<line class="q" x1="${X(f0.x) - 22}" y1="${Y(f0.y)}" x2="${X(f1.x) - 22}" y2="${Y(f1.y)}"/><text class="qt" x="${X(f0.x) - 28}" y="${(Y(f0.y) + Y(f1.y)) / 2 + 5}" text-anchor="end">${esc(virgola(v.passo))}</text>`;
+      }
+    }
+    return `<svg id="fo-svg" viewBox="0 0 ${(W + 2 * M) * k} ${(H + 2 * M) * k}" role="img" aria-label="La faccia vista da sopra con i fori">
+      ${pezzo}${facce}${vecchi}${nuovi}${q}
+      <text class="lb" x="${X(0)}" y="${Y(0) + 26}">bordo davanti</text><text class="lb" x="${X(0) - 8}" y="${Y(H) - 10}">bordo sinistro ↓</text></svg>`;
+  };
+  const campo = (id, l, val, unit = 'mm') => `<label class="nc"><span class="nl vuota"></span><span class="nt">${l}</span><span class="nv">
+    <input class="field" data-fo="${id}" value="${esc(String(val))}" autocomplete="off">${unit ? `<small>${unit}</small>` : ''}</span></label>`;
+  const misure = () => v.tipo === 'tondo' ? campo('d', 'Diametro', v.d)
+    : campo('lungh', v.tipo === 'asola' ? 'Lunghezza (tutta)' : 'Larghezza', v.lungh) + campo('larg', v.tipo === 'asola' ? 'Larghezza' : 'Altezza', v.larg)
+      + (v.tipo === 'asola' ? `<div class="fo-scelta"><span>Messa</span><button type="button" data-fv="0" class="${v.verticale ? '' : 'on'}">orizzontale ↔</button><button type="button" data-fv="1" class="${v.verticale ? 'on' : ''}">verticale ↕</button></div>` : '');
+  const pannello = () => {
+    const fs = forme(), c = controlla(fs), [uno, tanti] = nomi[v.tipo];
+    const ult = fs[fs.length - 1];
+    const ris = c.no ? `<div class="n-ris warn">${esc(c.no)}</div>`
+      : `<div class="n-ris ${c.av ? 'warn' : 'ok'}">${fs.length > 1 ? `${fs.length} ${tanti}` : `1 ${uno}`}${v.tipo === 'tondo' ? ' Ø' + esc(virgola(v.d)) : ''}${fs.length > 1 && ult
+        ? `, l’ultimo a ${esc(virgola(Math.round((v.verso === 'x' ? W - ult.x : H - ult.y) * 10) / 10))} mm dal bordo ${v.verso === 'x' ? 'destro' : 'dietro'}` : ''}.
+        ${c.av ? esc(c.av) : 'Lontano dai bordi e dalle pieghe: si piega bene.'}</div>`;
+    return `<div class="fo-tipi">${[['tondo', 'Foro tondo', '<circle cx="18" cy="15" r="9"/>'], ['asola', 'Asola', '<rect x="4" y="9" width="28" height="12" rx="6"/>'],
+      ['finestra', 'Finestra', '<rect x="7" y="7" width="22" height="16"/>']].map(([id, l, ico]) => `<button type="button" data-ft="${id}" class="${v.tipo === id ? 'on' : ''}">
+        <svg viewBox="0 0 36 30" aria-hidden="true">${ico}</svg>${l}</button>`).join('')}</div>
+      ${misure()}
+      ${campo('x', 'Centro dal bordo sinistro', v.x)}${campo('y', 'Centro dal bordo davanti', v.y)}
+      <label class="fo-fila"><input type="checkbox" id="fo-fila" ${v.fila ? 'checked' : ''}> Fanne una fila</label>
+      ${v.fila ? `${campo('n', 'Quanti in tutto', v.n, '')}${campo('passo', 'Uno ogni', v.passo)}
+        <div class="fo-scelta"><span>Verso</span><button type="button" data-fd="x" class="${v.verso === 'x' ? 'on' : ''}">verso destra →</button><button type="button" data-fd="y" class="${v.verso === 'y' ? 'on' : ''}">verso dietro ↑</button></div>` : ''}
+      ${ris}`;
+  };
+  modal(`<h3>Fori e asole: ${esc(info.label)}</h3>
+    <div class="n-main"><div class="n-pic fo-pic" id="fo-pic">${disegno()}</div><div class="n-campi" id="fo-campi">${pannello()}</div></div>
+    <p class="hint">Le distanze sono dal bordo esterno del pezzo (fuori tutto), al centro del foro. Un clic nel disegno sposta il foro lì.</p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Fai</button></div>`, close => {
+    $('#modal-box').classList.add('nuovo');
+    const box = $('#modal-box');
+    const aggiorna = (tutto = false) => {
+      if (tutto) {
+        const f = document.activeElement?.dataset?.fo;
+        $('#fo-campi').innerHTML = pannello();
+        if (f) { const i = box.querySelector(`[data-fo="${f}"]`); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+      } else {
+        const tmp = document.createElement('div'); tmp.innerHTML = pannello();     // solo il riassunto: il campo resta com'è
+        box.querySelector('#fo-campi .n-ris')?.replaceWith(tmp.querySelector('.n-ris'));
+      }
+      $('#fo-pic').innerHTML = disegno();
+      const fs = forme(), c = controlla(fs), [uno, tanti] = nomi[v.tipo];
+      $('#m-ok').disabled = !!c.no;
+      $('#m-ok').textContent = c.no ? 'Controlla le misure' : fs.length > 1 ? `Fai ${v.tipo === 'tondo' ? 'i' : 'le'} ${fs.length} ${tanti}` : `Fai ${v.tipo === 'tondo' ? 'il foro' : v.tipo === 'asola' ? 'l’asola' : 'la finestra'}`;
+    };
+    box.addEventListener('input', ev => { const f = ev.target.dataset?.fo; if (f) { v[f] = ev.target.value.trim(); aggiorna(); } });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-ft],[data-fd],[data-fv],#fo-fila');
+      if (b?.dataset.ft) { v.tipo = b.dataset.ft; aggiorna(true); }
+      else if (b?.dataset.fd) { v.verso = b.dataset.fd; aggiorna(true); }
+      else if (b?.dataset.fv) { v.verticale = b.dataset.fv === '1'; aggiorna(true); }
+      else if (b?.id === 'fo-fila') { v.fila = b.checked; aggiorna(true); }
+      const svg = ev.target.closest('#fo-svg');
+      if (svg) {                                                     // clic nel disegno: il foro va lì
+        const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+        const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+        v.x = String(Math.round(q.x / k - M)); v.y = String(Math.round(H - (q.y / k - M)));
+        aggiorna(true);
+      }
+    });
+    aggiorna(true);
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      if (controlla(forme()).no) return;
+      ultimiFori = { ...v };
+      close();
+      inCoda(async () => {
+        const r = await call('fori_guidati', info.face, { ...v, x: num(v.x), y: num(v.y) });
+        await apply(r, r.message);
+      });
+    };
+    box.onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+  });
 }
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-face-sketch]');

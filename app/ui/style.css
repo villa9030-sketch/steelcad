@@ -719,3 +719,24 @@ body.lavoro #ribbon { display: none; }
 .fp-len .inp i, .fp-ang .inp i { position: static; font-style: normal; color: var(--ink-3); }
 .fp-pic .at { text-anchor: middle; }
 .seg-row > span { min-width: 64px; }
+
+/* ---------------------------------------------------- fori e asole senza sketch */
+.fo-pic svg { width: 100%; height: auto; display: block; cursor: crosshair; }
+.fo-pic .out { fill: var(--row); stroke: var(--ink-2); stroke-width: 2; }
+.fo-pic .fl { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 6 4; }
+.fo-pic .old { fill: var(--view-bot); stroke: var(--ink-3); }
+.fo-pic .nf { fill: var(--view-bot); stroke: var(--sel); stroke-width: 2.5; }
+.fo-pic .q { stroke: var(--hover); stroke-width: 1.5; }
+.fo-pic .qt { fill: var(--hover); font: 600 14px "Segoe UI", sans-serif; text-anchor: middle; }
+.fo-pic .lb { fill: var(--ink-3); font: 12px "Segoe UI", sans-serif; }
+.fo-tipi { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 4px; }
+.fo-tipi button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+.fo-tipi button.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }
+.fo-tipi svg { width: 36px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+.fo-fila { display: flex; align-items: center; gap: 10px; font-size: 15px; margin: 4px 0; }
+.fo-fila input { width: 20px; height: 20px; }
+.fo-scelta { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.fo-scelta span { color: var(--ink-2); min-width: 60px; }
+.fo-scelta button { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.fo-scelta button.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }

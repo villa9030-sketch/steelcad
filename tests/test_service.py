@@ -1047,3 +1047,23 @@ def test_prepara_per_il_laser(tmp_path):
     assert s2.new_project('cancello', {})['ok']
     v2 = {v['id']: v for v in s2.prepara_info()['voci']}
     assert not v2['laser']['si'] and v2['officina']['scelta'] and 'lista di taglio' in v2['officina']['desc']
+
+
+def test_fori_guidati_dal_bordo_esterno_e_un_annulla():
+    """Fori come si segnano sul pezzo: centro dal bordo sinistro e dal bordo davanti, fuori tutto (anche con la
+    piega davanti); una fila di 5 si fa e si toglie con un Annulla solo."""
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 500, 'profondita': 300, 'spessore': 2, 'raggio': 1, 'k': 0.21})['ok']
+    assert s.add_flange('SM1', 'L1', {'length': '40'})['ok']
+    faccia = s.fori_faccia()
+    info = s.fori_info(faccia)
+    assert faccia == 'SM1/sopra' and info['outer'] == [500.0, 300.0]
+    r = s.fori_guidati(faccia, {'tipo': 'tondo', 'd': 10, 'x': 60, 'y': 100, 'fila': True, 'n': 5, 'passo': 80, 'verso': 'x'})
+    assert r['ok'] and r['message'] == 'Fatti 5 fori.'
+    fl = s.result.body.sheet.flat
+    ob = fl.outer_wire().bounding_box()
+    centri = sorted(round((w.bounding_box().min.X + w.bounding_box().max.X) / 2 - ob.min.X, 3) for w in fl.inner_wires())
+    assert centri == [60, 140, 220, 300, 380]
+    assert {p['name']: p['label'] for p in s.state()['parameters']}.get('px1') == 'Distanza tra i fori della fila'
+    s.undo()
+    assert not s.result.body.sheet.flat.inner_wires()

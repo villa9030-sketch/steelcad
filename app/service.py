@@ -135,7 +135,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except SteelCADError:
             risolti = {}
         nomi = self._etichette_parametri()
-        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': nomi.get(k)}
+
+        def nome(k):
+            if k in nomi:
+                return nomi[k]
+            # i parametri che nascono dai comandi: la fila di fori (px1, py1), l'offset (off1)
+            m = re.fullmatch(r'(px|py|off)(\d+)', k)
+            if m:
+                return {'px': 'Distanza tra i fori della fila', 'py': 'Distanza tra le file',
+                        'off': 'Distanza dal contorno'}[m.group(1)]
+            return None
+        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': nome(k)}
                 for k, v in self.doc.parameters.items()]
 
     # le sigle dei parametri in parole, per il pannello: prima quelle dei campi del modello, poi le solite
@@ -1161,20 +1171,127 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         nuovo = {}
 
         def fn():
-            sk = self.doc.add_sketch({'face': face_name}, 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
-            nuovo['id'] = sk.id
-            import build123d as bd
-            from cad_engine.sketch.face_plane import plane_of
-            faccia = bd.Face(self.result.body.face(face_name)[0])
-            piano = plane_of(self.result.body, face_name, sk)
-            sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
-            # le sagome delle parti che arrivano a pochi mm dalla faccia (es. la testata di un profilo)
-            data = getattr(self.result.body, 'sheet', None)
-            from app import sketch_border
-            sketch_border.add_nearby_edges(sk, self.result.body, faccia, piano, 3 * data.thickness if data else 5.0)
+            nuovo['id'] = self._crea_sketch_faccia(face_name).id
         r = self._change('Sketch su faccia', fn)
         if r['ok']:
             r['sketch'] = nuovo['id']
+        return r
+
+    def _crea_sketch_faccia(self, face_name: str, nome: str | None = None):
+        sk = self.doc.add_sketch({'face': face_name}, nome or 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
+        import build123d as bd
+        from cad_engine.sketch.face_plane import plane_of
+        faccia = bd.Face(self.result.body.face(face_name)[0])
+        piano = plane_of(self.result.body, face_name, sk)
+        sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
+        # le sagome delle parti che arrivano a pochi mm dalla faccia (es. la testata di un profilo)
+        data = getattr(self.result.body, 'sheet', None)
+        from app import sketch_border
+        sketch_border.add_nearby_edges(sk, self.result.body, faccia, piano, 3 * data.thickness if data else 5.0)
+        return sk
+
+    # ------------------------------------------------------------ fori e asole guidati (senza sketch)
+    def fori_faccia(self) -> str | None:
+        """La faccia dove si fanno i fori di solito: quella di sopra della lamiera, o quella di sopra della piastra."""
+        body = self.result.body
+        if body is None:
+            return None
+        data = getattr(body, 'sheet', None)
+        if data is not None and f'{data.feature}/sopra' in body.names:
+            return f'{data.feature}/sopra'
+        return next((n for n in body.names if n.endswith('/fine')), None)
+
+    def fori_info(self, face_name: str | None = None) -> dict:
+        """Il contorno della faccia visto da sopra (coordinate della faccia: x dal bordo sinistro, y dal bordo
+        davanti), per l'anteprima dei fori; più spessore e raggio, per l'avviso "troppo vicino alla piega"."""
+        try:
+            import build123d as bd
+            from cad_engine.sketch.face_plane import plane_of
+            face_name = face_name or self.fori_faccia()
+            if not face_name or self.result.body is None or face_name not in self.result.body.names:
+                return {'ok': False, 'message': 'Prima serve una lamiera o una piastra.'}
+            sk = Sketch('_anteprima', plane={'face': face_name})
+            faccia = bd.Face(self.result.body.face(face_name)[0])
+            piano = plane_of(self.result.body, face_name, sk)
+            sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
+            ox, oy, w, h = self._fuori_tutto(piano)
+            P = {k: (e['x'] - ox, e['y'] - oy) for k, e in sk.entities.items() if e['kind'] == 'point'}
+            linee = [[*P[e['a']], *P[e['b']]] for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref')]
+            cerchi = [[*P[e['center']], e['r']] for e in sk.entities.values() if e['kind'] == 'circle' and e.get('ref')]
+            archi = [[*P[e['center']], math.dist(P[e['center']], P[e['start']])] for e in sk.entities.values()
+                     if e['kind'] == 'arc' and e.get('ref')]
+            data = getattr(self.result.body, 'sheet', None)
+            return {'ok': True, 'face': face_name, 'label': self.doc.describe_face(face_name), 'lines': linee,
+                    'circles': cerchi + archi, 'outer': [w, h], 'thickness': data.thickness if data else None,
+                    'radius': (data.tech.get('radius') if data else None)}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def _fuori_tutto(self, piano) -> tuple:
+        """Dove comincia il pezzo, fuori tutto, nelle coordinate della faccia: le distanze dei fori si misurano dal bordo
+        esterno (com'è in officina), non dall'inizio della parte piana dopo la piega."""
+        import build123d as bd
+        pts = [piano.to_local_coords(v.center()) for v in bd.Shape.cast(self.result.body.shape).vertices()]
+        xs, ys = [q.X for q in pts], [q.Y for q in pts]
+        return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+    def fori_guidati(self, face_name: str, spec: dict) -> dict:
+        """Fori tondi, asole o finestre come si segnano sul pezzo: misura, centro dal bordo sinistro e dal bordo
+        davanti, e se serve una fila (quanti, ogni quanto, verso destra o verso dietro). Dietro c'è lo stesso
+        sketch di sempre (con le quote, si modifica dopo), ma in un'operazione sola: un Annulla li toglie tutti."""
+        try:
+            n = lambda k, d=None: _number(spec.get(k, d))  # noqa: E731
+            tipo = spec.get('tipo', 'tondo')
+            x, y = float(n('x')), float(n('y'))
+            quanti = max(1, int(n('n', 1) or 1)) if spec.get('fila') else 1
+            passo = float(n('passo', 0) or 0)
+            if quanti > 1 and passo <= 0:
+                raise SteelCADError('Scrivi ogni quanto va un foro della fila.', code='fori')
+            if face_name not in (self.result.body.names if self.result.body is not None else {}):
+                raise SteelCADError('Questa faccia non c’è più: riapri «Fai fori o asole».', code='fori')
+        except SteelCADError as ex:
+            return _err(ex)
+        except (TypeError, ValueError):
+            return {'ok': False, 'code': 'fori', 'message': 'Scrivi le misure con i numeri.'}
+        nomi = {'tondo': 'Fori', 'asola': 'Asole', 'finestra': 'Finestre'}
+
+        def fn():
+            nonlocal x, y
+            sk = self._crea_sketch_faccia(face_name, nomi.get(tipo, 'Fori'))
+            from cad_engine.sketch.face_plane import plane_of
+            ox, oy, _, _ = self._fuori_tutto(plane_of(self.result.body, face_name, sk))
+            x, y = x + ox, y + oy                          # dal bordo esterno del pezzo alle coordinate della faccia
+            prima = set(sk.entities)
+            if tipo == 'tondo':
+                d = float(n('d'))
+                sketch_ops.add_circle(self.doc, sk.id, [x, y], d / 2)
+            elif tipo == 'asola':
+                lun, lar = float(n('lungh')), float(n('larg'))
+                if lar <= 0 or lun <= lar:
+                    raise SteelCADError('L’asola deve essere più lunga che larga.', code='fori')
+                h = (lun - lar) / 2
+                c1, c2 = ([x, y - h], [x, y + h]) if spec.get('verticale') else ([x - h, y], [x + h, y])
+                sketch_ops.add_slot(self.doc, sk.id, c1, c2, lar / 2)
+            elif tipo == 'finestra':
+                lun, lar = float(n('lungh')), float(n('larg'))
+                sketch_ops.add_rectangle(self.doc, sk.id, [x - lun / 2, y - lar / 2], [x + lun / 2, y + lar / 2])
+            else:
+                raise SteelCADError(f'Forma "{tipo}" sconosciuta.', code='fori')
+            if quanti > 1:
+                nuove = [k for k, e in sk.entities.items() if k not in prima and e['kind'] != 'point' and not e.get('ref')]
+                if spec.get('verso') == 'y':
+                    sketch_edit.pattern(self.doc, sk.id, nuove, 1, 0, quanti, passo)
+                else:
+                    sketch_edit.pattern(self.doc, sk.id, nuove, quanti, passo, 1, 0)
+            if self._sheet_def(face_name.split('/')[0]) is not None:
+                self.doc.add_feature('sheet_cut', nomi.get(tipo, 'Fori'), sketch=sk.id)
+            else:
+                self.doc.add_feature('extrude', nomi.get(tipo, 'Fori'), sketch=sk.id, operation='cut', through_all=True, reverse=True)
+        cosa = {'tondo': 'foro', 'asola': 'asola', 'finestra': 'finestra'}.get(tipo, 'foro')
+        r = self._change(f'{quanti} {cosa}' if quanti > 1 else cosa.capitalize(), fn)
+        if r.get('ok'):
+            plur = {'foro': 'fori', 'asola': 'asole', 'finestra': 'finestre'}[cosa]
+            r['message'] = f'Fatt{"i" if cosa == "foro" else "e"} {quanti} {plur}.' if quanti > 1 else f'Fatt{"o" if cosa == "foro" else "a"} {"il foro" if cosa == "foro" else "l’" + cosa if cosa == "asola" else "la finestra"}.'
         return r
 
     def sketch_close(self, sid: str) -> dict:

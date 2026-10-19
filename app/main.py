@@ -293,6 +293,12 @@ class Api:
         except OSError as ex:
             return {'ok': False, 'message': str(ex)}
 
+    def fori_info(self, face_name=None):
+        return self._call(self._svc.fori_info, face_name)
+
+    def fori_guidati(self, face_name, spec):
+        return self._call(self._svc.fori_guidati, face_name, spec)
+
     def new_project_preview(self, kind, values=None):
         return self._call(self._svc.new_project_preview, kind, values)
 
