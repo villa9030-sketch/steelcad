@@ -437,13 +437,23 @@ def move(doc, sid, eids, dx, dy):
 
 
 # --------------------------------------------------------------------------- quote a mano
-def add_dimension(doc, sid, kind, refs, value=None):
+def add_dimension(doc, sid, kind, refs, value=None, info=None):
+    """Quota a mano, come in ogni CAD: se c'è già la stessa quota si rende quella (la si cambia); se la misura è
+    già decisa da un'altra quota (di solito una messa da sola mentre si disegnava), quella si toglie e comanda la
+    nuova. info riceve 'esistente' o 'tolta' (la descrizione della quota sostituita)."""
+    info = {} if info is None else info
     sk = doc.sketch(sid)
     if kind not in DIMENSIONS:
         raise SketchError(f'Quota "{kind}" sconosciuta.')
     for r in refs:
         if r not in sk.entities:
             raise SketchError(f'Nello sketch non c’è {r}.')
+    simmetrica = kind in ('distance', 'length', 'diameter', 'radius')
+    for cid, c in sk.constraints.items():
+        if c['type'] == kind and (list(c['refs']) == list(refs) or (simmetrica and sorted(c['refs']) == sorted(refs))
+                                  or (kind in ('hdistance', 'vdistance') and sorted(c['refs']) == sorted(refs))):
+            info['esistente'] = True
+            return cid
     pts = _solved_xy(doc, sk)
     if value is None:
         if kind == 'length':
@@ -451,6 +461,9 @@ def add_dimension(doc, sid, kind, refs, value=None):
             value = math.dist(pts[e['a']], pts[e['b']])
         elif kind == 'diameter':
             value = 2 * solve(sk, doc.resolved_parameters()).circles[refs[0]][1]
+        elif kind == 'radius':
+            ss = solve(sk, doc.resolved_parameters())
+            value = ss.arcs[refs[0]][3] if refs[0] in ss.arcs else ss.circles[refs[0]][1]
         elif kind == 'distance':
             value = math.dist(pts[refs[0]], pts[refs[1]])
         elif kind == 'hdistance':
@@ -469,11 +482,38 @@ def add_dimension(doc, sid, kind, refs, value=None):
     if kind in ('distance', 'length', 'diameter', 'pldistance') and value <= 1e-9:
         raise SketchError('La misura è zero: i due elementi coincidono.')
     did = sk.dimension(kind, *refs, value=_r(value))
-    st = solve(sk, doc.resolved_parameters()).status
-    if did in st.redundant or did in st.conflicting:
-        del sk.constraints[did]
-        raise SketchError('Questa misura è già decisa dalle altre quote: non serve aggiungerla.')
-    return did
+    par = doc.resolved_parameters()
+    st = solve(sk, par).status
+    if did not in st.redundant and did not in st.conflicting:
+        return did
+    # già decisa: si cerca la quota che la decide (prima quelle sugli stessi elementi, poi le più recenti) e la si
+    # toglie, se senza di lei il disegno resta deciso come prima e la nuova non è più doppia
+    miei = set(refs) | set(_points_of(sk, [r for r in refs if r != ORIGIN])) - {ORIGIN}
+    prima = (len(st.redundant), len(st.conflicting))
+
+    def tocca(c):
+        suoi = set(c['refs']) | set(_points_of(sk, [r for r in c['refs'] if r in sk.entities and r != ORIGIN]))
+        return len((suoi - {ORIGIN}) & miei)
+    candidati = [cid for cid, c in sk.constraints.items() if cid != did and c['type'] in DIMENSIONS
+                 and isinstance(c.get('value'), (int, float))]
+    candidati.sort(key=lambda cid: (-tocca(sk.constraints[cid]), -int(''.join(ch for ch in cid if ch.isdigit()) or 0)))
+    for cid in candidati:
+        vecchio = sk.constraints.pop(cid)
+        st2 = solve(sk, par).status
+        if did not in st2.redundant and did not in st2.conflicting and                 (len(st2.redundant), len(st2.conflicting)) <= (max(0, prima[0] - 1), prima[1]):
+            info['tolta'] = _descr(sk, cid, vecchio)
+            return did
+        sk.constraints[cid] = vecchio
+    del sk.constraints[did]
+    raise SketchError('Questa misura è già decisa da altri vincoli (non quote): toglili o cambiali prima.')
+
+
+def _descr(sk, cid, c):
+    sk.constraints[cid] = c
+    try:
+        return sk.describe_constraint(cid)
+    finally:
+        del sk.constraints[cid]
 
 
 # le forme nuove passano dal controllo delle quote doppie, come quelle disegnate

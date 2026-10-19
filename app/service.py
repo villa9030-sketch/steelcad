@@ -1168,7 +1168,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             self.doc, sid, eids, int(_number(cols)), _number(px), int(_number(rows)), _number(py)))
 
     def sketch_dimension(self, sid: str, kind: str, refs: list) -> dict:
-        return self._sketch_change('Quota', lambda: sketch_edit.add_dimension(self.doc, sid, kind, refs))
+        info = {}
+        r = self._sketch_change('Quota', lambda: info.update(did=sketch_edit.add_dimension(self.doc, sid, kind, refs,
+                                                                                          info=info)))
+        if r.get('ok'):
+            r['dim'] = info.get('did')
+            if info.get('tolta'):
+                r['message'] = f'Tolta {info["tolta"]}: ora comanda la tua. Scrivi la misura e Invio.'
+        return r
 
     def sketch_delete(self, sid: str, eids: list) -> dict:
         return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))

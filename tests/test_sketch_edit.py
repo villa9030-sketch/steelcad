@@ -111,8 +111,10 @@ def test_quote_a_mano_e_doppie():
     d, sk = _rett()
     c = so.add_circle(d, 'S1', [30, 30], 5)
     cen = sk.entities[c]['center']
-    with pytest.raises(SketchError, match='già decisa'):
-        se.add_dimension(d, 'S1', 'hdistance', ['O', cen])
+    # la posizione c'è già (messa disegnando): si riprende quella, non si rifiuta e non se ne fa un'altra
+    n = len(sk.constraints)
+    gia = se.add_dimension(d, 'S1', 'hdistance', ['O', cen])
+    assert sk.constraints[gia]['type'] == 'hdistance' and len(sk.constraints) == n
     lato = next(k for k, e in sk.entities.items() if e.get('label') == 'lato sinistro')
     p = so.add_circle(d, 'S1', [150, 70], 4)
     pc = sk.entities[p]['center']

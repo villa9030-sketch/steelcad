@@ -517,7 +517,7 @@ function buildDims() {
     el.addEventListener('click', ev => { ev.stopPropagation(); editDim(el, d); });
     dimsBox.appendChild(el);
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
-    dimEls.push({ el, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
+    dimEls.push({ el, d, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
   }
   placeDims();
   ridisegna();
@@ -3366,20 +3366,28 @@ function skDimClick(ev) {
   const punto = c && c.id ? c.id : null;
   const h = punto ? null : skHit(ev);
   const sid = SK.sid;
+  // come in ogni CAD: dopo il clic si scrive subito la misura (anche se la quota c'era già)
+  const quota = (kind, refs) => inCoda(async () => {
+    const r = await call('sketch_dimension', sid, kind, refs);
+    if (!await apply(r) || !r.dim) return;
+    const x = dimEls.find(e => e.d.sketch === sid && e.d.dim === r.dim);
+    if (x) { x.el.style.display = ''; editDim(x.el, x.d); }
+  });
   if (!SK.dimPick.length) {
     if (punto) { SK.dimPick = [punto]; setHelp('Quota: ora clic su un altro punto o su una linea · Esc annulla'); return; }
-    if (h && SK.v.circles.some(x => x.id === h)) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'diameter', [h])); }); return; }
-    if (h) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'length', [h])); }); return; }
+    if (h && SK.v.circles.some(x => x.id === h)) { quota('diameter', [h]); return; }
+    if (h && SK.v.arcs?.some(x => x.id === h)) { quota('radius', [h]); return; }
+    if (h) { quota('length', [h]); return; }
     return;
   }
   const a = SK.dimPick[0];
   SK.dimPick = []; setTool('dim');
-  if (h && SK.v.lines.some(l => l.id === h)) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'pldistance', [a, h])); }); return; }
+  if (h && SK.v.lines.some(l => l.id === h)) { quota('pldistance', [a, h]); return; }
   if (!punto || punto === a) return;
   modal(`<h3>Quota tra due punti</h3><div class="choice"><button data-k="hdistance">Orizzontale</button><button data-k="vdistance">Verticale</button><button data-k="distance">Allineata</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button></div>`, close => {
     $('#m-no').onclick = close;
-    $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); inCoda(async () => { await apply(await call('sketch_dimension', sid, b.dataset.k, [a, punto])); }); }; });
+    $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); quota(b.dataset.k, [a, punto]); }; });
   });
 }
 
