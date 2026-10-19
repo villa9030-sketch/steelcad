@@ -187,6 +187,7 @@ class SheetData:
                 'outline': self.outline(), 'bend_lines': [[list(a), list(b), t] for a, b, t in self.bend_lines],
                 'bend_zones': self.bend_zones(), 'tip_contacts': [list(c) for c in self.tip_contacts],
                 'tip_mode': self.tip_mode,
+                'bend_rows': getattr(self, 'bend_rows', None), 'shape_info': getattr(self, 'shape_info', None),
                 'plane': {k: [getattr(self.plane, a).X, getattr(self.plane, a).Y, getattr(self.plane, a).Z] for k, a in
                           (('origin', 'origin'), ('x', 'x_dir'), ('y', 'y_dir'), ('z', 'z_dir'))}}
 

@@ -238,3 +238,32 @@ pannello della flangia compare **Incastri sulla punta**: numero, larghezza, gioc
 sull'altra faccia. Sono uno sketch + taglio e uno sketch + "Aggiungi materiale": restano modificabili.
 I tagli disegnati sulle facce partono a filo della faccia (prima sporgevano di 0,01 mm e rosicchiavano quello che ci
 appoggia sopra).
+
+
+## Coni e raccordi quadro-tondo (forme "a geometria")
+Nuovo → **Cono / tronco di cono** oppure **Raccordo quadro-tondo**.
+
+- **Misure finite.** Ø, lati e altezza sono quelli del pezzo finito: esterni di default, oppure interni o in
+  asse lamiera. Lo sviluppo si calcola in asse lamiera.
+  - Cono: l'asse si sposta di t/(2·cos α) in pianta.
+  - Raccordo: di t/2 sui lati e sul tondo. È un'approssimazione: sulle facce inclinate la differenza è di qualche
+    decimo.
+- **Cono calandrato**: lo sviluppo è la corona circolare esatta.
+  - raggi = distanze dall'apice lungo la generatrice;
+  - angolo = 2π·r / L.
+- **A pieghe (piegatrice)**: la superficie è divisa in facce piane, trapezi tra due generatrici per il cono e
+  ventagli di triangoli dagli angoli della base per il raccordo. Le facce si ribaltano una dopo l'altra con le
+  lunghezze vere; ogni linea tra due facce è una piega, con l'angolo tra le facce.
+- **Numero di pieghe dal raggio**: passo sul bordo tondo = raggio/5, tra 8 e 40 mm. Si può scrivere a mano.
+- **Correzione di piega messa nello sviluppo**: Δ = θ·(r + K·t) − 2·(r + t/2)·tan(θ/2) per ogni piega. Con R1 e
+  K 0,21 sono circa −0,1 mm a piega, e su 30–40 pieghe fanno qualche millimetro: senza correzione la
+  giunzione non chiuderebbe. Ogni faccia si sposta di Δ perpendicolare alla sua piega.
+- **Uscite**: DXF dello sviluppo (contorno su CUT, pieghe numerate "P3 10,7°" su BEND), tabella pieghe CSV
+  (numero, angolo, lunghezza della linea, correzione), tavole.
+- **Raccordo eccentrico**: il centro del tondo si sposta di (ex, ey). La giunzione è a metà del lato davanti.
+- **Controlli** (`tests/test_forme.py`):
+  - corona del cono calandrato uguale al conto a mano;
+  - senza correzione lo sviluppo ha l'area esatta delle facce 3D e ogni lato la sua lunghezza vera;
+  - con la correzione lo sviluppo cambia della somma delle strisce Δ × lunghezza della piega.
+- **Limiti**: sviluppo in un pezzo solo (non ancora a spicchi o a metà); tondo-tondo eccentrico e
+  rettangolo-rettangolo da fare con lo stesso motore.

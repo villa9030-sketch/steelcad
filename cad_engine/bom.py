@@ -24,7 +24,8 @@ def bom(doc, result) -> list[dict]:
         if sheet is not None:                       # lamiera piegata: dimensioni dello sviluppo
             tipo, spessore = 'lamiera', sheet.thickness
             size = list(sheet.flat_size)
-            descr = (f'{descr}, {len(sheet.flanges)} pieghe, sviluppo '
+            n_pieghe = len(getattr(sheet, 'bend_rows', None) if getattr(sheet, 'bend_rows', None) is not None else sheet.flanges)
+            descr = (f'{descr}, {n_pieghe} pieghe, sviluppo '
                      f'{" × ".join(fmt_mm(round(v, 1)) for v in size)}')
         else:
             try:

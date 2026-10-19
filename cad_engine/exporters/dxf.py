@@ -231,6 +231,13 @@ def check(path) -> dict:
     contorni = _count_loops(segmenti, nodi) + len(cerchi)
     xs = [p[0] for s in segmenti for p in (s[2], s[3])] + [c[0][0] + d * c[1] for c in cerchi for d in (-1, 1)]
     ys = [p[1] for s in segmenti for p in (s[2], s[3])] + [c[0][1] + d * c[1] for c in cerchi for d in (-1, 1)]
+    for sgm in segmenti:                     # gli archi possono sporgere oltre i loro estremi: anche i quadranti
+        if sgm[0] == 'ARC':
+            (cx, cy), r, a0, a1 = sgm[1]
+            for q in (0, 90, 180, 270):
+                if (q - a0) % 360 <= (a1 - a0) % 360:
+                    xs.append(cx + r * math.cos(math.radians(q)))
+                    ys.append(cy + r * math.sin(math.radians(q)))
     size = [max(xs) - min(xs), max(ys) - min(ys)] if xs else [0, 0]
     return {'ok': not problemi, 'problems': problemi, 'warnings': avvisi, 'contours': contorni,
             'entities': len(segmenti) + len(cerchi), 'circles': len(cerchi), 'size_mm': size,

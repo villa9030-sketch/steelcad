@@ -1,5 +1,6 @@
 from . import dress, extrude, hole
 from .. import sheetmetal
+from ..sheetmetal import shapes
 from ..sheetmetal import forms
 
 BUILDERS = {
@@ -8,6 +9,7 @@ BUILDERS = {
     'fillet': dress.build,
     'chamfer': dress.build,
     'sheet': sheetmetal.build,
+    'sheet_shape': shapes.build_shape,
     'sheet_cut': sheetmetal.build_cut,
     'sheet_form': forms.build_form,
 }
@@ -19,5 +21,6 @@ VALUE_FIELDS = {
     'fillet': ('radius',),
     'chamfer': ('distance',),
     'sheet': ('thickness', 'radius', 'k', 'bd90'),
+    'sheet_shape': ('thickness', 'radius', 'k', 'd1', 'd2', 'height', 'a', 'b', 'd', 'ex', 'ey', 'pitch'),
     'sheet_form': ('width', 'height', 'depth'),
 }

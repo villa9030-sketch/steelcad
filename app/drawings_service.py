@@ -85,7 +85,15 @@ class DrawingsMixin:
         sheet = getattr(result.body, 'sheet', None)
         tot = tot or (2 if sheet else 1)
         fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato)]
-        if sheet is not None:
+        if sheet is not None and getattr(sheet, 'bend_rows', None) is not None:
+            r_, k_ = sheet.tech.get('radius'), sheet.tech.get('k')
+            pieg = [[str(x['n']), f'P{x["n"]}', D.fmt(round(x['length'], 1)), f'{D.fmt(round(x["angle"], 2))}°', '—',
+                     D.fmt(r_) if r_ is not None else '', D.fmt(k_) if k_ is not None else '',
+                     D.fmt(round(x['correction'], 3)) if x['correction'] is not None else ''] for x in sheet.bend_rows]
+            c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
+            c['titolo'] = c['titolo'] + ' — sviluppo'
+            fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
+        elif sheet is not None:
             pieg = [[str(i), g.fid, D.fmt(g.length), f'{D.fmt(g.bend.angle)}°', 'su' if g.direction == 'up' else 'giù',
                      D.fmt(g.bend.r), D.fmt(round(g.bend.k, 3)), D.fmt(round(g.u1 - g.u0, 2))] for i, g in enumerate(sheet.flanges, 1)]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)

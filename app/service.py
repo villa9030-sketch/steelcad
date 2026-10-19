@@ -242,7 +242,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         # i bordi dove si può piegare: passandoci sopra col mouse si accendono, clic = flangia lì
         data = getattr(r.body, 'sheet', None) if r.body is not None else None
         bordi = []
-        if data is not None:
+        if data is not None and data.free_edges and self._sheet_def(data.feature) is not None:   # coni e raccordi: niente
             sk = self.doc.sketch(self._sheet_def(data.feature)['sketch'])
             for e in data.free_edges:
                 testo = (f'punta di {e["ref"]}' if e['kind'] == 'tip' else sk.describe(e['ref']))
@@ -305,11 +305,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                         if parti[2] == 'punta' and not any(x.get('parent') == parti[1] for x in sm['flanges']):
                             fs['tip_form'] = {'feature': parti[0], 'parent': parti[1]}
                         return _ok(selection=fs)
+                forma = self._shape_template()
+                if forma:
+                    dati['tpl_id'], dati['template'] = forma
                 dati['commands'] = [{'id': 'export_dxf', 'label': 'Esporta DXF di taglio'},
                                     {'id': 'export_step', 'label': 'Esporta STEP'}]
                 if getattr(self.result.body, 'sheet', None) is not None:
-                    dati['commands'] += [{'id': 'unfold', 'label': 'Spiega'},
-                                         {'id': 'flat_sketch', 'label': 'Disegna sullo sviluppo'}]
+                    dati['commands'] += [{'id': 'unfold', 'label': 'Spiega'}]
+                    if forma:                       # coni e raccordi: tabella pieghe per la piegatrice
+                        dati['commands'] += [{'id': 'export_bendtable', 'label': 'Tabella pieghe'}]
+                    else:
+                        dati['commands'] += [{'id': 'flat_sketch', 'label': 'Disegna sullo sviluppo'}]
                 return _ok(selection=dati)
             if ':' in obj_id:
                 return _ok(selection=self._node_selection(obj_id))
@@ -357,7 +363,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
     def _sheet_state(self):
         sm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet'), None)
         if sm is None:
-            return None
+            fm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet_shape'), None)
+            if fm is None:
+                return None
+            data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+            return {'feature': fm['id'], 'shape': True, 'methods': {'k': METODI['k']}, 'flanges': 0, 'after': [],
+                    'def': {k: fm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')} | {'method': 'k'},
+                    'data': data.summary() if data is not None else None,
+                    'missing': [m for m, k in (('raggio interno', 'radius'), ('K-factor', 'k')) if fm.get(k) in (None, '')]}
         out = {'feature': sm['id'], 'def': {k: sm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')},
                'methods': METODI, 'data': None, 'flanges': len(sm.get('flanges') or []),
                'after': [f['id'] for f in self.doc.features[self.doc.features.index(sm) + 1:]
@@ -592,6 +605,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             if data is None:
                 raise SteelCADError('La tabella pieghe si fa da una lamiera costruita.', code='lamiera')
             n = lambda v, d=3: f'{v:.{d}f}'.replace('.', ',')  # noqa: E731
+            if getattr(data, 'bend_rows', None) is not None:
+                righe = ['Piega;Angolo °;Lunghezza linea mm;Correzione mm (già nello sviluppo)']
+                for r_ in data.bend_rows:
+                    righe.append(';'.join([str(r_['n']), n(r_['angle'], 2), n(r_['length'], 1),
+                                           n(r_['correction']) if r_['correction'] is not None else '']))
+                info = data.shape_info or {}
+                righe += ['', f'{info.get("nome", "Forma")};Spessore mm;{n(data.thickness, 2)};Raggio interno mm;'
+                              f'{n(data.tech.get("radius") or 0, 2)};K;{n(data.tech.get("k") or 0)};Sviluppo mm;'
+                              f'{n(data.flat_size[0], 2)} x {n(data.flat_size[1], 2)}']
+                Path(path).write_text('\n'.join(righe) + '\n', encoding='utf-8-sig')
+                return _ok(message=f'Tabella pieghe salvata: {len(data.bend_rows)} pieghe.', path=path)
             righe = ['Piega;Flangia;Su;Lunghezza esterna mm;Angolo °;Verso;Raggio interno mm;K;BA mm;BD mm;Larghezza mm']
             for i, g in enumerate(data.flanges, 1):
                 b = g.bend
@@ -733,7 +757,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     raise SteelCADError('Metodo di piega sconosciuto.', code='metodo')
                 sm['method'] = fields['method']
         # qui una modifica può lasciare la lamiera senza un dato: va bene, la scheda lo dice
-        return self._change('Dati di piega', lambda: fn(self._sheet_def(fid)), keep_broken=True)
+        def forma_o_lamiera():
+            f = self._sheet_def(fid)
+            if f is None:
+                g = self.doc.feature(fid)
+                f = g if not isinstance(g, Sketch) and g.get('type') == 'sheet_shape' else None
+            fn(f)
+        return self._change('Dati di piega', forma_o_lamiera, keep_broken=True)
 
     # ---------------------------------------------------------------- disegno libero
     def sketch_view(self, sid: str) -> dict:
@@ -1423,8 +1453,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                                        ('ripiani', 'Livelli (sotto e sopra compresi)'), ('profilo', 'Profilo')]),
         'cancello': ('Cancello', [('L', 'Larghezza'), ('H', 'Altezza'), ('telaio', 'Profilo telaio'),
                                   ('sbarre', 'Profilo sbarre'), ('passo', 'Passo sbarre (circa)')]),
+        'cono': ('Cono / tronco di cono', [('D1', 'Ø grande'), ('D2', 'Ø piccolo (0 = a punta)'), ('H', 'Altezza'),
+                                           ('spessore', 'Spessore'), ('riferimento', 'Misure', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
+                                           ('modo', 'Lavorazione', {'press': 'a pieghe (piegatrice)', 'rolled': 'calandrato'}),
+                                           ('passo', 'Passo pieghe sul bordo (vuoto = dal raggio)')]),
+        'tramoggia': ('Raccordo quadro-tondo', [('A', 'Lato A (X)'), ('B', 'Lato B (Y)'), ('D', 'Ø tondo'), ('H', 'Altezza'),
+                                                ('ex', 'Spostamento tondo X'), ('ey', 'Spostamento tondo Y'),
+                                                ('spessore', 'Spessore'), ('rif_base', 'Misure base', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
+                                                ('rif_tondo', 'Misure tondo', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
+                                                ('passo', 'Passo pieghe sul tondo (vuoto = dal raggio)')]),
     }
-    _PARAM_MODELLO = {'L', 'P', 'H'}            # questi vivono anche come parametri: il valore vero è lì
+    _PARAM_MODELLO = {'L', 'P', 'H', 'D1', 'D2', 'A', 'B', 'D', 'ex', 'ey'}   # vivono anche come parametri
 
     def _structure_selection(self, st_id: str) -> dict:
         fdef = self.doc.feature(st_id)
@@ -1440,10 +1479,30 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         if t and t.get('kind') in self.MODELLI_ST:
             titolo, campi = self.MODELLI_ST[t['kind']]
             par = self.doc.parameters
-            valori = {k: (par[k] if k in self._PARAM_MODELLO and k in par else t['values'].get(k)) for k, _ in campi}
-            out['template'] = {'kind': t['kind'], 'title': titolo,
-                               'fields': [[k, l, valori.get(k)] for k, l in campi]}
+            valori = {c[0]: (par[c[0]] if c[0] in self._PARAM_MODELLO and c[0] in par else t['values'].get(c[0]))
+                      for c in campi}
+            out['template'] = self._tpl_info(t, titolo, campi, valori)
         return out
+
+    def _tpl_info(self, t, titolo, campi, valori):
+        return {'kind': t['kind'], 'title': titolo,
+                'fields': [[c[0], c[1], valori.get(c[0]), c[2] if len(c) > 2 else None] for c in campi]}
+
+    def _shape_template(self):
+        """La forma di lamiera (cono, raccordo) del progetto e i dati del suo modello, per la scheda."""
+        f = next((x for x in self.doc.features if not isinstance(x, Sketch) and x.get('type') == 'sheet_shape'), None)
+        if f is None or not f.get('template') or f['template'].get('kind') not in self.MODELLI_ST:
+            return None
+        t = f['template']
+        titolo, campi = self.MODELLI_ST[t['kind']]
+        par = self.doc.parameters
+        alias = {'spessore': 'sp'}
+        valori = {}
+        for c in campi:
+            k = c[0]
+            nome_par = alias.get(k, k)
+            valori[k] = par[nome_par] if (k in self._PARAM_MODELLO or k in alias) and nome_par in par else t['values'].get(k)
+        return f['id'], self._tpl_info(t, titolo, campi, valori)
 
     def structure_template_apply(self, st_id: str, values: dict) -> dict:
         """Rifà la struttura di un modello a misure con i dati nuovi (anche ripiani, profili, passo).
@@ -1457,14 +1516,16 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             for k in ('profilo', 'gambe', 'montanti', 'traversi', 'telaio', 'sbarre'):
                 if k in values:
                     parse(str(values[k]))
-            vals = {**t['values'], **{k: _number(v) for k, v in values.items() if str(v).strip() != ''}}
+            vals = {**t['values'], **{k: _number(v) for k, v in values.items() if str(v).strip() != '' or k == 'passo'}}
+            if old.get('type') == 'sheet_shape':           # i dati di piega restano quelli della forma
+                vals.update({'raggio': old.get('radius'), 'k': old.get('k')})
             nuovo = getattr(templates, t['kind'])(old.get('name') or self.MODELLI_ST[t['kind']][0], **vals)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
         def fn():
             vecchi_sketch = self.doc._sketch_refs(old)
-            new_st = next(f for f in nuovo.features if not isinstance(f, Sketch) and f.get('type') == 'structure')
+            new_st = next(f for f in nuovo.features if not isinstance(f, Sketch) and f.get('type') == old.get('type'))
             new_sk = [f for f in nuovo.features if isinstance(f, Sketch)]
             # le aste ritoccate a mano restano (se esistono ancora), e anche i giunti scelti a mano
             if old.get('overrides'):
@@ -1813,7 +1874,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
     def new_project(self, kind: str, values: dict | None = None) -> dict:
         try:
-            if kind == 'lamiera':
+            if kind in ('lamiera', 'cono', 'tramoggia'):
                 d = self.bend_default()
                 values = dict(values or {})
                 for campo, k in (('raggio', 'radius'), ('k', 'k')):
@@ -1823,7 +1884,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
                    'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
                    'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
-                   'cancello': templates.cancello, 'disegno': templates.struttura_disegno}[kind](**values)
+                   'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
+                   'cono': templates.cono, 'tramoggia': templates.tramoggia}[kind](**values)
             self._set(doc)
             self.path = None
             self.blank = False

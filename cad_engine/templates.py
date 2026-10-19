@@ -178,3 +178,35 @@ def struttura_disegno(name: str = 'Struttura', piano='XZ', material='S235') -> D
     doc = Document(name, material)
     doc.add_sketch(piano, 'Scheletro')
     return doc
+
+
+# =============================================================================== forme di lamiera
+def cono(name: str = 'Tronco di cono', D1=400, D2=200, H=300, spessore=2, riferimento='esterno', modo='press',
+         passo='', raggio=None, k=None, material='S235') -> Document:
+    """Cono o tronco di cono (D2 = 0: a punta), misure finite. modo: press (a pieghe) o rolled (calandrato)."""
+    doc = Document(name, material)
+    for kk, v in (('D1', D1), ('D2', D2), ('H', H), ('sp', spessore)):
+        doc.set_parameter(kk, v)
+    vuoto = lambda v: v is None or str(v).strip() == ''  # noqa: E731
+    doc.add_feature('sheet_shape', name, kind='cone', d1='D1', d2='D2', height='H', thickness='sp',
+                    ref=riferimento, mode=modo, pitch=None if vuoto(passo) else passo,
+                    radius=None if vuoto(raggio) else raggio, k=None if vuoto(k) else k,
+                    template={'kind': 'cono', 'values': {'D1': D1, 'D2': D2, 'H': H, 'spessore': spessore,
+                                                         'riferimento': riferimento, 'modo': modo, 'passo': passo}})
+    return doc
+
+
+def tramoggia(name: str = 'Raccordo quadro-tondo', A=600, B=400, D=250, H=300, ex=0, ey=0, spessore=2,
+              rif_base='esterno', rif_tondo='esterno', passo='', raggio=None, k=None, material='S235') -> Document:
+    """Raccordo rettangolo A × B → tondo Ø D a altezza H, centro del tondo spostato di (ex, ey); misure finite."""
+    doc = Document(name, material)
+    for kk, v in (('A', A), ('B', B), ('D', D), ('H', H), ('ex', ex), ('ey', ey), ('sp', spessore)):
+        doc.set_parameter(kk, v)
+    vuoto = lambda v: v is None or str(v).strip() == ''  # noqa: E731
+    doc.add_feature('sheet_shape', name, kind='transition', a='A', b='B', d='D', height='H', ex='ex', ey='ey',
+                    thickness='sp', ref_base=rif_base, ref_round=rif_tondo, pitch=None if vuoto(passo) else passo,
+                    radius=None if vuoto(raggio) else raggio, k=None if vuoto(k) else k,
+                    template={'kind': 'tramoggia', 'values': {'A': A, 'B': B, 'D': D, 'H': H, 'ex': ex, 'ey': ey,
+                                                              'spessore': spessore, 'rif_base': rif_base,
+                                                              'rif_tondo': rif_tondo, 'passo': passo}})
+    return doc

@@ -442,6 +442,7 @@ function applyLook() {
   $('#b-unfold').classList.toggle('on', flatView);
   $('#b-unfold').textContent = flatView ? 'Ripiega' : 'Spiega';
   $('#flat-bar').hidden = !(flatView && !SK);
+  $('#flat-bar [data-cmd="flat_sketch"]')?.toggleAttribute('hidden', !!S?.sheet?.shape);   // coni e raccordi: niente disegno sullo sviluppo
   $('#sk-ghost').hidden = !solo;
   $('#sk-ghost').classList.toggle('on', !!SK?.ghost);
   ridisegna();
@@ -737,22 +738,26 @@ async function renderProps(s) {
   const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
   if (!profili) profili = await call('profile_suggestions');
-  if (s.kind === 'structure') {
-    const t = s.template;
-    h += t ? `<div class="sub">${esc(t.title)}: misure e profili</div><p class="hint" style="margin:0 0 6px">Cambia e premi Applica: la struttura si rifà. Le aste ritoccate a mano restano.</p>
-      <div class="form st-tpl">${t.fields.map(([k, l, v]) => `<label class="lbl">${esc(l)}<input class="field" data-tf="${esc(k)}" list="dl-prof" value="${esc(String(v ?? '').replace('.', ','))}"></label>`).join('')}</div>
+  if (s.kind === 'structure' || (s.kind === 'body' && s.template)) {
+    const t = s.template, idf = s.kind === 'structure' ? s.id : s.tpl_id;
+    const forma = s.kind === 'body';
+    h += t ? `<div class="sub">${esc(t.title)}: ${forma ? 'misure' : 'misure e profili'}</div><p class="hint" style="margin:0 0 6px">Cambia e premi Applica: ${forma ? 'il pezzo e lo sviluppo si rifanno.' : 'la struttura si rifà. Le aste ritoccate a mano restano.'}</p>
+      <div class="form st-tpl">${t.fields.map(([k, l, v, scelte]) => scelte
+        ? `<label class="lbl">${esc(l)}<select class="field" data-tf="${esc(k)}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
+        : `<label class="lbl">${esc(l)}<input class="field" data-tf="${esc(k)}" ${forma ? '' : 'list="dl-prof"'} value="${esc(String(v ?? '').replace('.', ','))}"></label>`).join('')}</div>
       <datalist id="dl-prof">${profili.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
       <div class="row-btns"><button class="btn primary" id="tpl-apply">Applica</button></div>`
       : '<p class="hint">Struttura disegnata: le misure si cambiano dallo sketch (clic sullo sketch nell’albero), il profilo cliccando le aste.</p>';
+    if (forma && s.commands?.length) h += `<div class="row-btns">${s.commands.map(c => `<button class="btn" data-cmd="${esc(c.id)}">${esc(c.label)}</button>`).join('')}</div>`;
     $('#props').innerHTML = h;
     if (t) {
       const vai = () => {
         const v = {};
         document.querySelectorAll('[data-tf]').forEach(i => { v[i.dataset.tf] = i.value.trim(); });
-        inCoda(async () => { if (await apply(await call('structure_template_apply', s.id, v), 'Struttura rifatta con le misure nuove.')) await select('struct=' + s.id); });
+        inCoda(async () => { if (await apply(await call('structure_template_apply', idf, v), forma ? 'Pezzo rifatto con le misure nuove.' : 'Struttura rifatta con le misure nuove.')) await select(forma ? 'body' : 'struct=' + idf); });
       };
       $('#tpl-apply').onclick = vai;
-      document.querySelectorAll('[data-tf]').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+      document.querySelectorAll('input[data-tf]').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
     }
     return;
   }
@@ -1150,7 +1155,11 @@ function renderSheet() {
     ${manca.size ? `<div class="msg err">Mancano: ${esc([...manca].join(', '))}. Sono dati della tua piegatrice: senza, le flange non si possono calcolare.</div>` : ''}
     ${sh.after.length ? `<div class="msg warn">Dopo la lamiera ci sono altre lavorazioni (${esc(sh.after.join(', '))}): lo sviluppo non le contiene.</div>` : ''}`;
   const data = sh.data;
-  const pieghe = data && data.bends.length ? `<table class="grid"><thead><tr><th>Flangia</th><th>Lato</th><th class="n">L</th><th class="n">Angolo</th><th>Verso</th>
+  const pieghe = data && data.bend_rows ? (data.bend_rows.length ? `<table class="grid"><thead><tr><th>Piega</th><th class="n">Angolo</th><th class="n">Linea mm</th><th class="n">Correzione mm</th></tr></thead><tbody>
+    ${data.bend_rows.map(b => `<tr><td>P${b.n}</td><td class="n">${num(b.angle, 2)}°</td><td class="n">${num(b.length, 1)}</td><td class="n">${b.correction == null ? '' : num(b.correction, 3)}</td></tr>`).join('')}</tbody></table>
+    <p class="hint">Correzione totale ${num(data.shape_info?.correzione_totale || 0, 2)} mm, già messa nello sviluppo.</p>`
+    : `<p class="hint">Calandrato: nessuna piega. Corona con raggi ${num(data.shape_info?.raggio_grande, 2)} e ${num(data.shape_info?.raggio_piccolo, 2)} mm, settore ${num(data.shape_info?.angolo_settore, 3)}°.</p>`)
+    : data && data.bends.length ? `<table class="grid"><thead><tr><th>Flangia</th><th>Lato</th><th class="n">L</th><th class="n">Angolo</th><th>Verso</th>
     <th class="n">R</th><th class="n">K</th><th class="n">BA</th><th class="n">BD</th></tr></thead><tbody>${data.bends.map(b => `<tr data-fl="${esc(b.flange)}">
     <td>${esc(b.flange)}</td><td>${esc(b.edge)}</td><td class="n">${num(b.length, 2)}</td><td class="n">${num(b.angle, 2)}°</td><td>${b.direction === 'up' ? 'su' : 'giù'}</td>
     <td class="n">${num(b.r, 2)}</td><td class="n">${num(b.k, 3)}</td><td class="n">${num(b.ba, 3)}</td><td class="n">${num(b.bd, 3)}</td></tr>`).join('')}</tbody></table>`
@@ -1166,7 +1175,7 @@ function renderSheet() {
       <div class="kv"><span>Sviluppo</span><span>${num(data.flat_size[0], 2)} × ${num(data.flat_size[1], 2)} mm</span>
       <span>Area</span><span>${num(data.flat_area / 1e6, 4)} m²</span></div>
       <div class="row-btns"><button class="btn primary" data-cmd="export_dxf">Esporta sviluppo DXF…</button>
-      <button class="btn" data-cmd="unfold">Spiega</button><button class="btn" data-cmd="flat_sketch">Disegna sullo sviluppo</button></div>`;
+      <button class="btn" data-cmd="unfold">Spiega</button>${sh.shape ? '<button class="btn" data-cmd="export_bendtable">Tabella pieghe…</button>' : '<button class="btn" data-cmd="flat_sketch">Disegna sullo sviluppo</button>'}</div>`;
   }
   const attivo = document.activeElement?.dataset?.tech ? { k: document.activeElement.dataset.tech, v: document.activeElement.value } : null;
   $('#tab-sheet').innerHTML = `<div class="sheet-cols"><div><h4>Dati di piega</h4>${tech}</div><div><h4>Pieghe</h4>${pieghe}</div><div><h4>Sviluppo</h4>${flat}</div></div>`;
@@ -1335,6 +1344,17 @@ function newDialog(iniziale = 'lamiera') {
       campi: [['L', 'Larghezza', 800], ['P', 'Profondità', 600], ['H', 'Altezza', 2000], ['ripiani', 'Livelli (sotto e sopra compresi)', 3], ['profilo', 'Profilo', '40x40x2']] },
     cancello: { titolo: 'Cancello', nota: 'Telaio e sbarre a passo uguale',
       campi: [['L', 'Larghezza', 1500], ['H', 'Altezza', 1200], ['telaio', 'Profilo telaio', '60x60x3'], ['sbarre', 'Profilo sbarre', '20x20x2'], ['passo', 'Passo sbarre', 120]] },
+    cono: { titolo: 'Cono / tronco di cono', nota: 'Misure finite; sviluppo a pieghe o calandrato',
+      campi: [['D1', 'Ø grande', 400], ['D2', 'Ø piccolo (0 = a punta)', 200], ['H', 'Altezza', 300], ['spessore', 'Spessore', 2],
+        ['riferimento', 'Misure', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }], ['modo', 'Lavorazione', 'press', { press: 'a pieghe (piegatrice)', rolled: 'calandrato' }],
+        ['passo', 'Passo pieghe sul bordo (vuoto = dal raggio)', ''], ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)],
+        ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
+    tramoggia: { titolo: 'Raccordo quadro-tondo', nota: 'Rettangolo → tondo, anche eccentrico',
+      campi: [['A', 'Lato A (X)', 600], ['B', 'Lato B (Y)', 400], ['D', 'Ø tondo', 250], ['H', 'Altezza', 300],
+        ['ex', 'Spostamento tondo X', 0], ['ey', 'Spostamento tondo Y', 0], ['spessore', 'Spessore', 2],
+        ['rif_base', 'Misure base', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }], ['rif_tondo', 'Misure tondo', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }],
+        ['passo', 'Passo pieghe sul tondo (vuoto = dal raggio)', ''], ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)],
+        ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
     vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste', campi: [] },
     lamiera: { titolo: 'Lamiera', nota: 'Base piegata: poi clic su un lato per la flangia',
       campi: [['larghezza', 'Larghezza', 500], ['profondita', 'Profondità', 300], ['spessore', 'Spessore', 2],
@@ -1347,7 +1367,7 @@ function newDialog(iniziale = 'lamiera') {
     const m = MODELLI[kind];
     return `<h3>Nuovo progetto</h3>
       <div class="choice">${Object.entries(MODELLI).map(([k, v]) => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${esc(v.titolo)}<small>${esc(v.nota)}</small></button>`).join('')}</div>
-      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura', lamiera: 'Lamiera', zero: 'Pezzo', disegno: 'Struttura', scaffale: 'Scaffale', armadio: 'Telaio armadio', cancello: 'Cancello' }[kind]}"></label>
+      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura', lamiera: 'Lamiera', zero: 'Pezzo', disegno: 'Struttura', scaffale: 'Scaffale', armadio: 'Telaio armadio', cancello: 'Cancello', cono: 'Tronco di cono', tramoggia: 'Raccordo quadro-tondo' }[kind]}"></label>
       ${m.campi.map(([k, l, v, scelte]) => scelte
         ? `<label style="grid-column:1/-1">${esc(l)}<select class="field" data-f="${k}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
         : `<label>${esc(l)}<input class="field" data-f="${k}" value="${esc(v)}"></label>`).join('')}</div>
@@ -1368,6 +1388,7 @@ function newDialog(iniziale = 'lamiera') {
         hideHome();
         if (kind === 'zero' || kind === 'disegno') await enterSketch('S1');
         if (['scaffale', 'armadio', 'cancello', 'telaio'].includes(kind)) await select('struct=ST1');
+        if (['cono', 'tramoggia'].includes(kind)) await select('body');
       });
     };
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
