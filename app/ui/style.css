@@ -690,3 +690,32 @@ body.lavoro #ribbon { display: none; }
 .prep-dove .link { background: none; border: 0; color: var(--hover); padding: 0; }
 #right .panel:has(.cosa) > h2 { display: none; }
 .cosa .gr[hidden] { display: none; }
+
+/* ---------------------------------------------------- pannello della piega: il profilo disegnato, + e −, angoli pronti */
+.fhead .fid { color: var(--ink-3); font-size: 11px; margin-left: 4px; }
+.fp-pic { border-radius: 8px; border: 1px solid var(--line); margin: 6px 0 10px; padding: 4px 8px;
+  background: radial-gradient(ellipse at 50% 40%, var(--view-top), var(--view-bot) 90%); }
+.fp-pic svg { width: 100%; height: auto; display: block; max-height: 150px; }
+.fp-pic .pz { fill: none; stroke: var(--ink-2); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+.fp-pic .q { stroke: var(--hover); stroke-width: 2; }
+.fp-pic .qt { fill: var(--hover); font: 600 16px "Segoe UI", sans-serif; text-anchor: middle; }
+.fp-pic .at { fill: var(--sel); font: 600 15px "Segoe UI", sans-serif; }
+.fp-riga { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.fp-riga > span, .seg-row > span { font-size: 13px; color: var(--ink-2); }
+.fp-len { display: grid; grid-template-columns: 40px 1fr 40px; gap: 6px; }
+.fp-len .pm { height: 38px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; }
+.fp-len .pm:hover, .fp-ang .chip:hover { border-color: var(--hover); }
+.fp-len .field { font-size: 17px; }
+.fp-ang { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 1.2fr; gap: 6px; }
+.fp-ang .chip { height: 36px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+.fp-ang .chip.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }
+.seg.big button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; }
+.seg.big svg { width: 26px; height: 20px; fill: none; stroke: currentColor; stroke-width: 3; }
+.fp-fine { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.link.danger { background: none; border: 0; color: var(--err); padding: 4px 0; font-size: 14px; }
+.link.danger:hover { text-decoration: underline; }
+.fp-len .inp, .fp-ang .inp { display: flex; align-items: center; gap: 4px; position: relative; }
+.fp-len .inp .field, .fp-ang .inp .field { min-width: 0; flex: 1; }
+.fp-len .inp i, .fp-ang .inp i { position: static; font-style: normal; color: var(--ink-3); }
+.fp-pic .at { text-anchor: middle; }
+.seg-row > span { min-width: 64px; }

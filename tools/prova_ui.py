@@ -241,7 +241,7 @@ def scatola(pg, ok):
         pg.fill('#f-len', '60')
         pg.click('#f-add')
         pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
-        pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+        pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
     pg.evaluate("window.__steelcad.select('flange=SM1/FL1')")
     pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]', state='attached')
     pg.click('#props details.fsec:has(.corner) summary')          # gli angoli stanno in una sezione chiusa
@@ -407,7 +407,7 @@ def lamiera(pg, ok):
         pg.fill('#f-len', '30')
         pg.click('#f-add')
         pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
-        pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+        pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
     size = pg.evaluate('window.__steelcad.state.sheet.data.flat_size')
     ok(f'U: sviluppo {size}', abs(size[0] - 500) < 1e-6 and abs(size[1] - 352.7964594) < 1e-5)
     ok('pannello flangia senza "Fori" e "Chiudi la testata" (tolti: si fanno disegnando sulla faccia)',

@@ -1011,18 +1011,67 @@ function deleteSelected() {
 const opts = (o, cur) => Object.entries(o).map(([k, v]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
 let ultimaFlangia = { length: '30', angle: '90', direction: 'up', position: 'inside' };
 function flangeFields(d, dirs, pos, p = 'f') {
-  const seg = (id, o, cur) => `<div class="seg" id="${p}-${id}">${Object.entries(o).map(([k, v]) =>
-    `<button type="button" data-v="${k}" class="${k === cur ? 'on' : ''}" title="${esc(SPIEGA[k + (o === VERSI_PUNTA ? '_t' : '')] || '')}">${esc(v)}</button>`).join('')}</div>`;
-  return `<div class="ff">
-    <label>Lunghezza<span class="inp"><input class="field" id="${p}-len" value="${esc(String(d.length ?? '').replace('.', ','))}"><i>mm</i></span></label>
-    <label>Angolo<span class="inp"><input class="field" id="${p}-ang" value="${esc(String(d.angle ?? 90).replace('.', ','))}"><i>°</i></span></label></div>
+  const icona = k => (k === 'up' ? '<svg viewBox="0 0 36 28" aria-hidden="true"><path d="M2 24h22V4"/></svg>'
+    : k === 'down' ? '<svg viewBox="0 0 36 28" aria-hidden="true"><path d="M2 4h22v20"/></svg>' : '');
+  const seg = (id, o, cur) => `<div class="seg big" id="${p}-${id}">${Object.entries(o).map(([k, v]) =>
+    `<button type="button" data-v="${k}" class="${k === cur ? 'on' : ''}" title="${esc(SPIEGA[k + (o === VERSI_PUNTA ? '_t' : '')] || '')}">${id === 'dir' ? icona(k) : ''}${esc(v)}</button>`).join('')}</div>`;
+  const ang = String(d.angle ?? 90).replace('.', ',');
+  return `<div class="fp-pic" id="${p}-pic">${profiloPiega(d)}</div>
+    <div class="fp-riga"><span>Quanto è alta</span><div class="fp-len">
+      <button type="button" class="pm" data-pm="-1" data-for="${p}-len" aria-label="Un millimetro in meno">−</button>
+      <span class="inp"><input class="field" id="${p}-len" value="${esc(String(d.length ?? '').replace('.', ','))}"><i>mm</i></span>
+      <button type="button" class="pm" data-pm="1" data-for="${p}-len" aria-label="Un millimetro in più">+</button></div></div>
+    <div class="fp-riga"><span>Angolo</span><div class="fp-ang">${[90, 45, 135].map(a => `<button type="button" class="chip${ang === String(a) ? ' on' : ''}"
+      data-ang="${a}" data-for="${p}-ang">${a}°</button>`).join('')}<span class="inp"><input class="field" id="${p}-ang" value="${esc(ang)}" aria-label="Angolo"><i>°</i></span></div></div>
     <div class="seg-row"><span>Verso</span>${seg('dir', dirs, d.direction || 'up')}</div>
     <div class="seg-row"><span>Misura</span>${seg('pos', pos, d.position || 'inside')}</div>`;
 }
-const VERSI_UI = { up: 'su', down: 'giù' };
+// il profilo della piega visto di fianco: la base, la piega con la sua altezza e l'angolo
+function profiloPiega(d) {
+  const a = (parseFloat(String(d.angle ?? 90).replace(',', '.')) || 90) * Math.PI / 180;
+  const giu = (d.direction || 'up') === 'down' ? 1 : -1;
+  const x0 = 170, y0 = giu < 0 ? 112 : 38, L = 78;
+  const ux = Math.cos(a), uy = giu * Math.sin(a);
+  const x1 = x0 + ux * L, y1 = y0 + uy * L;
+  const [nx, ny] = giu < 0 ? [-uy, ux] : [uy, -ux];                 // dalla parte di fuori della piega
+  const o = 15, lx = (x0 + x1) / 2 + nx * 34, ly = (y0 + y1) / 2 + ny * 34 + 6;
+  let bx = -1 + ux, by = uy;                                      // dentro l'angolo: la bisettrice tra base e piega
+  const bl = Math.hypot(bx, by) || 1; bx /= bl; by /= bl;
+  const f = v => v.toFixed(1);
+  const len = esc(String(d.length ?? '').replace('.', ','));
+  return `<svg viewBox="0 0 300 150" role="img" aria-label="Profilo della piega">
+    <path class="pz" d="M40 ${y0}H${x0}L${f(x1)} ${f(y1)}"/>
+    <path class="q" d="M${f(x0 + nx * o)} ${f(y0 + ny * o)}L${f(x1 + nx * o)} ${f(y1 + ny * o)}"/>
+    <text class="qt" x="${f(lx)}" y="${f(ly)}">${len}</text>
+    <text class="at" x="${f(x0 + bx * 34)}" y="${f(y0 + by * 34 + 5)}">${esc(String(d.angle ?? 90).replace('.', ','))}°</text></svg>`;
+}
+document.addEventListener('click', ev => {
+  const pm = ev.target.closest('[data-pm]'), ch = ev.target.closest('[data-ang]');
+  const b = pm || ch;
+  if (!b) return;
+  const i = document.getElementById(b.dataset.for);
+  if (!i) return;
+  if (pm) { const v = parseFloat(i.value.replace(',', '.')) || 0; i.value = String(Math.max(1, Math.round((v + +pm.dataset.pm) * 100) / 100)).replace('.', ','); }
+  else { i.value = ch.dataset.ang; b.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b)); }
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+  i.dispatchEvent(new Event('change', { bubbles: true }));
+});
+// il disegno segue quello che scrivi o scegli
+document.addEventListener('input', ev => { if (/^[a-z]+-(len|ang)$/.test(ev.target.id || '')) ridisegnaProfilo(ev.target.id.split('-')[0]); });
+document.addEventListener('change', ev => { if (ev.target.closest?.('.seg')) ridisegnaProfilo(ev.target.closest('.seg').id.split('-')[0]); });
+function ridisegnaProfilo(p) {
+  const box = document.getElementById(`${p}-pic`);
+  if (!box || !document.getElementById(`${p}-len`)) return;
+  const d = readFlange(p);
+  box.innerHTML = profiloPiega(d);
+  document.querySelectorAll(`[data-for="${p}-ang"].chip`).forEach(c => c.classList.toggle('on', c.dataset.ang === d.angle.replace(',', '.')));
+}
+const VERSI_UI = { up: 'In su', down: 'In giù' };
 // per una flangia sulla punta di un'altra: "su" continua a chiudere (verso dentro), "giù" apre verso fuori (omega)
-const VERSI_PUNTA = { up: 'dentro', down: 'fuori' };
-const POS_UI = { inside: 'esterna', outside: 'dal bordo' };
+const VERSI_PUNTA = { up: 'Verso dentro', down: 'Verso fuori' };
+const POS_UI = { inside: 'Fuori tutto', outside: 'Dal bordo' };
+// il lato di una piega in parole di officina
+const LATI = { 'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra', 'lato sinistro': 'a sinistra' };
 const SPIEGA = { up_t: 'Verso dentro: chiude, es. il bordo di una scatola', down_t: 'Verso fuori: apre, es. la tesa di un omega',
   inside: 'La lunghezza è la quota esterna, misurata dal contorno: il pezzo resta delle misure disegnate',
   outside: 'La piega parte dal bordo del contorno e la flangia sta fuori: il pezzo cresce dello spessore' };
@@ -1103,11 +1152,15 @@ function flangePanel(s) {
       <label>Sporgenza<span class="inp"><input class="field" id="i-s" value="0"><i>mm</i></span></label></div>
     <div class="row-btns"><button class="btn primary" id="i-add">Crea gli incastri</button></div></details>` : '';
   const dati = s.rows.filter(r => !['Lato', 'Piegata sulla punta di'].includes(r[0]));
-  return `<div class="fhead"><div><h3>Flangia ${esc(s.flange)}</h3><div class="fsub">${esc(dove)}</div></div>
-      <button class="ibtn danger" id="f-del" title="Elimina la flangia (Canc)"><img src="icons/delete.svg" alt=""></button></div>
-    ${flangeFields(s.def, s.parent ? VERSI_PUNTA : s.directions, POS_UI)}
+  const lato = riga('Lato') || '';
+  const titolo = s.parent ? (Math.abs(+s.def.angle) >= 170 ? 'Orlo' : 'Piega sulla punta') : `Piega ${LATI[lato] || lato}`;
+  const sotto = s.parent ? `sulla piega ${s.parent}` : (riga('Larghezza') ? `bordo da ${riga('Larghezza')}` : '');
+  return `<div class="fhead" data-flangia="${esc(s.flange)}"><div><h3>${esc(titolo)}</h3><div class="fsub">${esc(sotto)} <span class="fid">${esc(s.flange)}</span></div></div></div>
+    ${flangeFields(s.def, s.parent ? VERSI_PUNTA : (s.directions?.up ? VERSI_UI : s.directions), POS_UI)}
     ${sezLinguetta}${sezAngoli}${sezIncastri}${sezPunta}
-    ${rigaPiega(dati)}`;
+    ${rigaPiega(dati)}
+    <div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button>
+      <button class="btn primary big" id="f-fatto">Fatto</button></div>`;
 }
 // i dati di piega stanno in un posto solo (la scheda Lamiera in basso): qui un riassunto e "cambia"
 function rigaPiega(righe = []) {
@@ -1293,6 +1346,7 @@ function wireFlange(s) {
     $('#f-gap').onchange = gap;
   }
   $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); };
+  $('#f-fatto').onclick = () => { applica(); clearSelection(); };
   if ($('#i-add')) $('#i-add').onclick = () => inCoda(async () => apply(await call('auto_tabs', s.feature, s.flange,
     $('#i-n').value.trim(), $('#i-w').value.trim(), $('#i-c').value.trim(), $('#i-s').value.trim())));
   if ($('#f-ext')) $('#f-ext').onclick = () => inCoda(async () => { if (await apply(await call('extend_over_tab', s.feature, s.flange))) await refreshSel(); });

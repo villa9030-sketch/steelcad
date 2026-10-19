@@ -66,7 +66,7 @@ def main():
                        pg.locator('#f-add').count() == 1 and 'destro' in pg.inner_text('#f-add'))
                     continue
                 pg.wait_for_function("(l) => window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === l)", arg=lato)
-                pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+                pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
             # 0) il bordo si accende passandoci sopra: punta di FL1 (lunga 400) → flangia lì, nient'altro
             pg.wait_for_function("window.__steelcad.state.scene_version === window.__steelcad.sceneVersion")
             pg.keyboard.press('0'); time.sleep(0.5)
@@ -93,12 +93,12 @@ def main():
             pg.click('#t-add')
             pg.wait_for_function("window.__steelcad.state.sheet.data.bends.some(b => b.parent === 'FL1')")
             ok('flangia FL5 sulla punta di FL1', True)
-            pg.wait_for_function("document.querySelector('#props h3')?.innerText === 'Flangia FL5'")
-            ok('selezionata la nuova flangia', 'sulla punta di FL1' in pg.inner_text('#props'))
+            pg.wait_for_function("!!document.querySelector('#props [data-flangia=FL5]')")
+            ok('selezionata la nuova flangia', 'sulla piega FL1' in pg.inner_text('#props'))
             # ... e cliccando la punta di FL2
             for madre in ('FL2', 'FL3', 'FL4'):
                 faccia(pg, f'SM1/{madre}/punta')          # subito, senza aspettare che il pezzo sia ricostruito
-                pg.wait_for_function("(m) => document.querySelector('#props h3')?.innerText === 'Flangia ' + m && document.querySelector('#t-add')", arg=madre)
+                pg.wait_for_function("(m) => document.querySelector('#props [data-flangia=' + m + ']') && document.querySelector('#t-add')", arg=madre)
                 if not pg.is_visible('#t-len'):
                     pg.click('#f-punta summary')
                 pg.fill('#t-len', '20')
