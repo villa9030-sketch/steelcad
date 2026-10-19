@@ -25,6 +25,31 @@ FILTRO_ASSIEME = ('Assieme SteelCAD (*.steelcad-asm)',)
 FILTRO_DISEGNO = ('Disegno (*.dxf;*.dwg)', 'DXF (*.dxf)', 'DWG (*.dwg)')
 
 
+def _tipo_file(file_type: str) -> tuple[str, str]:
+    """Come webview.util.parse_file_type, ma l'estensione può avere il trattino (.steelcad-asm): quella di
+    pywebview accetta solo lettere e cifre, e la finestra Apri (e Salva di un assieme) andava in errore."""
+    import re
+    m = re.search(r'^([\w ]+)\((\*(?:\.(?:[\w-]+|\*))*(?:;\*(?:\.(?:[\w-]+|\*))*)*)\)$', file_type)
+    if m:
+        return m.group(1).rstrip(), m.group(2)
+    raise ValueError(f'{file_type} is not a valid file filter')
+
+
+def _filtri_col_trattino():
+    """Il controllo dei filtri si sostituisce dove pywebview lo usa: window.py lo importa subito, la parte
+    Windows (winforms) quando parte la finestra, prendendolo da webview.util."""
+    import webview.util
+    import webview.window
+    webview.util.parse_file_type = _tipo_file
+    webview.window.parse_file_type = _tipo_file
+    winforms = sys.modules.get('webview.platforms.winforms')
+    if winforms is not None:
+        winforms.parse_file_type = _tipo_file
+
+
+_filtri_col_trattino()
+
+
 class Api:
     def __init__(self):
         self._svc = Service()
