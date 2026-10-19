@@ -833,7 +833,7 @@ function azione(id) {
     case 'altre': $('#props').innerHTML = altreLavorazioni(); $('#cosa-cerca')?.focus(); return;
     case 'piega': runCmd('flange_help'); return;
     case 'fori': inCoda(() => foriDialog()); return;
-    case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Taglia attraverso».')); return;
+    case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
     case 'contorno': inCoda(() => disegnaSopra()); return;
     case 'linguetta': inCoda(() => disegnaSopra('Disegna la linguetta partendo da un bordo e tornando sullo stesso bordo, poi «Aggiungi materiale».')); return;
@@ -2177,7 +2177,7 @@ const CMDS = [
     toast('Passa col mouse su un bordo della lamiera: si accende in arancio. Clicca e scegli lunghezza e verso.');
   } },
   { id: 'contour_help', label: 'Lamiera a contorno', run: () => toast(S?.sheet?.data
-    ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi «Lamiera a contorno».'
+    ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi Altro → «Lamiera a contorno».'
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
   { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna su questa faccia» nel pannello a destra.') },
   { id: 'member_help', label: 'Nuova asta', run: () => toast(nodes.length ? 'Clicca un nodo (pallino) del telaio: nel pannello scegli direzione e lunghezza della nuova asta.' : 'Prima serve una struttura: Telaio / tavolo o Struttura libera.', nodes.length ? '' : 'err') },
@@ -2302,7 +2302,7 @@ const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5FBF, dashSize: 6, gapS
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE });
 const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5 });
 const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', slot: 'Asola', arc3: 'Arco', polygon: 'Poligono', select: 'Seleziona',
-  dim: 'Quota', trim: 'Taglia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso' };
+  dim: 'Quota', trim: 'Accorcia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso' };
 const SK_CUT_FILL = new THREE.MeshBasicMaterial({ color: 0xD92D20, side: THREE.DoubleSide, depthTest: false });   // il pezzo che il Taglia toglie
 // una linea spessa px pixel (in WebGL le linee sono sempre da 1 pixel): una striscia nel piano dello sketch
 function fatLine(pts, px, mat) {
@@ -2351,7 +2351,7 @@ const AIUTI = {
   chamfer: 'Smusso: clic sullo spigolo, oppure sulle due linee una dopo l’altra · poi la misura nella casella + Invio',
   select: 'Clic su linee e cerchi (Maiusc per aggiungere, doppio clic = tutto il contorno, Ctrl+A tutto) · poi i comandi',
   dim: 'Clic su una linea (lunghezza) o un cerchio (diametro) · oppure su due punti, o un punto e una linea (distanza)',
-  trim: 'Taglia: passa sul pezzo da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
+  trim: 'Accorcia: passa sul pezzo di linea da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
   extend: 'Allunga: passa vicino all’estremità di una linea (l’allungamento tratteggiato) e clicca · Esc finisce',
 };
 
@@ -2543,8 +2543,8 @@ function drawSketch() {
   else if (!v.drawn) testo = suPezzo
     ? 'Vuoto. Scegli Rettangolo o Cerchio e disegna sulla faccia. Le misure partono dall’angolo in basso a sinistra (0;0); i bordi del pezzo sono in arancio: ci si aggancia e ci si fa l’offset.'
     : 'Vuoto. Scegli Linea o Rettangolo e disegna il contorno.';
-  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Taglia attraverso»' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`; }
-  else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Spezzata aperta, da bordo a bordo della faccia (arancio): «Taglia attraverso» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. «Lamiera a contorno»: se parte dallo spigolo di un bordo libero diventa lamiera piegata.'; }
+  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`; }
+  else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: Altro → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
   else { cls = 'bad'; testo = (v.status || '').startsWith('Lo sketch') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
@@ -2565,6 +2565,10 @@ function drawSketch() {
   $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);   // bastano linee aperte   // da bordo a bordo: la chiudo io
   for (const q of ['#sk-louver', '#sk-dimple']) { $(q).hidden = !(v.on_sheet && v.on_face); $(q).disabled = !v.drawn; }
   $('#sk-fold').hidden = !(v.on_flat || (v.on_sheet && /\/(sopra|sotto)$/.test(v.on_face || '')));
+  // sullo sviluppo si disegna quasi sempre per piegare: lì la piega è il pulsante principale, altrove sta in Altro
+  if (v.on_flat) $('#sk-face').prepend($('#sk-fold')); else $('#sk-more .sk-more-btns').prepend($('#sk-fold'));
+  $('#sk-fold').classList.toggle('primary', !!v.on_flat);
+  $('#sk-face [data-make="cut"]').classList.toggle('primary', !v.on_flat);
   $('#sk-fold').disabled = !v.drawn;
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
   $('#sk-tab').hidden = !(v.on_sheet && v.on_face);

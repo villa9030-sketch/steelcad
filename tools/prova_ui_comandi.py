@@ -176,7 +176,7 @@ def main():
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 4")
             ok('stato: la spezzata aperta può diventare lamiera', 'Lamiera a contorno' in pg.inner_text('#sk-status'))
             pg.screenshot(path=str(SHOTS / '0a_sezione.png'))
-            pg.click('#sk-contour')
+            pg.click('#sk-more summary'); pg.click('#sk-contour')
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             pieghe = [(b['flange'], b['parent'], round(b['length'], 2), round(b['angle'], 1), b['direction']) for b in st['sheet']['data']['bends']]
