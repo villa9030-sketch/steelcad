@@ -105,3 +105,20 @@ def test_modello_si_modifica_dopo():
     assert next(p for p in r['state']['parameters'] if p['name'] == 'H')['value'] == 2200
     assert s.undo()['ok'] and s.state()['cutlist']['pieces'] == 20
     assert not s.structure_template_apply('ST1', {'montanti': '40x40'})['ok']
+
+
+def test_nodi_dello_scheletro_e_giunti():
+    """I nodi delle strutture da scheletro si vedono e si possono cambiare (base che passa, montanti a battuta)."""
+    s = Service()
+    s.new_project('cancello', {'L': 2969, 'H': 1390, 'telaio': '40x40x3', 'sbarre': '20x20x2', 'passo': 120})
+    st = s.result.structures[0]
+    assert st.nodes and all(k.startswith('K1.') for k in st.nodes)
+    base = min((m for m in st.members if m.group == 'Telaio' and abs(m.start.Z - m.end.Z) < 1e-6), key=lambda m: m.start.Z)
+    assert s.edit_member(f'ST1/{base.id}', {'profile': '80x40x3'})['ok']
+    angoli = [k for k, v in s.result.structures[0].nodes.items() if base.id in v['members'] and len(v['members']) == 2]
+    assert len(angoli) == 2
+    for k in angoli:
+        assert s.set_joint('ST1', k, {'type': 'butt', 'through': [base.id]})['ok']
+    righe = {(r['profile'], r['length_mm'], '/'.join(r['cuts'])) for r in s.state()['cutlist']['rows']}
+    assert ('80×40×3', 3009.0, 'dritto/dritto') in righe        # la base passa intera
+    assert ('40×40×3', 1370.0, 'dritto/45°') in righe            # montanti sopra la base, a 45° in cima

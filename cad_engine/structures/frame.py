@@ -262,8 +262,9 @@ def _node_info(pts, members, nodes, fdef) -> dict:
     joints = fdef.get('joints') or {}
     out = {}
     for k, p in pts.items():
-        if '.' in k and k not in (fdef.get('points') or {}):
-            continue                          # punti interni presi dalle linee di uno sketch
+        scheletri = {x.get('id') for x in fdef.get('skeletons') or []}
+        if '.' in k and k not in (fdef.get('points') or {}) and k.split('.')[0] not in scheletri:
+            continue                          # punti interni presi dalle linee di uno sketch (aste a mano su linee)
         su = [m.id for m in members if (m.start - p).length < 1e-6 or (m.end - p).length < 1e-6]
         tipi = sorted({nodes[(m.id, i)][0] for m in members for i, q in ((0, m.start), (1, m.end))
                        if (q - p).length < 1e-6 and (m.id, i) in nodes})
