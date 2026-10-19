@@ -52,7 +52,34 @@ class DrawingsMixin:
         return {**campi, 'titolo': doc.meta.get('name') or 'Pezzo', 'materiale': doc.material,
                 'spessore_massa': f'{sp}{D.fmt(round(massa, 3))} kg', 'data': D.oggi(), 'foglio': f'{n}/{tot}'}
 
+    def _fogli_struttura(self, doc, result, campi: dict, formato: str, n0: int = 1, tot: int | None = None) -> list:
+        """Una struttura in tubolare: le viste dell'insieme con gli ingombri, poi la distinta di taglio."""
+        from OCP.BRep import BRep_Builder
+        from OCP.TopoDS import TopoDS_Compound
+        from cad_engine.structures import cut_list
+        forma = TopoDS_Compound()
+        b = BRep_Builder()
+        b.MakeCompound(forma)
+        for st in result.structures:
+            for m in st.members:
+                b.Add(forma, m.solid.wrapped)
+        cl = cut_list(result.structures)
+        tot = tot or 2
+        base = {**campi, 'titolo': doc.meta.get('name') or 'Struttura', 'materiale': doc.material,
+                'spessore_massa': f'{D.fmt(round(cl["kg"], 2))} kg', 'data': D.oggi()}
+        fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato)]
+        righe = [[str(i), r['profile'], D.fmt(r['length_mm']), ' / '.join(r['cuts']), str(r['qty']),
+                  ', '.join(r['groups']), D.fmt(round(r['kg_each'], 2)), D.fmt(round(r['kg_total'], 2))]
+                 for i, r in enumerate(cl['rows'], 1)]
+        totali = [[t['profile'], str(t['pieces']), D.fmt(round(t['total_length_mm'] / 1000, 2)), D.fmt(round(t['kg'], 2))]
+                  for t in cl['totals']]
+        fogli.append(D.tavola_taglio({**base, 'titolo': base['titolo'] + ' — distinta di taglio',
+                                      'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato))
+        return fogli
+
     def _fogli_pezzo(self, doc, result, campi: dict, formato: str, n0: int = 1, tot: int | None = None) -> list:
+        if result.body is None and result.structures and any(st.members for st in result.structures):
+            return self._fogli_struttura(doc, result, campi, formato, n0, tot)
         if result.body is None:
             raise SteelCADError('Il progetto non ha un pezzo da mettere in tavola.')
         sheet = getattr(result.body, 'sheet', None)
@@ -79,7 +106,10 @@ class DrawingsMixin:
             raise SteelCADError('L’assieme è vuoto.')
         distinta = [[str(k + 1), r['name'], str(r['qty']), r['material'], f'{D.fmt(r["thickness"])} mm' if r['thickness'] else '',
                      D.fmt(round(r['mass_tot'], 3))] for k, r in enumerate(righe)]
-        tot_pezzi = sum(2 if getattr(self.asm_parts[r['file']].result.body, 'sheet', None) else 1 for r in righe) if tutte else 0
+        def fogli_di(part):         # lamiera: pezzo + sviluppo; struttura: viste + distinta di taglio
+            res = part.result
+            return 2 if getattr(res.body, 'sheet', None) or (res.body is None and res.structures) else 1
+        tot_pezzi = sum(fogli_di(self.asm_parts[r['file']]) for r in righe) if tutte else 0
         tot = 1 + tot_pezzi
         massa = sum(r['mass_tot'] for r in righe)
         ca = {**campi, 'titolo': self.asm.name, 'materiale': ', '.join(sorted({r['material'] for r in righe})),

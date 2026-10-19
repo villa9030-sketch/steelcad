@@ -361,6 +361,21 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     return f
 
 
+def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -> Foglio:
+    """La distinta di taglio di una struttura: profilo, lunghezza, tagli, quantità, gruppo, peso; e i totali per
+    profilo (pezzi, metri, kg). È il foglio che va in officina alla troncatrice o al laser tubo."""
+    f = Foglio(formato, campi.get('titolo', ''))
+    area, cart = _cornice(f, {**campi, 'scala': '—'})
+    col = [0, 12, 50, 80, 112, 126, 186, 206, 228]
+    intest = ['Pos.', 'Profilo', 'Lunghezza mm', 'Tagli', 'Q.tà', 'Gruppo', 'kg cad.', 'kg tot.']
+    ytop = area[3] - 12
+    _tabella(f, area[0] + 10, ytop, col, [intest] + righe, 'DISTINTA DI TAGLIO')
+    y2 = ytop - 7 * (len(righe) + 1) - 18
+    _tabella(f, area[0] + 10, y2, [0, 40, 60, 85, 110], [['Profilo', 'Pezzi', 'Metri', 'kg']] + totali,
+             'TOTALI PER PROFILO (barre da comprare)')
+    return f
+
+
 def _tabella(f: Foglio, x, ytop, col, righe, titolo=None):
     h = 7
     if titolo:
