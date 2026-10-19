@@ -838,16 +838,24 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 raise SteelCADError('La piega su linea si disegna sulla base: sulla faccia di sopra o di sotto, oppure sullo '
                                     'sviluppo.', code='piega')
             linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('ref') and not e.get('construction')]
-            if len(linee) != 1:
-                raise SteelCADError('Disegna una sola linea: è dove si piega (lo spigolo esterno della piega).', code='piega')
+            if not linee:
+                raise SteelCADError('Disegna una linea dove si piega (lo spigolo esterno della piega); più linee = più '
+                                    'pieghe, anche in serie per la calandratura a colpi (bumping).', code='piega')
             ss = self.doc.solved_sketch(sid)
             fatto = self.doc._sketch_results.get(sid)
             pl_sk = fatto[1].plane if fatto and fatto[1] is not None else self.doc._plane(sk, self.result.body)
-            e = sk.entities[linee[0]]
-            pts = []
-            for p in (e['a'], e['b']):
-                q = data.plane.to_local_coords(pl_sk.from_local_coords(ss.points[p]))
-                pts.append([round(q.X, 6), round(q.Y, 6)])
+            # una piega per linea, in ordine lungo il pezzo (così PL1, PL2... vanno da una parte all'altra)
+            tratti = []
+            for lid in linee:
+                e = sk.entities[lid]
+                pts = []
+                for p in (e['a'], e['b']):
+                    q = data.plane.to_local_coords(pl_sk.from_local_coords(ss.points[p]))
+                    pts.append([round(q.X, 6), round(q.Y, 6)])
+                tratti.append(pts)
+            (ax, ay), (bx, by) = tratti[0]
+            nx, ny = -(by - ay), bx - ax
+            tratti.sort(key=lambda t: (t[0][0] + t[1][0]) * nx + (t[0][1] + t[1][1]) * ny)
             if direction not in VERSI:
                 raise SteelCADError('Verso della piega: su o giù.', code='piega')
         except SteelCADError as ex:
@@ -855,16 +863,18 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
         def fn():
             folds = sm.setdefault('folds', [])
-            usati = {x['id'] for x in folds} | {x['id'] for x in sm.get('flanges') or []}
-            n = 1
-            while f'PL{n}' in usati:
-                n += 1
-            folds.append({'id': f'PL{n}', 'a': pts[0], 'b': pts[1], 'angle': _number(angle), 'direction': direction,
-                          'flip': bool(flip)})
+            for a, b in tratti:
+                usati = {x['id'] for x in folds} | {x['id'] for x in sm.get('flanges') or []}
+                n = 1
+                while f'PL{n}' in usati:
+                    n += 1
+                folds.append({'id': f'PL{n}', 'a': a, 'b': b, 'angle': _number(angle), 'direction': direction,
+                              'flip': bool(flip)})
             self.doc.features = [f for f in self.doc.features if f is not sk]   # la linea è diventata la piega
-        r = self._change('Piega su linea', fn)
+        r = self._change('Piega su linea' if len(tratti) == 1 else f'{len(tratti)} pieghe su linea', fn)
         if r['ok']:
-            r['message'] = 'Piegata lungo la linea: lo sviluppo resta quello disegnato.'
+            r['message'] = ('Piegata lungo la linea' if len(tratti) == 1 else f'{len(tratti)} pieghe, una per linea') \
+                + ': lo sviluppo resta quello disegnato.'
         return r
 
     def edit_fold(self, fid: str, foid: str, fields: dict) -> dict:

@@ -264,7 +264,8 @@ def build(fdef: dict, ctx) -> NamedShape:
         face, lati, extra = _folds(fdef, face, lati, pl, tech, t, ctx, fid)
         usati = {fl.get('edge') for fl in flange_defs if not fl.get('parent')}
         for fo, parte in extra:
-            piegate.append((fo, parte))
+            if parte is not None:
+                piegate.append((fo, parte))
         flange_defs = list(flange_defs) + [fo for fo, _ in extra]
         tagliati = usati - set(lati)
         if tagliati:
@@ -436,6 +437,9 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
     """Pieghe lungo una linea disegnata sulla base: la base si divide sulla linea; la parte che si piega diventa una
     flangia sul nuovo lato (la corda), lunga quanto serve perché lo sviluppo resti quello disegnato: lunghezza =
     distanza massima dalla linea + deduzione di piega. La linea è lo spigolo vivo esterno della piega."""
+    serie = _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid)
+    if serie is not None:
+        return serie
     extra = []
     for fo in fdef['folds']:
         foid = fo.get('id', '?')
@@ -490,6 +494,104 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
         extra.append(({'id': foid, 'edge': foid, 'angle': fo.get('angle', 90), 'direction': fo.get('direction', 'up'),
                        'position': 'inside', 'length': round(dmax + b.bd, 9), 'gap': 0, 'fold': True}, parte))
     return face, lati, extra
+
+
+def _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid):
+    """Più pieghe su linee parallele (calandratura a colpi, "bumping"): la striscia più grande resta la base, le
+    altre diventano una catena di flange, ognuna sulla punta di quella prima. Ogni flangia è lunga quanto la sua
+    striscia nello sviluppo + la deduzione della sua piega, così lo sviluppo resta quello disegnato (come per la
+    piega su una linea sola). None se le linee non sono tutte parallele (si piegano una per una)."""
+    folds = fdef['folds']
+    if len(folds) < 2:
+        return None
+    righe = []
+    for fo in folds:
+        A, B = pl.from_local_coords(tuple(fo['a'])), pl.from_local_coords(tuple(fo['b']))
+        if (B - A).length < 1e-6:
+            raise FeatureError(f'La piega su linea {fo.get("id", "?")} ha la linea di lunghezza zero.', feature=fid)
+        righe.append((fo, A, (B - A).normalized()))
+    u = righe[0][2]
+    if any(abs(r[2].cross(u).length) > 1e-6 for r in righe):
+        return None
+    n = u.cross(pl.z_dir).normalized()
+    O = righe[0][1]
+    righe.sort(key=lambda r: (r[1] - O).dot(n))
+    pos = [(r[1] - O).dot(n) for r in righe]
+    if any(b - a < 1e-6 for a, b in zip(pos, pos[1:])):
+        raise FeatureError('Due linee di piega sono una sopra l’altra.', feature=fid)
+    G = 1e5
+
+    def striscia(s0, s1):
+        P0, P1 = O + n * s0, O + n * s1
+        f = bd.Face(bd.Wire.make_polygon([P0 - u * G, P0 + u * G, P1 + u * G, P1 - u * G], close=True))
+        parti = _facce(face & _orienta(f, pl))
+        if len(parti) != 1:
+            raise FeatureError('Le linee di piega devono attraversare la lamiera da parte a parte, una volta sola.',
+                               feature=fid)
+        return parti[0]
+    limiti = [-G] + pos + [G]
+    strisce = [striscia(limiti[i], limiti[i + 1]) for i in range(len(limiti) - 1)]
+    ib = max(range(len(strisce)), key=lambda i: strisce[i].area)
+    base = strisce[ib]
+
+    def bd_di(fo):
+        return bend_values(evaluate(fo.get('angle', 90), ctx.params, what=f'l’angolo della piega {fo.get("id", "?")}'),
+                           tech['radius'] if tech['radius'] is not None else 0, t, tech['method'], tech['k'],
+                           tech['bd90'], fid).bd
+
+    def corda(f, s0):
+        sulla = sorted((bd.Vector(v) for v in f.vertices() if abs((bd.Vector(v) - O).dot(n) - s0) < 1e-6),
+                       key=lambda q: (q - O).dot(u))
+        return sulla
+    extra = []
+    nuovi_lati = {}
+    # verso +n le linee dopo la base, verso -n quelle prima: ognuna è la punta della precedente
+    for verso, indici in ((1, range(ib, len(righe))), (-1, range(ib - 1, -1, -1))):
+        madre = None
+        for j in indici:
+            fo = righe[j][0]
+            foid = fo.get('id', '?')
+            k = j + 1 if verso > 0 else j                  # la striscia che questa piega alza
+            parte = strisce[k]
+            larga = parte.area / max(1e-9, (limiti[k + 1] - limiti[k])) if abs(limiti[k + 1]) < G and abs(limiti[k]) < G else None
+            sulla = corda(parte, pos[j])
+            if len(sulla) < 2:
+                raise FeatureError(f'Non trovo il lato della piega {foid}.', feature=fid)
+            Lc = (sulla[-1] - sulla[0]).length
+            # le strisce in mezzo devono essere rettangoli: sulla punta si piega la prossima
+            if larga is not None and abs(larga - Lc) > 1e-3:
+                raise FeatureError(f'Tra la piega {foid} e la successiva la lamiera non è un rettangolo: per le pieghe '
+                                   'in serie le linee devono andare da bordo a bordo su lati dritti.', feature=fid)
+            dmax = max(((bd.Vector(v) - O).dot(n) - pos[j]) * verso for v in parte.vertices())
+            d = dict(id=foid, angle=fo.get('angle', 90), direction=fo.get('direction', 'up'), position='inside',
+                     length=round(dmax + bd_di(fo), 9), gap=0, fold=True)
+            if madre is None:
+                cb = corda(base, pos[j])
+                if len(cb) < 2:
+                    raise FeatureError(f'Non trovo il lato della piega {foid}.', feature=fid)
+                d['edge'] = foid
+                nuovi_lati[foid] = (cb[0], cb[-1], n * verso, f'{foid}:a', f'{foid}:b')
+            else:
+                d['parent'] = madre
+                # sulla punta della madre "su" vuol dire dalla stessa parte in cui è girata lei: la curva continua
+                # nello stesso senso (con "giù" sulla base, le figlie in "giù" andrebbero a zig-zag)
+                if d['direction'] == 'down':
+                    d['direction'] = 'up'
+            if madre is not None:
+                # la madre arriva fino a questa linea: la sua striscia è lunga quanto la distanza tra le due linee
+                m = next(x for x, _ in extra if x['id'] == madre)
+                m['length'] = round(abs(pos[j] - pos[j - verso]) + bd_di(next(r[0] for r in righe if r[0].get('id') == madre)), 9)
+            extra.append((d, None))
+            madre = foid
+    # i lati della base: quelli che stanno tutti nella sua striscia (non sulle linee)
+    s0, s1 = limiti[ib], limiti[ib + 1]
+    tenuti = {}
+    for lid, (P3, Q3, n3, ia, ib_) in lati.items():
+        sp, sq = (P3 - O).dot(n), (Q3 - O).dot(n)
+        if s0 - 1e-6 <= min(sp, sq) and max(sp, sq) <= s1 + 1e-6 and not (abs(sp - sq) < 1e-6 and (abs(sp - s0) < 1e-6 or abs(sp - s1) < 1e-6)):
+            tenuti[lid] = (P3, Q3, n3, ia, ib_)
+    tenuti.update(nuovi_lati)
+    return base, tenuti, extra
 
 
 def flat_size(flat, pl) -> tuple:

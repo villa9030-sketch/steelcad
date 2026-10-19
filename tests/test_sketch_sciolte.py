@@ -47,3 +47,23 @@ def test_solo_linee_aperte_resta_contorno_aperto():
     assert not v['ok'] and v['profiles'] == 0
     r = s.create_from_sketch(sid, 'cut', {})
     assert not r['ok'] and 'aperta' in r['message']
+
+
+def test_pieghe_in_serie_bumping():
+    """19/10: 10 linee parallele e «Piega su questa linea» → «Disegna una sola linea». Ora ogni linea è un colpo:
+    la striscia più grande resta ferma, le altre in catena dallo stesso verso; lo sviluppo non cambia."""
+    import build123d as bd
+    for verso in ('up', 'down'):
+        s, sid = _faccia_sopra()
+        assert s.set_sheet_tech('SM1', {'radius': 1, 'method': 'k', 'k': 0.33})['ok']
+        prima = s.result.body.sheet.flat_size
+        for y in (120, 130, 140, 150, 160):
+            assert s.sketch_add_polyline(sid, [[0, y], [300, y]], False)['ok']
+        r = s.sheet_fold(sid, 18, verso)
+        assert r['ok'], r.get('message')
+        sh = s.result.body.sheet
+        assert len(sh.flanges) == 5
+        assert all(abs(a - b) < 1e-6 for a, b in zip(sh.flat_size, prima))
+        # 5 × 18° = 90°: la parte piegata sale (o scende) di parecchio, non a zig-zag
+        bb = bd.Solid(s.result.body.shape).bounding_box()
+        assert bb.size.Z > 100

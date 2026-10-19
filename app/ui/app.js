@@ -3432,15 +3432,23 @@ function makeDialog(kind) {
     return;
   }
   if (kind === 'fold') {
-    modal(`<h3>Piega su questa linea</h3>
-      <p class="hint">La linea è lo spigolo esterno della piega. Si piega la parte più piccola; lo sviluppo resta quello che hai disegnato.</p>
-      <div class="ff"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="90"><i>°</i></span></label><span></span></div>
+    // più linee = pieghe in serie (calandratura a colpi, "bumping"): si scrive l'angolo totale, si divide per i colpi
+    const n = SK.v.lines.filter(l => !l.ref && !l.construction && !l.xray).length;
+    const serie = n > 1;
+    modal(`<h3>${serie ? `${n} pieghe in serie (a colpi)` : 'Piega su questa linea'}</h3>
+      <p class="hint">${serie ? `Ogni linea è un colpo di piega. La parte più grande resta ferma, le altre strisce girano tutte dallo stesso verso. Lo sviluppo resta quello che hai disegnato.`
+        : 'La linea è lo spigolo esterno della piega. Si piega la parte più piccola; lo sviluppo resta quello che hai disegnato.'}</p>
+      <div class="ff"><label>${serie ? 'Angolo totale della curva' : 'Angolo'}<span class="inp"><input class="field" id="m-ang" value="90"><i>°</i></span></label><span class="hint" id="m-colpo"></span></div>
       <div class="seg-row"><span>Verso</span><div class="seg" id="m-dir"><button type="button" data-v="up" class="on">su</button><button type="button" data-v="down">giù</button></div></div>
-      <label class="check"><input type="checkbox" id="m-flip"> piega l’altra parte</label>
+      ${serie ? '' : '<label class="check"><input type="checkbox" id="m-flip"> piega l’altra parte</label>'}
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Piega</button></div>`, close => {
+      const colpo = () => { const t = parseFloat($('#m-ang').value.replace(',', '.')); return isFinite(t) ? Math.round(t / n * 1000) / 1000 : null; };
+      const scrivi = () => { if (serie) { const c = colpo(); $('#m-colpo').textContent = c == null ? '' : `= ${String(c).replace('.', ',')}° per ogni colpo (${n} colpi)`; } };
+      $('#m-ang').oninput = scrivi; scrivi();
       $('#m-no').onclick = close;
       $('#m-ok').onclick = () => {
-        const sid = SK.sid, ang = $('#m-ang').value.trim(), dir = $('#m-dir .on').dataset.v, flip = $('#m-flip').checked;
+        const sid = SK.sid, dir = $('#m-dir .on').dataset.v, flip = !serie && $('#m-flip').checked;
+        const ang = serie ? String(colpo() ?? '') : $('#m-ang').value.trim();
         close();
         inCoda(async () => { const r = await call('sheet_fold', sid, ang, dir, flip); if (await apply(r)) exitSketch(); });
       };
