@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+  <linearGradient id="fondo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f6db5"/><stop offset="1" stop-color="#173a63"/></linearGradient>
+  <linearGradient id="parete" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2f6fa"/><stop offset="1" stop-color="#b9c6d4"/></linearGradient>
+  <linearGradient id="dentro" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fb1c4"/><stop offset="1" stop-color="#7d90a5"/></linearGradient>
+  <linearGradient id="base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6f8399"/><stop offset="1" stop-color="#55687d"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="54" fill="url(#fondo)"/>
+<rect x="8" y="8" width="240" height="120" rx="54" fill="#ffffff" opacity=".06"/>
+<g transform="translate(128 132) scale(0.62) translate(-47.6 -53.5)" stroke="#173a63" stroke-width="5" stroke-linejoin="round">
+  <polygon fill="url(#dentro)" points="0,0 207.8,120 207.8,42 0,-78"/>
+  <polygon fill="url(#parete)" points="0,-78 207.8,42 187.1,54 -20.8,-66"/>
+  <polygon fill="url(#base)" points="0,0 207.8,120 95.3,185 -112.6,65"/>
+  <polygon fill="url(#parete)" points="-112.6,65 95.3,185 95.3,107 -112.6,-13"/>
+  <polygon fill="url(#parete)" points="-112.6,-13 95.3,107 116,95 -91.8,-25"/>
+</g>
+</svg>

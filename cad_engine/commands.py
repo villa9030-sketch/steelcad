@@ -36,7 +36,13 @@ class History:
         self.dirty = False            # modifiche non salvate (per l'autosave)
 
     def _snap(self) -> str:
-        return json.dumps(self.doc.to_dict(), sort_keys=True)
+        # l'ordine delle chiavi si conserva (i parametri compaiono come li ha messi l'utente); per sapere se è
+        # cambiato qualcosa si confrontano in ordine alfabetico
+        return json.dumps(self.doc.to_dict())
+
+    @staticmethod
+    def _uguali(a: str, b: str) -> bool:
+        return a == b or json.dumps(json.loads(a), sort_keys=True) == json.dumps(json.loads(b), sort_keys=True)
 
     @contextmanager
     def change(self, label: str):
@@ -47,7 +53,7 @@ class History:
             self.doc.load_definition(json.loads(before))
             raise
         after = self._snap()
-        if after == before:
+        if self._uguali(after, before):
             return
         self.done.append(Step(label, before, after))
         if len(self.done) > self.limit:

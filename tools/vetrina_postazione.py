@@ -33,6 +33,13 @@ D = Path(_arg[0]) if _arg else Path(os.path.expanduser('~')) / 'Documents' / 'St
 D.mkdir(parents=True, exist_ok=True)
 T0 = time.time()
 
+# I pezzi di lamiera usano i dati di piega predefiniti dell'utente (Regole piega). Se su questo PC non ci sono,
+# la vetrina usa un suo file di regole con valori di esempio (r 2, K 0,4): le impostazioni dell'utente non si toccano.
+if not Service().bend_default().get('radius'):
+    os.environ['STEELCAD_RULES'] = str(D / 'regole_vetrina.json')
+    Service().set_bend_default({'radius': 2, 'method': 'k', 'k': 0.4})
+    print('Nessun dato di piega predefinito su questo PC: per la vetrina uso r 2, K 0,4 (valori di esempio).', flush=True)
+
 s = None
 DIRETTA = None
 SKETCH = [None]

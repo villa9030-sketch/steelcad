@@ -125,8 +125,8 @@ class Api:
     def auto_tabs(self, fid, flid, n, w, gioco, sporgenza=0):
         return self._call(self._svc.auto_tabs, fid, flid, n, w, gioco, sporgenza)
 
-    def sheet_fold(self, sid, angle, direction='up', flip=False):
-        return self._call(self._svc.sheet_fold, sid, angle, direction, flip)
+    def sheet_fold(self, sid, angle, direction='up', flip=False, bump=None):
+        return self._call(self._svc.sheet_fold, sid, angle, direction, flip, bump)
 
     def edit_fold(self, fid, foid, fields):
         return self._call(self._svc.edit_fold, fid, foid, fields)
@@ -148,6 +148,9 @@ class Api:
 
     def set_corner(self, fid, flid, other, mode, gap=0):
         return self._call(self._svc.set_corner, fid, flid, other, mode, gap)
+
+    def set_shape_edge(self, fid, key, scelta):
+        return self._call(self._svc.set_shape_edge, fid, key, scelta)
 
     def structure_template_apply(self, st_id, values):
         return self._call(self._svc.structure_template_apply, st_id, values)
@@ -313,6 +316,9 @@ class Api:
     def asm_rotate(self, iid, axis, deg):
         return self._call(self._svc.asm_rotate, iid, axis, deg)
 
+    def asm_rotate_all(self, axis, deg):
+        return self._call(self._svc.asm_rotate_all, axis, deg)
+
     def asm_set(self, iid, fields):
         return self._call(self._svc.asm_set, iid, fields)
 
@@ -350,6 +356,10 @@ class Api:
 
     def asm_back(self):
         return self._call(self._svc.asm_back)
+
+    def set_titlebar(self, colore):
+        _barra_titolo(getattr(self, '_window', None), colore if isinstance(colore, str) and len(colore) == 7 else '#101215')
+        return {'ok': True}
 
     def autosave(self):
         return self._call(self._svc.autosave)
@@ -404,7 +414,49 @@ class Api:
         return self._call(fn, p)
 
 
+ICONA = Path(__file__).resolve().parent / 'ui' / 'img' / 'steelcad.ico'
+
+
+def _app_windows():
+    """Per Windows SteelCAD è un'applicazione a sé, non "Python": nella barra delle applicazioni ha la sua icona e
+    non si raggruppa con altri programmi Python."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('SteelCAD.App')
+    except Exception:  # noqa: BLE001 - è solo l'aspetto nella barra
+        pass
+
+
+def _barra_titolo(window, colore: str = '#101215'):
+    """La barra del titolo di Windows scura, come la barra in alto dell'app (niente striscia bianca sopra):
+    modo scuro su Windows 10/11; su Windows 11 anche il colore esatto. Bordi, aggancio ai lati e doppio clic
+    restano quelli di Windows."""
+    if sys.platform != 'win32' or window is None or getattr(window, 'native', None) is None:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        hwnd = wintypes.HWND(int(str(window.native.Handle)))
+        dwm = ctypes.windll.dwmapi
+        uno = ctypes.c_int(1)
+        for attr in (20, 19):              # DWMWA_USE_IMMERSIVE_DARK_MODE (19 sulle versioni di Windows 10 più vecchie)
+            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(uno), ctypes.sizeof(uno)) == 0:
+                break
+        r, g, b = int(colore[1:3], 16), int(colore[3:5], 16), int(colore[5:7], 16)
+        rif = ctypes.c_int(r | (g << 8) | (b << 16))                   # COLORREF 0x00BBGGRR
+        dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(rif), 4)      # DWMWA_CAPTION_COLOR (solo Windows 11)
+        bianco = ctypes.c_int(0x00F1EDE9)
+        dwm.DwmSetWindowAttribute(hwnd, 36, ctypes.byref(bianco), 4)   # DWMWA_TEXT_COLOR (solo Windows 11)
+        # la barra si ridisegna subito (se no cambia solo al prossimo clic fuori e dentro la finestra)
+        ctypes.windll.user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+    except Exception:  # noqa: BLE001 - è solo l'aspetto
+        pass
+
+
 def main():
+    _app_windows()
     api = Api()
     file = [a for a in sys.argv[1:] if not a.startswith('--')]
     if file:
@@ -423,7 +475,8 @@ def main():
             'SteelCAD', 'Ci sono modifiche non salvate (c’è comunque il salvataggio automatico). Chiudere?')
 
     w.events.closing += chiusura
-    webview.start(http_server=True, debug='--debug' in sys.argv)
+    w.events.shown += lambda: _barra_titolo(w)
+    webview.start(http_server=True, debug='--debug' in sys.argv, icon=str(ICONA) if ICONA.is_file() else None)
 
 
 if __name__ == '__main__':

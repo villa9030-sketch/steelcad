@@ -342,7 +342,7 @@ def comandi_sketch(pg, ok):
     pg.keyboard.press('s')
     finestra((48, 28), (72, 52))            # finestra da sinistra a destra attorno al foro
     pg.wait_for_function("window.__steelcad.sketch.sel.size === 1")
-    pg.click('#sk-selbar [data-act="pattern"]')
+    pg.click('#ribbon [data-act="pattern"]')
     pg.fill('#p-c', '3'); pg.fill('#p-px', '40'); pg.fill('#p-r', '1')
     pg.click('#m-ok')
     attendi('v.circles.length === 3')
@@ -351,7 +351,7 @@ def comandi_sketch(pg, ok):
     asse = next(l['id'] for l in v()['lines'] if l['construction'] and abs(l['xa'][0] - 160) < 1e-6)
     finestra((48, 28), (148, 52))
     pg.wait_for_function("window.__steelcad.sketch.sel.size === 3")
-    pg.click('#sk-selbar [data-act="mirror"]')
+    pg.click('#ribbon [data-act="mirror"]')
     clic(160, 120)
     attendi('v.circles.length === 6')
     xs = sorted(round(c['xc'][0], 3) for c in v()['circles'])

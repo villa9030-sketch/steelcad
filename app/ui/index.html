@@ -3,11 +3,40 @@
 <head>
 <meta charset="utf-8">
 <title>SteelCAD</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="img/steelcad.png">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
 </head>
 <body>
+<div id="intro" aria-hidden="true">
+  <div class="intro-griglia"></div>
+  <div class="intro-centro">
+    <svg class="intro-pezzo" viewBox="-130 -100 360 300">
+      <defs>
+        <linearGradient id="ig-base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a4a60"/><stop offset="1" stop-color="#26313f"/></linearGradient>
+        <linearGradient id="ig-parete" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fa3b8"/><stop offset="1" stop-color="#5b6d82"/></linearGradient>
+        <linearGradient id="ig-dentro" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4c5d72"/><stop offset="1" stop-color="#33414f"/></linearGradient>
+        <linearGradient id="ig-ritorno" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b9c7d6"/><stop offset="1" stop-color="#8396ab"/></linearGradient>
+      </defs>
+      <polygon class="f f1" fill="url(#ig-dentro)" points="0,0 207.8,120 207.8,42 0,-78"/>
+      <polygon class="f f2" fill="url(#ig-ritorno)" points="0,-78 207.8,42 187.1,54 -20.8,-66"/>
+      <polygon class="f f3" fill="url(#ig-base)" points="0,0 207.8,120 95.3,185 -112.6,65"/>
+      <polygon class="f f4" fill="url(#ig-parete)" points="-112.6,65 95.3,185 95.3,107 -112.6,-13"/>
+      <polygon class="f f5" fill="url(#ig-ritorno)" points="-112.6,-13 95.3,107 116,95 -91.8,-25"/>
+      <line class="pg pg1" x1="0" y1="0" x2="207.8" y2="120"/>
+      <line class="pg pg2" x1="-112.6" y1="65" x2="95.3" y2="185"/>
+      <line class="pg pg3" x1="0" y1="-78" x2="207.8" y2="42"/>
+      <line class="pg pg4" x1="-112.6" y1="-13" x2="95.3" y2="107"/>
+    </svg>
+    <div class="intro-nome"><span>Steel</span><b>CAD</b></div>
+    <div class="intro-motto">Lamiera piegata · strutture · tramogge — dal disegno al taglio</div>
+  </div>
+  <div class="intro-piede">
+    <div class="intro-barra"><i></i></div>
+    <div class="intro-stato">Avvio del motore CAD…</div>
+  </div>
+  <div class="intro-versione"></div>
+</div>
 <header id="top">
   <button class="brand" data-cmd="home" title="Pagina iniziale"><img src="icons/box.svg" alt="">SteelCAD</button>
   <div class="menu-item"><button class="tbtn" title="File"><img src="icons/open.svg" alt=""><span>File</span></button>
@@ -58,7 +87,7 @@
   <div class="rbody" data-rbody="strutture" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="member_help" title="Nuova asta: clicca un nodo (pallino) e scegli direzione e lunghezza"><img src="icons/line.svg" alt=""><span>Nuova asta</span></button></div><div class="rname">Crea</div></div><div class="rgroup" data-esporta></div></div>
   <div class="rbody" data-rbody="piastra" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="face_help" title="Disegna su una faccia: clicca una faccia piana, poi «Disegna su questa faccia»"><img src="icons/project.svg" alt=""><span>Su una faccia</span></button></div><div class="rname">Crea</div></div><div class="rgroup" data-esporta></div></div>
   <div class="rbody" data-rbody="assieme" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="asm_insert" title="Mette nell’assieme una copia di un pezzo (file .steelcad)"><img src="icons/new.svg" alt=""><span>Inserisci pezzo</span></button></div><div class="rname">Pezzi</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-asm-tool="faccia" title="Faccia su faccia: clic sulla faccia del pezzo che sta fermo, poi su quella del pezzo da appoggiare"><img src="icons/project.svg" alt=""><span>Faccia su faccia</span></button><button class="rb" data-asm-tool="asse" title="Foro su foro: clic sul foro del pezzo fermo, poi sul foro dell’altro pezzo (stesso asse)"><img src="icons/hole.svg" alt=""><span>Foro su foro</span></button></div><div class="rname">Accoppiamenti</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="asm_interf" title="Controlla se i pezzi si compenetrano"><img src="icons/measure.svg" alt=""><span>Interferenze</span></button></div><div class="rname">Controlla</div></div><div class="rgroup" data-esporta></div></div>
-  <div class="rbody" data-rbody="sketch" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-tool="line" title="Linea (L)"><img src="icons/line.svg" alt=""><span>Linea</span></button><button class="rb" data-tool="rect" title="Rettangolo (R)"><img src="icons/rect.svg" alt=""><span>Rettangolo</span></button><button class="rb" data-tool="circle" title="Cerchio (C)"><img src="icons/circle.svg" alt=""><span>Cerchio</span></button><button class="rb" data-tool="arc3" title="Arco per tre punti"><img src="icons/arc3.svg" alt=""><span>Arco</span></button><button class="rb" data-tool="slot" title="Asola (K)"><img src="icons/slot.svg" alt=""><span>Asola</span></button><button class="rb" data-tool="polygon" title="Poligono regolare (P)"><img src="icons/polygon.svg" alt=""><span>Poligono</span></button></div><div class="rname">Disegna</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-act="offset" title="Offset (O)"><img src="icons/offset.svg" alt=""><span>Offset</span></button><button class="rb" data-tool="trim" title="Taglia (T)"><img src="icons/trim.svg" alt=""><span>Taglia</span></button><button class="rb" data-tool="extend" title="Allunga (A)"><img src="icons/extend.svg" alt=""><span>Allunga</span></button><button class="rb" data-tool="fillet" title="Raccordo di uno spigolo"><img src="icons/fillet.svg" alt=""><span>Raccordo</span></button><button class="rb" data-tool="chamfer" title="Smusso di uno spigolo"><img src="icons/chamfer.svg" alt=""><span>Smusso</span></button><button class="rb" data-act="mirror" title="Specchia la selezione (M)"><img src="icons/mirror.svg" alt=""><span>Specchia</span></button><button class="rb" data-act="pattern" title="Serie della selezione"><img src="icons/pattern_rect.svg" alt=""><span>Serie</span></button></div><div class="rname">Modifica</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-tool="dim" title="Quota (D)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" id="rb-constr" title="Linee di costruzione (X)"><img src="icons/construction.svg" alt=""><span>Costruzione</span></button><button class="rb" data-tool="select" title="Seleziona (S)"><img src="icons/select.svg" alt=""><span>Seleziona</span></button></div><div class="rname">Vincoli</div></div><div class="rgroup"><div class="rbtns"><button class="rb" id="rb-xray" title="Vedi attraverso (V): i bordi e i fori delle parti dietro e davanti alla faccia, per agganciarti e riprenderli"><img src="icons/eye.svg" alt=""><span>Vedi attraverso</span></button><button class="rb" id="sk-ghost" title="Mostra il pezzo 3D in trasparenza dietro al disegno (G)"><img src="icons/box.svg" alt=""><span>Pezzo 3D</span></button></div><div class="rname">Vista</div></div><div class="rgroup"><div class="rbtns"><button class="rb" id="sk-done" data-skdone="1" title="Esci dal disegno (Esc)"><img src="icons/finish.svg" alt=""><span>Esci</span></button></div><div class="rname">Fine</div></div></div>
+  <div class="rbody" data-rbody="sketch" hidden><div class="rgroup"><div class="rbtns"><button class="rb" data-tool="line" title="Linea (L)"><img src="icons/line.svg" alt=""><span>Linea</span></button><button class="rb" data-tool="rect" title="Rettangolo (R)"><img src="icons/rect.svg" alt=""><span>Rettangolo</span></button><button class="rb" data-tool="circle" title="Cerchio (C)"><img src="icons/circle.svg" alt=""><span>Cerchio</span></button><button class="rb" data-tool="arc3" title="Arco per tre punti"><img src="icons/arc3.svg" alt=""><span>Arco</span></button><button class="rb" data-tool="slot" title="Asola (K)"><img src="icons/slot.svg" alt=""><span>Asola</span></button><button class="rb" data-tool="polygon" title="Poligono regolare (P)"><img src="icons/polygon.svg" alt=""><span>Poligono</span></button></div><div class="rname">Disegna</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-act="offset" title="Offset (O)"><img src="icons/offset.svg" alt=""><span>Offset</span></button><button class="rb" data-tool="trim" title="Taglia (T)"><img src="icons/trim.svg" alt=""><span>Taglia</span></button><button class="rb" data-tool="extend" title="Allunga (A)"><img src="icons/extend.svg" alt=""><span>Allunga</span></button><button class="rb" data-tool="fillet" title="Raccordo di uno spigolo"><img src="icons/fillet.svg" alt=""><span>Raccordo</span></button><button class="rb" data-tool="chamfer" title="Smusso di uno spigolo"><img src="icons/chamfer.svg" alt=""><span>Smusso</span></button><button class="rb" data-act="mirror" title="Specchia la selezione (M)"><img src="icons/mirror.svg" alt=""><span>Specchia</span></button><button class="rb" data-act="pattern" title="Serie della selezione"><img src="icons/pattern_rect.svg" alt=""><span>Serie</span></button></div><div class="rname">Modifica</div></div><div class="rgroup"><div class="rbtns"><button class="rb" data-tool="dim" title="Quota (D)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" id="rb-constr" title="Costruzione (X): con qualcosa selezionato lo trasforma in linee guida (o le rimette normali); senza selezione le linee nuove nascono guida"><img src="icons/construction.svg" alt=""><span>Costruzione</span></button><button class="rb" data-tool="select" title="Seleziona (S)"><img src="icons/select.svg" alt=""><span>Seleziona</span></button></div><div class="rname">Vincoli</div></div><div class="rgroup"><div class="rbtns"><button class="rb" id="rb-xray" title="Vedi attraverso (V): i bordi e i fori delle parti dietro e davanti alla faccia, per agganciarti e riprenderli"><img src="icons/eye.svg" alt=""><span>Vedi attraverso</span></button><button class="rb" id="sk-ghost" title="Mostra il pezzo 3D in trasparenza dietro al disegno (G)"><img src="icons/box.svg" alt=""><span>Pezzo 3D</span></button></div><div class="rname">Vista</div></div><div class="rgroup"><div class="rbtns"><button class="rb" id="sk-done" data-skdone="1" title="Esci dal disegno (Esc)"><img src="icons/finish.svg" alt=""><span>Esci</span></button></div><div class="rname">Fine</div></div></div>
 </nav>
 
 <aside id="left">
@@ -131,9 +160,8 @@
     <div id="sk-selbar" hidden>
       <div class="sub">Sulla selezione · <span id="sk-nsel"></span></div>
       <div class="sk-acts">
-        <button data-act="mirror">Specchia</button><button data-act="copy">Copia</button>
-        <button data-act="move">Sposta</button><button data-act="pattern">Serie</button>
-        <button data-act="hole">Tipo di foro…</button><button data-act="constr">Guida ↔ normale</button><button data-act="delete" class="danger">Elimina</button>
+        <button data-act="copy">Copia</button><button data-act="move">Sposta</button>
+        <button data-act="hole">Tipo di foro…</button><button data-act="delete" class="danger">Elimina</button>
       </div>
     </div>
     <div id="sk-finish-box"><div class="sub">Quando il contorno è chiuso</div>
@@ -213,6 +241,7 @@
       <div class="home-tipo-grid">
         <button data-new="cono"><span class="pic"><img src="img/modelli/cono.png" alt=""></span><b>Cono o tronco di cono</b><span>Calandrato o a pieghe</span></button>
         <button data-new="tramoggia"><span class="pic"><img src="img/modelli/raccordo.png" alt=""></span><b>Raccordo quadro-tondo</b><span>Da rettangolo a tondo, anche fuori centro</span></button>
+        <button data-new="tramoggia_cassone"><span class="pic"><img src="img/modelli/tramoggia.png" alt=""></span><b>Tramoggia con cassone</b><span>Divisa in pezzi da piegare, con le saldature contate</span></button>
       </div>
     </section>
     <section class="home-recenti">

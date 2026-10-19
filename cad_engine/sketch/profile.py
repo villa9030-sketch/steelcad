@@ -30,6 +30,7 @@ class Profile:
     plane: bd.Plane
     faces: list          # bd.Face
     sources: list        # SourceEdge
+    aperto: str = ''     # linee aperte tollerate (persiane, scheletri, disegno in corso): il perché
 
     def entity_of(self, edge: bd.Edge) -> str | None:
         """Quale entità dello sketch ha generato questo bordo (confronto geometrico)."""

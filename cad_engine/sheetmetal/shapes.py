@@ -406,8 +406,19 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
     t = v('thickness', 'lo spessore')
     if not 0 < t <= 20:
         raise FeatureError('Spessore non valido.', feature=fid)
-    r_piega = fdef.get('radius')
-    k_piega = fdef.get('k')
+    vuoto = lambda x: x is None or str(x).strip() == ''  # noqa: E731
+    r_piega = None if vuoto(fdef.get('radius')) else v('radius', 'il raggio di piega')
+    k_piega = None if vuoto(fdef.get('k')) else v('k', 'il K-factor')
+    if r_piega is not None and r_piega < 0:
+        raise FeatureError(f'Il raggio di piega non può essere negativo: {r_piega} non va.', feature=fid)
+    if k_piega is not None and not 0 <= k_piega <= 1:
+        raise FeatureError(f'Il K-factor deve stare tra 0 e 1 (di solito 0,3–0,5): {k_piega} non va.', feature=fid)
+    for campo in ('ref', 'ref_base', 'ref_round'):
+        if fdef.get(campo, 'esterno') not in RIFERIMENTI:
+            raise FeatureError(f'Riferimento delle misure "{fdef.get(campo)}" sconosciuto: '
+                               + ', '.join(RIFERIMENTI.values()) + '.', feature=fid)
+    if fdef.get('mode', 'press') not in ('press', 'rolled'):
+        raise FeatureError(f'Modo "{fdef.get("mode")}" sconosciuto: a pieghe o calandrato.', feature=fid)
     passo = fdef.get('pitch')
     passo = v('pitch', 'il passo delle pieghe') if passo not in (None, '') else None
     if kind == 'cone':
@@ -440,9 +451,14 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
         solido = _solido(S, t)
         flat, linee, righe, info = _sviluppo_facce(S, r_piega, k_piega, t)
         nome = 'Raccordo quadro-tondo'
+    elif kind == 'sezioni':
+        from .poliedro import costruisci
+        valuta = lambda e, what: evaluate(e, ctx.params, what=f'{what} di {fid}')  # noqa: E731
+        solido, flat, linee, righe, info, nome = costruisci(fdef, valuta, t, r_piega, k_piega, fid)
     else:
         raise FeatureError(f'Forma "{kind}" sconosciuta.', feature=fid)
-    shape = solido.solids()[0].wrapped if hasattr(solido, 'solids') and solido.solids() else solido.wrapped
+    solidi = solido.solids() if hasattr(solido, 'solids') else []
+    shape = solidi[0].wrapped if len(solidi) == 1 else solido.wrapped
     xs, ys = [q.X for q in flat.vertices()], [q.Y for q in flat.vertices()]
     for e in flat.edges():
         if e.geom_type == bd.GeomType.CIRCLE:

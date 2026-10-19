@@ -263,9 +263,14 @@ def build(fdef: dict, ctx) -> NamedShape:
     if fdef.get('folds'):
         face, lati, extra = _folds(fdef, face, lati, pl, tech, t, ctx, fid)
         usati = {fl.get('edge') for fl in flange_defs if not fl.get('parent')}
+        ultimo = {}                                 # piega a colpi -> l'ultimo colpo (dove stanno le flange sulla punta)
         for fo, parte in extra:
-            piegate.append((fo, parte))
-        flange_defs = list(flange_defs) + [fo for fo, _ in extra]
+            if parte is not None and not fo.get('bump'):
+                piegate.append((fo, parte))
+            if fo.get('bump'):
+                ultimo[fo['id'].split('.')[0]] = fo['id']
+        flange_defs = [dict(fl, parent=ultimo[fl['parent']]) if fl.get('parent') in ultimo and fl.get('parent') != ultimo[fl['parent']]
+                       else fl for fl in flange_defs] + [fo for fo, _ in extra]
         tagliati = usati - set(lati)
         if tagliati:
             raise FeatureError(f'Sul lato {", ".join(sorted(tagliati))} c’è una flangia, ma la piega su linea lo taglia o lo '
@@ -477,8 +482,10 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
         # allarga quanto serve: quello in più lo toglie il taglio sullo sviluppo
         C0, C1 = C0 + u * min(0.0, min(us)), C0 + u * max(L, max(us))
         dmax = max((bd.Vector(v) - C0).dot(n) for v in parte.vertices())
-        b = bend_values(evaluate(fo.get('angle', 90), ctx.params, what=f'l’angolo della piega {foid}'),
-                        tech['radius'] if tech['radius'] is not None else 0, t, tech['method'], tech['k'], tech['bd90'], fid)
+        angolo = evaluate(fo.get('angle', 90), ctx.params, what=f'l’angolo della piega {foid}')
+        b = bend_values(angolo, tech['radius'] if tech['radius'] is not None else 0, t, tech['method'], tech['k'],
+                        tech['bd90'], fid)
+        colpi = _colpi(fo, angolo, parte, C0, C1, u, n, dmax, tech, t, ctx, fid)
         # i lati della base tagliati dalla linea o rimasti dalla parte piegata non ci sono più
         tenuti = {}
         for lid, (P3, Q3, n3, ia, ib) in lati.items():
@@ -487,9 +494,61 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
         # un lato tagliato a metà dalla linea resta solo se finisce sulla linea senza passarla
         lati = tenuti
         lati[foid] = (C0, C1, n, f'{foid}:a', f'{foid}:b')
+        if colpi:
+            # bumping: N colpi piccoli a passo costante; la catena di flange sulla punta, l'ultima porta il resto
+            prec = None
+            for i, (ang_i, lung_i) in enumerate(colpi, 1):
+                fl = {'id': foid if i == 1 else f'{foid}.{i}', 'angle': ang_i, 'direction': fo.get('direction', 'up'),
+                      'position': 'inside', 'length': round(lung_i, 9), 'gap': 0, 'fold': True, 'bump': i}
+                fl.update({'edge': foid} if prec is None else {'parent': prec})
+                extra.append((fl, parte if i == 1 else None))
+                prec = fl['id']
+            continue
         extra.append(({'id': foid, 'edge': foid, 'angle': fo.get('angle', 90), 'direction': fo.get('direction', 'up'),
                        'position': 'inside', 'length': round(dmax + b.bd, 9), 'gap': 0, 'fold': True}, parte))
     return face, lati, extra
+
+
+def _colpi(fo, angolo, parte, C0, C1, u, n, dmax, tech, t, ctx, fid):
+    """Bumping (piegatura a colpi): la piega grande fatta con N colpi piccoli da angolo/N a passo costante, per avere
+    un raggio grande con il punzone normale. Il passo nello sviluppo è l'arco in asse neutro del raggio grande per un
+    colpo: p = (angolo/N in radianti) · (R + K·t). Ritorna [(angolo del colpo, lunghezza della flangia)] o None.
+    La linea disegnata resta lo spigolo vivo esterno del primo colpo; lo sviluppo resta quello disegnato."""
+    bump = fo.get('bump') or {}
+    if not bump or not bump.get('colpi'):
+        return None
+    foid = fo.get('id', '?')
+    N = evaluate(bump.get('colpi'), ctx.params, what=f'i colpi della piega {foid}')
+    if N != int(N) or N < 2 or N > 200:
+        raise FeatureError(f'Bumping della piega {foid}: i colpi sono un numero intero da 2 a 200.', feature=fid)
+    N = int(N)
+    Rg = evaluate(bump.get('raggio'), ctx.params, what=f'il raggio del bumping della piega {foid}')
+    if tech['radius'] is None:
+        raise FeatureError(_manca('il raggio interno di piega (quello del punzone)'), feature=fid, code='manca_tecnologia')
+    if Rg is None or Rg <= tech['radius']:
+        raise FeatureError(f'Bumping della piega {foid}: il raggio grande deve essere più grande di quello del punzone '
+                           f'({fmt_mm(tech["radius"])} mm).', feature=fid)
+    a1 = angolo / N
+    b1 = bend_values(a1, tech['radius'], t, tech['method'], tech['k'], tech['bd90'], fid)
+    p = math.radians(a1) * (Rg + b1.k * t)
+    if p <= b1.ba + 1e-6:
+        raise FeatureError(f'Bumping della piega {foid}: con {N} colpi il passo ({fmt_mm(round(p, 2))} mm) è più corto '
+                           f'della piega di un colpo ({fmt_mm(round(b1.ba, 2))} mm): meno colpi o raggio più grande.',
+                           feature=fid)
+    # la parte piegata dev'essere una striscia rettangolare (i colpi sono flange una sulla punta dell'altra)
+    L = (C1 - C0).length
+    area = sum(f.area for f in [parte])
+    us = [(bd.Vector(v) - C0).dot(u) for v in parte.vertices()]
+    if min(us) < -1e-3 or max(us) > L + 1e-3 or abs(area - L * dmax) > 1e-3 * L * dmax + 1e-3:
+        raise FeatureError(f'Il bumping della piega {foid} per ora si fa su una parte rettangolare (linea dritta, '
+                           'fianchi perpendicolari).', feature=fid)
+    tratto = p - b1.ba + 2 * b1.ossb                    # tra due colpi: tratto dritto + i due setback
+    ultima = dmax - b1.ba + 2 * b1.ossb - (N - 1) * p   # quello che resta dopo l'ultimo colpo
+    if ultima - b1.ossb <= TOL:
+        raise FeatureError(f'Bumping della piega {foid}: i {N} colpi a passo {fmt_mm(round(p, 2))} mm occupano '
+                           f'{fmt_mm(round((N - 1) * p + b1.ba, 1))} mm, più della parte da piegare '
+                           f'({fmt_mm(round(dmax, 1))} mm): meno colpi o raggio più piccolo.', feature=fid)
+    return [(a1, tratto)] * (N - 1) + [(a1, ultima)]
 
 
 def flat_size(flat, pl) -> tuple:

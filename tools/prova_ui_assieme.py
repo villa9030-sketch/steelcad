@@ -11,8 +11,9 @@ out = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('--'
 out.mkdir(parents=True, exist_ok=True)
 cart = Path(tempfile.mkdtemp())
 srv = subprocess.Popen([str(PY), str(ROOT / 'app' / 'dev_server.py'), '--porta', str(PORTA), '--cartella', str(cart)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
-time.sleep(3)
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000)
+while not srv.stdout.readline().startswith(b'http'):    # il server è pronto
+    pass
 esiti = []
 def ok(t, c): esiti.append(bool(c)); print(('OK   ' if c else 'NO   ') + t, flush=True)
 try:
@@ -73,6 +74,14 @@ try:
         pg.wait_for_selector('#m-off'); pg.fill('#m-off', '10'); pg.keyboard.press('Enter')
         pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children[0].label.includes('distanza 10')", timeout=15000)
         ok('distanza 10 dal pannello dell’accoppiamento', True)
+        # la radice dell'albero: ruota tutto l'assieme insieme
+        pg.click('#tree .node.root, #tree > ul > li > .node')
+        pg.wait_for_selector('[data-rotall="z"]')
+        prima = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.data.matrix.map(x => x.toFixed(2)).join()).join('|')")
+        pg.click('[data-rotall="z"]'); pg.wait_for_timeout(1500)
+        dopo = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.data.matrix.map(x => x.toFixed(2)).join()).join('|')")
+        ok('radice dell’assieme: ruota tutto (Z 90°)', prima != dopo and not pg.inner_text('#toasts').strip().lower().count('errore'))
+        pg.keyboard.press('Control+z'); pg.wait_for_timeout(1000)
         # pannello istanza: ruota, apri pezzo e torna
         pg.click('#tree .node:has-text("staffa")')
         pg.wait_for_selector('#a-open')

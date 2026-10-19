@@ -40,6 +40,9 @@ ANCORAGGI = {'center': 'centro', 'top': 'sopra', 'bottom': 'sotto', 'left': 'sin
              'bottom-right': 'sotto a destra'}
 
 
+from cad_engine import __version__ as _VERSIONE  # noqa: E402
+
+
 def _ok(**kw):
     return {'ok': True, **kw}
 
@@ -47,6 +50,16 @@ def _ok(**kw):
 def _err(ex: Exception):
     if isinstance(ex, SteelCADError):
         return {'ok': False, 'message': ex.message, 'code': ex.code}
+    # problemi di file: cartella che non c'è, file aperto in un altro programma, disco pieno
+    nome = Path(getattr(ex, 'filename', '') or '').name
+    if isinstance(ex, (FileNotFoundError, NotADirectoryError)):
+        return {'ok': False, 'code': 'file', 'message': f'Il file o la cartella non c’è{": " + nome if nome else ""}. '
+                'Scegli un’altra posizione.'}
+    if isinstance(ex, PermissionError):
+        return {'ok': False, 'code': 'file', 'message': f'Windows non mi lascia usare il file{" " + nome if nome else ""}: '
+                'forse è aperto in un altro programma, o la cartella è protetta.'}
+    if isinstance(ex, OSError):
+        return {'ok': False, 'code': 'file', 'message': f'Non riesco a leggere o scrivere il file ({ex.strerror or ex}).'}
     traceback.print_exc()
     return {'ok': False, 'message': f'Errore interno ({type(ex).__name__}): {ex}. Segnalalo con il file del progetto.',
             'code': 'interno'}
@@ -104,7 +117,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
     # ================================================================ lettura
     def state(self) -> dict:
         if self.asm is not None:
-            return self._asm_state()
+            return {**self._asm_state(), 'version': _VERSIONE}
         r, doc = self.result, self.doc
         info = {'rebuild_ms': round(r.seconds * 1000, 1), 'rebuilt': r.rebuilt, 'cached': r.cached,
                 'material': doc.material}
@@ -118,6 +131,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         avvisi += list(getattr(sd, 'warnings', None) or [])
         sheet = self._sheet_state()
         return {
+            'version': _VERSIONE,
             'name': doc.meta.get('name'), 'path': str(self.path) if self.path else None,
             'dirty': self.history.dirty, 'undo': self.history.labels()['undo'][:1],
             'redo': self.history.labels()['redo'][:1],
@@ -327,6 +341,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 forma = self._shape_template()
                 if forma:
                     dati['tpl_id'], dati['template'] = forma
+                    info = getattr(getattr(self.result.body, 'sheet', None), 'shape_info', None) or {}
+                    if info.get('kind') == 'sezioni':
+                        dati['forma'] = {k: info.get(k) for k in ('pezzi', 'spigoli', 'saldature_m', 'giunti_m',
+                                                                  'divisione', 'foglio', 'avvisi', 'pieghe')}
                 # esporta, spiega, sullo sviluppo: stanno nella barra in alto, non qui
                 return _ok(selection=dati)
             if ':' in obj_id:
@@ -361,6 +379,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 'commands': [{'id': 'rotate', 'label': 'Ruota di 90°'}, {'id': 'flip', 'label': 'Inverti'},
                              {'id': 'profile', 'label': 'Cambia profilo'}],
             })
+        except (KeyError, IndexError, StopIteration, ValueError):
+            # un clic su qualcosa che intanto è sparito (pezzo ricostruito, asta cancellata): niente di grave
+            return {'ok': False, 'code': 'sparito', 'message': 'Quello che hai cliccato non c’è più: riprova.'}
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
@@ -534,7 +555,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
     def set_bend_default(self, values: dict) -> dict:
         try:
-            v = {k: _number(values.get(k)) for k in ('radius', 'k', 'bd90') if str(values.get(k, '')).strip() != ''}
+            nomi = {'radius': 'il raggio interno', 'k': 'il K-factor', 'bd90': 'la deduzione a 90°'}
+            # i predefiniti valgono per ogni lamiera nuova: numeri veri, niente espressioni
+            v = {k: _numero(values.get(k), nomi[k]) for k in ('radius', 'k', 'bd90') if str(values.get(k, '')).strip() != ''}
+            if v.get('radius', 0) < 0:
+                raise SteelCADError('Il raggio interno non può essere negativo.', code='raggio')
+            if not 0 <= v.get('k', 0.5) <= 1:
+                raise SteelCADError('Il K-factor deve stare tra 0 e 1 (di solito 0,3–0,5).', code='k')
+            if v.get('bd90', 1) <= 0:
+                raise SteelCADError('La deduzione a 90° deve essere maggiore di zero.', code='bd90')
             v['method'] = values.get('method') or 'k'
             if v['method'] not in METODI:
                 raise SteelCADError('Metodo di piega sconosciuto.', code='metodo')
@@ -725,9 +754,16 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             next(x for x in sm['flanges'] if x['id'] == flid)['extend'] = prolunga
         return self._edit_sheet(fid, f'{flid}: prolungata sopra la linguetta', fn)
 
+    @staticmethod
+    def _flangia(sm, flid):
+        fl = next((x for x in sm['flanges'] if x['id'] == flid), None)
+        if fl is None:
+            raise SteelCADError(f'La flangia {flid} non c’è più.', code='flangia')
+        return fl
+
     def edit_flange(self, fid: str, flid: str, fields: dict) -> dict:
         def fn(sm):
-            fl = next(x for x in sm['flanges'] if x['id'] == flid)
+            fl = self._flangia(sm, flid)
             fl.update(_flange_fields(fields))
         return self._edit_sheet(fid, f'{flid}: modifica', fn)
 
@@ -747,14 +783,19 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
     def add_flange_hole(self, fid: str, flid: str, u, v, d) -> dict:
         def fn(sm):
-            fl = next(x for x in sm['flanges'] if x['id'] == flid)
-            fl.setdefault('holes', []).append({'u': _number(u), 'v': _number(v), 'd': _number(d)})
+            fl = self._flangia(sm, flid)
+            fl.setdefault('holes', []).append({'u': _numero(u, 'la posizione'), 'v': _numero(v, 'la posizione'),
+                                               'd': _numero(d, 'il diametro')})
         return self._edit_sheet(fid, f'Foro su {flid}', fn)
 
     def delete_flange_hole(self, fid: str, flid: str, index: int) -> dict:
         def fn(sm):
-            fl = next(x for x in sm['flanges'] if x['id'] == flid)
-            del fl['holes'][int(index)]
+            fl = self._flangia(sm, flid)
+            fori = fl.get('holes') or []
+            i = int(_numero(index, 'il foro'))
+            if not 0 <= i < len(fori):
+                raise SteelCADError('Quel foro non c’è più.', code='foro')
+            del fori[i]
         return self._edit_sheet(fid, f'Togli foro da {flid}', fn)
 
     def set_sheet_tech(self, fid: str, fields: dict) -> dict:
@@ -791,31 +832,59 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
     def sketch_add_polyline(self, sid: str, pts: list, closed: bool, construction: bool = False,
                             angles: list | None = None) -> dict:
+        try:
+            if not isinstance(pts, (list, tuple)) or len(pts) < 2:
+                raise SteelCADError('Per una linea servono almeno due punti.', code='punti')
+            pts = [_punto(q) for q in pts]
+        except SteelCADError as ex:
+            return _err(ex)
         n = len(pts) - (0 if closed else 1)
         cosa = 'Linee di costruzione' if construction else ('Contorno' if closed else 'Linee')
         return self._sketch_change(f'{cosa} ({n} tratti)',
                                    lambda: sketch_ops.add_polyline(self.doc, sid, pts, closed, construction, angles))
 
     def sketch_add_rectangle(self, sid: str, p0, p1, construction: bool = False) -> dict:
+        try:
+            p0, p1 = _punto(p0, 'l’angolo'), _punto(p1, 'l’angolo')
+        except SteelCADError as ex:
+            return _err(ex)
         return self._sketch_change('Rettangolo' + (' di costruzione' if construction else ''),
                                    lambda: sketch_ops.add_rectangle(self.doc, sid, p0, p1, construction))
 
     def sketch_add_circle(self, sid: str, center, r, construction: bool = False) -> dict:
+        try:
+            center, r = _punto(center, 'il centro'), _numero(r, 'il raggio')
+        except SteelCADError as ex:
+            return _err(ex)
         return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
                                    lambda: sketch_ops.add_circle(self.doc, sid, center, r, construction))
 
     def sketch_add_slot(self, sid: str, c1, c2, r, construction: bool = False) -> dict:
+        try:
+            c1, c2, r = _punto(c1, 'il centro'), _punto(c2, 'il centro'), _numero(r, 'il raggio')
+        except SteelCADError as ex:
+            return _err(ex)
         return self._sketch_change(f'Asola larga {fmt_mm(round(2 * float(r), 2))}',
                                    lambda: sketch_ops.add_slot(self.doc, sid, c1, c2, r, construction))
 
     def sketch_add_arc3(self, sid: str, p1, p2, p3, construction: bool = False) -> dict:
+        try:
+            p1, p2, p3 = _punto(p1), _punto(p2), _punto(p3)
+        except SteelCADError as ex:
+            return _err(ex)
         return self._sketch_change('Arco per tre punti', lambda: sketch_more.add_arc3(self.doc, sid, p1, p2, p3, construction))
 
     def sketch_add_polygon(self, sid: str, center, vertex, n, construction: bool = False) -> dict:
+        try:
+            center, vertex, n = _punto(center, 'il centro'), _punto(vertex, 'il vertice'), _numero(n, 'il numero di lati')
+            if n != int(n) or n < 3:
+                raise SteelCADError('Un poligono ha almeno 3 lati (numero intero).', code='lati')
+        except SteelCADError as ex:
+            return _err(ex)
         return self._sketch_change(f'Poligono a {int(_number(n))} lati',
                                    lambda: sketch_more.add_polygon(self.doc, sid, center, vertex, int(_number(n)), construction))
 
-    def sheet_fold(self, sid: str, angle, direction: str = 'up', flip: bool = False) -> dict:
+    def sheet_fold(self, sid: str, angle, direction: str = 'up', flip: bool = False, bump: dict | None = None) -> dict:
         """Piega lungo la linea disegnata (sulla faccia sopra/sotto della base o sullo sviluppo): la lamiera si piega
         lì, la parte più piccola sale; lo sviluppo resta quello disegnato. Lo sketch si consuma."""
         try:
@@ -840,6 +909,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 pts.append([round(q.X, 6), round(q.Y, 6)])
             if direction not in VERSI:
                 raise SteelCADError('Verso della piega: su o giù.', code='piega')
+            colpi = self._bump(bump)
         except SteelCADError as ex:
             return _err(ex)
 
@@ -850,16 +920,42 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             while f'PL{n}' in usati:
                 n += 1
             folds.append({'id': f'PL{n}', 'a': pts[0], 'b': pts[1], 'angle': _number(angle), 'direction': direction,
-                          'flip': bool(flip)})
+                          'flip': bool(flip), **({'bump': colpi} if colpi else {})})
             self.doc.features = [f for f in self.doc.features if f is not sk]   # la linea è diventata la piega
         r = self._change('Piega su linea', fn)
         if r['ok']:
             r['message'] = 'Piegata lungo la linea: lo sviluppo resta quello disegnato.'
         return r
 
+    @staticmethod
+    def _bump(v) -> dict | None:
+        """{'colpi', 'raggio'} scritti dall'utente; vuoti o 0 colpi: piega normale."""
+        if not v or str(v.get('colpi', '')).strip() in ('', '0', '1'):
+            return None
+        colpi = _numero(v.get('colpi'), 'i colpi')
+        if colpi != int(colpi) or not 2 <= colpi <= 200:
+            raise SteelCADError('I colpi del bumping sono un numero intero da 2 a 200.', code='bump')
+        raggio = _number(v.get('raggio'))
+        if str(raggio).strip() == '':
+            raise SteelCADError('Scrivi il raggio grande che vuoi ottenere con i colpi.', code='bump')
+        return {'colpi': int(colpi), 'raggio': raggio}
+
     def edit_fold(self, fid: str, foid: str, fields: dict) -> dict:
+        if 'bump' in fields:
+            try:
+                fields = {**fields, 'bump': self._bump(fields['bump'])}
+            except SteelCADError as ex:
+                return _err(ex)
+
         def fn(sm):
-            fo = next(x for x in sm.get('folds') or [] if x['id'] == foid)
+            fo = next((x for x in sm.get('folds') or [] if x['id'] == foid), None)
+            if fo is None:
+                raise SteelCADError(f'La piega {foid} non c’è più.', code='piega')
+            if 'bump' in fields:
+                if fields['bump']:
+                    fo['bump'] = fields['bump']
+                else:
+                    fo.pop('bump', None)
             if 'angle' in fields and str(fields['angle']).strip() != '':
                 fo['angle'] = _number(fields['angle'])
             if fields.get('direction') in VERSI:
@@ -992,13 +1088,30 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         data = getattr(self.result.body, 'sheet', None)
         geo = next((g for g in data.flanges if g.fid == foid), None) if data else None
         rows = [['Piega su linea', foid]]
-        if geo:
+        colpi = []
+        if geo and fo.get('bump'):
+            # i colpi: quota della battuta di ognuno, misurata nello sviluppo dalla linea disegnata (asse della piega)
+            catena = [geo]
+            while catena[-1].child:
+                nxt = next((g for g in data.flanges if g.fid == catena[-1].child), None)
+                if nxt is None or not nxt.fid.startswith(foid + '.'):
+                    break
+                catena.append(nxt)
+            b1 = geo.bend
+            passo = catena[0].length - 2 * b1.ossb + b1.ba if len(catena) > 1 else 0.0
+            c1 = b1.ba / 2 - b1.ossb
+            colpi = [round(c1 + i * passo, 2) for i in range(len(catena))]
+            rows += [['Colpi', f'{len(catena)} × {fmt_mm(round(b1.angle, 2))}°'],
+                     ['Passo nello sviluppo', f'{fmt_mm(round(passo, 2))} mm'],
+                     ['Punzone', f'R{fmt_mm(b1.r)}, K {b1.k:.3f}'.replace('.', ',')]]
+        elif geo:
             b = geo.bend
             rows += [['Lunghezza (calcolata)', f'{fmt_mm(round(geo.length, 2))} mm'],
                      ['Piega', f'{fmt_mm(b.angle)}°, R{fmt_mm(b.r)}, K {b.k:.3f}'.replace('.', ',')]]
         figlia = next((x['id'] for x in sm.get('flanges') or [] if x.get('parent') == foid), None)
         return {'kind': 'fold', 'feature': fid, 'fold': foid, 'title': f'Piega {foid}', 'rows': rows,
-                'def': {'angle': fo.get('angle', 90), 'direction': fo.get('direction', 'up'), 'flip': bool(fo.get('flip'))},
+                'def': {'angle': fo.get('angle', 90), 'direction': fo.get('direction', 'up'), 'flip': bool(fo.get('flip')),
+                        'bump': fo.get('bump')}, 'colpi': colpi,
                 'tip_child': figlia,
                 'highlight': self._face_indices(f'{fid}/{foid}') if self.result.body is not None else []}
 
@@ -1032,7 +1145,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return _err(pid)
         if pid:
             return self._part_corner(sid, pid, r, 'fillet')
-        return self._sketch_change(f'Raccordo R{r}', lambda: sketch_more.fillet_lines(self.doc, sid, l1, l2, c1, c2, _number(r)))
+        try:
+            r = _numero(r, 'il raggio')
+            if r < 0:                       # R0: le due linee si incontrano in uno spigolo vivo
+                raise SteelCADError('Il raggio del raccordo non può essere negativo.', code='raccordo')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Raccordo R{r}', lambda: sketch_more.fillet_lines(self.doc, sid, l1, l2, c1, c2, r))
 
     def sketch_chamfer_lines(self, sid: str, l1: str, l2: str, c1, c2, d) -> dict:
         pid = self._ref_corner(sid, l1, l2)
@@ -1040,7 +1159,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return _err(pid)
         if pid:
             return self._part_corner(sid, pid, d, 'chamfer')
-        return self._sketch_change(f'Smusso {d}', lambda: sketch_more.chamfer_lines(self.doc, sid, l1, l2, c1, c2, _number(d)))
+        try:
+            d = _numero(d, 'lo smusso')
+            if d < 0:                       # 0: le due linee si incontrano in uno spigolo vivo
+                raise SteelCADError('Lo smusso non può essere negativo.', code='smusso')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Smusso {d}', lambda: sketch_more.chamfer_lines(self.doc, sid, l1, l2, c1, c2, d))
 
     def sketch_chamfer(self, sid: str, pid: str, d) -> dict:
         if sketch_more.is_part_corner(self.doc.sketch(sid), pid):
@@ -1077,9 +1202,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     ent['hole'] = {'tipo': 'inserto', 'codice': codice, 'D': D}
                     self._set_diameter(sk, e, D)
                 elif tipo == 'svasato':
-                    D, ang = _number(spec.get('D')), _number(spec.get('angolo', 90))
+                    D, ang = _numero(spec.get('D'), 'il Ø della svasatura'), _numero(spec.get('angolo', 90), 'l’angolo')
                     if not 0 < ang < 180:
                         raise SteelCADError('L’angolo della svasatura va tra 0° e 180° (di solito 90°).', code='foro')
+                    foro = 2 * float(ent.get('r') or 0)
+                    if D <= foro:
+                        raise SteelCADError(f'La svasatura (Ø{fmt_mm(D)}) deve essere più larga del foro '
+                                            f'(Ø{fmt_mm(round(foro, 2))}).', code='foro')
                     ent['hole'] = {'tipo': 'svasato', 'D': D, 'angolo': ang}
                 else:
                     raise SteelCADError(f'Tipo di foro "{tipo}" sconosciuto.', code='foro')
@@ -1114,6 +1243,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return _err(ex)
 
     def sketch_offset(self, sid: str, eids: list, dist, side: str) -> dict:
+        if side not in ('out', 'in', 'left', 'right'):
+            return {'ok': False, 'message': 'Scegli da che parte fare l’offset.'}
         return self._sketch_change(f'Offset {dist}', lambda: sketch_edit.offset(self.doc, sid, eids, _number(dist), side))
 
     def sketch_trim_preview(self, sid: str, eid: str, click) -> dict:
@@ -1138,16 +1269,33 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return self._sketch_change(f'Specchia su {axis}', lambda: sketch_edit.mirror(self.doc, sid, eids, axis))
 
     def sketch_copy(self, sid: str, eids: list, dx, dy) -> dict:
-        return self._sketch_change('Copia', lambda: sketch_edit.copy(self.doc, sid, eids, _number(dx), _number(dy)))
+        try:
+            dx, dy = _numero(dx, 'lo spostamento'), _numero(dy, 'lo spostamento')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change('Copia', lambda: sketch_edit.copy(self.doc, sid, eids, dx, dy))
 
     def sketch_move(self, sid: str, eids: list, dx, dy) -> dict:
-        return self._sketch_change('Sposta', lambda: sketch_edit.move(self.doc, sid, eids, _number(dx), _number(dy)))
+        try:
+            dx, dy = _numero(dx, 'lo spostamento'), _numero(dy, 'lo spostamento')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change('Sposta', lambda: sketch_edit.move(self.doc, sid, eids, dx, dy))
 
     def sketch_pattern(self, sid: str, eids: list, cols, px, rows, py) -> dict:
         return self._sketch_change(f'Serie {cols} × {rows}', lambda: sketch_edit.pattern(
             self.doc, sid, eids, int(_number(cols)), _number(px), int(_number(rows)), _number(py)))
 
     def sketch_dimension(self, sid: str, kind: str, refs: list) -> dict:
+        try:
+            sk = self.doc.sketch(sid)
+            if not refs:
+                raise SteelCADError('Scegli cosa quotare: una linea, un cerchio o due elementi.', code='quota')
+            mancano = [r for r in refs if r not in sk.entities and r != 'O']
+            if mancano:
+                raise SteelCADError(f'Nello sketch non c’è {", ".join(mancano)}.', code='quota')
+        except SteelCADError as ex:
+            return _err(ex)
         return self._sketch_change('Quota', lambda: sketch_edit.add_dimension(self.doc, sid, kind, refs))
 
     def sketch_delete(self, sid: str, eids: list) -> dict:
@@ -1508,8 +1656,21 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                                                 ('spessore', 'Spessore'), ('rif_base', 'Misure base', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
                                                 ('rif_tondo', 'Misure tondo', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
                                                 ('passo', 'Passo pieghe sul tondo (vuoto = dal raggio)')]),
+        'tramoggia_cassone': ('Tramoggia con cassone', [
+            ('A', 'Bocca: lato A (X)'), ('B', 'Bocca: lato B (Y)'), ('Hc', 'Altezza cassone (0 = solo tramoggia)'),
+            ('a', 'Scarico: lato a'), ('b', 'Scarico: lato b'), ('Ht', 'Altezza tramoggia'),
+            ('ex', 'Scarico spostato in X'), ('ey', 'Scarico spostato in Y'), ('bordo', 'Bordo in alto (0 = niente)'),
+            ('angoli_bordo', 'Angoli dei bordi', {'aperti': 'aperti (scasso, più pieghe)', '45': 'a 45° (da saldare)'}),
+            ('flangia', 'Flangia allo scarico (0 = niente)'), ('smusso', 'Angoli smussati (0 = vivi)'),
+            ('spessore', 'Spessore'), ('riferimento', 'Misure', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
+            ('divisione', 'Divisione in pezzi', {'auto': 'automatica (meno saldature)',
+                                                 'verticali': 'pieghe sugli spigoli verticali',
+                                                 'tramoggia': 'pieghe sugli spigoli della tramoggia',
+                                                 'lati': 'un pezzo per lato'}),
+            ('foglio', 'Foglio (es. 1500x3000)')]),
     }
-    _PARAM_MODELLO = {'L', 'P', 'H', 'D1', 'D2', 'A', 'B', 'D', 'ex', 'ey'}   # vivono anche come parametri
+    _PARAM_MODELLO = {'L', 'P', 'H', 'D1', 'D2', 'A', 'B', 'D', 'ex', 'ey', 'Hc', 'Ht', 'a', 'b', 'bordo', 'flangia',
+                      'smusso'}   # vivono anche come parametri
 
     def _structure_selection(self, st_id: str) -> dict:
         fdef = self.doc.feature(st_id)
@@ -1550,6 +1711,33 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             valori[k] = par[nome_par] if (k in self._PARAM_MODELLO or k in alias) and nome_par in par else t['values'].get(k)
         return f['id'], self._tpl_info(t, titolo, campi, valori)
 
+    def set_shape_edge(self, fid: str, key: str, scelta: str) -> dict:
+        """Uno spigolo della forma: 'piega', 'saldatura' o 'auto' (decide la proposta)."""
+        if scelta not in ('piega', 'saldatura', 'auto'):
+            return {'ok': False, 'message': 'Uno spigolo è una piega o una saldatura.'}
+        info = getattr(getattr(self.result.body, 'sheet', None), 'shape_info', None) or {}
+        spigolo = next((x for x in info.get('spigoli') or [] if x['key'] == key), None)
+        if spigolo is None:
+            return {'ok': False, 'message': 'Quello spigolo non c’è più: riprova.'}
+        if spigolo['scelta'] == 'taglio':
+            return {'ok': False, 'message': 'Qui le due facce sono nello stesso piano: è un taglio, non si piega.'}
+
+        def fn():
+            f = self.doc.feature(fid)
+            scelte = f.setdefault('spigoli', {})
+            if scelta == 'auto':
+                scelte.pop(key, None)
+            else:
+                scelte[key] = scelta
+        r = self._change(f'{spigolo["nome"]}: {"proposta" if scelta == "auto" else scelta}', fn)
+        if r.get('ok'):
+            dopo = getattr(getattr(self.result.body, 'sheet', None), 'shape_info', None) or {}
+            nuovo = next((x for x in dopo.get('spigoli') or [] if x['key'] == key), None)
+            if scelta == 'piega' and nuovo and nuovo['scelta'] != 'piega':
+                r['message'] = ('Qui una piega non si può fare: chiuderebbe un giro di pieghe o il pezzo non starebbe '
+                                'nel foglio. Resta saldato.')
+        return r
+
     def structure_template_apply(self, st_id: str, values: dict) -> dict:
         """Rifà la struttura di un modello a misure con i dati nuovi (anche ripiani, profili, passo).
         Le modifiche fatte a mano sulle singole aste restano, per le aste che ci sono ancora."""
@@ -1565,7 +1753,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             vals = {**t['values'], **{k: _number(v) for k, v in values.items() if str(v).strip() != '' or k == 'passo'}}
             if old.get('type') == 'sheet_shape':           # i dati di piega restano quelli della forma
                 vals.update({'raggio': old.get('radius'), 'k': old.get('k')})
-            nuovo = getattr(templates, t['kind'])(old.get('name') or self.MODELLI_ST[t['kind']][0], **vals)
+            try:
+                nuovo = getattr(templates, t['kind'])(old.get('name') or self.MODELLI_ST[t['kind']][0], **vals)
+            except (ValueError, TypeError, ZeroDivisionError):
+                raise SteelCADError('Una delle misure non va: scrivi numeri maggiori di zero.', code='misura') from None
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
@@ -1580,6 +1771,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     new_st['overrides'].setdefault(mid, {}).update(r)
             if old.get('joints'):
                 new_st['joints'] = old['joints']
+            if old.get('spigoli'):                       # le scelte piega/saldatura restano
+                new_st['spigoli'] = old['spigoli']
             new_st['id'] = st_id
             pos = self.doc.features.index(old)
             resto = [f for f in self.doc.features if f is not old
@@ -1853,9 +2046,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return self._change(f'Elimina {nomi}', fn)
 
     def set_joint(self, st_id: str, key: str, spec: dict) -> dict:
-        tipo = spec.get('type', 'auto')
+        tipo = (spec or {}).get('type', 'auto')
         try:
-            membri = self.result_node(st_id, key)['members']
+            if tipo not in JOINT_LABELS:
+                raise SteelCADError(f'Giunto "{tipo}" sconosciuto.', code='giunto')
+            try:
+                membri = self.result_node(st_id, key)['members']
+            except (KeyError, IndexError, StopIteration):
+                raise SteelCADError(f'Il nodo {key} non c’è più.', code='nodo') from None
             if tipo == 'butt' and not spec.get('through'):
                 raise SteelCADError('Per il giunto a battuta scegli quale asta passa: le altre ci battono contro.',
                                     code='giunto')
@@ -1887,7 +2085,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return st.nodes[key]
 
     def move_node(self, st_id: str, key: str, values: list) -> dict:
-        vals = [_number(v) if str(v).strip() != '' else 0 for v in values]
+        try:
+            vals = [_number(v) if str(v).strip() != '' else 0 for v in values]
+            if len(vals) != 3:
+                raise SteelCADError('Servono le tre coordinate X, Y, Z.', code='nodo')
+            if key not in (self.doc.feature(st_id).get('points') or {}):
+                raise SteelCADError(f'Il nodo {key} non si sposta da qui (non c’è, o nasce da uno sketch).', code='nodo')
+        except SteelCADError as ex:
+            return _err(ex)
 
         def fn():
             punti = self.doc.feature(st_id)['points']
@@ -1918,20 +2123,32 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
+    TIPI_PROGETTO = ('telaio', 'piastra', 'vuoto', 'lamiera', 'zero', 'scaffale', 'armadio', 'cancello', 'disegno',
+                     'cono', 'tramoggia', 'tramoggia_cassone')
+
     def new_project(self, kind: str, values: dict | None = None) -> dict:
         try:
-            if kind in ('lamiera', 'cono', 'tramoggia'):
+            if kind in ('lamiera', 'cono', 'tramoggia', 'tramoggia_cassone'):
                 d = self.bend_default()
                 values = dict(values or {})
+                scritti = any(str(values.get(c, '') or '').strip() for c in ('raggio', 'k', 'metodo', 'bd90'))
                 for campo, k in (('raggio', 'radius'), ('k', 'k')):
                     if str(values.get(campo, '') or '').strip() == '' and d.get(k) is not None:
                         values[campo] = d[k]
+                # il metodo predefinito (DIN 6935, deduzione a 90°) vale solo se l'utente non ha scritto i suoi dati
+                if kind == 'lamiera' and not scritti and d.get('method'):
+                    values['metodo'] = d['method']
+                    if d.get('bd90') is not None:
+                        values['bd90'] = d['bd90']
             values = {k: _number(v) for k, v in (values or {}).items()}
+            if kind not in self.TIPI_PROGETTO:
+                raise SteelCADError(f'Tipo di progetto "{kind}" sconosciuto.', code='tipo')
             doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
                    'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
                    'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
                    'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
-                   'cono': templates.cono, 'tramoggia': templates.tramoggia}[kind](**values)
+                   'cono': templates.cono, 'tramoggia': templates.tramoggia,
+                   'tramoggia_cassone': templates.tramoggia_cassone}[kind](**values)
             self._set(doc)
             self.path = None
             self.blank = False
@@ -2043,6 +2260,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             except Exception as ex:  # noqa: BLE001
                 return _err(ex)
         try:
+            if not Path(path).parent.is_dir():
+                raise SteelCADError(f'La cartella {Path(path).parent} non c’è: scegline un’altra.', code='file')
             out = step.export_project(self.doc, self.result, path)
             return _ok(message=f'STEP salvato: {out["solids"]} solidi, controllato rileggendo il file.', path=path)
         except Exception as ex:  # noqa: BLE001
@@ -2187,14 +2406,36 @@ def _cut_text(a: float) -> str:
 
 
 def _number(v):
+    if isinstance(v, bool):
+        return int(v)
     if isinstance(v, (int, float)):
+        if not math.isfinite(v):
+            raise SteelCADError(f'"{v}" non è una misura.', code='numero')
         return v
     s = str(v).strip().replace(',', '.')
     try:
         f = float(s)
-        return int(f) if f.is_integer() else f
     except ValueError:
         return str(v).strip()       # un'espressione: "L/2 + 10"
+    if not math.isfinite(f):
+        raise SteelCADError(f'"{v}" non è una misura.', code='numero')
+    return int(f) if f.is_integer() else f
+
+
+def _numero(v, cosa: str = 'il valore') -> float:
+    """Per i campi che vogliono proprio un numero (spostamenti, coordinate, angoli): niente espressioni."""
+    x = _number(v if v not in (None, '') else 'vuoto')
+    if not isinstance(x, (int, float)):
+        raise SteelCADError(f'{cosa[0].upper() + cosa[1:]}: "{v}" non è un numero.', code='numero')
+    return x
+
+
+def _punto(p, cosa: str = 'il punto'):
+    if isinstance(p, (str, dict)):          # un punto che c'è già, o un aggancio (tangente, quadrante…)
+        return p
+    if not isinstance(p, (list, tuple)) or len(p) != 2:
+        raise SteelCADError(f'{cosa[0].upper() + cosa[1:]} va dato con due coordinate.', code='numero')
+    return [_numero(p[0], cosa), _numero(p[1], cosa)]
 
 
 __all__ = ['Service', 'describe', 'DIMENSIONS']

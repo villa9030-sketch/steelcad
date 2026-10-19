@@ -22,8 +22,9 @@ out.mkdir(parents=True, exist_ok=True)
 cart = Path(tempfile.mkdtemp())
 shutil.copy(dxf, cart / dxf.name)
 srv = subprocess.Popen([str(PY), str(ROOT / 'app' / 'dev_server.py'), '--porta', str(PORTA), '--cartella', str(cart)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
-time.sleep(3)
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000)
+while not srv.stdout.readline().startswith(b'http'):    # il server è pronto
+    pass
 esiti = []
 
 

@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 from .document import Document
-from .errors import ProjectFileError
+from .errors import SteelCADError, ProjectFileError
 
 EXT = '.steelcad'
 
@@ -50,7 +50,15 @@ def load(path) -> Document:
     except (ValueError, UnicodeDecodeError):
         raise ProjectFileError(f'Il file {path.name} è rovinato e non si può leggere. Prova la copia '
                                f'{path.name}.bak o il recupero automatico.') from None
-    return Document.from_dict(d)
+    if not isinstance(d, dict) or not isinstance(d.get('features', []), list):
+        raise ProjectFileError(f'Il file {path.name} non è un progetto SteelCAD.')
+    try:
+        return Document.from_dict(d)
+    except SteelCADError:
+        raise
+    except Exception:  # noqa: BLE001 - un progetto scritto male (a mano o da un'altra versione)
+        raise ProjectFileError(f'Il file {path.name} non è un progetto SteelCAD valido (forse di una versione '
+                               f'diversa). Prova la copia {path.name}.bak.') from None
 
 
 def autosave_path(path) -> Path:

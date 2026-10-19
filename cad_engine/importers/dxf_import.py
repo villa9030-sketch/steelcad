@@ -154,8 +154,9 @@ def leggi(path) -> Analisi:
         p_dxf = p
     try:
         doc, _ = recover.readfile(str(p_dxf))
-    except (OSError, ezdxf.DXFStructureError) as ex:
-        raise ImportError_(f'Il file {p.name} non si legge come DXF ({ex}).') from None
+    except Exception as ex:  # noqa: BLE001 - file rovinato o non DXF: ezdxf ha molti tipi di errore
+        motivo = ''.join(c for c in str(ex)[:120].encode('utf-8', 'replace').decode('utf-8', 'replace') if c.isprintable())
+        raise ImportError_(f'Il file {p.name} non si legge come DXF ({motivo}).') from None
     k = UNITA.get(doc.header.get('$INSUNITS', 0), 1.0)
     if k != 1.0:
         # molti DXF dichiarano un'unità sbagliata (metri, pollici) ma sono disegnati in mm: se così il pezzo verrebbe

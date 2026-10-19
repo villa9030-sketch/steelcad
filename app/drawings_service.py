@@ -100,7 +100,7 @@ class DrawingsMixin:
         fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato)]
         if sheet is not None and getattr(sheet, 'bend_rows', None) is not None:
             r_, k_ = sheet.tech.get('radius'), sheet.tech.get('k')
-            pieg = [[str(x['n']), f'P{x["n"]}', D.fmt(round(x['length'], 1)), f'{D.fmt(round(x["angle"], 2))}°', '—',
+            pieg = [[str(x['n']), x.get('label') or f'P{x["n"]}', D.fmt(round(x['length'], 1)), f'{D.fmt(round(x["angle"], 2))}°', x.get('verso', '—'),
                      D.fmt(r_) if r_ is not None else '', D.fmt(k_) if k_ is not None else '',
                      D.fmt(round(x['correction'], 3)) if x['correction'] is not None else ''] for x in sheet.bend_rows]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
@@ -152,6 +152,9 @@ class DrawingsMixin:
             return {'ok': True, 'sheets': [{'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size} for f in fogli]}
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}
+        except Exception as ex:  # noqa: BLE001
+            from app.service import _err
+            return _err(ex)
 
     def export_drawings(self, path: str, campi: dict, tutte: bool = False) -> dict:
         """PDF (una pagina per foglio) o DXF (fogli affiancati), secondo l'estensione."""
@@ -170,3 +173,6 @@ class DrawingsMixin:
             return {'ok': True, 'path': str(p), 'message': f'Tavole salvate: {len(fogli)} fogli in {p.name}.'}
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}
+        except Exception as ex:  # noqa: BLE001
+            from app.service import _err
+            return _err(ex)

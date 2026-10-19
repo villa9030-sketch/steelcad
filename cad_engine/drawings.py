@@ -457,10 +457,10 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     righe_tab = len(piegature)
     # coni e raccordi (non dal nome della piega: anche le pieghe su linea si chiamano PL1, PL2…)
     forma = bool(piegature) and bool(getattr(data, 'shape_info', None))
-    if forma:                                                              # P, angolo, linea, correzione
-        col = [0, 10, 30, 52, 72]
-        intest = ['P', 'Angolo', 'Linea', 'Correz.']
-        piegature = [[r[0], r[3], r[2], r[7]] for r in piegature]
+    if forma:                                          # P, angolo, verso (le forme a pezzi piegano su e giù), linea, correzione
+        col = [0, 10, 30, 42, 62, 82]
+        intest = ['P', 'Angolo', 'Verso', 'Linea', 'Correz.']
+        piegature = [[r[0], r[3], r[4] if r[4] != '—' else '', r[2], r[7]] for r in piegature]
     else:
         col = [0, 14, 34, 64, 84, 104, 124, 144, 180]
         intest = ['P', 'Flangia', 'Lungh. est.', 'Angolo', 'Verso', 'R int.', 'K', 'Largh.']
@@ -509,7 +509,10 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
             if fitte and not (i == 1 or i % 5 == 0 or i == len(data.bend_lines)):
                 continue                # linee troppo vicine a questa scala: un numero ogni 5 (tutti nel DXF)
             q = punti_et[i - 1]
-            f.text('piega', (q[0] + 0.6, q[1] + 0.6), str(i), 1.8)
+            # le forme divise in pezzi numerano per pezzo (A1, A2… B1): lo stesso nome della tabella
+            righe_p = data.bend_rows or []
+            nome = str(righe_p[i - 1].get('label') or i) if i - 1 < len(righe_p) else str(i)
+            f.text('piega', (q[0] + 0.6, q[1] + 0.6), nome, 1.8)
         else:
             m = ((A[0] + B[0]) / 2, (A[1] + B[1]) / 2)
             f.text('piega', (m[0] + 1, m[1] + 1), testo, 2.2 if len(data.bend_lines) < 20 else 1.6)

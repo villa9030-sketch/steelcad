@@ -434,6 +434,14 @@ def add_dimension(doc, sid, kind, refs, value=None):
     for r in refs:
         if r not in sk.entities:
             raise SketchError(f'Nello sketch non c’è {r}.')
+    # che cosa vuole ogni quota: tipo di elemento per ogni riferimento
+    vuole = {'length': ('line',), 'diameter': ('circle',), 'radius': ('arc',), 'distance': ('point', 'point'),
+             'hdistance': ('point', 'point'), 'vdistance': ('point', 'point'), 'pldistance': ('point', 'line')}.get(kind)
+    nomi = {'line': 'una linea', 'circle': 'un cerchio', 'arc': 'un arco', 'point': 'un punto'}
+    if vuole is not None:
+        tipi = [sk.entities[r]['kind'] for r in refs]
+        if len(refs) != len(vuole) or any(t != v and not (v == 'circle' and t == 'arc') for t, v in zip(tipi, vuole)):
+            raise SketchError('Per questa quota scegli ' + ' e '.join(nomi[v] for v in vuole) + '.')
     pts = _solved_xy(doc, sk)
     if value is None:
         if kind == 'length':

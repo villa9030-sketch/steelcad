@@ -20,6 +20,18 @@ def _ok(**kw):
     return {'ok': True, **kw}
 
 
+
+def _in_assieme(fn):
+    """I comandi dell'assieme fuori da un assieme (dal menu comandi, mentre si lavora su un pezzo): un messaggio."""
+    import functools
+
+    @functools.wraps(fn)
+    def dentro(self, *a, **kw):
+        if self.asm is None:
+            return {'ok': False, 'code': 'assieme', 'message': 'Questo comando è per gli assiemi: apri o crea un assieme.'}
+        return fn(self, *a, **kw)
+    return dentro
+
 class AssemblyMixin:
     asm = None
 
@@ -67,10 +79,13 @@ class AssemblyMixin:
         try:
             out = fn()
             self._asm_reload()
-        except SteelCADError as ex:
+        except Exception as ex:  # noqa: BLE001 - qualunque errore: l'assieme torna com'era
             self.asm.__dict__.update(A.Assembly.from_dict(prima, self.asm.path).__dict__)
             self._asm_reload()
-            return {'ok': False, 'message': ex.message, 'code': ex.code}
+            if isinstance(ex, SteelCADError):
+                return {'ok': False, 'message': ex.message, 'code': ex.code}
+            from app.service import _err
+            return _err(ex)
         self.asm_undo.append((label, prima))
         self.asm_redo.clear()
         self.asm_dirty = True
@@ -110,6 +125,7 @@ class AssemblyMixin:
         return _ok(state=self.state())
 
     # ------------------------------------------------------------------ istanze
+    @_in_assieme
     def asm_insert(self, path: str) -> dict:
         """Mette nell'assieme una copia del pezzo (file .steelcad), a destra di quello che c'è già."""
         p = Path(path).resolve()
@@ -135,6 +151,7 @@ class AssemblyMixin:
             return {'select': iid}
         return self._asm_change(f'Inserisci {p.stem}', fn)
 
+    @_in_assieme
     def asm_remove(self, iid: str) -> dict:
         def fn():
             self.asm.instance(iid)
@@ -142,30 +159,68 @@ class AssemblyMixin:
             self.asm.mates = [m for m in self.asm.mates if iid not in (m['a']['inst'], m['b']['inst'])]
         return self._asm_change(f'Togli {iid}', fn)
 
+    @_in_assieme
     def asm_move(self, iid: str, dx, dy, dz) -> dict:
-        from app.service import _number
+        from app.service import _numero
 
         def fn():
             i = self.asm.instance(iid)
-            i['T'] = (np.array(i.get('T') or [0, 0, 0]) + [_number(dx or 0), _number(dy or 0), _number(dz or 0)]).tolist()
+            d = [_numero(v or 0, 'lo spostamento') for v in (dx, dy, dz)]
+            i['T'] = (np.array(i.get('T') or [0, 0, 0]) + d).tolist()
         return self._asm_change(f'Sposta {iid}', fn)
 
+    @_in_assieme
     def asm_rotate(self, iid: str, axis: str, deg) -> dict:
         """Ruota attorno al centro del pezzo, lungo un asse del mondo (X, Y, Z)."""
-        from app.service import _number
+        from app.service import _numero
 
         def fn():
+            if str(axis).lower() not in ('x', 'y', 'z'):
+                raise A.AssemblyError('Si ruota attorno a X, Y o Z.')
+            gradi = _numero(deg, 'l’angolo')
             i = self.asm.instance(iid)
             part = self.asm_parts[i['file']]
             R, T = np.array(i['R']), np.array(i['T'])
             bb = __import__('build123d').Shape.cast(part.shape).bounding_box()
             c = R @ np.array([(bb.min.X + bb.max.X) / 2, (bb.min.Y + bb.max.Y) / 2, (bb.min.Z + bb.max.Z) / 2]) + T
             d = {'x': [1, 0, 0], 'y': [0, 1, 0], 'z': [0, 0, 1]}[axis.lower()]
-            Q = A._rot_axis(np.array(d, dtype=float), np.radians(_number(deg)))
+            Q = A._rot_axis(np.array(d, dtype=float), np.radians(gradi))
             i['R'] = (Q @ R).tolist()
             i['T'] = (Q @ (T - c) + c).tolist()
         return self._asm_change(f'Ruota {iid}', fn)
 
+    @_in_assieme
+    def asm_rotate_all(self, axis: str, deg) -> dict:
+        """Ruota tutto l'assieme insieme (gli accoppiamenti restano rispettati) attorno al suo centro, lungo X, Y o Z."""
+        from app.service import _numero
+
+        def fn():
+            if str(axis).lower() not in ('x', 'y', 'z'):
+                raise A.AssemblyError('Si ruota attorno a X, Y o Z.')
+            gradi = _numero(deg, 'l’angolo')
+            if not self.asm.instances:
+                raise A.AssemblyError('L’assieme è vuoto: non c’è niente da ruotare.')
+            punti = []
+            for i in self.asm.instances:
+                part = self.asm_parts.get(i['file'])
+                if part is None:
+                    continue
+                bb = __import__('build123d').Shape.cast(part.shape).bounding_box()
+                Ri, Ti = np.array(i['R']), np.array(i['T'])
+                for x in (bb.min.X, bb.max.X):
+                    for y in (bb.min.Y, bb.max.Y):
+                        for z in (bb.min.Z, bb.max.Z):
+                            punti.append(Ri @ np.array([x, y, z]) + Ti)
+            c = (np.min(punti, axis=0) + np.max(punti, axis=0)) / 2 if punti else np.zeros(3)
+            d = {'x': [1, 0, 0], 'y': [0, 1, 0], 'z': [0, 0, 1]}[axis.lower()]
+            Q = A._rot_axis(np.array(d, dtype=float), np.radians(gradi))
+            for i in self.asm.instances:
+                Ri, Ti = np.array(i['R']), np.array(i['T'])
+                i['R'] = (Q @ Ri).tolist()
+                i['T'] = (Q @ (Ti - c) + c).tolist()
+        return self._asm_change(f'Ruota l’assieme attorno a {str(axis).upper()}', fn)
+
+    @_in_assieme
     def asm_set(self, iid: str, fields: dict) -> dict:
         def fn():
             i = self.asm.instance(iid)
@@ -190,13 +245,15 @@ class AssemblyMixin:
             raise A.AssemblyError('Clicca una faccia del pezzo.')
         return {'inst': iid, **A.face_info(part, facce[int(face_index)])}
 
+    @_in_assieme
     def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False) -> dict:
         """a: la faccia del pezzo che sta fermo, b: quella del pezzo che si muove. {'inst': id, 'face': indice}."""
-        from app.service import _number
+        from app.service import _numero
         if kind not in A.MATE_TYPES:
             return {'ok': False, 'message': f'Accoppiamento "{kind}" sconosciuto.'}
 
         def fn():
+            distanza = _numero(offset or 0, 'la distanza')
             if a['inst'] == b['inst']:
                 raise A.AssemblyError('Le due facce sono dello stesso pezzo: scegline una su un altro pezzo.')
             ra, rb = self._asm_face(a['inst'], a.get('face')), self._asm_face(b['inst'], b.get('face'))
@@ -208,31 +265,34 @@ class AssemblyMixin:
             terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
             fermo, mobile = (rb, ra) if ra['inst'] != terra and rb['inst'] == terra else (ra, rb)
             mid = self.asm.new_id('M', {m['id'] for m in self.asm.mates})
-            self.asm.mates.append({'id': mid, 'type': kind, 'a': fermo, 'b': mobile, 'offset': _number(offset or 0),
+            self.asm.mates.append({'id': mid, 'type': kind, 'a': fermo, 'b': mobile, 'offset': distanza,
                                    'flip': bool(flip)})
             return {'select': 'mate=' + mid}
         return self._asm_change('Faccia su faccia' if kind == 'faccia' else 'Foro su foro', fn)
 
+    @_in_assieme
     def asm_edit_mate(self, mid: str, fields: dict) -> dict:
-        from app.service import _number
+        from app.service import _numero
 
         def fn():
             m = next((x for x in self.asm.mates if x['id'] == mid), None)
             if m is None:
                 raise A.AssemblyError(f'Non c’è l’accoppiamento {mid}.')
             if 'offset' in fields and str(fields['offset']).strip() != '':
-                m['offset'] = _number(fields['offset'])
+                m['offset'] = _numero(fields['offset'], 'la distanza')
             if 'flip' in fields:
                 m['flip'] = bool(fields['flip'])
             if 'off' in fields:
                 m['off'] = bool(fields['off'])
         return self._asm_change(f'{mid}: modifica', fn)
 
+    @_in_assieme
     def asm_delete_mate(self, mid: str) -> dict:
         def fn():
             self.asm.mates = [m for m in self.asm.mates if m['id'] != mid]
         return self._asm_change(f'Togli {mid}', fn)
 
+    @_in_assieme
     def asm_interferences(self) -> dict:
         trovate = A.interferences(self.asm, self.asm_parts)
         nomi = {i['id']: i['name'] for i in self.asm.instances}
@@ -272,6 +332,7 @@ class AssemblyMixin:
                     return ra, ib['id'], inf['name'], nome
         return None
 
+    @_in_assieme
     def asm_tabs(self, iid: str, face_index, n, w, gioco, sporgenza=0) -> dict:
         """Incastri tra due pezzi: la punta (faccia scelta) del pezzo di iid appoggia su una faccia di un altro pezzo.
         Linguette nel file del primo pezzo, asole nel file del secondo: si modificano e si salvano i due file
@@ -426,17 +487,27 @@ class AssemblyMixin:
                 meglio = (d, inf)
         return {'inst': iid, **meglio[1]} if meglio else None
 
+    @_in_assieme
     def asm_export_step(self, path: str) -> dict:
         import build123d as bd
         forme = [A.placed_shape(self.asm_parts[i['file']], i['R'], i['T']) for i in self.asm.instances if i['file'] in self.asm_parts]
         if not forme:
             return {'ok': False, 'message': 'L’assieme è vuoto.'}
-        bd.export_step(bd.Compound(children=forme), path)
+        if not Path(path).parent.is_dir():
+            return {'ok': False, 'message': f'La cartella {Path(path).parent} non c’è: scegline un’altra.'}
+        ok = bd.export_step(bd.Compound(children=forme), path)
+        if ok is False or not Path(path).is_file() or Path(path).stat().st_size == 0:
+            return {'ok': False, 'message': 'Il file STEP non si è scritto: forse è aperto in un altro programma.'}
         return _ok(message=f'STEP dell’assieme salvato: {len(forme)} pezzi.', path=path)
 
     # ------------------------------------------------------------------ aprire un pezzo e tornare
     def asm_open_part(self, iid: str) -> dict:
-        i = self.asm.instance(iid)
+        if self.asm is None:
+            return {'ok': False, 'message': 'Non c’è un assieme aperto.'}
+        try:
+            i = self.asm.instance(iid)
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message}
         ritorno = (self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty)
         self.asm = None
         r = self.open(i['file'])
@@ -508,6 +579,9 @@ class AssemblyMixin:
         return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
 
     def _asm_select(self, obj_id: str, face_index=None) -> dict:
+        if obj_id == 'assieme':
+            return _ok(selection={'kind': 'assembly', 'id': 'assieme', 'title': self.asm.name,
+                                  'rows': [['Pezzi', str(len(self.asm.instances))], ['Accoppiamenti', str(len(self.asm.mates))]]})
         if obj_id.startswith('mate='):
             mid = obj_id[5:]
             m = next((x for x in self.asm.mates if x['id'] == mid), None)

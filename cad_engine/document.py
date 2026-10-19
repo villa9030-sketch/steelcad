@@ -185,11 +185,14 @@ class Document:
         ctx_sketches: dict = {}
         blocked_by: str | None = None
         nuova_cache: dict[str, object] = {}
+        usi = self._usi_degli_sketch()
         for f in self.features:
             fid = self._fid(f)
             if isinstance(f, Sketch):
                 on_face = isinstance(f.plane, dict)
-                h = _hash(f.to_dict(), self._used(f, params), body_hash if on_face else '')
+                # chi usa lo sketch decide se un contorno aperto è un errore: entra nella chiave della cache,
+                # se no il risultato dipenderebbe da cosa c'era in memoria
+                h = _hash(f.to_dict(), self._used(f, params), body_hash if on_face else '', sorted(usi.get(fid, ())))
                 sketch_hash[fid] = h
                 cached = self._cache.get(h)
                 if cached is not None:
@@ -205,15 +208,13 @@ class Document:
                         if solved.status.ok_for_features:
                             try:
                                 prof = profile_mod.build(solved, plane)
-                            except SteelCADError:
-                                # le persiane si disegnano con linee aperte: per loro il contorno chiuso non serve
-                                # e così gli scheletri delle strutture: linee aperte, non contorni
-                                if not any(not isinstance(x, Sketch) and x.get('type') == 'sheet_form'
-                                           and x.get('kind') == 'louver' and x.get('sketch') == fid for x in self.features) \
-                                        and not any(not isinstance(x, Sketch) and x.get('type') == 'structure'
-                                                    and fid in self._sketch_refs(x) for x in self.features):
+                            except SteelCADError as ex_aperto:
+                                # le persiane si disegnano con linee aperte: per loro il contorno chiuso non serve,
+                                # e così gli scheletri delle strutture; uno sketch che nessuno usa ancora è un disegno
+                                # in corso (linee per una piega, una persiana…), non un errore
+                                if usi.get(fid, set()) - {'louver', 'structure'}:
                                     raise
-                                prof = profile_mod.Profile(plane, [], [])
+                                prof = profile_mod.Profile(plane, [], [], aperto=ex_aperto.message)
                     except SteelCADError as ex:
                         res.features.append(FeatureResult(fid, 'sketch', False, ex.message))
                         continue
@@ -222,8 +223,8 @@ class Document:
                 ok = prof is not None
                 if ok:
                     ctx_sketches[fid] = (solved, prof)
-                res.features.append(FeatureResult(fid, 'sketch', ok, solved.status.message, from_cache,
-                                                  solved.status.to_dict()))
+                res.features.append(FeatureResult(fid, 'sketch', ok, (prof.aperto if prof is not None else '')
+                                                  or solved.status.message, from_cache, solved.status.to_dict()))
                 continue
             ftype = f['type']
             if ftype == 'structure':
@@ -284,6 +285,20 @@ class Document:
         self.last = res
         self._sketch_results = dict(ctx_sketches)
         return res
+
+    def _usi_degli_sketch(self) -> dict:
+        """Per ogni sketch, chi lo usa: 'louver', 'structure' o il tipo della feature."""
+        usi: dict = {}
+        for x in self.features:
+            if isinstance(x, Sketch):
+                continue
+            if x.get('type') == 'structure':
+                for sid in self._sketch_refs(x):
+                    usi.setdefault(sid, set()).add('structure')
+            if x.get('sketch'):
+                tipo = 'louver' if x.get('type') == 'sheet_form' and x.get('kind') == 'louver' else x.get('type')
+                usi.setdefault(x['sketch'], set()).add(tipo)
+        return usi
 
     @staticmethod
     def _sketch_refs(f) -> set:

@@ -6,12 +6,34 @@ Tutte le misure sono parametri: si cambiano dopo, e il modello si rigenera.
 """
 from __future__ import annotations
 
+import math
+
 from .document import Document
 from .errors import SteelCADError
 
 
+def _misura(v, nome: str, zero: bool = False) -> float:
+    """Una misura scritta dall'utente: un numero, maggiore di zero (o almeno zero se zero=True)."""
+    try:
+        x = float(str(v).replace(',', '.'))
+    except (TypeError, ValueError):
+        raise SteelCADError(f'{nome}: "{v}" non è un numero.', code='misura') from None
+    if not math.isfinite(x) or x < 0 or (x == 0 and not zero):
+        raise SteelCADError(f'{nome}: {v} non va, serve una misura maggiore di zero.', code='misura')
+    return x
+
+
+def _intero(v, nome: str, minimo: int) -> int:
+    x = _misura(v, nome, zero=True)
+    if x != int(x) or x < minimo:
+        raise SteelCADError(f'{nome}: serve un numero intero, almeno {minimo}.', code='misura')
+    return int(x)
+
+
 def telaio(name: str = 'Telaio', L=2000, P=1000, H=900, profilo='40x40x3', gambe='40x40x3',
            material='S235') -> Document:
+    for k, v in (('Lunghezza', L), ('Profondità', P), ('Altezza', H)):
+        _misura(v, k)
     doc = Document(name, material)
     for k, v in (('L', L), ('P', P), ('H', H)):
         doc.set_parameter(k, v)
@@ -32,6 +54,10 @@ def telaio(name: str = 'Telaio', L=2000, P=1000, H=900, profilo='40x40x3', gambe
 
 
 def piastra(name: str = 'Piastra', larghezza=300, altezza=200, spessore=5, foro=30, material='S235') -> Document:
+    for k, v in (('Larghezza', larghezza), ('Altezza', altezza), ('Spessore', spessore), ('Foro', foro)):
+        _misura(v, k)
+    if float(foro) >= min(float(larghezza), float(altezza)):
+        raise SteelCADError('Il foro è più grande della piastra.', code='misura')
     doc = Document(name, material)
     for k, v in (('larghezza', larghezza), ('altezza', altezza), ('spessore', spessore), ('foro', foro)):
         doc.set_parameter(k, v)
@@ -55,9 +81,17 @@ def struttura_vuota(name: str = 'Struttura', material='S235') -> Document:
 
 
 def lamiera(name: str = 'Lamiera', larghezza=500, profondita=300, spessore=2, raggio=None, k=None,
-            material='S235') -> Document:
+            material='S235', metodo='k', bd90=None) -> Document:
     """Base rettangolare in lamiera. Raggio e K-factor non hanno default: se non li dai tu, la scheda
-    Lamiera li chiede prima della prima flangia."""
+    Lamiera li chiede prima della prima flangia. metodo: k, din6935 o bd90 (con la deduzione bd90)."""
+    for kk, v in (('Larghezza', larghezza), ('Profondità', profondita), ('Spessore', spessore)):
+        _misura(v, kk)
+    if float(spessore) >= min(float(larghezza), float(profondita)) / 2:
+        raise SteelCADError('Lo spessore è troppo grande per una lamiera così piccola.', code='misura')
+    if raggio not in (None, ''):
+        _misura(raggio, 'Raggio interno', zero=True)
+    if k not in (None, '') and not 0 <= _misura(k, 'K-factor', zero=True) <= 1:
+        raise SteelCADError('Il K-factor deve stare tra 0 e 1 (di solito 0,3–0,5).', code='misura')
     doc = Document(name, material)
     for kk, v in (('W', larghezza), ('P', profondita), ('sp', spessore)):
         doc.set_parameter(kk, v)
@@ -68,7 +102,7 @@ def lamiera(name: str = 'Lamiera', larghezza=500, profondita=300, spessore=2, ra
     sk.dimension('length', r['left'], value='P')
     vuoto = lambda v: v is None or str(v).strip() == ''  # noqa: E731
     doc.add_feature('sheet', name, sketch=sk.id, thickness='sp', radius=None if vuoto(raggio) else raggio,
-                    method='k', k=None if vuoto(k) else k, flanges=[])
+                    method=metodo or 'k', k=None if vuoto(k) else k, bd90=None if vuoto(bd90) else bd90, flanges=[])
     return doc
 
 
@@ -115,9 +149,9 @@ def _spalla(sk, larg: str, alt: str, livelli: list[str]):
 def scaffale(name: str = 'Scaffale', L=1000, P=400, H=1800, ripiani=4, montanti='30x30x2',
              traversi='40x20x2', material='S235') -> Document:
     """Scaffale: due spalle (montanti + traversi di fianco) a distanza L, collegate a ogni ripiano."""
-    n = int(ripiani)
-    if n < 2:
-        raise SteelCADError('Uno scaffale ha almeno 2 ripiani (a terra e in cima).', code='ripiani')
+    for k, v in (('Lunghezza', L), ('Profondità', P), ('Altezza', H)):
+        _misura(v, k)
+    n = _intero(ripiani, 'Ripiani', 2)
     doc = Document(name, material)
     for k, v in (('L', L), ('P', P), ('H', H)):
         doc.set_parameter(k, v)
@@ -144,6 +178,10 @@ def armadio(name: str = 'Telaio armadio', L=800, P=600, H=2000, ripiani=3, profi
 def cancello(name: str = 'Cancello', L=1500, H=1200, telaio='60x60x3', sbarre='20x20x2', passo=120,
              material='S235') -> Document:
     """Cancello: telaio rettangolare e sbarre verticali a passo uguale (sul piano di fronte, XZ)."""
+    for k, v in (('Lunghezza', L), ('Altezza', H), ('Passo delle sbarre', passo)):
+        _misura(v, k)
+    if float(passo) >= float(L):
+        raise SteelCADError('Il passo delle sbarre è più lungo del cancello.', code='misura')
     doc = Document(name, material)
     for k, v in (('L', L), ('H', H)):
         doc.set_parameter(k, v)
@@ -181,6 +219,61 @@ def struttura_disegno(name: str = 'Struttura', piano='XZ', material='S235') -> D
 
 
 # =============================================================================== forme di lamiera
+def tramoggia_cassone(name: str = 'Tramoggia con cassone', A=1000, B=1000, Hc=700, a=250, b=250, Ht=700, ex=0, ey=0,
+                      bordo=40, angoli_bordo='aperti', flangia=0, smusso=0, spessore=3, riferimento='esterno',
+                      divisione='auto', foglio='1500x3000', raggio=None, k=None, material='S235') -> Document:
+    """Cassone a pareti verticali (A × B, alto Hc; Hc = 0: solo tramoggia) sopra una tramoggia a falde piane fino
+    allo scarico a × b (alto Ht, centro spostato di ex, ey). Bordo superiore piegato in fuori e flangia dello
+    scarico (0 = niente), angoli smussati (0 = vivi). La forma si divide in pezzi da piegare: più pieghe possibile,
+    ogni pezzo nel foglio; le scelte piega/saldatura si cambiano spigolo per spigolo."""
+    for kk, v in (('Lato A', A), ('Lato B', B), ('Scarico a', a), ('Scarico b', b), ('Altezza tramoggia', Ht),
+                  ('Spessore', spessore)):
+        _misura(v, kk)
+    for kk, v in (('Altezza cassone', Hc), ('Bordo', bordo), ('Flangia scarico', flangia), ('Smusso', smusso)):
+        _misura(v, kk, zero=True)
+    for kk, v in (('Spostamento X', ex), ('Spostamento Y', ey)):
+        try:
+            float(str(v).replace(',', '.'))
+        except ValueError:
+            raise SteelCADError(f'{kk}: "{v}" non è un numero.', code='misura') from None
+    try:
+        foglio_l = [float(x) for x in str(foglio).lower().replace('×', 'x').replace(' ', '').split('x')]
+        assert len(foglio_l) == 2 and min(foglio_l) > 0
+    except (ValueError, AssertionError):
+        raise SteelCADError('Foglio: scrivilo come 1500x3000.', code='misura') from None
+    angoli_bordo = str(angoli_bordo)
+    if angoli_bordo not in ('aperti', '45'):
+        raise SteelCADError('Angoli del bordo: aperti (scasso) o a 45°.', code='misura')
+    doc = Document(name, material)
+    for kk, v in (('A', A), ('B', B), ('Hc', Hc), ('a', a), ('b', b), ('Ht', Ht), ('ex', ex), ('ey', ey),
+                  ('bordo', bordo), ('flangia', flangia), ('smusso', smusso), ('sp', spessore)):
+        doc.set_parameter(kk, v)
+    sez, fasce = [], []
+    if float(flangia) > 0:
+        sez.append({'w': 'a+2*flangia', 'd': 'b+2*flangia', 'z': 0, 'ex': 'ex', 'ey': 'ey', 'smusso': 'smusso*a/A', 'nome': 'flangia scarico'})
+        fasce.append('flangia scarico')
+    sez.append({'w': 'a', 'd': 'b', 'z': 0, 'ex': 'ex', 'ey': 'ey', 'smusso': 'smusso*a/A', 'nome': 'scarico'})
+    fasce.append('tramoggia')
+    sez.append({'w': 'A', 'd': 'B', 'z': 'Ht', 'smusso': 'smusso', 'nome': 'cambio di pendenza'})
+    if float(Hc) > 0:
+        fasce.append('cassone')
+        sez.append({'w': 'A', 'd': 'B', 'z': 'Ht+Hc', 'smusso': 'smusso', 'nome': 'bocca'})
+    if float(bordo) > 0:
+        fasce.append('bordo')
+        sez.append({'w': 'A+2*bordo', 'd': 'B+2*bordo', 'z': 'Ht+Hc', 'smusso': 'smusso', 'nome': 'bordo'})
+    vuoto = lambda v: v is None or str(v).strip() == ''  # noqa: E731
+    aperte = [f for f in ('bordo', 'flangia scarico') if f in fasce] if angoli_bordo == 'aperti' else []
+    doc.add_feature('sheet_shape', name, kind='sezioni', sezioni=sez, fasce=fasce, aperte=aperte, thickness='sp',
+                    ref=riferimento, foglio=foglio_l, divisione=divisione, spigoli={},
+                    radius=None if vuoto(raggio) else raggio, k=None if vuoto(k) else k,
+                    template={'kind': 'tramoggia_cassone', 'values': {
+                        'A': A, 'B': B, 'Hc': Hc, 'a': a, 'b': b, 'Ht': Ht, 'ex': ex, 'ey': ey, 'bordo': bordo,
+                        'angoli_bordo': angoli_bordo, 'flangia': flangia, 'smusso': smusso, 'spessore': spessore,
+                        'riferimento': riferimento, 'divisione': divisione, 'foglio': foglio}})
+    return doc
+
+
+
 def cono(name: str = 'Tronco di cono', D1=400, D2=200, H=300, spessore=2, riferimento='esterno', modo='press',
          passo='', raggio=None, k=None, material='S235') -> Document:
     """Cono o tronco di cono (D2 = 0: a punta), misure finite. modo: press (a pieghe) o rolled (calandrato)."""
