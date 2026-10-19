@@ -6,7 +6,7 @@
 Pezzi: telaio (modello "Telaio armadio", 40×40×2), fianco (×2), schiena, cielo e fondo in lamiera sp. 1,5 con i fori
 di fissaggio sui tubi; 3 ripiani a vaschetta sp. 1,5 con angoli chiusi; anta sp. 1 con i bordi di rinforzo e il foro
 della serratura (×2, la destra è la sinistra girata). Poi l'assieme, le interferenze, la distinta, le tavole e lo STEP.
-Raggi e K-factor sono valori di esempio (r = spessore, K 0,4): per la produzione vanno quelli della tua piegatrice.
+Raggio e K-factor: quelli predefiniti nelle Regole (la tua piegatrice); se non ci sono, valori di esempio (r = spessore, K 0,4).
 
 Coordinate dell'assieme: X larghezza, Y profondità (davanti a y = −20), Z altezza. Il telaio ha gli assi dei tubi a
 x = 0…L, y = 0…P, z = 0…H, quindi l'ingombro esterno dei tubi è −20…L+20 (e così via).
@@ -103,8 +103,10 @@ def salva(nome):
 def lamiera(nome, larg, prof, sp):
     global s
     s = servizio()
-    ok('new_project', 'lamiera', {'name': nome, 'larghezza': larg, 'profondita': prof, 'spessore': sp,
-                                  'raggio': sp, 'k': 0.4})
+    dati = {'name': nome, 'larghezza': larg, 'profondita': prof, 'spessore': sp}
+    if not s.bend_default():                      # senza i dati della tua piegatrice: valori di esempio
+        dati.update({'raggio': sp, 'k': 0.4})
+    ok('new_project', 'lamiera', dati)
 
 
 def fori(xy, d, faccia='SM1/sopra'):

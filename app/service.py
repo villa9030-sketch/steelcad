@@ -126,6 +126,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
+            'bend_default': self.bend_default(),
         }
 
     def _parameters(self):
@@ -483,14 +484,57 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except (OSError, ValueError):
             return []
 
-    def _save_rules(self, rules: list):
+    def _rules_file(self) -> dict:
+        import json
+        try:
+            return json.loads(self._rules_path().read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return {}
+
+    def _save_rules(self, rules: list, default: dict | None = None):
         import json
         p = self._rules_path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({'format': 'steelcad-regole', 'rules': rules}, ensure_ascii=False, indent=1), encoding='utf-8')
+        d = default if default is not None else self._rules_file().get('default')
+        out = {'format': 'steelcad-regole', 'rules': rules}
+        if d:
+            out['default'] = d
+        p.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding='utf-8')
+
+    def bend_default(self) -> dict:
+        """I dati di piega predefiniti (raggio, metodo, K o deduzione): valgono per ogni lamiera nuova
+        quando non scrivi niente. Li decide l'utente (sono della sua piegatrice): senza, non c'è default."""
+        d = self._rules_file().get('default') or {}
+        return {k: d.get(k) for k in ('radius', 'method', 'k', 'bd90') if d.get(k) not in (None, '')}
+
+    def set_bend_default(self, values: dict) -> dict:
+        try:
+            v = {k: _number(values.get(k)) for k in ('radius', 'k', 'bd90') if str(values.get(k, '')).strip() != ''}
+            v['method'] = values.get('method') or 'k'
+            if v['method'] not in METODI:
+                raise SteelCADError('Metodo di piega sconosciuto.', code='metodo')
+            if 'radius' not in v:
+                raise SteelCADError('Scrivi il raggio interno predefinito.', code='raggio')
+            if v['method'] == 'k' and 'k' not in v:
+                raise SteelCADError('Scrivi il K-factor predefinito.', code='k')
+            self._save_rules(self._rules(), v)
+            return _ok(default=self.bend_default(), message='Dati di piega predefiniti salvati.')
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def _con_default(self, values: dict, chiavi=('radius', 'k')) -> dict:
+        """I campi di piega vuoti prendono il predefinito."""
+        d = self.bend_default()
+        out = dict(values or {})
+        for k in chiavi:
+            if str(out.get(k, '') or '').strip() == '' and d.get(k) is not None:
+                out[k] = d[k]
+        if not out.get('method') and d.get('method'):
+            out['method'] = d['method']
+        return out
 
     def sheet_rules(self) -> dict:
-        return _ok(rules=self._rules(), material=self.doc.material)
+        return _ok(rules=self._rules(), material=self.doc.material, default=self.bend_default())
 
     def save_sheet_rule(self, fid: str, name: str) -> dict:
         try:
@@ -1156,8 +1200,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             if 'sp' not in self.doc.parameters:
                 self.doc.set_parameter('sp', v.get('thickness', 2))
             if kind == 'sheet':
+                dv = self._con_default(v)
                 self.doc.add_feature('sheet', self.doc.meta.get('name') or 'Lamiera', sketch=sid, thickness='sp',
-                                     radius=v.get('radius'), method='k', k=v.get('k'), flanges=[])
+                                     radius=dv.get('radius'), method=dv.get('method') or 'k', k=dv.get('k'),
+                                     bd90=dv.get('bd90'), flanges=[])
             else:
                 self.doc.add_feature('extrude', self.doc.meta.get('name') or 'Piastra', sketch=sid,
                                      distance='sp', operation='new')
@@ -1767,6 +1813,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
     def new_project(self, kind: str, values: dict | None = None) -> dict:
         try:
+            if kind == 'lamiera':
+                d = self.bend_default()
+                values = dict(values or {})
+                for campo, k in (('raggio', 'radius'), ('k', 'k')):
+                    if str(values.get(campo, '') or '').strip() == '' and d.get(k) is not None:
+                        values[campo] = d[k]
             values = {k: _number(v) for k, v in (values or {}).items()}
             doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
                    'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,

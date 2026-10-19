@@ -169,6 +169,9 @@ class Api:
     def sketch_chamfer(self, sid, pid, d):
         return self._call(self._svc.sketch_chamfer, sid, pid, d)
 
+    def set_bend_default(self, values):
+        return self._call(self._svc.set_bend_default, values)
+
     def sheet_rules(self):
         return self._call(self._svc.sheet_rules)
 

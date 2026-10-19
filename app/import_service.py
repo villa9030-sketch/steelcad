@@ -66,7 +66,7 @@ class ImportMixin:
         if self._import is None:
             return {'ok': False, 'message': 'Prima scegli il file da importare.'}
         try:
-            p = params or {}
+            p = self._con_default(params or {}, ('radius', 'k', 'bd90'))
             metodo = p.get('method') or 'k'
             doc, rep = I.costruisci(
                 self._import, int(giro), _num(p.get('thickness'), 'lo spessore'), _num(p.get('radius'), 'il raggio interno di piega'),

@@ -26,7 +26,8 @@ def main():
     SHOTS.mkdir(parents=True, exist_ok=True)
     cart = Path(tempfile.mkdtemp())
     srv = subprocess.Popen([str(PY), str(ROOT / 'app' / 'dev_server.py'), '--porta', str(PORTA), '--cartella', str(cart)],
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000)
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000,
+                           env=dict(__import__('os').environ, STEELCAD_RULES=str(cart / 'regole.json')))
     while not srv.stdout.readline().startswith(b"http"):
         pass
     errori, esiti = [], []

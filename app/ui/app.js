@@ -1320,6 +1320,7 @@ function modal(html, wire) {
   $('#modal-box').querySelector('input, button.primary')?.focus();
 }
 
+const virgola = v => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 function newDialog(iniziale = 'lamiera') {
   const MODELLI = {
     telaio: { titolo: 'Telaio / tavolo', nota: 'Telaio sopra e 4 gambe in tubolare',
@@ -1337,7 +1338,7 @@ function newDialog(iniziale = 'lamiera') {
     vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste', campi: [] },
     lamiera: { titolo: 'Lamiera', nota: 'Base piegata: poi clic su un lato per la flangia',
       campi: [['larghezza', 'Larghezza', 500], ['profondita', 'Profondità', 300], ['spessore', 'Spessore', 2],
-        ['raggio', 'Raggio interno di piega', ''], ['k', 'K-factor', '']] },
+        ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)], ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
     piastra: { titolo: 'Piastra', nota: 'Lamiera piana con foro, per DXF',
       campi: [['larghezza', 'Larghezza', 300], ['altezza', 'Altezza', 200], ['spessore', 'Spessore', 5], ['foro', 'Diametro foro', 30]] },
   };
@@ -1387,11 +1388,21 @@ async function rulesDialog() {
     || '<tr><td class="hint">Ancora nessuna regola. Inserisci i dati di piega nella scheda Lamiera e salvali qui con un nome.</td></tr>';
   modal(`<h3>Regole di lamiera</h3>
     <p class="hint">I dati della tua piegatrice (spessore, raggio interno, K o deduzione) salvati con un nome: li riusi in ogni progetto con un clic.</p>
+    <div class="sub">Predefinito per ogni lamiera nuova</div>
+    <div class="form"><label>Raggio interno (mm)<input class="field" id="d-r" value="${n(r.default?.radius).replace('–', '')}"></label>
+      <label>K-factor<input class="field" id="d-k" value="${n(r.default?.k).replace('–', '')}"></label></div>
+    <div class="row-btns"><button class="btn" id="d-save">Salva come predefinito</button></div>
+    <div class="sub">Regole salvate</div>
     <table class="grid">${righe}</table>
     ${fid ? `<div class="form" style="margin-top:12px"><label style="grid-column:1/-1">Salva i dati di piega di questa lamiera come
       <input class="field" id="r-name" placeholder="es. S235 sp. 2 – matrice V16"></label></div>` : '<p class="hint">Apri o crea una lamiera per usare o salvare una regola.</p>'}
     <div class="acts"><button class="btn" id="m-no">Chiudi</button>${fid ? '<button class="btn primary" id="r-save">Salva regola</button>' : ''}</div>`, close => {
     $('#m-no').onclick = close;
+    $('#d-save').onclick = () => inCoda(async () => {
+      const x = await call('set_bend_default', { radius: $('#d-r').value.trim(), method: 'k', k: $('#d-k').value.trim() });
+      toast(x.message, x.ok ? '' : 'err');
+      if (x.ok) { S.bend_default = x.default; close(); rulesDialog(); }
+    });
     if ($('#r-save')) $('#r-save').onclick = () => inCoda(async () => {
       const x = await call('save_sheet_rule', fid, $('#r-name').value);
       if (!x.ok) { toast(x.message, 'err'); return; }
@@ -1436,9 +1447,9 @@ async function importDialog(percorso) {
         <label>Spessore<input class="field" id="imp-sp" value="${virg(r.spessore)}" placeholder="mm"></label>
         ${regole.length ? `<label style="grid-column:1/-1">Regola di piega<select class="field" id="imp-rule"><option value="">— scrivi i dati qui sotto —</option>
           ${regole.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}
-        <label>Raggio interno<input class="field" id="imp-r" placeholder="mm"></label>
+        <label>Raggio interno<input class="field" id="imp-r" placeholder="mm" value="${virg(S?.bend_default?.radius)}"></label>
         <label>Metodo<select class="field" id="imp-met"><option value="k">K-factor</option><option value="din6935">DIN 6935</option><option value="bd90">Deduzione 90°</option></select></label>
-        <label id="imp-k-l">K-factor<input class="field" id="imp-k" placeholder="es. 0,4"></label>
+        <label id="imp-k-l">K-factor<input class="field" id="imp-k" placeholder="es. 0,4" value="${virg(S?.bend_default?.k)}"></label>
         <label id="imp-bd-l" hidden>Deduzione 90°<input class="field" id="imp-bd" placeholder="mm"></label>
         <label>Angolo pieghe<input class="field" id="imp-ang" value="90"></label>
         <label>Verso<select class="field" id="imp-dir"><option value="up">su</option><option value="down">giù</option></select></label>

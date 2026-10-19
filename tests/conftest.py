@@ -38,3 +38,9 @@ def tmp(tmp_path):
 def _cartella_programma(tmp_path_factory, monkeypatch):
     """I progetti recenti dei test non finiscono in quelli veri dell'utente."""
     monkeypatch.setenv('STEELCAD_HOME', str(tmp_path_factory.mktemp('steelcad_home')))
+
+
+@pytest.fixture(autouse=True)
+def _regole_isolate(tmp_path, monkeypatch):
+    """I test non leggono né scrivono le regole di lamiera (e il predefinito) dell'utente nei Documenti."""
+    monkeypatch.setenv('STEELCAD_RULES', str(tmp_path / 'regole_lamiera.json'))

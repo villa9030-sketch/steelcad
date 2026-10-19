@@ -978,3 +978,17 @@ def test_incastri_automatici_sulla_punta():
     assert not r['ok'] and 'non appoggia' in r['message']
     r = s.auto_tabs('SM1', 'FL3', 20, 15, 0.2, 0)
     assert not r['ok']
+
+
+def test_dati_di_piega_predefiniti():
+    """Raggio e K predefiniti (dell'utente): li prende ogni lamiera nuova se non scrivi niente."""
+    s = Service()
+    s.new_project('lamiera', {})
+    assert s.state()['sheet']['missing']                       # senza predefinito non si inventa niente
+    assert s.set_bend_default({'radius': 1, 'method': 'k', 'k': '0,21'})['ok']
+    s.new_project('lamiera', {})
+    sm = s.doc.feature('SM1')
+    assert (sm['radius'], sm['method'], sm['k']) == (1, 'k', 0.21) and not s.state()['sheet']['missing']
+    s.new_project('lamiera', {'raggio': 2, 'k': 0.4})            # scritto a mano: vince quello
+    assert (s.doc.feature('SM1')['radius'], s.doc.feature('SM1')['k']) == (2, 0.4)
+    assert not s.set_bend_default({'method': 'k', 'k': 0.21})['ok']   # manca il raggio
