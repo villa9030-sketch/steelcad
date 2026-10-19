@@ -315,11 +315,12 @@ def mirror(doc, sid, eids, axis):
         if ent['kind'] == 'line':
             if mappa[ent['a']] == ent['a'] and mappa[ent['b']] == ent['b']:
                 continue                    # la linea sta sull'asse
-            l = sk.line(mappa[ent['a']], mappa[ent['b']], construction=bool(ent.get('construction')))
+            guida = bool(ent.get('construction')) and not ent.get('ref') and not ent.get('xray')   # il bordo specchiato è disegno
+            l = sk.line(mappa[ent['a']], mappa[ent['b']], construction=guida)
             sk.entities[l]['label'] = f'lato {l}'
             nuove.append(l)
         elif ent['kind'] == 'circle':
-            c = sk.circle(mappa[ent['center']], ent['r'], construction=bool(ent.get('construction')))
+            c = sk.circle(mappa[ent['center']], ent['r'], construction=bool(ent.get('construction')) and not ent.get('ref') and not ent.get('xray'))
             sk.constrain('equal', c, e)
             nuove.append(c)
     return nuove
@@ -338,6 +339,13 @@ def _duplicate(sk, eids, dx, dy):
     nuove = {}
     for e in eids:
         ent = dict(sk.entities[e])
+        if ent.get('ref') or ent.get('xray'):
+            # la copia di un bordo del pezzo (arancio) è disegno vero, da tagliare: non un altro bordo fisso, né una
+            # guida. Copiare le finestre già tagliate per farne altre uguali è il caso tipico
+            for k in ('ref', 'xray', 'construction', 'piega'):
+                ent.pop(k, None)
+            if str(ent.get('label', '')).startswith('bordo'):
+                ent.pop('label')
         for key in ('a', 'b', 'center', 'start', 'end'):
             if key in ent:
                 ent[key] = mappa[ent[key]]
@@ -350,6 +358,8 @@ def _duplicate(sk, eids, dx, dy):
     tutti = set(eids) | set(pts)
     trad = {**mappa, **nuove}
     for cid, c in list(sk.constraints.items()):
+        if c['type'] == 'fix':
+            continue                        # "fisso" vale per i bordi del pezzo: le copie si muovono con la loro quota
         if c['refs'] and all(r in tutti for r in c['refs']):
             nc = {**c, 'refs': [trad[r] for r in c['refs']]}
             kid = sk._new_id('D' if c['type'] in DIMENSIONS else 'K', sk.constraints)

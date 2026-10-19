@@ -133,3 +133,29 @@ def test_costruzione_si_attiva_e_disattiva():
     assert not d.rebuild().ok                                        # un lato è guida: il contorno è aperto
     se.set_construction(d, 'S1', lati[:1], False)
     assert d.rebuild().ok
+
+
+def test_serie_dei_bordi_di_una_finestra_tagliata_si_taglia():
+    """Il caso di Stefano (19/10): finestre già tagliate, poi uno sketch sulla faccia; si selezionano i bordi
+    arancio di una finestra e si fa la serie. Le copie erano bordi arancio anche loro (fissi, solo guida): lo
+    sketch risultava vuoto e "Taglia attraverso" spento. Ora le copie sono disegno vero e si tagliano."""
+    from app.service import Service
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 400, 'profondita': 400, 'spessore': 2, 'raggio': 1, 'k': 0.21})['ok']
+    faccia = s.fori_faccia()
+    assert s.fori_guidati(faccia, {'tipo': 'finestra', 'lungh': 30, 'larg': 12, 'x': 100, 'y': 60})['ok']
+    sid = s.sketch_on_face(faccia)['sketch']
+    sk = s.doc.sketch(sid)
+    # i 4 bordi arancio della finestra: le linee di riferimento dentro il rettangolo 85..115 × 54..66
+    def dentro(e):
+        a, b = sk.entities[e['a']], sk.entities[e['b']]
+        return all(84 < p['x'] < 116 and 53 < p['y'] < 67 for p in (a, b))
+    bordi = [k for k, e in sk.entities.items() if e['kind'] == 'line' and e.get('ref') and dentro(e)]
+    assert len(bordi) == 4
+    r = s.sketch_pattern(sid, bordi, 3, 50, 2, 80)
+    assert r['ok'], r.get('message')
+    v = s.sketch_view(sid)['sketch']
+    assert v['drawn'] == 20                              # 5 finestre nuove × 4 lati, disegno vero
+    r = s.create_from_sketch(sid, 'cut', {})
+    assert r['ok'], r.get('message')
+    assert len(s.result.body.sheet.flat.inner_wires()) == 6

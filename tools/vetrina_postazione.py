@@ -30,6 +30,8 @@ from cad_engine import assembly as A  # noqa: E402
 LIVE = '--live' in sys.argv
 _arg = [a for a in sys.argv[1:] if not a.startswith('--')]
 D = Path(_arg[0]) if _arg else Path(os.path.expanduser('~')) / 'Documents' / 'SteelCAD' / 'vetrina_postazione'
+# le vetrine non toccano la lista dei lavori recenti vera (una prova di carico la riempiva di file temporanei)
+os.environ.setdefault('STEELCAD_HOME', __import__('tempfile').mkdtemp(prefix='steelcad_vetrina_'))
 D.mkdir(parents=True, exist_ok=True)
 T0 = time.time()
 
