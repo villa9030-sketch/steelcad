@@ -523,7 +523,8 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
             # bumping: N colpi piccoli a passo costante; la catena di flange sulla punta, l'ultima porta il resto
             prec = None
             for i, (ang_i, lung_i) in enumerate(colpi, 1):
-                fl = {'id': foid if i == 1 else f'{foid}.{i}', 'angle': ang_i, 'direction': fo.get('direction', 'up'),
+                verso = fo.get('direction', 'up') if i == 1 else 'up'   # sulla punta: stesso senso della madre
+                fl = {'id': foid if i == 1 else f'{foid}.{i}', 'angle': ang_i, 'direction': verso,
                       'position': 'inside', 'length': round(lung_i, 9), 'gap': 0, 'fold': True, 'bump': i}
                 fl.update({'edge': foid} if prec is None else {'parent': prec})
                 extra.append((fl, parte if i == 1 else None))
@@ -580,8 +581,8 @@ def _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid):
     striscia nello sviluppo + la deduzione della sua piega, così lo sviluppo resta quello disegnato (come per la
     piega su una linea sola). None se le linee non sono tutte parallele (si piegano una per una)."""
     folds = fdef['folds']
-    if len(folds) < 2 or any(fo.get('bump') for fo in folds):
-        return None            # i colpi calcolati da una linea sola (bumping con raggio) si fanno nell'altro modo
+    if len(folds) < 2:
+        return None
     righe = []
     for fo in folds:
         A, B = pl.from_local_coords(tuple(fo['a'])), pl.from_local_coords(tuple(fo['b']))
@@ -625,7 +626,7 @@ def _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid):
     nuovi_lati = {}
     # verso +n le linee dopo la base, verso -n quelle prima: ognuna è la punta della precedente
     for verso, indici in ((1, range(ib, len(righe))), (-1, range(ib - 1, -1, -1))):
-        madre = None
+        madre, madre_colpi = None, False
         for j in indici:
             fo = righe[j][0]
             foid = fo.get('id', '?')
@@ -641,8 +642,15 @@ def _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid):
                 raise FeatureError(f'Tra la piega {foid} e la successiva la lamiera non è un rettangolo: per le pieghe '
                                    'in serie le linee devono andare da bordo a bordo su lati dritti.', feature=fid)
             dmax = max(((bd.Vector(v) - O).dot(n) - pos[j]) * verso for v in parte.vertices())
+            colpi = None
+            if fo.get('bump'):                             # bumping a raggio dentro la serie: i suoi colpi qui
+                ang = evaluate(fo.get('angle', 90), ctx.params, what=f'l’angolo della piega {foid}')
+                colpi = _colpi(fo, ang, parte, sulla[0], sulla[-1], u if (sulla[-1] - sulla[0]).dot(u) > 0 else -u,
+                               n * verso, dmax, tech, t, ctx, fid)
             d = dict(id=foid, angle=fo.get('angle', 90), direction=fo.get('direction', 'up'), position='inside',
                      length=round(dmax + bd_di(fo), 9), gap=0, fold=True)
+            if colpi:
+                d.update(angle=colpi[0][0], length=round(colpi[0][1], 9), bump=1)
             if madre is None:
                 cb = corda(base, pos[j])
                 if len(cb) < 2:
@@ -655,12 +663,17 @@ def _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid):
                 # nello stesso senso (con "giù" sulla base, le figlie in "giù" andrebbero a zig-zag)
                 if d['direction'] == 'down':
                     d['direction'] = 'up'
-            if madre is not None:
+            if madre is not None and not madre_colpi:
                 # la madre arriva fino a questa linea: la sua striscia è lunga quanto la distanza tra le due linee
                 m = next(x for x, _ in extra if x['id'] == madre)
                 m['length'] = round(abs(pos[j] - pos[j - verso]) + bd_di(next(r[0] for r in righe if r[0].get('id') == madre)), 9)
             extra.append((d, None))
-            madre = foid
+            madre, madre_colpi = foid, bool(colpi)
+            for i, (ang_i, lung_i) in enumerate((colpi or [])[1:], 2):
+                cid = f'{foid}.{i}'
+                extra.append((dict(id=cid, parent=madre, angle=ang_i, direction='up', position='inside',
+                                   length=round(lung_i, 9), gap=0, fold=True, bump=i), None))
+                madre = cid
     # i lati della base: quelli che stanno tutti nella sua striscia (non sulle linee)
     s0, s1 = limiti[ib], limiti[ib + 1]
     tenuti = {}

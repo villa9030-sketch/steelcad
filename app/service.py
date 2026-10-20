@@ -1284,6 +1284,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         testo = ('Foro semplice' if not spec else 'Foro filettato ' + str(spec.get('M', '')) if spec.get('tipo') == 'filettato'
                  else 'Foro per inserto ' + str(spec.get('codice', '')) if spec.get('tipo') == 'inserto'
                  else f'Foro svasato Ø{spec.get("D")}')
+        # su un foro già fatto (lo sketch è di un taglio) un tipo che rompe il pezzo si rifiuta e il pezzo resta com'era
+        # (20/10: una svasatura più profonda dello spessore restava applicata e il pezzo in errore)
+        if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
+            return self._change(testo, fn)
         return self._sketch_change(testo, fn)
 
     def _applica_foro(self, sk, e, spec):

@@ -18,6 +18,7 @@ from cad_engine.errors import SketchError
 from cad_engine.topology.naming import _faces_of
 
 TOL = 1e-4
+SUL_BORDO = 0.05         # mm: un punto a meno di così dal bordo arancio ci sta sopra
 
 
 def add_nearby_edges(sk, body, face, plane, fino_a: float) -> int:
@@ -143,7 +144,9 @@ def _on_segment(P, A, B) -> float | None:
         return None
     t = ((P[0] - A[0]) * dx + (P[1] - A[1]) * dy) / L2
     dist = abs(dx * (P[1] - A[1]) - dy * (P[0] - A[0])) / math.sqrt(L2)
-    return t if dist < TOL and -1e-6 <= t <= 1 + 1e-6 else None
+    # mezzo decimo: le coordinate scritte o agganciate si arrotondano al decimo, il bordo può avere più decimali
+    # (20/10: faccia profonda 249,7045 dopo i colpi, linea fino a 249,7: «la spezzata è aperta»)
+    return t if dist < SUL_BORDO and -1e-6 <= t <= 1 + 1e-6 else None
 
 
 def _area(pts) -> float:
