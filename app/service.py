@@ -1222,41 +1222,45 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             if not cerchi:
                 raise SteelCADError('Scegli uno o più cerchi (i fori).', code='foro')
             for e in cerchi:
-                ent = sk.entities[e]
-                if not spec:
-                    ent.pop('hole', None)
-                    continue
-                tipo = spec.get('tipo')
-                if tipo == 'filettato':
-                    m = str(spec.get('M', '')).upper().replace(' ', '')
-                    if m not in FILETTI:
-                        raise SteelCADError(f'Filettatura "{m}" non in tabella: {", ".join(FILETTI)}.', code='foro')
-                    ent['hole'] = {'tipo': 'filettato', 'M': m}
-                    self._set_diameter(sk, e, FILETTI[m][0])
-                elif tipo == 'inserto':
-                    codice = str(spec.get('codice', '')).strip()
-                    D = _number(spec.get('D'))
-                    if not codice:
-                        raise SteelCADError('Scrivi il codice dell’inserto (es. quello del catalogo del fornitore).', code='foro')
-                    if not D or D <= 0:
-                        raise SteelCADError('Scrivi il diametro del foro per l’inserto, preso dal catalogo.', code='foro')
-                    ent['hole'] = {'tipo': 'inserto', 'codice': codice, 'D': D}
-                    self._set_diameter(sk, e, D)
-                elif tipo == 'svasato':
-                    D, ang = _numero(spec.get('D'), 'il Ø della svasatura'), _numero(spec.get('angolo', 90), 'l’angolo')
-                    if not 0 < ang < 180:
-                        raise SteelCADError('L’angolo della svasatura va tra 0° e 180° (di solito 90°).', code='foro')
-                    foro = 2 * float(ent.get('r') or 0)
-                    if D <= foro:
-                        raise SteelCADError(f'La svasatura (Ø{fmt_mm(D)}) deve essere più larga del foro '
-                                            f'(Ø{fmt_mm(round(foro, 2))}).', code='foro')
-                    ent['hole'] = {'tipo': 'svasato', 'D': D, 'angolo': ang}
-                else:
-                    raise SteelCADError(f'Tipo di foro "{tipo}" sconosciuto.', code='foro')
+                self._applica_foro(sk, e, spec)
         testo = ('Foro semplice' if not spec else 'Foro filettato ' + str(spec.get('M', '')) if spec.get('tipo') == 'filettato'
                  else 'Foro per inserto ' + str(spec.get('codice', '')) if spec.get('tipo') == 'inserto'
                  else f'Foro svasato Ø{spec.get("D")}')
         return self._sketch_change(testo, fn)
+
+    def _applica_foro(self, sk, e, spec):
+        """Il tipo di foro su un cerchio: semplice (spec vuoto), filettato, svasato, per inserto."""
+        ent = sk.entities[e]
+        if not spec:
+            ent.pop('hole', None)
+            return
+        tipo = spec.get('tipo')
+        if tipo == 'filettato':
+            m = str(spec.get('M', '')).upper().replace(' ', '')
+            if m not in FILETTI:
+                raise SteelCADError(f'Filettatura "{m}" non in tabella: {", ".join(FILETTI)}.', code='foro')
+            ent['hole'] = {'tipo': 'filettato', 'M': m}
+            self._set_diameter(sk, e, FILETTI[m][0])
+        elif tipo == 'inserto':
+            codice = str(spec.get('codice', '')).strip()
+            D = _number(spec.get('D'))
+            if not codice:
+                raise SteelCADError('Scrivi il codice dell’inserto (es. quello del catalogo del fornitore).', code='foro')
+            if not D or D <= 0:
+                raise SteelCADError('Scrivi il diametro del foro per l’inserto, preso dal catalogo.', code='foro')
+            ent['hole'] = {'tipo': 'inserto', 'codice': codice, 'D': D}
+            self._set_diameter(sk, e, D)
+        elif tipo == 'svasato':
+            D, ang = _numero(spec.get('D'), 'il Ø della svasatura'), _numero(spec.get('angolo', 90), 'l’angolo')
+            if not 0 < ang < 180:
+                raise SteelCADError('L’angolo della svasatura va tra 0° e 180° (di solito 90°).', code='foro')
+            foro = 2 * float(ent.get('r') or 0)
+            if D <= foro:
+                raise SteelCADError(f'La svasatura (Ø{fmt_mm(D)}) deve essere più larga del foro '
+                                    f'(Ø{fmt_mm(round(foro, 2))}).', code='foro')
+            ent['hole'] = {'tipo': 'svasato', 'D': D, 'angolo': ang}
+        else:
+            raise SteelCADError(f'Tipo di foro "{tipo}" sconosciuto.', code='foro')
 
     @staticmethod
     def _set_diameter(sk, cid, d):
@@ -1449,7 +1453,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             x, y = x + ox, y + oy                          # dal bordo esterno del pezzo alle coordinate della faccia
             prima = set(sk.entities)
             if tipo == 'tondo':
-                d = float(n('d'))
+                foro = spec.get('foro') or 'semplice'
+                if foro == 'filettato':
+                    m = str(spec.get('M', '')).upper().replace(' ', '')
+                    if m not in FILETTI:
+                        raise SteelCADError(f'Filettatura "{m}" non in tabella: {", ".join(FILETTI)}.', code='fori')
+                    d = FILETTI[m][0]                     # il cerchio è il preforo
+                else:
+                    d = float(n('d'))
                 sketch_ops.add_circle(self.doc, sk.id, [x, y], d / 2)
             elif tipo == 'asola':
                 lun, lar = float(n('lungh')), float(n('larg'))
@@ -1469,6 +1480,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     sketch_edit.pattern(self.doc, sk.id, nuove, 1, 0, quanti, passo)
                 else:
                     sketch_edit.pattern(self.doc, sk.id, nuove, quanti, passo, 1, 0)
+            if tipo == 'tondo' and (spec.get('foro') or 'semplice') != 'semplice':
+                foro = spec['foro']
+                tf = {'tipo': 'filettato', 'M': spec.get('M')} if foro == 'filettato' else \
+                    {'tipo': 'svasato', 'D': spec.get('sD'), 'angolo': spec.get('sang') or 90}
+                for e in [k for k, x in sk.entities.items() if k not in prima and x['kind'] == 'circle' and not x.get('ref')]:
+                    self._applica_foro(sk, e, tf)
             if self._sheet_def(face_name.split('/')[0]) is not None:
                 self.doc.add_feature('sheet_cut', nomi.get(tipo, 'Fori'), sketch=sk.id)
             else:

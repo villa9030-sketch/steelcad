@@ -1067,3 +1067,24 @@ def test_fori_guidati_dal_bordo_esterno_e_un_annulla():
     assert {p['name']: p['label'] for p in s.state()['parameters']}.get('px1') == 'Distanza tra i fori della fila'
     s.undo()
     assert not s.result.body.sheet.flat.inner_wires()
+
+
+def test_fori_guidati_filettati_e_svasati():
+    """20/10: svasatura e filettatura erano solo nello sketch (Tipo di foro, a cerchi selezionati). Ora si scelgono
+    in «Fori e asole»: filettato M5 → il preforo Ø4,2 sullo sviluppo e il filetto segnato; svasato con il suo Ø."""
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 300, 'profondita': 200, 'spessore': 3, 'raggio': 1, 'k': 0.21})['ok']
+    faccia = s.fori_faccia()
+    r = s.fori_guidati(faccia, {'tipo': 'tondo', 'foro': 'filettato', 'M': 'M5', 'x': 50, 'y': 50,
+                                'fila': True, 'n': 4, 'passo': 40, 'verso': 'x'})
+    assert r['ok'], r.get('message')
+    sk = next(f for f in s.doc.features if hasattr(f, 'entities') and f.name == 'Fori')
+    cerchi = [e for e in sk.entities.values() if e['kind'] == 'circle' and not e.get('ref')]
+    assert len(cerchi) == 4 and all(e.get('hole') == {'tipo': 'filettato', 'M': 'M5'} for e in cerchi)
+    fori = s.result.body.sheet.flat.inner_wires()
+    assert len(fori) == 4
+    assert all(abs((w.bounding_box().max.X - w.bounding_box().min.X) - 4.2) < 1e-3 for w in fori)
+    r = s.fori_guidati(faccia, {'tipo': 'tondo', 'foro': 'svasato', 'd': 6.5, 'sD': 12, 'sang': 90, 'x': 150, 'y': 150})
+    assert r['ok'], r.get('message')
+    r = s.fori_guidati(faccia, {'tipo': 'tondo', 'foro': 'svasato', 'd': 6.5, 'sD': 5, 'x': 200, 'y': 150})
+    assert not r['ok'] and 'più larga del foro' in r['message']

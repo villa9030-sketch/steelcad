@@ -996,13 +996,17 @@ async function foriDialog(face) {
   const minimo = t ? Math.round((2 * t + r0) * 10) / 10 : 0;          // sotto questa distanza dalla piega il foro si deforma
   const v = { ...ultimiFori };
   const num = x => parseFloat(String(x).replace(',', '.'));
+  // filettato: il cerchio è il preforo (M5 → Ø4,2); svasato: il foro più la svasatura
+  const PREFORI = { M3: 2.5, M4: 3.3, M5: 4.2, M6: 5, M8: 6.8, M10: 8.5, M12: 10.2, M16: 14 };
+  v.foro = v.foro || 'semplice'; v.M = v.M || 'M6'; v.sang = v.sang || '90';
+  const diam = () => v.foro === 'filettato' ? PREFORI[v.M] : num(v.d);
   const M = 40, k = Math.min(560 / (W + 2 * M), 400 / (H + 2 * M));
   const X = x => (x + M) * k, Y = y => (H - y + M) * k;
   const forme = () => {                                                  // le forme da fare: [{x, y, w, h, tondo}]
     const out = [], n = v.fila ? Math.max(1, Math.round(num(v.n)) || 1) : 1, ps = num(v.passo) || 0;
     for (let i = 0; i < n; i++) {
       const x = num(v.x) + (v.verso === 'x' ? i * ps : 0), y = num(v.y) + (v.verso === 'y' ? i * ps : 0);
-      if (v.tipo === 'tondo') out.push({ x, y, w: num(v.d), h: num(v.d), r: num(v.d) / 2 });
+      if (v.tipo === 'tondo') { const d = diam(); out.push({ x, y, w: d, h: d, r: d / 2 }); }
       else if (v.tipo === 'asola') { const L = num(v.lungh), B = num(v.larg); out.push(v.verticale ? { x, y, w: B, h: L, r: B / 2 } : { x, y, w: L, h: B, r: B / 2 }); }
       else out.push({ x, y, w: num(v.lungh), h: num(v.larg), r: 0 });
     }
@@ -1015,6 +1019,7 @@ async function foriDialog(face) {
   };
   const controlla = fs => {
     if (fs.some(f => [f.x, f.y, f.w, f.h].some(Number.isNaN) || f.w <= 0 || f.h <= 0)) return { no: 'Scrivi le misure con i numeri.' };
+    if (v.tipo === 'tondo' && v.foro === 'svasato' && !(num(v.sD) > num(v.d))) return { no: 'La svasatura deve essere più larga del foro.' };
     if (fs.some(f => f.x - f.w / 2 < 0 || f.y - f.h / 2 < 0 || f.x + f.w / 2 > W || f.y + f.h / 2 > H)) return { no: 'Un foro esce dal pezzo: controlla le distanze.' };
     let vicino = Infinity;
     for (const f of fs) for (const l of info.lines) vicino = Math.min(vicino, distSeg(f.x, f.y, l) - Math.max(f.w, f.h) / 2);
@@ -1045,14 +1050,21 @@ async function foriDialog(face) {
   };
   const campo = (id, l, val, unit = 'mm') => `<label class="nc"><span class="nl vuota"></span><span class="nt">${l}</span><span class="nv">
     <input class="field" data-fo="${id}" value="${esc(String(val))}" autocomplete="off">${unit ? `<small>${unit}</small>` : ''}</span></label>`;
-  const misure = () => v.tipo === 'tondo' ? campo('d', 'Diametro', v.d)
+  const tipoForo = () => `<div class="fo-scelta"><span>Che foro</span>${[['semplice', 'Semplice'], ['svasato', 'Svasato'], ['filettato', 'Filettato']]
+      .map(([id, l]) => `<button type="button" data-fh="${id}" class="${v.foro === id ? 'on' : ''}">${l}</button>`).join('')}</div>`
+    + (v.foro === 'filettato' ? `<label class="nc"><span class="nl vuota"></span><span class="nt">Filettatura</span><span class="nv">
+        <select class="field" data-fo="M">${Object.keys(PREFORI).map(m => `<option${m === v.M ? ' selected' : ''}>${m}</option>`).join('')}</select>
+        <small>preforo Ø${esc(virgola(PREFORI[v.M]))}</small></span></label>`
+      : campo('d', 'Diametro', v.d) + (v.foro === 'svasato' ? campo('sD', 'Ø della svasatura', v.sD || '') + campo('sang', 'Angolo della svasatura', v.sang, '°') : ''));
+  const misure = () => v.tipo === 'tondo' ? tipoForo()
     : campo('lungh', v.tipo === 'asola' ? 'Lunghezza (tutta)' : 'Larghezza', v.lungh) + campo('larg', v.tipo === 'asola' ? 'Larghezza' : 'Altezza', v.larg)
       + (v.tipo === 'asola' ? `<div class="fo-scelta"><span>Messa</span><button type="button" data-fv="0" class="${v.verticale ? '' : 'on'}">orizzontale ↔</button><button type="button" data-fv="1" class="${v.verticale ? 'on' : ''}">verticale ↕</button></div>` : '');
   const pannello = () => {
     const fs = forme(), c = controlla(fs), [uno, tanti] = nomi[v.tipo];
     const ult = fs[fs.length - 1];
     const ris = c.no ? `<div class="n-ris warn">${esc(c.no)}</div>`
-      : `<div class="n-ris ${c.av ? 'warn' : 'ok'}">${fs.length > 1 ? `${fs.length} ${tanti}` : `1 ${uno}`}${v.tipo === 'tondo' ? ' Ø' + esc(virgola(v.d)) : ''}${fs.length > 1 && ult
+      : `<div class="n-ris ${c.av ? 'warn' : 'ok'}">${fs.length > 1 ? `${fs.length} ${tanti}` : `1 ${uno}`}${v.tipo === 'tondo' ? (v.foro === 'filettato' ? ' filettat' + (fs.length > 1 ? 'i ' : 'o ') + esc(v.M) + ' (preforo Ø' + esc(virgola(diam())) + ')'
+        : ' Ø' + esc(virgola(v.d)) + (v.foro === 'svasato' ? ', svasat' + (fs.length > 1 ? 'i' : 'o') + ' Ø' + esc(virgola(v.sD || '?')) + ' a ' + esc(virgola(v.sang)) + '°' : '')) : ''}${fs.length > 1 && ult
         ? `, l’ultimo a ${esc(virgola(Math.round((v.verso === 'x' ? W - ult.x : H - ult.y) * 10) / 10))} mm dal bordo ${v.verso === 'x' ? 'destro' : 'dietro'}` : ''}.
         ${c.av ? esc(c.av) : 'Lontano dai bordi e dalle pieghe: si piega bene.'}</div>`;
     return `<div class="fo-tipi">${[['tondo', 'Foro tondo', '<circle cx="18" cy="15" r="9"/>'], ['asola', 'Asola', '<rect x="4" y="9" width="28" height="12" rx="6"/>'],
@@ -1085,10 +1097,11 @@ async function foriDialog(face) {
       $('#m-ok').disabled = !!c.no;
       $('#m-ok').textContent = c.no ? 'Controlla le misure' : fs.length > 1 ? `Fai ${v.tipo === 'tondo' ? 'i' : 'le'} ${fs.length} ${tanti}` : `Fai ${v.tipo === 'tondo' ? 'il foro' : v.tipo === 'asola' ? 'l’asola' : 'la finestra'}`;
     };
-    box.addEventListener('input', ev => { const f = ev.target.dataset?.fo; if (f) { v[f] = ev.target.value.trim(); aggiorna(); } });
+    box.addEventListener('input', ev => { const f = ev.target.dataset?.fo; if (f) { v[f] = ev.target.value.trim(); aggiorna(f === 'M'); } });
     box.addEventListener('click', ev => {
-      const b = ev.target.closest('[data-ft],[data-fd],[data-fv],#fo-fila');
+      const b = ev.target.closest('[data-ft],[data-fd],[data-fv],[data-fh],#fo-fila');
       if (b?.dataset.ft) { v.tipo = b.dataset.ft; aggiorna(true); }
+      else if (b?.dataset.fh) { v.foro = b.dataset.fh; aggiorna(true); }
       else if (b?.dataset.fd) { v.verso = b.dataset.fd; aggiorna(true); }
       else if (b?.dataset.fv) { v.verticale = b.dataset.fv === '1'; aggiorna(true); }
       else if (b?.id === 'fo-fila') { v.fila = b.checked; aggiorna(true); }
