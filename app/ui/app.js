@@ -81,8 +81,9 @@ function loop() {
   placeCube();
 }
 
+const matOf = o => Array.isArray(o.mesh.material) ? o.mesh.material[0] : o.mesh.material;
 function buildScene(sc) {
-  for (const o of objs.values()) { o.mesh.geometry.dispose(); o.mesh.material.dispose(); o.lines.geometry.dispose(); }
+  for (const o of objs.values()) { o.mesh.geometry.dispose(); matOf(o).dispose(); o.lines.geometry.dispose(); }
   model.clear(); objs.clear();
   for (const d of sc.objects) {
     const g = new THREE.BufferGeometry();
@@ -130,8 +131,8 @@ function paint() {
     const intero = o.data.kind === 'member';
     if (selIds.has(id) && (intero || sel.face == null || (sel.ids && sel.ids.length > 1))) c = C_SEL;
     else if (hover && hover.id === id && (intero || hover.face == null)) c = C_HOVER;
-    o.mesh.material.color.copy(c);
-    o.mesh.material.emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, 0);
+    matOf(o).color.copy(c);
+    matOf(o).emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, 0);
   }
   if (sel && sel.face != null && objs.has(sel.id)) faceOverlay(objs.get(sel.id), sel.face, C_SEL);
   if (sel && sel.hl && objs.has('body')) for (const i of sel.hl) faceOverlay(objs.get('body'), i, C_SEL);
@@ -449,11 +450,12 @@ function applyLook() {
   const solo = SK && (SK.v.on_face || SK.v.on_flat);
   const piatto = SK ? !!SK.v.on_flat : flatView;
   flatGroup.visible = piatto && flatGroup.children.length > 0;
+  if (threadGroup) threadGroup.visible = !piatto && !solo;
   workGroup.visible = !!(SK && SK.v.on_face);
   const fantasma = !SK ? 1 : solo ? (SK.ghost ? 0.15 : 0) : 0.18;
   model.visible = !piatto || (SK && SK.ghost) ? fantasma > 0 : false;
   for (const o of objs.values()) {
-    o.mesh.material.transparent = fantasma < 1; o.mesh.material.opacity = fantasma; o.mesh.material.depthWrite = fantasma >= 1;
+    matOf(o).transparent = fantasma < 1; matOf(o).opacity = fantasma; matOf(o).depthWrite = fantasma >= 1;
   }
   dimLines.visible = SK ? true : !piatto;
   edgeGroup.visible = !SK && !piatto;
@@ -488,6 +490,51 @@ function flatSketch() {
 // --------------------------------------------------------------- quote sul modello
 const dimsBox = $('#dims');
 let dimEls = [];
+// i fori filettati si vedono filettati: al posto della parete liscia del preforo una superficie a spirale col passo
+// della filettatura, dal preforo (cresta) al diametro nominale (fondo). Solo a video: il pezzo per il laser resta col
+// preforo, il filetto si fa col maschio.
+const HIDE_MAT = new THREE.MeshBasicMaterial({ visible: false });
+let threadGroup = null;
+function buildThreads(list) {
+  if (threadGroup) { threadGroup.traverse(o => { o.geometry?.dispose(); }); model.remove(threadGroup); }
+  threadGroup = new THREE.Group();
+  const body = objs.get('body');
+  if (body && list?.length) {                       // la parete liscia del foro non si disegna (si clicca ancora)
+    const nascoste = new Set(list.flatMap(t => t.faces || []));
+    const g = body.mesh.geometry; g.clearGroups();
+    const fs = [...body.data.faces].sort((a, b) => a.start - b.start);
+    for (const f of fs) g.addGroup(f.start, f.count, nascoste.has(f.index) ? 1 : 0);
+    if (!Array.isArray(body.mesh.material)) body.mesh.material = [body.mesh.material, HIDE_MAT];  // matOf() dà il primo
+  }
+  for (const t of list || []) {
+    const c = new THREE.Vector3(...t.c), n = new THREE.Vector3(...t.n).normalize();
+    const a = Math.abs(n.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+    const u = a.clone().cross(n).normalize(), w = n.clone().cross(u).normalize();
+    const NA = 48, P = t.passo || 1, NZ = Math.min(4000, Math.max(8, Math.ceil(t.len / P * 10)));
+    const pos = [], idx = [];
+    for (let j = 0; j <= NZ; j++) {
+      const z = 0.05 + (t.len - 0.1) * j / NZ;      // appena dentro: sulla faccia non si vede l'anello del filetto
+      for (let i = 0; i <= NA; i++) {
+        const g = i / NA * Math.PI * 2;
+        const fr = ((z / P - i / NA) % 1 + 1) % 1, tri = 1 - Math.abs(2 * fr - 1);
+        const vic = Math.min(1, z / P, (t.len - z) / P);  // all'imbocco e in fondo il filetto si chiude sul preforo
+        const r = t.r0 + (t.r - t.r0) * tri * vic;
+        const p = c.clone().addScaledVector(n, z).addScaledVector(u, r * Math.cos(g)).addScaledVector(w, r * Math.sin(g));
+        pos.push(p.x, p.y, p.z);
+      }
+    }
+    for (let j = 0; j < NZ; j++) for (let i = 0; i < NA; i++) {
+      const k = j * (NA + 1) + i;
+      idx.push(k, k + 1, k + NA + 1, k + 1, k + NA + 2, k + NA + 1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xB7BFC8, metalness: 0.15, roughness: 0.55, side: THREE.DoubleSide }));
+    m.raycast = () => {};                            // si clicca la parete del foro (nascosta), non la spirale
+    threadGroup.add(m);
+  }
+  model.add(threadGroup);
+}
 function buildDims() {
   for (const l of dimLines.children) l.geometry.dispose();
   dimLines.clear();
@@ -625,6 +672,7 @@ async function loadScene() {
   const raggio = () => new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere()).radius;
   const prima = eraVuota ? 0 : raggio();
   buildScene(sc);
+  buildThreads(sc.threads);
   nodes = sc.nodes || [];
   bendEdges = sc.bend_edges || [];
   hoverEdge = null;

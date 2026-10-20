@@ -308,7 +308,57 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 testo = (f'punta di {e["ref"]}' if e['kind'] == 'tip' else sk.describe(e['ref']))
                 bordi.append({**e, 'feature': data.feature, 'id': f'{e["kind"]}:{e["ref"]}',
                               'label': f'{testo} ({fmt_mm(round(e["length"], 1))} mm)', 'thickness': data.thickness})
-        return {'version': self.scene_version, 'objects': objs, 'nodes': nodi, 'bend_edges': bordi}
+        return {'version': self.scene_version, 'objects': objs, 'nodes': nodi, 'bend_edges': bordi,
+                'threads': self._filettature()}
+
+    def _filettature(self) -> list:
+        """I fori filettati da far vedere nel 3D: centro sulla faccia dello sketch, verso (dentro il pezzo), raggio
+        nominale e quanto è lungo il foro (lo spessore della lamiera, o il pezzo attraversato)."""
+        out = []
+        r = self.result
+        if r.body is None:
+            return out
+        import build123d as bd
+        bb = bd.Solid(r.body.shape).bounding_box() if hasattr(r.body.shape, 'ShapeType') else None
+        diag = (bb.size.X ** 2 + bb.size.Y ** 2 + bb.size.Z ** 2) ** 0.5 if bb is not None else 0.0
+        sp = getattr(getattr(r.body, 'sheet', None), 'thickness', None)
+        for t in self.doc.features:
+            if isinstance(t, Sketch) or not t.get('sketch'):
+                continue
+            if not (t.get('type') == 'sheet_cut' or (t.get('type') == 'extrude' and t.get('operation') == 'cut')):
+                continue
+            fatto = (self.doc._sketch_results or {}).get(t['sketch'])
+            if not fatto or fatto[1] is None:
+                continue
+            ss, pl = fatto[0], fatto[1].plane
+            sk = self.doc.sketch(t['sketch'])
+            for cid, (c, rr) in ss.circles.items():
+                h = sk.entities[cid].get('hole') or {}
+                if h.get('tipo') != 'filettato' or h.get('M') not in FILETTI:
+                    continue
+                q = pl.from_local_coords(ss.points[c])
+                n = -pl.z_dir                                   # il foro entra nel pezzo dalla faccia dello sketch
+                lungo = sp if sp else min(diag, 200.0)
+                out.append({'c': [q.X, q.Y, q.Z], 'n': [n.X, n.Y, n.Z], 'r': FILETTI[h['M']][1] / 2, 'r0': rr, 'len': lungo,
+                            'M': h['M'], 'passo': PASSI.get(h['M'], 1.0), 'faces': self._facce_del_foro(q, n, rr)})
+        return out
+
+    def _facce_del_foro(self, q, n, rr) -> list:
+        """Le facce (indici della scena) della parete liscia del foro: nel 3D al loro posto si disegnano i filetti."""
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cylinder
+        from cad_engine.topology.naming import _faces_of
+        out = []
+        for i, f in enumerate(_faces_of(self.result.body.shape)):
+            su = BRepAdaptor_Surface(f)
+            if su.GetType() != GeomAbs_Cylinder or abs(su.Cylinder().Radius() - rr) > 1e-3:
+                continue
+            o, d = su.Cylinder().Axis().Location(), su.Cylinder().Axis().Direction()
+            v = (q.X - o.X(), q.Y - o.Y(), q.Z - o.Z())
+            lungo = v[0] * d.X() + v[1] * d.Y() + v[2] * d.Z()
+            if max(0.0, v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - lungo ** 2) < 1e-6:
+                out.append(i)
+        return out
 
     def select(self, obj_id: str, face_index: int | None = None, face_name: str | None = None) -> dict:
         if self.asm is not None:
@@ -2674,6 +2724,8 @@ def _rinumera_pieghe(sm: dict) -> None:
             if fl.get(k) in mappa:
                 fl[k] = mappa[fl[k]]
 
+# passo grosso ISO (mm), per far vedere i filetti nel 3D
+PASSI = {'M3': 0.5, 'M4': 0.7, 'M5': 0.8, 'M6': 1.0, 'M8': 1.25, 'M10': 1.5, 'M12': 1.75, 'M16': 2.0}
 # filettature metriche a passo grosso: (preforo, diametro nominale) in mm (UNI/ISO, valori di tabella)
 FILETTI = {'M3': (2.5, 3), 'M4': (3.3, 4), 'M5': (4.2, 5), 'M6': (5.0, 6), 'M8': (6.8, 8), 'M10': (8.5, 10),
            'M12': (10.2, 12), 'M16': (14.0, 16)}

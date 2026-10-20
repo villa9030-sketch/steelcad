@@ -309,6 +309,13 @@ def _fori(f: Foglio, v: dict, T, s, etichette: dict, gia: set):
         r = k / 2 * s
         testo = base
         testo = (f'{len(uniq)}× ' if len(uniq) > 1 else '') + testo
+        nom = etichette.get(('nominale', k))
+        if nom:                                        # filettato: 3/4 di cerchio sottile al diametro nominale (ISO 6410)
+            rn = nom / 2 * s
+            for u in uniq:
+                pu = T(u)
+                f.line('quote', *[(pu[0] + rn * math.cos(math.radians(a)), pu[1] + rn * math.sin(math.radians(a)))
+                                  for a in range(100, 371, 10)])
         q = (p[0] + r * 0.7, p[1] + r * 0.7)
         e = (q[0] + 8, q[1] + 8)
         f.line('quote', q, e, (e[0] + 2 + len(testo) * 1.6, e[1]))
@@ -333,6 +340,10 @@ def etichette_fori(doc) -> dict:
             d = round(2 * float(e['r']), 3)
             if h.get('tipo') == 'filettato':
                 out[d] = f'{h["M"]} (preforo Ø{fmt(d)})'
+                try:
+                    out[('nominale', d)] = float(str(h['M']).upper().lstrip('M'))
+                except ValueError:
+                    pass
             elif h.get('tipo') == 'svasato':
                 out[d] = f'Ø{fmt(d)} svasato Ø{fmt(float(h["D"]))}×{fmt(float(h.get("angolo", 90)))}°'
                 out[round(float(h['D']), 3)] = out[d]           # dalla parte svasata si vede il cerchio grande
