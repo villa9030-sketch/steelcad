@@ -62,3 +62,11 @@ def test_svasatura_che_rompe_il_pezzo_si_rifiuta():
     assert not r['ok'] and 'profonda' in r['message']
     assert not s.state()['errors'] and not s.doc.sketch(sid).entities['C1'].get('hole')
     assert s.sketch_hole_type(sid, ['C1'], {'tipo': 'svasato', 'D': 8, 'angolo': 90})['ok']
+
+
+def test_tabella_pieghe_con_i_colpi_in_fila():
+    """I colpi del bumping a raggio (PL1.2…) andavano in testa alla tabella, prima di PL1."""
+    s, sid = _deflettore()
+    assert s.sheet_fold(sid, 90, 'up', False, {'colpi': 8, 'raggio': 60})['ok']
+    nomi = [r['flange'] for r in s.result.body.sheet.summary()['bends']]
+    assert nomi == ['PL1'] + [f'PL1.{k}' for k in range(2, 9)]

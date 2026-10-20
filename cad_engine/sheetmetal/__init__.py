@@ -427,7 +427,12 @@ def build(fdef: dict, ctx) -> NamedShape:
     # in tabella: prima le flange, poi le pieghe su linea nell'ordine lungo il pezzo (non quello di costruzione,
     # che per le pieghe in serie parte dalla striscia più grande e va a catena da una parte e poi dall'altra)
     ordine = {fo.get('id'): k for k, fo in enumerate(fdef.get('folds') or [])}
-    geos = sorted(geos, key=lambda g: (g.fid in ordine, ordine.get(g.fid, 0)))
+    def _posto(g):                                  # i colpi del bumping (PL1.2, PL1.3…) subito dopo la loro piega PL1
+        base, _, k = g.fid.partition('.')
+        if base not in ordine:
+            return (False, 0, 0)
+        return (True, ordine[base], int(k) if k.isdigit() else 1)
+    geos = sorted(geos, key=_posto)
     fold_pos = {}
     if flat is not None and fdef.get('folds'):
         vs = [pl.to_local_coords(v) for v in flat.vertices()]

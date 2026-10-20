@@ -240,7 +240,8 @@ def tramoggia():
                                 'spessore': 3, 'riferimento': 'esterno', 'divisione': 'auto', 'foglio': '1500x3000'})
     sel = ok('select', 'body')['selection']
     forma = sel.get('forma') or {}
-    passo(f'divisa in {forma.get("pezzi", "?")} pezzi, {forma.get("pieghe", "?")} pieghe, '
+    pezzi = forma.get('pezzi')
+    passo(f'divisa in {len(pezzi) if isinstance(pezzi, list) else pezzi or "?"} pezzi, {forma.get("pieghe", "?")} pieghe, '
           f'saldature {forma.get("saldature_m", "?")} m')
     salva('tramoggia')
 
