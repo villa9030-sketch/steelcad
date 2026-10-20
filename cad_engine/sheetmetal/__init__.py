@@ -178,9 +178,16 @@ class SheetData:
     tip_mode: str = 'long'
     free_edges: list = field(default_factory=list)     # bordi dove si può ancora piegare: per sceglierli col mouse
 
+    def lato_di(self, g) -> str:
+        """Dove sta la piega, in parole: per le pieghe su linea la quota della linea sullo sviluppo (dal bordo da
+        cui partono i numeri PL1, PL2...), che è quella che serve alla piegatrice per il registro."""
+        x = (getattr(self, 'fold_pos', None) or {}).get(g.fid)
+        return g.edge if x is None else f'linea a {fmt_mm(round(x, 2))} mm dal bordo'
+
     def summary(self) -> dict:
         return {'feature': self.feature, 'thickness': self.thickness, 'tech': self.tech,
-                'bends': [{'flange': g.fid, 'edge': g.edge, 'parent': g.parent, 'length': g.length,
+                'bends': [{'flange': g.fid, 'edge': self.lato_di(g), 'parent': g.parent, 'length': g.length,
+                           'line_at': (getattr(self, 'fold_pos', None) or {}).get(g.fid),
                            'direction': g.direction, 'position': g.position, 'width': g.u1 - g.u0,
                            **g.bend.as_dict()} for g in self.flanges],
                 'flat_size': list(self.flat_size), 'flat_area': self.flat_area, 'warnings': self.warnings,
@@ -417,9 +424,24 @@ def build(fdef: dict, ctx) -> NamedShape:
                           e.arc_center - e.radius * pl.y_dir, e.arc_center + e.radius * pl.y_dir):
                     bb.append(pl.to_local_coords(p))
         size = ((max(p.X for p in bb) - min(p.X for p in bb)), (max(p.Y for p in bb) - min(p.Y for p in bb)))
+    # in tabella: prima le flange, poi le pieghe su linea nell'ordine lungo il pezzo (non quello di costruzione,
+    # che per le pieghe in serie parte dalla striscia più grande e va a catena da una parte e poi dall'altra)
+    ordine = {fo.get('id'): k for k, fo in enumerate(fdef.get('folds') or [])}
+    geos = sorted(geos, key=lambda g: (g.fid in ordine, ordine.get(g.fid, 0)))
+    fold_pos = {}
+    if flat is not None and fdef.get('folds'):
+        vs = [pl.to_local_coords(v) for v in flat.vertices()]
+        for fo in fdef['folds']:
+            (ax, ay), (bx, by) = fo['a'], fo['b']
+            L = math.hypot(bx - ax, by - ay) or 1.0
+            nx, ny = -(by - ay) / L, (bx - ax) / L
+            if (abs(nx) > abs(ny) and nx < 0) or (abs(ny) >= abs(nx) and ny < 0):
+                nx, ny = -nx, -ny                   # verso crescente, come la numerazione PL1, PL2...
+            fold_pos[fo.get('id')] = (ax + bx) / 2 * nx + (ay + by) / 2 * ny - min(v.X * nx + v.Y * ny for v in vs)
     data = SheetData(fid, t, tech, geos, flat, pl, linee, size, flat.area if flat is not None else 0.0,
                      [g.avviso for g in geos if g.avviso],
                      contatti, fdef.get('tip_corners') or 'long', _free_edges(geos, lati, N, t))
+    data.fold_pos = fold_pos
     ns = NamedShape(shape, _names(shape, fid, geos, lati, prof, pl, t))
     ns.sheet = data
     # pieghe su linea con la parte piegata non rettangolare: si toglie dallo sviluppo (e dal pezzo) quello che la
@@ -441,6 +463,9 @@ def _folds(fdef, face, lati, pl, tech, t, ctx, fid):
     """Pieghe lungo una linea disegnata sulla base: la base si divide sulla linea; la parte che si piega diventa una
     flangia sul nuovo lato (la corda), lunga quanto serve perché lo sviluppo resti quello disegnato: lunghezza =
     distanza massima dalla linea + deduzione di piega. La linea è lo spigolo vivo esterno della piega."""
+    serie = _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid)
+    if serie is not None:
+        return serie
     extra = []
     for fo in fdef['folds']:
         foid = fo.get('id', '?')
@@ -549,6 +574,102 @@ def _colpi(fo, angolo, parte, C0, C1, u, n, dmax, tech, t, ctx, fid):
                            f'{fmt_mm(round((N - 1) * p + b1.ba, 1))} mm, più della parte da piegare '
                            f'({fmt_mm(round(dmax, 1))} mm): meno colpi o raggio più piccolo.', feature=fid)
     return [(a1, tratto)] * (N - 1) + [(a1, ultima)]
+def _folds_paralleli(fdef, face, lati, pl, tech, t, ctx, fid):
+    """Più pieghe su linee parallele (calandratura a colpi, "bumping"): la striscia più grande resta la base, le
+    altre diventano una catena di flange, ognuna sulla punta di quella prima. Ogni flangia è lunga quanto la sua
+    striscia nello sviluppo + la deduzione della sua piega, così lo sviluppo resta quello disegnato (come per la
+    piega su una linea sola). None se le linee non sono tutte parallele (si piegano una per una)."""
+    folds = fdef['folds']
+    if len(folds) < 2 or any(fo.get('bump') for fo in folds):
+        return None            # i colpi calcolati da una linea sola (bumping con raggio) si fanno nell'altro modo
+    righe = []
+    for fo in folds:
+        A, B = pl.from_local_coords(tuple(fo['a'])), pl.from_local_coords(tuple(fo['b']))
+        if (B - A).length < 1e-6:
+            raise FeatureError(f'La piega su linea {fo.get("id", "?")} ha la linea di lunghezza zero.', feature=fid)
+        righe.append((fo, A, (B - A).normalized()))
+    u = righe[0][2]
+    if any(abs(r[2].cross(u).length) > 1e-6 for r in righe):
+        return None
+    n = u.cross(pl.z_dir).normalized()
+    O = righe[0][1]
+    righe.sort(key=lambda r: (r[1] - O).dot(n))
+    pos = [(r[1] - O).dot(n) for r in righe]
+    if any(b - a < 1e-6 for a, b in zip(pos, pos[1:])):
+        raise FeatureError('Due linee di piega sono una sopra l’altra.', feature=fid)
+    G = 1e5
+
+    def striscia(s0, s1):
+        P0, P1 = O + n * s0, O + n * s1
+        f = bd.Face(bd.Wire.make_polygon([P0 - u * G, P0 + u * G, P1 + u * G, P1 - u * G], close=True))
+        parti = _facce(face & _orienta(f, pl))
+        if len(parti) != 1:
+            raise FeatureError('Le linee di piega devono attraversare la lamiera da parte a parte, una volta sola.',
+                               feature=fid)
+        return parti[0]
+    limiti = [-G] + pos + [G]
+    strisce = [striscia(limiti[i], limiti[i + 1]) for i in range(len(limiti) - 1)]
+    ib = max(range(len(strisce)), key=lambda i: strisce[i].area)
+    base = strisce[ib]
+
+    def bd_di(fo):
+        return bend_values(evaluate(fo.get('angle', 90), ctx.params, what=f'l’angolo della piega {fo.get("id", "?")}'),
+                           tech['radius'] if tech['radius'] is not None else 0, t, tech['method'], tech['k'],
+                           tech['bd90'], fid).bd
+
+    def corda(f, s0):
+        sulla = sorted((bd.Vector(v) for v in f.vertices() if abs((bd.Vector(v) - O).dot(n) - s0) < 1e-6),
+                       key=lambda q: (q - O).dot(u))
+        return sulla
+    extra = []
+    nuovi_lati = {}
+    # verso +n le linee dopo la base, verso -n quelle prima: ognuna è la punta della precedente
+    for verso, indici in ((1, range(ib, len(righe))), (-1, range(ib - 1, -1, -1))):
+        madre = None
+        for j in indici:
+            fo = righe[j][0]
+            foid = fo.get('id', '?')
+            k = j + 1 if verso > 0 else j                  # la striscia che questa piega alza
+            parte = strisce[k]
+            larga = parte.area / max(1e-9, (limiti[k + 1] - limiti[k])) if abs(limiti[k + 1]) < G and abs(limiti[k]) < G else None
+            sulla = corda(parte, pos[j])
+            if len(sulla) < 2:
+                raise FeatureError(f'Non trovo il lato della piega {foid}.', feature=fid)
+            Lc = (sulla[-1] - sulla[0]).length
+            # le strisce in mezzo devono essere rettangoli: sulla punta si piega la prossima
+            if larga is not None and abs(larga - Lc) > 1e-3:
+                raise FeatureError(f'Tra la piega {foid} e la successiva la lamiera non è un rettangolo: per le pieghe '
+                                   'in serie le linee devono andare da bordo a bordo su lati dritti.', feature=fid)
+            dmax = max(((bd.Vector(v) - O).dot(n) - pos[j]) * verso for v in parte.vertices())
+            d = dict(id=foid, angle=fo.get('angle', 90), direction=fo.get('direction', 'up'), position='inside',
+                     length=round(dmax + bd_di(fo), 9), gap=0, fold=True)
+            if madre is None:
+                cb = corda(base, pos[j])
+                if len(cb) < 2:
+                    raise FeatureError(f'Non trovo il lato della piega {foid}.', feature=fid)
+                d['edge'] = foid
+                nuovi_lati[foid] = (cb[0], cb[-1], n * verso, f'{foid}:a', f'{foid}:b')
+            else:
+                d['parent'] = madre
+                # sulla punta della madre "su" vuol dire dalla stessa parte in cui è girata lei: la curva continua
+                # nello stesso senso (con "giù" sulla base, le figlie in "giù" andrebbero a zig-zag)
+                if d['direction'] == 'down':
+                    d['direction'] = 'up'
+            if madre is not None:
+                # la madre arriva fino a questa linea: la sua striscia è lunga quanto la distanza tra le due linee
+                m = next(x for x, _ in extra if x['id'] == madre)
+                m['length'] = round(abs(pos[j] - pos[j - verso]) + bd_di(next(r[0] for r in righe if r[0].get('id') == madre)), 9)
+            extra.append((d, None))
+            madre = foid
+    # i lati della base: quelli che stanno tutti nella sua striscia (non sulle linee)
+    s0, s1 = limiti[ib], limiti[ib + 1]
+    tenuti = {}
+    for lid, (P3, Q3, n3, ia, ib_) in lati.items():
+        sp, sq = (P3 - O).dot(n), (Q3 - O).dot(n)
+        if s0 - 1e-6 <= min(sp, sq) and max(sp, sq) <= s1 + 1e-6 and not (abs(sp - sq) < 1e-6 and (abs(sp - s0) < 1e-6 or abs(sp - s1) < 1e-6)):
+            tenuti[lid] = (P3, Q3, n3, ia, ib_)
+    tenuti.update(nuovi_lati)
+    return base, tenuti, extra
 
 
 def flat_size(flat, pl) -> tuple:

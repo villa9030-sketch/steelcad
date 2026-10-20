@@ -121,19 +121,44 @@ def project_tree(doc, result) -> dict:
                                            status=None if fr and fr.ok else 'errore'))
                 if f['type'] == 'sheet':
                     sk = doc.sketch(f['sketch']) if f.get('sketch') else None
+                    # in parole di officina: "Piega davanti, 40 mm in su", "Orlo sulla piega davanti, 10 mm"
+                    # angoli e lunghezze possono essere formule ("180-64", "H/2"): si scrivono col valore vero.
+                    # Prima float("180-64") faceva saltare tutto lo stato e lo schermo restava al pezzo vecchio
+                    par = doc.resolved_parameters()
+
+                    def _v(x):
+                        try:
+                            return float(evaluate(x, par))
+                        except Exception:  # noqa: BLE001 - un nome per la scritta: non deve mai fermare niente
+                            return None
+
+                    def _mm(x):
+                        v = _v(x)
+                        return fmt_mm(round(v, 2)) if v is not None else str(x)
+
+                    def _ang(a):
+                        v = _v(a)
+                        return '' if v == 90 else f' a {fmt_mm(round(v, 2)) if v is not None else a}°'
+                    dove: dict = {}
                     for fo in f.get('folds') or []:
-                        verso = 'su' if fo.get('direction', 'up') == 'up' else 'giù'
-                        part['children'].append(_n(f'{fo["id"]}: piega su linea a {fo.get("angle", 90)}° {verso}',
+                        verso = 'in su' if fo.get('direction', 'up') == 'up' else 'in giù'
+                        dove[fo['id']] = 'in mezzo'
+                        part['children'].append(_n(f'Piega in mezzo al pezzo{_ang(fo.get("angle", 90)) or " a 90°"} {verso}',
                                                    'flange', f'{fid}/{fo["id"]}'))
                     for fl in f.get('flanges') or []:
+                        verso = 'in su' if fl.get('direction', 'up') == 'up' else 'in giù'
+                        ang = fl.get('angle', 90)
                         if fl.get('parent'):
-                            lato = f'sulla punta di {fl["parent"]}'
+                            sopra = dove.get(fl['parent'], fl['parent'])
+                            cosa = 'Orlo' if abs(_v(ang) or 0) >= 170 else 'Piega'
+                            testo = f'{cosa} sulla piega {sopra}, {_mm(fl.get("length"))} mm' + ('' if cosa == 'Orlo' else f'{_ang(ang)} {verso}')
                         else:
                             lato = sk.describe(fl.get('edge')) if sk else fl.get('edge')
-                        verso = 'su' if fl.get('direction', 'up') == 'up' else 'giù'
-                        ang = fl.get('angle', 90)
-                        part['children'].append(_n(f'{fl["id"]}: flangia {fl.get("length")} a {ang}° {verso}, {lato}',
-                                                   'flange', f'{fid}/{fl["id"]}'))
+                            nome = {'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra',
+                                    'lato sinistro': 'a sinistra'}.get(lato, f'sul {lato}' if str(lato).startswith('lato') else f'su {lato}')
+                            dove[fl['id']] = nome
+                            testo = f'Piega {nome}, {_mm(fl.get("length"))} mm{_ang(ang)} {verso}'
+                        part['children'].append(_n(testo, 'flange', f'{fid}/{fl["id"]}'))
         root['children'].append(part)
     # le strutture, per gruppo e per misura
     for st in result.structures:

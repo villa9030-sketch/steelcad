@@ -61,6 +61,11 @@ def view(doc, sid: str, body=None) -> dict:
            'on_flat': sk.plane.get('flat') if isinstance(sk.plane, dict) else None}
     fatto = (doc._sketch_results or {}).get(sid) if hasattr(doc, '_sketch_results') else None
     out['profiles'] = len(fatto[1].faces) if fatto and fatto[1] is not None else 0
+    out['sciolte'] = list(getattr(fatto[1], 'sciolte', []) or []) if fatto and fatto[1] is not None else []
+    if out['sciolte'] and out['ok']:
+        n = len(out['sciolte'])
+        out['status'] = (f'{n} linea sciolta' if n == 1 else f'{n} linee sciolte') + ' (in rosso) non chiude nessun contorno: ' \
+            + 'non conta per il taglio. Se non serve, selezionala ed Elimina.'
     out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc') and not e.get('ref'))
     if out['on_flat']:
         out['where'] = 'sullo sviluppo della lamiera'

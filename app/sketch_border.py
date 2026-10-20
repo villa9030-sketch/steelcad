@@ -150,14 +150,64 @@ def _area(pts) -> float:
     return abs(sum(pts[i][0] * pts[i - 1][1] - pts[i - 1][0] * pts[i][1] for i in range(len(pts)))) / 2
 
 
+class _Vista:
+    """Lo sketch con una sola spezzata disegnata (le altre linee non ci sono): per chiuderle una alla volta."""
+    def __init__(self, sk, tieni):
+        self.entities = {k: e for k, e in sk.entities.items()
+                         if not (e['kind'] == 'line' and not e.get('construction')) or k in tieni}
+
+
+def _gruppi(sk, linee) -> list:
+    """Le linee disegnate divise in spezzate collegate (punti in comune)."""
+    padre = {l: l for l in linee}
+
+    def radice(x):
+        while padre[x] != x:
+            padre[x] = padre[padre[x]]
+            x = padre[x]
+        return x
+    per_punto: dict = {}
+    for l in linee:
+        e = sk.entities[l]
+        for p in (e['a'], e['b']):
+            if p in per_punto:
+                padre[radice(l)] = radice(per_punto[p])
+            else:
+                per_punto[p] = l
+    out: dict = {}
+    for l in linee:
+        out.setdefault(radice(l), []).append(l)
+    return list(out.values())
+
+
 def border_closure(sk, points, oltre: float | None = None) -> list | None:
-    """Se le linee disegnate sono una spezzata aperta con le estremità sul bordo della faccia (linee arancio del
-    contorno), i tratti per chiuderla lungo il bordo dalla parte del pezzo più piccolo: [(da, a, arco del bordo o
-    None)], dall'estremo finale a quello iniziale. None se non c'è niente da chiudere."""
-    from app.sketch_edit import _chain
+    """Se le linee disegnate sono spezzate aperte con le estremità sul bordo della faccia (linee arancio del
+    contorno), i tratti per chiuderle lungo il bordo, ognuna dalla parte del pezzo più piccolo: [(da, a, arco del
+    bordo o None)]. None se non c'è niente da chiudere. Più spezzate (19/10: due linee in offset a 190 mm dalle
+    due testate per accorciare una flangia) si chiudono una per una; i cerchi disegnati restano fori a parte."""
     linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('construction')]
-    if not linee or any(e['kind'] in ('circle', 'arc') and not e.get('construction') for e in sk.entities.values()):
+    if not linee or any(e['kind'] == 'arc' and not e.get('construction') for e in sk.entities.values()):
         return None
+    gruppi = _gruppi(sk, linee)
+    if len(gruppi) == 1:
+        return _una(sk, points, oltre, linee)
+    out, errore, chiusi = [], None, any(e['kind'] == 'circle' and not e.get('construction') for e in sk.entities.values())
+    for g in gruppi:
+        try:
+            c = _una(_Vista(sk, set(g)), points, oltre, g)
+        except SketchError as ex:                   # una linea sciolta: la lascia perdere il profilo (in rosso)
+            errore = errore or ex
+            continue
+        if c is None:
+            chiusi = True                           # un contorno già chiuso (o che si chiude da solo)
+        out += c or []
+    if not out and errore and not chiusi:
+        raise errore
+    return out or None
+
+
+def _una(sk, points, oltre, linee) -> list | None:
+    from app.sketch_edit import _chain
     try:
         ordine, _, chiusa = _chain(sk, linee)
     except SketchError:

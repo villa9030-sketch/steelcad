@@ -643,3 +643,159 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 @media (prefers-reduced-motion: reduce) {
   #intro *, #intro *::after { animation-duration: .01s !important; animation-delay: 0s !important; }
 }
+/* ---------------------------------------------------- pezzo nuovo: le misure sul disegno, con le lettere */
+.modal-box.nuovo { width: min(1080px, 96vw); max-width: none; }
+.modal-box.nuovo h3 { font-size: 22px; }
+.n-kinds { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 14px; }
+.n-kinds span { font-size: 12px; color: var(--ink-3); margin: 0 4px 0 10px; }
+.n-kinds span:first-child { margin-left: 0; }
+.n-kinds button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.n-kinds button.on { border-color: var(--hover); background: var(--on-bg); }
+.n-main { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 26px; align-items: start; }
+.n-main.senza { grid-template-columns: minmax(0, 1fr); }
+.n-pic { border-radius: 10px; border: 1px solid var(--line); padding: 10px;
+  background: radial-gradient(ellipse at 50% 40%, var(--view-top), var(--view-bot) 90%); }
+.n-pic svg { width: 100%; height: auto; display: block; }
+.n-pic .ln { fill: none; stroke: var(--ink-2); stroke-width: 2.4; stroke-linejoin: round; }
+.n-pic .pz { fill: var(--row); }
+.n-pic .q { fill: none; stroke: var(--hover); stroke-width: 2; }
+.n-pic .lt circle { fill: var(--action); }
+.n-pic .lt text, .n-pic .nota { font: 700 17px "Segoe UI", sans-serif; fill: #fff; text-anchor: middle; }
+.n-pic .nota { fill: var(--hover); font-size: 15px; text-anchor: start; }
+.n-campi { display: flex; flex-direction: column; gap: 10px; }
+.n-campi > .hint { margin: 0 0 4px; font-size: 14px; }
+.nc { display: grid; grid-template-columns: 30px minmax(0, 1fr) 190px; align-items: center; gap: 10px; font-size: 15px; }
+.nc .nl { width: 28px; height: 28px; border-radius: 50%; background: var(--action); color: #fff; font-weight: 700; display: flex;
+  align-items: center; justify-content: center; }
+.nc .nl.vuota { background: none; }
+.nc .nv { display: flex; align-items: center; gap: 6px; }
+.nc .field { width: 100%; font-size: 17px; padding: 8px 10px; }
+.nc select.field { font-size: 15px; }
+.nc small { color: var(--ink-3); font-size: 13px; }
+.nc.bad .field { border-color: var(--err); box-shadow: 0 0 0 1px var(--err); }
+.n-altro { border-top: 1px solid var(--line); padding-top: 8px; }
+.n-altro summary { cursor: pointer; color: var(--ink-2); font-size: 14px; padding: 4px 0; }
+.n-altro[open] summary { margin-bottom: 8px; }
+.n-altro .nc { margin-bottom: 8px; }
+.n-ris { min-height: 22px; font-size: 15px; line-height: 1.5; border-radius: 8px; }
+.n-ris.ok { padding: 12px 14px; background: color-mix(in srgb, var(--ok) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent); }
+.n-ris.warn { padding: 12px 14px; background: var(--warn-bg); border: 1px solid var(--warn); }
+.btn.big { padding: 10px 26px; font-size: 16px; font-weight: 600; }
+@media (max-width: 900px) { .n-main { grid-template-columns: 1fr; } }
+.modal-box .n-kinds.choice { margin-bottom: 14px; } .modal-box .n-kinds.choice button { flex: none; }
+
+/* ---------------------------------------------------- schermata di lavoro: niente file di pulsanti in alto,
+   a destra "Cosa puoi fare adesso" (la barra dei comandi resta nello sketch e nell'assieme) */
+#top .tbtn.testo span { font-size: 13px; }
+#b-prepara { margin-left: 10px; margin-right: 8px; padding: 5px 16px; border-radius: 6px; border: 0; background: var(--action); color: #fff;
+  font-weight: 600; font-size: 14px; }
+#b-prepara:hover { background: var(--hover); }
+.cosa h3 { font-size: 18px; margin: 2px 0 12px; }
+.cosa .az { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 12px; width: 100%; text-align: left; margin-bottom: 8px;
+  padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.cosa .az:hover { border-color: var(--hover); background: var(--hov-bg); }
+.cosa .az.prima { border-color: var(--on-line); background: var(--on-bg); }
+.cosa .az svg { width: 36px; height: 36px; fill: none; stroke: var(--ink-2); stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.cosa .az b { display: block; font-size: 15px; }
+.cosa .az span { display: block; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.cosa .altre { display: inline-block; margin-top: 6px; background: none; border: 0; padding: 4px 0; color: var(--hover); font-size: 14px; }
+.cosa .altre:hover { text-decoration: underline; }
+.cosa .indietro { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cosa .indietro button { width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; }
+.cosa .cerca { width: 100%; margin-bottom: 10px; font-size: 14px; padding: 8px 10px; }
+.cosa .gr { font-size: 11px; letter-spacing: .06em; color: var(--ink-3); margin: 12px 0 6px; text-transform: uppercase; }
+.cosa .voce { display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 6px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); }
+.cosa .voce:hover { border-color: var(--hover); background: var(--hov-bg); }
+.cosa .voce b { display: block; font-size: 14px; }
+.cosa .voce span { display: block; font-size: 12px; color: var(--ink-2); margin-top: 1px; }
+.cosa .voce[hidden] { display: none; }
+/* prepara per il laser / l'officina */
+.modal-box.prepara { width: min(900px, 96vw); max-width: none; }
+.prep-ok { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 14px;
+  background: color-mix(in srgb, var(--ok) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent); }
+.prep-ok.no { background: var(--warn-bg); border-color: var(--warn); }
+.prep-voci { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 10px 0 14px; }
+.prep-voci label { display: grid; grid-template-columns: 26px 1fr; gap: 10px; padding: 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); cursor: pointer; }
+.prep-voci label:has(input:checked) { border: 2px solid var(--on-line); }
+.prep-voci label.no { opacity: .55; cursor: default; }
+.prep-voci input { width: 20px; height: 20px; margin-top: 2px; }
+.prep-voci b { display: block; font-size: 16px; }
+.prep-voci span { display: block; font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+.prep-voci small { display: block; font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+.prep-dove { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); flex-wrap: wrap; }
+.prep-dove b { color: var(--ink); word-break: break-all; }
+.prep-dove .link { background: none; border: 0; color: var(--hover); padding: 0; }
+#right .panel:has(.cosa) > h2 { display: none; }
+.cosa .gr[hidden] { display: none; }
+
+/* ---------------------------------------------------- pannello della piega: il profilo disegnato, + e −, angoli pronti */
+.fhead .fid { color: var(--ink-3); font-size: 11px; margin-left: 4px; }
+.fp-pic { border-radius: 8px; border: 1px solid var(--line); margin: 6px 0 10px; padding: 4px 8px;
+  background: radial-gradient(ellipse at 50% 40%, var(--view-top), var(--view-bot) 90%); }
+.fp-pic svg { width: 100%; height: auto; display: block; max-height: 150px; }
+.fp-pic .pz { fill: none; stroke: var(--ink-2); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }
+.fp-pic .q { stroke: var(--hover); stroke-width: 2; }
+.fp-pic .qt { fill: var(--hover); font: 600 16px "Segoe UI", sans-serif; text-anchor: middle; }
+.fp-pic .at { fill: var(--sel); font: 600 15px "Segoe UI", sans-serif; }
+.fp-riga { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.fp-riga > span, .seg-row > span { font-size: 13px; color: var(--ink-2); }
+.fp-len { display: grid; grid-template-columns: 40px 1fr 40px; gap: 6px; }
+.fp-len .pm { height: 38px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; }
+.fp-len .pm:hover, .fp-ang .chip:hover { border-color: var(--hover); }
+.fp-len .field { font-size: 17px; }
+.fp-ang { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 1.2fr; gap: 6px; }
+.fp-ang .chip { height: 36px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+.fp-ang .chip.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }
+.seg.big button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; }
+.seg.big svg { width: 26px; height: 20px; fill: none; stroke: currentColor; stroke-width: 3; }
+.fp-fine { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.link.danger { background: none; border: 0; color: var(--err); padding: 4px 0; font-size: 14px; }
+.link.danger:hover { text-decoration: underline; }
+.fp-len .inp, .fp-ang .inp { display: flex; align-items: center; gap: 4px; position: relative; }
+.fp-len .inp .field, .fp-ang .inp .field { min-width: 0; flex: 1; }
+.fp-len .inp i, .fp-ang .inp i { position: static; font-style: normal; color: var(--ink-3); }
+.fp-pic .at { text-anchor: middle; }
+.seg-row > span { min-width: 64px; }
+
+/* ---------------------------------------------------- fori e asole senza sketch */
+.fo-pic svg { width: 100%; height: auto; display: block; cursor: crosshair; }
+.fo-pic .out { fill: var(--row); stroke: var(--ink-2); stroke-width: 2; }
+.fo-pic .fl { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 6 4; }
+.fo-pic .old { fill: var(--view-bot); stroke: var(--ink-3); }
+.fo-pic .nf { fill: var(--view-bot); stroke: var(--sel); stroke-width: 2.5; }
+.fo-pic .q { stroke: var(--hover); stroke-width: 1.5; }
+.fo-pic .qt { fill: var(--hover); font: 600 14px "Segoe UI", sans-serif; text-anchor: middle; }
+.fo-pic .lb { fill: var(--ink-3); font: 12px "Segoe UI", sans-serif; }
+.fo-tipi { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 4px; }
+.fo-tipi button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+.fo-tipi button.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }
+.fo-tipi svg { width: 36px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+.fo-fila { display: flex; align-items: center; gap: 10px; font-size: 15px; margin: 4px 0; }
+.fo-fila input { width: 20px; height: 20px; }
+.fo-scelta { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.fo-scelta span { color: var(--ink-2); min-width: 60px; }
+.fo-scelta button { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.fo-scelta button.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }
+
+/* ============ comandi tutti nella barra in alto; il pannello a destra solo con una selezione */
+body.senza-destra { grid-template-columns: 270px minmax(0, 1fr) 0; }
+body.senza-destra #right { display: none; }
+.rcol { display: flex; flex-direction: column; gap: 0; }
+.rb.rb-s { flex-direction: row; width: auto; min-width: 104px; height: 22px; gap: 6px; padding: 0 8px 0 4px; align-items: center; justify-content: flex-start; white-space: nowrap; }
+.rb.rb-s img { width: 18px; height: 18px; }
+.rb.rb-s span { text-align: left; max-width: none; }
+.rset { display: flex; gap: 2px; align-items: flex-start; }
+.rset[hidden], .rmenu[hidden] { display: none; }
+.rb.primary { background: var(--action); color: #fff; }
+.rb.primary:hover { background: var(--hover); }
+.rb.primary img, body.dark .rb.primary img { filter: brightness(0) invert(1); }
+.rb.primary:disabled { background: none; color: var(--ink); }
+.rb.primary:disabled img { filter: none; }
+.rgroup { padding: 0 6px; }
+#sk-panel { position: absolute; top: 10px; left: 10px; z-index: 4; pointer-events: none; opacity: .92; max-width: 340px; font-size: 12px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; box-shadow: 0 2px 10px rgba(0, 0, 0, .25); }
+#sk-panel[hidden] { display: none; }
+#sk-panel .sk-legend { margin-top: 6px; }

@@ -6,7 +6,7 @@ topologici (la faccia laterale nata dalla linea L2 si chiama "E1/lato/L2").
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import build123d as bd
 
@@ -31,6 +31,7 @@ class Profile:
     faces: list          # bd.Face
     sources: list        # SourceEdge
     aperto: str = ''     # linee aperte tollerate (persiane, scheletri, disegno in corso): il perché
+    sciolte: list = field(default_factory=list)   # linee/archi che non chiudono nessun contorno: non contano
 
     def entity_of(self, edge: bd.Edge) -> str | None:
         """Quale entità dello sketch ha generato questo bordo (confronto geometrico)."""
@@ -96,13 +97,21 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
     for eid, e in circles:
         sources.append(SourceEdge(eid, e, 'circle', _key(e)))
 
-    loops = [bd.Wire([e]) for _, e in circles] + _loops(sk, open_edges)
+    chiusi, sciolte = _loops(sk, open_edges)
+    loops = [bd.Wire([e]) for _, e in circles] + chiusi
+    if sciolte and not loops:
+        # niente di chiuso: è davvero un contorno aperto (o lo scheletro di una struttura)
+        x, y = sciolte[0][1]
+        raise SketchError(f'Il profilo non è chiuso: c\'è un\'estremità libera in ({fmt_mm(x)}; {fmt_mm(y)}).',
+                          code='profilo_aperto')
     # uno sketch di soli punti (posizioni di fori) è valido: non ha facce
-    return Profile(plane, _faces(loops, plane) if loops else [], sources)
+    return Profile(plane, _faces(loops, plane) if loops else [], sources, sciolte=[e for e, _ in sciolte])
 
 
-def _loops(sk, open_edges) -> list:
-    """Collega linee e archi in contorni chiusi (estremità confrontate in coordinate dello sketch)."""
+def _loops(sk, open_edges) -> tuple[list, list]:
+    """Collega linee e archi in contorni chiusi (estremità confrontate in coordinate dello sketch).
+    Le linee che non chiudono niente (una linea dimenticata, un pezzo che sporge da un contorno) si tolgono
+    e si rendono a parte: (contorni, [(entità, estremità libera), ...]). Prima bloccavano tutto il taglio."""
     nodes: list[tuple[float, float]] = []
     # griglia per trovare i punti vicini senza confrontarli tutti (serie grandi: migliaia di estremità); la
     # cella è grande almeno quanto la tolleranza più larga, si guarda la cella e le otto attorno
@@ -126,15 +135,30 @@ def _loops(sk, open_edges) -> list:
         ends.append((na, nb))
         adj.setdefault(na, []).append(i)
         adj.setdefault(nb, []).append(i)
+    # si tolgono le estremità libere una dopo l'altra: resta solo quello che fa parte di un giro chiuso
+    sciolte = []
+    tolto = [False] * len(open_edges)
+    coda = [n for n, lst in adj.items() if len(lst) == 1]
+    while coda:
+        n = coda.pop()
+        vive = [i for i in adj[n] if not tolto[i]]
+        if len(vive) != 1:
+            continue
+        i = vive[0]
+        tolto[i] = True
+        sciolte.append((open_edges[i][0], nodes[n]))
+        a, b = ends[i]
+        altro = b if a == n else a
+        if sum(1 for j in adj[altro] if not tolto[j]) == 1:
+            coda.append(altro)
+    for n in adj:
+        adj[n] = [i for i in adj[n] if not tolto[i]]
     for n, lst in adj.items():
         x, y = nodes[n]
-        if len(lst) == 1:
-            raise SketchError(f'Il profilo non è chiuso: c\'è un\'estremità libera in ({fmt_mm(x)}; {fmt_mm(y)}).',
-                              code='profilo_aperto')
         if len(lst) > 2:
             raise SketchError(f'In ({fmt_mm(x)}; {fmt_mm(y)}) si incontrano {len(lst)} linee: il contorno è ambiguo. '
                               'Separa i contorni o usa linee di costruzione.', code='profilo_ambiguo')
-    used = [False] * len(open_edges)
+    used = list(tolto)
     loops = []
     for start in range(len(open_edges)):
         if used[start]:
@@ -150,7 +174,7 @@ def _loops(sk, open_edges) -> list:
             a, b = ends[nxt]
             cur_node = b if a == cur_node else a
         loops.append(bd.Wire([open_edges[i][1] for i in chain]))
-    return loops
+    return loops, sciolte
 
 
 def _faces(loops: list, plane: bd.Plane) -> list:

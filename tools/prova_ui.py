@@ -241,7 +241,7 @@ def scatola(pg, ok):
         pg.fill('#f-len', '60')
         pg.click('#f-add')
         pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
-        pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+        pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
     pg.evaluate("window.__steelcad.select('flange=SM1/FL1')")
     pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]', state='attached')
     pg.click('#props details.fsec:has(.corner) summary')          # gli angoli stanno in una sezione chiusa
@@ -407,7 +407,7 @@ def lamiera(pg, ok):
         pg.fill('#f-len', '30')
         pg.click('#f-add')
         pg.wait_for_function("(lato) => window.__steelcad.state.sheet.data.bends.some(b => b.edge === lato)", arg=lato)
-        pg.wait_for_function("document.querySelector('#props h3')?.innerText.startsWith('Flangia')")
+        pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
     size = pg.evaluate('window.__steelcad.state.sheet.data.flat_size')
     ok(f'U: sviluppo {size}', abs(size[0] - 500) < 1e-6 and abs(size[1] - 352.7964594) < 1e-5)
     ok('pannello flangia senza "Fori" e "Chiudi la testata" (tolti: si fanno disegnando sulla faccia)',
@@ -416,10 +416,15 @@ def lamiera(pg, ok):
     pg.wait_for_selector('#flat-svg')
     time.sleep(0.3)
     pg.screenshot(path=str(SHOTS_G / '6_lamiera.png'))
-    pg.click('.rbody:not([hidden]) .rb-export')            # Esporta ▾ nella barra in alto
-    pg.click('.rmenu.open [data-cmd="export_dxf"]')
-    pg.wait_for_selector('.toast:has-text("Sviluppo salvato")')
-    ok('export sviluppo: ' + pg.inner_text('.toast:has-text("Sviluppo salvato")')[:90], True)
+    pg.click('#b-prepara')                                 # Prepara per il laser: lo sviluppo DXF
+    pg.wait_for_selector('#modal-box [data-voce="laser"]')
+    ok('Prepara per il laser: il pezzo è a posto', 'a posto' in pg.inner_text('#modal-box'))
+    pg.check('#modal-box [data-voce="laser"]')
+    if pg.is_enabled('#modal-box [data-voce="piegatrice"]'):
+        pg.uncheck('#modal-box [data-voce="piegatrice"]')
+    pg.click('#m-ok')
+    pg.wait_for_selector('.toast:has-text("Salvati 1 file")')
+    ok('export sviluppo: ' + pg.inner_text('.toast:has-text("Salvati")')[:90], True)
 
 
 def cancello(pg, ok, errori):

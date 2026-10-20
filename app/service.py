@@ -71,7 +71,24 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         self._set(Document('Nuovo progetto'))
         self.blank = True                  # appena aperto, niente progetto: la UI mostra la pagina iniziale
 
+    @staticmethod
+    def _albero(doc, r) -> dict:
+        """L'albero del progetto. Un errore in una scritta non deve mai bloccare lo stato: se no il pezzo cambia ma lo
+        schermo resta al vecchio, e l'utente rifà la stessa cosa sentendosi dire che c'è già (19/10, angolo "180-64")."""
+        try:
+            return project_tree(doc, r)
+        except Exception:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            from cad_engine.tree import _n
+            figli = [_n(f.name or f.id, 'sketch', f.id) if isinstance(f, Sketch) else _n(f.get('name') or f['id'], f['type'], f['id'])
+                     for f in doc.features]
+            return _n(doc.meta.get('name') or 'Progetto', 'project', children=figli)
+
     def _set(self, doc: Document):
+        for f in doc.features:                     # file fatti prima: pieghe su linea in ordine lungo il pezzo
+            if not isinstance(f, Sketch) and f.get('type') == 'sheet':
+                _rinumera_pieghe(f)
         self.doc = doc
         self.history = History(doc)
         self.result = doc.rebuild()
@@ -135,7 +152,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             'name': doc.meta.get('name'), 'path': str(self.path) if self.path else None,
             'dirty': self.history.dirty, 'undo': self.history.labels()['undo'][:1],
             'redo': self.history.labels()['redo'][:1],
-            'tree': project_tree(doc, r), 'parameters': self._parameters(), 'mode': 'part',
+            'tree': self._albero(doc, r), 'parameters': self._parameters(), 'mode': 'part',
             'can_back': bool(getattr(self, '_asm_ritorno', None)),
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
@@ -149,7 +166,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except SteelCADError:
             risolti = {}
         nomi = self._etichette_parametri()
-        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': nomi.get(k)}
+
+        def nome(k):
+            if k in nomi:
+                return nomi[k]
+            # i parametri che nascono dai comandi: la fila di fori (px1, py1), l'offset (off1)
+            m = re.fullmatch(r'(px|py|off)(\d+)', k)
+            if m:
+                return {'px': 'Distanza tra i fori della fila', 'py': 'Distanza tra le file',
+                        'off': 'Distanza dal contorno'}[m.group(1)]
+            return None
+        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': nome(k)}
                 for k, v in self.doc.parameters.items()]
 
     # le sigle dei parametri in parole, per il pannello: prima quelle dei campi del modello, poi le solite
@@ -660,7 +687,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             righe = ['Piega;Flangia;Su;Lunghezza esterna mm;Angolo °;Verso;Raggio interno mm;K;BA mm;BD mm;Larghezza mm']
             for i, g in enumerate(data.flanges, 1):
                 b = g.bend
-                righe.append(';'.join([str(i), g.fid, g.edge, n(g.length, 2), n(b.angle, 1),
+                righe.append(';'.join([str(i), g.fid, data.lato_di(g), n(g.length, 2), n(b.angle, 1),
                                        'su' if g.direction == 'up' else 'giù', n(b.r, 2), n(b.k), n(b.ba), n(b.bd), n(g.u1 - g.u0, 2)]))
             righe.append('')
             righe.append(f'Spessore mm;{n(data.thickness, 2)};Materiale;{self.doc.material};Sviluppo mm;'
@@ -897,34 +924,48 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 raise SteelCADError('La piega su linea si disegna sulla base: sulla faccia di sopra o di sotto, oppure sullo '
                                     'sviluppo.', code='piega')
             linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('ref') and not e.get('construction')]
-            if len(linee) != 1:
-                raise SteelCADError('Disegna una sola linea: è dove si piega (lo spigolo esterno della piega).', code='piega')
+            if not linee:
+                raise SteelCADError('Disegna una linea dove si piega (lo spigolo esterno della piega); più linee = più '
+                                    'pieghe, anche in serie per la calandratura a colpi (bumping).', code='piega')
             ss = self.doc.solved_sketch(sid)
             fatto = self.doc._sketch_results.get(sid)
             pl_sk = fatto[1].plane if fatto and fatto[1] is not None else self.doc._plane(sk, self.result.body)
-            e = sk.entities[linee[0]]
-            pts = []
-            for p in (e['a'], e['b']):
-                q = data.plane.to_local_coords(pl_sk.from_local_coords(ss.points[p]))
-                pts.append([round(q.X, 6), round(q.Y, 6)])
+            # una piega per linea, in ordine lungo il pezzo (così PL1, PL2... vanno da una parte all'altra)
+            tratti = []
+            for lid in linee:
+                e = sk.entities[lid]
+                pts = []
+                for p in (e['a'], e['b']):
+                    q = data.plane.to_local_coords(pl_sk.from_local_coords(ss.points[p]))
+                    pts.append([round(q.X, 6), round(q.Y, 6)])
+                tratti.append(pts)
+            (ax, ay), (bx, by) = tratti[0]
+            nx, ny = -(by - ay), bx - ax
+            tratti.sort(key=lambda t: (t[0][0] + t[1][0]) * nx + (t[0][1] + t[1][1]) * ny)
             if direction not in VERSI:
                 raise SteelCADError('Verso della piega: su o giù.', code='piega')
             colpi = self._bump(bump)
+            if colpi and len(tratti) > 1:
+                raise SteelCADError('I colpi col raggio grande si danno su una linea sola. Con più linee disegnate ogni linea è già un colpo: '
+                                    'lascia vuoti colpi e raggio.', code='bump')
         except SteelCADError as ex:
             return _err(ex)
 
         def fn():
             folds = sm.setdefault('folds', [])
-            usati = {x['id'] for x in folds} | {x['id'] for x in sm.get('flanges') or []}
-            n = 1
-            while f'PL{n}' in usati:
-                n += 1
-            folds.append({'id': f'PL{n}', 'a': pts[0], 'b': pts[1], 'angle': _number(angle), 'direction': direction,
-                          'flip': bool(flip), **({'bump': colpi} if colpi else {})})
+            for a, b in tratti:
+                usati = {x['id'] for x in folds} | {x['id'] for x in sm.get('flanges') or []}
+                n = 1
+                while f'PL{n}' in usati:
+                    n += 1
+                folds.append({'id': f'PL{n}', 'a': a, 'b': b, 'angle': _number(angle), 'direction': direction,
+                              'flip': bool(flip), **({'bump': colpi} if colpi else {})})
+            _rinumera_pieghe(sm)
             self.doc.features = [f for f in self.doc.features if f is not sk]   # la linea è diventata la piega
-        r = self._change('Piega su linea', fn)
+        r = self._change('Piega su linea' if len(tratti) == 1 else f'{len(tratti)} pieghe su linea', fn)
         if r['ok']:
-            r['message'] = 'Piegata lungo la linea: lo sviluppo resta quello disegnato.'
+            r['message'] = ('Piegata lungo la linea' if len(tratti) == 1 else f'{len(tratti)} pieghe, una per linea') \
+                + ': lo sviluppo resta quello disegnato.'
         return r
 
     @staticmethod
@@ -1296,7 +1337,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 raise SteelCADError(f'Nello sketch non c’è {", ".join(mancano)}.', code='quota')
         except SteelCADError as ex:
             return _err(ex)
-        return self._sketch_change('Quota', lambda: sketch_edit.add_dimension(self.doc, sid, kind, refs))
+        info = {}
+        r = self._sketch_change('Quota', lambda: info.update(did=sketch_edit.add_dimension(self.doc, sid, kind, refs,
+                                                                                          info=info)))
+        if r.get('ok'):
+            r['dim'] = info.get('did')
+            if info.get('tolta'):
+                r['message'] = f'Tolta {info["tolta"]}: ora comanda la tua. Scrivi la misura e Invio.'
+        return r
 
     def sketch_delete(self, sid: str, eids: list) -> dict:
         return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
@@ -1309,20 +1357,127 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         nuovo = {}
 
         def fn():
-            sk = self.doc.add_sketch({'face': face_name}, 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
-            nuovo['id'] = sk.id
-            import build123d as bd
-            from cad_engine.sketch.face_plane import plane_of
-            faccia = bd.Face(self.result.body.face(face_name)[0])
-            piano = plane_of(self.result.body, face_name, sk)
-            sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
-            # le sagome delle parti che arrivano a pochi mm dalla faccia (es. la testata di un profilo)
-            data = getattr(self.result.body, 'sheet', None)
-            from app import sketch_border
-            sketch_border.add_nearby_edges(sk, self.result.body, faccia, piano, 3 * data.thickness if data else 5.0)
+            nuovo['id'] = self._crea_sketch_faccia(face_name).id
         r = self._change('Sketch su faccia', fn)
         if r['ok']:
             r['sketch'] = nuovo['id']
+        return r
+
+    def _crea_sketch_faccia(self, face_name: str, nome: str | None = None):
+        sk = self.doc.add_sketch({'face': face_name}, nome or 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
+        import build123d as bd
+        from cad_engine.sketch.face_plane import plane_of
+        faccia = bd.Face(self.result.body.face(face_name)[0])
+        piano = plane_of(self.result.body, face_name, sk)
+        sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
+        # le sagome delle parti che arrivano a pochi mm dalla faccia (es. la testata di un profilo)
+        data = getattr(self.result.body, 'sheet', None)
+        from app import sketch_border
+        sketch_border.add_nearby_edges(sk, self.result.body, faccia, piano, 3 * data.thickness if data else 5.0)
+        return sk
+
+    # ------------------------------------------------------------ fori e asole guidati (senza sketch)
+    def fori_faccia(self) -> str | None:
+        """La faccia dove si fanno i fori di solito: quella di sopra della lamiera, o quella di sopra della piastra."""
+        body = self.result.body
+        if body is None:
+            return None
+        data = getattr(body, 'sheet', None)
+        if data is not None and f'{data.feature}/sopra' in body.names:
+            return f'{data.feature}/sopra'
+        return next((n for n in body.names if n.endswith('/fine')), None)
+
+    def fori_info(self, face_name: str | None = None) -> dict:
+        """Il contorno della faccia visto da sopra (coordinate della faccia: x dal bordo sinistro, y dal bordo
+        davanti), per l'anteprima dei fori; più spessore e raggio, per l'avviso "troppo vicino alla piega"."""
+        try:
+            import build123d as bd
+            from cad_engine.sketch.face_plane import plane_of
+            face_name = face_name or self.fori_faccia()
+            if not face_name or self.result.body is None or face_name not in self.result.body.names:
+                return {'ok': False, 'message': 'Prima serve una lamiera o una piastra.'}
+            sk = Sketch('_anteprima', plane={'face': face_name})
+            faccia = bd.Face(self.result.body.face(face_name)[0])
+            piano = plane_of(self.result.body, face_name, sk)
+            sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
+            ox, oy, w, h = self._fuori_tutto(piano)
+            P = {k: (e['x'] - ox, e['y'] - oy) for k, e in sk.entities.items() if e['kind'] == 'point'}
+            linee = [[*P[e['a']], *P[e['b']]] for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref')]
+            cerchi = [[*P[e['center']], e['r']] for e in sk.entities.values() if e['kind'] == 'circle' and e.get('ref')]
+            archi = [[*P[e['center']], math.dist(P[e['center']], P[e['start']])] for e in sk.entities.values()
+                     if e['kind'] == 'arc' and e.get('ref')]
+            data = getattr(self.result.body, 'sheet', None)
+            return {'ok': True, 'face': face_name, 'label': self.doc.describe_face(face_name), 'lines': linee,
+                    'circles': cerchi + archi, 'outer': [w, h], 'thickness': data.thickness if data else None,
+                    'radius': (data.tech.get('radius') if data else None)}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def _fuori_tutto(self, piano) -> tuple:
+        """Dove comincia il pezzo, fuori tutto, nelle coordinate della faccia: le distanze dei fori si misurano dal bordo
+        esterno (com'è in officina), non dall'inizio della parte piana dopo la piega."""
+        import build123d as bd
+        pts = [piano.to_local_coords(v.center()) for v in bd.Shape.cast(self.result.body.shape).vertices()]
+        xs, ys = [q.X for q in pts], [q.Y for q in pts]
+        return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+    def fori_guidati(self, face_name: str, spec: dict) -> dict:
+        """Fori tondi, asole o finestre come si segnano sul pezzo: misura, centro dal bordo sinistro e dal bordo
+        davanti, e se serve una fila (quanti, ogni quanto, verso destra o verso dietro). Dietro c'è lo stesso
+        sketch di sempre (con le quote, si modifica dopo), ma in un'operazione sola: un Annulla li toglie tutti."""
+        try:
+            n = lambda k, d=None: _number(spec.get(k, d))  # noqa: E731
+            tipo = spec.get('tipo', 'tondo')
+            x, y = float(n('x')), float(n('y'))
+            quanti = max(1, int(n('n', 1) or 1)) if spec.get('fila') else 1
+            passo = float(n('passo', 0) or 0)
+            if quanti > 1 and passo <= 0:
+                raise SteelCADError('Scrivi ogni quanto va un foro della fila.', code='fori')
+            if face_name not in (self.result.body.names if self.result.body is not None else {}):
+                raise SteelCADError('Questa faccia non c’è più: riapri «Fai fori o asole».', code='fori')
+        except SteelCADError as ex:
+            return _err(ex)
+        except (TypeError, ValueError):
+            return {'ok': False, 'code': 'fori', 'message': 'Scrivi le misure con i numeri.'}
+        nomi = {'tondo': 'Fori', 'asola': 'Asole', 'finestra': 'Finestre'}
+
+        def fn():
+            nonlocal x, y
+            sk = self._crea_sketch_faccia(face_name, nomi.get(tipo, 'Fori'))
+            from cad_engine.sketch.face_plane import plane_of
+            ox, oy, _, _ = self._fuori_tutto(plane_of(self.result.body, face_name, sk))
+            x, y = x + ox, y + oy                          # dal bordo esterno del pezzo alle coordinate della faccia
+            prima = set(sk.entities)
+            if tipo == 'tondo':
+                d = float(n('d'))
+                sketch_ops.add_circle(self.doc, sk.id, [x, y], d / 2)
+            elif tipo == 'asola':
+                lun, lar = float(n('lungh')), float(n('larg'))
+                if lar <= 0 or lun <= lar:
+                    raise SteelCADError('L’asola deve essere più lunga che larga.', code='fori')
+                h = (lun - lar) / 2
+                c1, c2 = ([x, y - h], [x, y + h]) if spec.get('verticale') else ([x - h, y], [x + h, y])
+                sketch_ops.add_slot(self.doc, sk.id, c1, c2, lar / 2)
+            elif tipo == 'finestra':
+                lun, lar = float(n('lungh')), float(n('larg'))
+                sketch_ops.add_rectangle(self.doc, sk.id, [x - lun / 2, y - lar / 2], [x + lun / 2, y + lar / 2])
+            else:
+                raise SteelCADError(f'Forma "{tipo}" sconosciuta.', code='fori')
+            if quanti > 1:
+                nuove = [k for k, e in sk.entities.items() if k not in prima and e['kind'] != 'point' and not e.get('ref')]
+                if spec.get('verso') == 'y':
+                    sketch_edit.pattern(self.doc, sk.id, nuove, 1, 0, quanti, passo)
+                else:
+                    sketch_edit.pattern(self.doc, sk.id, nuove, quanti, passo, 1, 0)
+            if self._sheet_def(face_name.split('/')[0]) is not None:
+                self.doc.add_feature('sheet_cut', nomi.get(tipo, 'Fori'), sketch=sk.id)
+            else:
+                self.doc.add_feature('extrude', nomi.get(tipo, 'Fori'), sketch=sk.id, operation='cut', through_all=True, reverse=True)
+        cosa = {'tondo': 'foro', 'asola': 'asola', 'finestra': 'finestra'}.get(tipo, 'foro')
+        r = self._change(f'{quanti} {cosa}' if quanti > 1 else cosa.capitalize(), fn)
+        if r.get('ok'):
+            plur = {'foro': 'fori', 'asola': 'asole', 'finestra': 'finestre'}[cosa]
+            r['message'] = f'Fatt{"i" if cosa == "foro" else "e"} {quanti} {plur}.' if quanti > 1 else f'Fatt{"o" if cosa == "foro" else "a"} {"il foro" if cosa == "foro" else "l’" + cosa if cosa == "asola" else "la finestra"}.'
         return r
 
     def sketch_close(self, sid: str) -> dict:
@@ -2126,29 +2281,83 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
     TIPI_PROGETTO = ('telaio', 'piastra', 'vuoto', 'lamiera', 'zero', 'scaffale', 'armadio', 'cancello', 'disegno',
                      'cono', 'tramoggia', 'tramoggia_cassone')
 
+    def _doc_modello(self, kind: str, values: dict | None) -> Document:
+        if kind in ('lamiera', 'cono', 'tramoggia', 'tramoggia_cassone'):
+            d = self.bend_default()
+            values = dict(values or {})
+            scritti = any(str(values.get(c, '') or '').strip() for c in ('raggio', 'k', 'metodo', 'bd90'))
+            for campo, k in (('raggio', 'radius'), ('k', 'k')):
+                if str(values.get(campo, '') or '').strip() == '' and d.get(k) is not None:
+                    values[campo] = d[k]
+            # il metodo predefinito (DIN 6935, deduzione a 90°) vale solo se l'utente non ha scritto i suoi dati
+            if kind == 'lamiera' and not scritti and d.get('method'):
+                values['metodo'] = d['method']
+                if d.get('bd90') is not None:
+                    values['bd90'] = d['bd90']
+        values = {k: _number(v) for k, v in (values or {}).items()}
+        if kind not in self.TIPI_PROGETTO:
+            raise SteelCADError(f'Tipo di progetto "{kind}" sconosciuto.', code='tipo')
+        return {'telaio': templates.telaio, 'piastra': templates.piastra,
+                'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
+                'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
+                'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
+                'cono': templates.cono, 'tramoggia': templates.tramoggia,
+                'tramoggia_cassone': templates.tramoggia_cassone}[kind](**values)
+
+    def new_project_preview(self, kind: str, values: dict | None = None) -> dict:
+        """Mentre si scrivono le misure di un pezzo nuovo: cosa viene fuori, a parole (quante sbarre e che luce,
+        quanto pesa, quanto è lo sviluppo). Il pezzo si costruisce a parte: il progetto aperto non cambia."""
+        def kg(v):
+            return f'{v:.1f}'.replace('.', ',')
+        try:
+            doc = self._doc_modello(kind, values)
+            r = doc.rebuild()
+            if r.errors:
+                return {'ok': True, 'text': None, 'warning': r.errors[0].message}
+            frasi = []
+            if r.structures:
+                cl = cut_list(r.structures)
+                if kind == 'cancello':
+                    sbarre = [m for st in r.structures for m in st.members if m.group == 'Sbarre']
+                    xs = sorted({round((m.start.X + m.end.X) / 2, 3) for m in sbarre})
+                    if len(xs) >= 2:
+                        passo = xs[1] - xs[0]
+                        luce = passo - sbarre[0].profile.width
+                        frasi.append(f'Escono {len(xs)} sbarre ogni {fmt_mm(round(passo, 1))} mm: tra una e l’altra restano '
+                                     f'{fmt_mm(round(luce, 1))} mm di luce.')
+                if kind in ('scaffale', 'armadio'):
+                    t = (doc.features[-1].get('template') or {}).get('values', {}) if doc.features else {}
+                    n, h = int(_number(t.get('ripiani', 0)) or 0), _number(t.get('H', 0))
+                    if n > 1 and h:
+                        frasi.append(f'{n} piani, uno ogni {fmt_mm(round(h / (n - 1), 1))} mm.')
+                import build123d as bd
+                bb = bd.Compound([m.solid for st in r.structures for m in st.members]).bounding_box().size
+                fuori = [round(v) for v in (bb.X, bb.Y, bb.Z) if v > 1e-6]
+                if kind == 'cancello':
+                    fuori = [round(bb.X), round(bb.Z)]
+                frasi.append('Fuori tutto ' + ' × '.join(fmt_mm(v) for v in fuori) + ' mm.')
+                frasi.append(f'Circa {kg(cl["kg"])} kg: {cl["pieces"]} pezzi di tubo da tagliare, {len(cl["rows"])} misure diverse.')
+            if r.body is not None:
+                massa = properties(r.body.shape, doc.material)['mass_kg']
+                sd = getattr(r.body, 'sheet', None)
+                if sd is not None:
+                    info = getattr(sd, 'shape_info', None) or {}
+                    if info.get('kind') == 'cone' and not info.get('pieghe'):
+                        frasi.append(f'Calandrato: lo sviluppo è una corona di {fmt_mm(round(sd.flat_size[0], 1))} × '
+                                     f'{fmt_mm(round(sd.flat_size[1], 1))} mm.')
+                    else:
+                        n_pieghe = info.get('pieghe') if info else len(sd.flanges)
+                        frasi.append(f'Sviluppo {fmt_mm(round(sd.flat_size[0], 1))} × {fmt_mm(round(sd.flat_size[1], 1))} mm'
+                                     + (f', {n_pieghe} pieghe' if n_pieghe else '') + '.')
+                frasi.append(f'Circa {kg(massa)} kg.')
+            return {'ok': True, 'text': ' '.join(frasi) or None}
+        except Exception as ex:  # noqa: BLE001 - misure a metà mentre si scrive: niente riassunto, niente errore
+            msg = ex.message if isinstance(ex, SteelCADError) else None
+            return {'ok': True, 'text': None, 'warning': msg}
+
     def new_project(self, kind: str, values: dict | None = None) -> dict:
         try:
-            if kind in ('lamiera', 'cono', 'tramoggia', 'tramoggia_cassone'):
-                d = self.bend_default()
-                values = dict(values or {})
-                scritti = any(str(values.get(c, '') or '').strip() for c in ('raggio', 'k', 'metodo', 'bd90'))
-                for campo, k in (('raggio', 'radius'), ('k', 'k')):
-                    if str(values.get(campo, '') or '').strip() == '' and d.get(k) is not None:
-                        values[campo] = d[k]
-                # il metodo predefinito (DIN 6935, deduzione a 90°) vale solo se l'utente non ha scritto i suoi dati
-                if kind == 'lamiera' and not scritti and d.get('method'):
-                    values['metodo'] = d['method']
-                    if d.get('bd90') is not None:
-                        values['bd90'] = d['bd90']
-            values = {k: _number(v) for k, v in (values or {}).items()}
-            if kind not in self.TIPI_PROGETTO:
-                raise SteelCADError(f'Tipo di progetto "{kind}" sconosciuto.', code='tipo')
-            doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
-                   'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
-                   'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
-                   'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
-                   'cono': templates.cono, 'tramoggia': templates.tramoggia,
-                   'tramoggia_cassone': templates.tramoggia_cassone}[kind](**values)
+            doc = self._doc_modello(kind, values)
             self._set(doc)
             self.path = None
             self.blank = False
@@ -2253,6 +2462,71 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
+    # ================================================================ prepara per il laser / l'officina
+    def _nome_file(self) -> str:
+        nome = (self.asm.name if self.asm is not None else self.doc.meta.get('name')) or (self.path.stem if self.path else 'pezzo')
+        nome = str(nome).replace('×', 'x')             # il segno × nei nomi dei file non piace a tutti i programmi
+        return re.sub(r'[\\/:*?"<>|]+', '-', nome).strip() or 'pezzo'
+
+    def prepara_info(self) -> dict:
+        """Cosa si può preparare per questo pezzo, a chi serve, in che cartella, e se i controlli sono passati."""
+        import tempfile
+        nome = self._nome_file()
+        base = self.path.parent if self.path else Path.home() / 'Documents' / 'SteelCAD'
+        corpo = self.result.body if self.asm is None else None
+        sheet = getattr(corpo, 'sheet', None) if corpo is not None else None
+        strutture = bool(self.result.structures) if self.asm is None else False
+        pieghe = bool(sheet is not None and ((getattr(sheet, 'bend_rows', None) or []) or sheet.flanges
+                                             or getattr(sheet, 'folds', None)))
+        controllo = None
+        if corpo is not None:
+            with tempfile.TemporaryDirectory() as d:
+                r = self.export_dxf(str(Path(d) / 'prova.dxf'))
+            controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', '')}
+        laser = controllo is not None and controllo['ok']
+        voci = [
+            {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
+             'file': f'{nome}_sviluppo.dxf', 'si': laser, 'scelta': laser,
+             'motivo': None if laser else (controllo['testo'] if controllo else 'serve una lamiera o una piastra')},
+            {'id': 'piegatrice', 'titolo': 'Per la piegatrice', 'desc': 'Le pieghe in ordine: angolo, misura, correzione (si apre con Excel).',
+             'file': f'{nome}_pieghe.csv', 'si': pieghe, 'scelta': pieghe, 'motivo': None if pieghe else 'il pezzo non ha pieghe'},
+            {'id': 'officina', 'titolo': 'Per l’officina o il cliente',
+             'desc': 'I disegni quotati con il cartiglio, da stampare' + (', con la lista di taglio dei tubi.' if strutture else '.'),
+             'file': f'{nome}_disegni.pdf', 'si': corpo is not None or strutture or self.asm is not None,
+             'scelta': strutture or self.asm is not None, 'motivo': None},
+            {'id': 'step', 'titolo': 'Per un altro programma 3D', 'desc': 'Il pezzo in 3D (STEP), per chi usa SolidWorks, Inventor e simili.',
+             'file': f'{nome}.step', 'si': corpo is not None or strutture or self.asm is not None, 'scelta': False, 'motivo': None},
+        ]
+        return {'ok': True, 'nome': nome, 'cartella': str(base / nome), 'voci': voci, 'controllo': controllo}
+
+    def prepara(self, cartella: str, scelte: list, campi: dict | None = None) -> dict:
+        """Salva insieme i file scelti nella cartella del lavoro, con i nomi già fatti."""
+        try:
+            info = self.prepara_info()
+            d = Path(cartella)
+            d.mkdir(parents=True, exist_ok=True)
+            fatti, problemi = [], []
+            for v in info['voci']:
+                if v['id'] not in scelte or not v['si']:
+                    continue
+                p = d / v['file']
+                if v['id'] == 'laser':
+                    r = self.export_dxf(str(p))
+                elif v['id'] == 'piegatrice':
+                    r = self.export_bend_table(str(p))
+                elif v['id'] == 'officina':
+                    c = {**self.drawing_fields().get('fields', {}), **(campi or {})}
+                    r = self.export_drawings(str(p), c, True)
+                else:
+                    r = self.export_step(str(p))
+                (fatti if r.get('ok') else problemi).append(v['file'] if r.get('ok') else f'{v["titolo"]}: {r.get("message")}')
+            if not fatti and not problemi:
+                return {'ok': False, 'message': 'Scegli almeno una cosa da preparare.'}
+            msg = (f'Salvati {len(fatti)} file in {d}.' if fatti else '') + (' Non riusciti: ' + '; '.join(problemi) if problemi else '')
+            return {'ok': not problemi, 'files': fatti, 'cartella': str(d), 'message': msg.strip()}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
     def export_step(self, path: str) -> dict:
         if self.asm is not None:
             try:
@@ -2317,6 +2591,29 @@ def _guida_secondaria(sk, c) -> bool:
 
 
 _UNSAVED = Path.home() / 'Documents' / 'SteelCAD senza nome.steelcad'
+
+
+def _rinumera_pieghe(sm: dict) -> None:
+    """Le pieghe su linea numerate in ordine lungo il pezzo (PL1 a un'estremità, poi la successiva...), non
+    nell'ordine in cui sono state disegnate: così la tabella pieghe e le etichette vanno da una parte all'altra.
+    I riferimenti delle flange (lato o madre) seguono il nuovo nome."""
+    folds = sm.get('folds') or []
+    if len(folds) < 2:
+        return
+    (ax, ay), (bx, by) = folds[0]['a'], folds[0]['b']
+    orizz = abs(bx - ax) >= abs(by - ay)
+    i, j = (1, 0) if orizz else (0, 1)
+    ordinate = sorted(folds, key=lambda f: (round(f['a'][i] + f['b'][i], 6), round(f['a'][j] + f['b'][j], 6)))
+    mappa = {f['id']: f'PL{k}' for k, f in enumerate(ordinate, 1)}
+    if ordinate == folds and all(a == b for a, b in mappa.items()):
+        return
+    for f in ordinate:
+        f['id'] = mappa[f['id']]
+    sm['folds'] = ordinate
+    for fl in sm.get('flanges') or []:
+        for k in ('edge', 'parent'):
+            if fl.get(k) in mappa:
+                fl[k] = mappa[fl[k]]
 
 # filettature metriche a passo grosso: (preforo, diametro nominale) in mm (UNI/ISO, valori di tabella)
 FILETTI = {'M3': (2.5, 3), 'M4': (3.3, 4), 'M5': (4.2, 5), 'M6': (5.0, 6), 'M8': (6.8, 8), 'M10': (8.5, 10),

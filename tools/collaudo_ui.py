@@ -38,7 +38,7 @@ def scenario_lamiera(pg):
 
 def scenario_flangia(pg):
     scenario_lamiera(pg)
-    pg.click('#tree .node:has-text("FL1")')
+    pg.click('#tree .node:has-text("Piega davanti")')       # FL1 sul lato sotto: nell'albero si chiama a parole
 
 
 def scenario_sketch(pg):

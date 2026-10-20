@@ -96,14 +96,14 @@ def main():
             ok(f'smusso 6 sullo spigolo ({v()["profiles"]} contorno)', v()['profiles'] == 1)
             pg.screenshot(path=str(SHOTS / '1_raccordi.png'))
             # due linee staccate: raggio 0 le unisce in uno spigolo vivo
-            pg.keyboard.press('l'); clic([15, 15]); clic([45, 15]); pg.keyboard.press('Escape')
-            pg.keyboard.press('l'); clic([60, 22]); clic([60, 40]); pg.keyboard.press('Escape')
+            pg.keyboard.press('l'); clic([10, 10]); clic([40, 10]); pg.keyboard.press('Escape')
+            pg.keyboard.press('l'); clic([60, 20]); clic([60, 40]); pg.keyboard.press('Escape')
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 7')
             pg.click('#ribbon [data-tool="fillet"]')
-            clic([30, 15]); clic([60, 32])
+            clic([30, 10]); clic([60, 30])
             pg.keyboard.press('Control+A'); pg.keyboard.type('0'); pg.keyboard.press('Enter')
-            pg.wait_for_function("window.__steelcad.sketch.v.lines.some(l => Math.abs(l.xb[0] - 60) < 1e-6 && Math.abs(l.xb[1] - 15) < 1e-6 || Math.abs(l.xa[0] - 60) < 1e-6 && Math.abs(l.xa[1] - 15) < 1e-6)", timeout=8000)
-            ok('raccordo R0: le due linee staccate si uniscono nello spigolo (60; 15)', True)
+            pg.wait_for_function("window.__steelcad.sketch.v.lines.some(l => Math.abs(l.xb[0] - 60) < 1e-6 && Math.abs(l.xb[1] - 10) < 1e-6 || Math.abs(l.xa[0] - 60) < 1e-6 && Math.abs(l.xa[1] - 10) < 1e-6)", timeout=8000)
+            ok('raccordo R0: le due linee staccate si uniscono nello spigolo (60; 10)', True)
             pg.screenshot(path=str(SHOTS / '2_raccordo_r0.png'))
             pg.click('#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
@@ -176,7 +176,7 @@ def main():
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 4")
             ok('stato: la spezzata aperta può diventare lamiera', 'Lamiera a contorno' in pg.inner_text('#sk-status'))
             pg.screenshot(path=str(SHOTS / '0a_sezione.png'))
-            pg.click('#sk-contour')
+            pg.click('#sk-more > button'); pg.click('#sk-contour')
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             pieghe = [(b['flange'], b['parent'], round(b['length'], 2), round(b['angle'], 1), b['direction']) for b in st['sheet']['data']['bends']]
@@ -252,15 +252,15 @@ def main():
             ok('progetto in lamiera: niente scheda Cut list (non ci sono strutture)',
                pg.evaluate("document.querySelector('.tabs [data-tab=cut]').hidden"))
             for tab in ('lamiera',):
-                pg.click(f'.rtabs [data-rtab="{tab}"]')
+                # nella schermata del pezzo la barra non si vede (c'è "Cosa puoi fare adesso"): i suoi comandi si
+                # lanciano per nome, come da Ctrl+K e dai pannelli
                 for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].map(b => (b.closest('.drop') ? 'menu:' : '') + b.dataset.cmd)", tab):
                     if cmd == 'unfold' or cmd == 'flat_sketch':
                         continue                               # provati a parte
                     pg.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
-                    if cmd.startswith('menu:'):                # le voci di Esporta ▾: si apre il menu e si sceglie
+                    if cmd.startswith('menu:'):                # le voci di Esporta ▾
                         cmd = cmd[5:]
-                        pg.click(f'.rbody[data-rbody="{tab}"] .rb-export')
-                    pg.click(f'.rbody[data-rbody="{tab}"] [data-cmd="{cmd}"]')
+                    pg.evaluate("(c) => window.__steelcad.runCmd(c)", cmd)
                     tipo = attesi.get(cmd, '?')
                     if tipo == 'modal':
                         pg.wait_for_selector('#modal:not([hidden])', timeout=5000)
@@ -276,13 +276,14 @@ def main():
                         risposta = False
                     testo = pg.inner_text('#toasts')[:70].replace('\n', ' ') if tipo == 'toast' else ''
                     ok(f'barra {tab.upper()} → {cmd}: risponde {testo!r}', risposta)
-            pg.click('.rtabs [data-rtab="lamiera"]')
-            pg.click('.rbody[data-rbody="lamiera"] [data-cmd="unfold"]')
+            ok('schermata del pezzo: comandi nella barra in alto, pannello a destra chiuso',
+               pg.is_visible('#ribbon [data-azione="fori"]') and not pg.is_visible('#right'))
+            pg.click('#ribbon [data-cmd="unfold"]')
             time.sleep(0.5)
             ok('barra → Spiega: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
-            pg.click('.rbody[data-rbody="lamiera"] [data-cmd="unfold"]')
+            pg.evaluate("window.__steelcad.runCmd('unfold')")
             time.sleep(0.4)
-            pg.click('.rbody[data-rbody="lamiera"] [data-cmd="flat_sketch"]')
+            pg.evaluate("window.__steelcad.runCmd('flat_sketch')")
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_flat")
             ok('barra → Sullo sviluppo: sketch sullo sviluppo', True)
             pg.click('#ribbon [data-skdone]')

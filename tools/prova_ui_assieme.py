@@ -89,6 +89,10 @@ try:
         pg.click('#a-open'); pg.wait_for_function("window.__steelcad.state.mode === 'part' && window.__steelcad.state.can_back", timeout=15000)
         ok('Apri il pezzo → si lavora sul pezzo, c’è “← Assieme”', pg.is_visible('#b-back'))
         pg.click('#b-back'); pg.wait_for_function("window.__steelcad.state.mode === 'assembly'", timeout=15000)
+        try:
+            pg.wait_for_function("window.__steelcad.objs.size === 2", timeout=10000)
+        except Exception:
+            pass
         ok('← Assieme: di nuovo nell’assieme', pg.evaluate("window.__steelcad.objs.size") == 2)
         pg.click('[data-cmd="asm_interf"]'); time.sleep(1.5)
         ok('controllo interferenze risponde: ' + pg.inner_text('#toasts')[-80:].replace('\n', ' '), 'interferenz' in pg.inner_text('#toasts').lower())

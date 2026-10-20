@@ -190,6 +190,7 @@ function selectEdge(e) {
   selTok++; selGen++;
   sel = { id: 'edge=' + e.id };
   hover = null;
+  aggiornaLayout();
   paint(); renderTree(); paintNodes();
   const punta = e.kind === 'tip';
   const d = punta ? ultimaPunta : ultimaFlangia;
@@ -523,7 +524,7 @@ function buildDims() {
     el.addEventListener('click', ev => { ev.stopPropagation(); editDim(el, d); });
     dimsBox.appendChild(el);
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
-    dimEls.push({ el, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
+    dimEls.push({ el, d, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
   }
   placeDims();
   ridisegna();
@@ -652,10 +653,23 @@ function renderPanels() {
   $('#b-back').hidden = !S.can_back;
   if (!assieme && ASM.tool) asmTool(null);
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi();
+  aggiornaLayout();
+  if (!sel && !SK) $('#props').innerHTML = '';
+}
+// il pannello a destra si apre solo quando c'è qualcosa di selezionato (le proprietà); i comandi stanno nella barra in alto
+function aggiornaLayout() {
+  const chiuso = !sel || !!SK;
+  if (document.body.classList.contains('senza-destra') === chiuso) return;
+  document.body.classList.toggle('senza-destra', chiuso);
+  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 }
 
 function renderTop() {
   const nome = esc(S.name || 'Senza nome');
+  const bp = $('#b-prepara');
+  const vuoto = !S.tree?.children?.length && !S.cutlist?.rows?.length && S.mode !== 'assembly';
+  bp.hidden = vuoto;
+  bp.textContent = S.mode === 'assembly' || (S.cutlist?.rows?.length && !S.sheet) ? 'Prepara per l’officina' : 'Prepara per il laser';
   $('#docname').innerHTML = `${S.dirty ? '<span class="dirty">● </span>' : ''}${nome}` +
     (S.path ? ` <span style="color:var(--ink-3)">— ${esc(S.path)}</span>` : ' <span style="color:var(--ink-3)">— non salvato</span>');
   for (const [b, k, t] of [['#b-undo', 'undo', 'Annulla'], ['#b-redo', 'redo', 'Ripeti']]) {
@@ -759,11 +773,86 @@ async function select(id, face = null, ids = null, silenzioso = false) {
   if (r.selection.kind === 'structure') { sel.ids = r.selection.members; paint(); }
   if (r.selection.kind === 'assembly') { sel.ids = [...objs.keys()]; paint(); }
   renderProps(r.selection);
+  aggiornaLayout();
 }
 function clearSelection() {
   selTok++; selGen++;
   sel = null; paint(); renderTree(); paintNodes();
-  $('#props').innerHTML = '<p class="empty">Clicca un pezzo nel modello o nell’albero.</p>';
+  $('#props').innerHTML = '';
+  aggiornaLayout();
+}
+
+async function disegnaSopra(aiuto) {
+  // la faccia di sopra del pezzo: lì si disegnano fori, tagli, persiane
+  const facce = objs.get('body')?.data?.faces || [];
+  const f = facce.find(x => x.name === `${S.sheet?.feature}/sopra`) || facce.find(x => /\/fine$/.test(x.name || ''));
+  if (!f) { toast('Clicca la faccia su cui lavorare, poi «Disegna su questa faccia».'); return; }
+  const r = await call('sketch_on_face', f.name);
+  if (await apply(r)) { await enterSketch(r.sketch); if (aiuto) toast(aiuto); }
+}
+function azione(id) {
+  const t = (m, k) => toast(m, k || '');
+  const sel1 = async q => { await select(q); };
+  switch (id) {
+    case 'piega': runCmd('flange_help'); return;
+    case 'fori': inCoda(() => foriDialog()); return;
+    case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
+    case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
+    case 'contorno': inCoda(() => disegnaSopra()); return;
+    case 'linguetta': inCoda(() => disegnaSopra('Disegna la linguetta partendo da un bordo e tornando sullo stesso bordo, poi «Aggiungi materiale».')); return;
+    case 'piegatrice': showTab('sheet', true); return;
+    case 'regole': runCmd('sheet_rules'); return;
+    case 'sviluppo': runCmd('unfold'); return;
+    case 'piega_linea': runCmd('flat_sketch'); return;
+    case 'profilo': runCmd('contour_help'); return;
+    case 'orlo': t('Clicca la piega da ripiegare: nel suo pannello apri «Piega sulla punta» e scegli 180°.'); return;
+    case 'angoli': t('Clicca una delle due pieghe che si incontrano: nel pannello trovi gli angoli.'); return;
+    case 'parametri': { const d = $('#params-box'); if (d) { d.open = true; d.scrollIntoView({ block: 'nearest' }); } t('Le misure collegate sono a sinistra, sotto «Misure».'); return; }
+    case 'misure': if (S.sheet?.shape) inCoda(() => sel1('body')); else if (S.cutlist?.rows?.length) inCoda(() => sel1('struct=ST1'));
+      else { const d = $('#params-box'); if (d) d.open = true; t('Le misure sono a sinistra: cambia il numero e premi Invio.'); } return;
+    case 'tubo': t('Clicca un’asta nel modello: nel pannello scegli il tubo (anche per tutte le aste uguali).'); return;
+    case 'asta': runCmd('member_help'); return;
+    case 'giunti': t('Clicca un pallino in un angolo: nel pannello scegli come si uniscono i tubi.'); return;
+    default: return;
+  }
+}
+$('#props').addEventListener('click', ev => { const b = ev.target.closest('[data-azione]'); if (b) azione(b.dataset.azione); });
+
+// ------------------------------------------------------------- prepara per il laser / l'officina
+async function preparaDialog() {
+  const info = await call('prepara_info');
+  if (!info.ok) { toast(info.message, 'err'); return; }
+  let cartella = info.cartella;
+  const c = info.controllo;
+  const voci = info.voci.map(v => `<label class="${v.si ? '' : 'no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
+      <input type="checkbox" data-voce="${v.id}" ${v.scelta ? 'checked' : ''} ${v.si ? '' : 'disabled'}>
+      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small></span></label>`).join('');
+  modal(`<h3>Cosa ti serve?</h3>
+    ${c ? `<div class="prep-ok${c.ok ? '' : ' no'}">${c.ok ? '<b>Il pezzo è a posto per il laser.</b> ' : '<b>Attenzione:</b> '}${esc(c.ok ? 'Contorno chiuso, fori e pieghe controllati.' : c.testo)}</div>` : ''}
+    <div class="prep-voci">${voci}</div>
+    <div class="prep-dove">Si salvano in <b id="prep-dir">${esc(cartella)}</b> <button class="link" id="prep-cambia">Cambia cartella</button></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
+    $('#modal-box').classList.add('prepara');
+    const conta = () => {
+      const n = document.querySelectorAll('#modal-box [data-voce]:checked').length;
+      $('#m-ok').textContent = n ? `Salva ${n === 1 ? 'il file' : `i ${n} file`}` : 'Scegli cosa ti serve';
+      $('#m-ok').disabled = !n;
+    };
+    document.querySelectorAll('#modal-box [data-voce]').forEach(i => { i.onchange = conta; });
+    conta();
+    $('#m-no').onclick = close;
+    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; } });
+    $('#m-ok').onclick = () => {
+      const scelte = [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
+      close();
+      inCoda(async () => {
+        const r = await call('prepara', cartella, scelte);
+        if (!r.ok) { toast(r.message || 'Non riuscito.', 'err'); return; }
+        toast(r.message);
+        await call('apri_cartella', r.cartella);
+      });
+    };
+  });
 }
 
 let profili = null;
@@ -887,7 +976,143 @@ function wireForma(s) {
 
 function faceSketchButton(s) {
   if (!s.face?.planar || !s.face.name) return '';
-  return `<div class="row-btns"><button class="btn primary" data-face-sketch="${esc(s.face.name)}">Disegna su questa faccia</button></div>`;
+  return `<div class="row-btns"><button class="btn primary" data-fori-qui="${esc(s.face.name)}">Fori o asole qui</button>
+    <button class="btn" data-face-sketch="${esc(s.face.name)}">Disegna su questa faccia</button></div>`;
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-fori-qui]');
+  if (b) inCoda(() => foriDialog(b.dataset.foriQui));
+});
+
+// ------------------------------------------------------------- fori e asole, senza sketch
+// Come si segnano sul pezzo: misura, centro dal bordo sinistro e dal bordo davanti (fuori tutto), e se serve una
+// fila. A sinistra la faccia vista da sopra con l'anteprima; un clic nel disegno sposta il foro lì.
+let ultimiFori = { tipo: 'tondo', d: '8', lungh: '40', larg: '12', x: '50', y: '50', fila: false, n: '5', passo: '60', verso: 'x', verticale: false };
+async function foriDialog(face) {
+  const info = await call('fori_info', face || null);
+  if (!info.ok) { toast(info.message || 'Qui non si possono fare fori.', 'err'); return; }
+  const [W, H] = info.outer;
+  const t = info.thickness || 0, r0 = info.radius || 0;
+  const minimo = t ? Math.round((2 * t + r0) * 10) / 10 : 0;          // sotto questa distanza dalla piega il foro si deforma
+  const v = { ...ultimiFori };
+  const num = x => parseFloat(String(x).replace(',', '.'));
+  const M = 40, k = Math.min(560 / (W + 2 * M), 400 / (H + 2 * M));
+  const X = x => (x + M) * k, Y = y => (H - y + M) * k;
+  const forme = () => {                                                  // le forme da fare: [{x, y, w, h, tondo}]
+    const out = [], n = v.fila ? Math.max(1, Math.round(num(v.n)) || 1) : 1, ps = num(v.passo) || 0;
+    for (let i = 0; i < n; i++) {
+      const x = num(v.x) + (v.verso === 'x' ? i * ps : 0), y = num(v.y) + (v.verso === 'y' ? i * ps : 0);
+      if (v.tipo === 'tondo') out.push({ x, y, w: num(v.d), h: num(v.d), r: num(v.d) / 2 });
+      else if (v.tipo === 'asola') { const L = num(v.lungh), B = num(v.larg); out.push(v.verticale ? { x, y, w: B, h: L, r: B / 2 } : { x, y, w: L, h: B, r: B / 2 }); }
+      else out.push({ x, y, w: num(v.lungh), h: num(v.larg), r: 0 });
+    }
+    return out;
+  };
+  const distSeg = (px, py, [ax, ay, bx, by]) => {
+    const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy || 1;
+    const u = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l));
+    return Math.hypot(px - ax - u * dx, py - ay - u * dy);
+  };
+  const controlla = fs => {
+    if (fs.some(f => [f.x, f.y, f.w, f.h].some(Number.isNaN) || f.w <= 0 || f.h <= 0)) return { no: 'Scrivi le misure con i numeri.' };
+    if (fs.some(f => f.x - f.w / 2 < 0 || f.y - f.h / 2 < 0 || f.x + f.w / 2 > W || f.y + f.h / 2 > H)) return { no: 'Un foro esce dal pezzo: controlla le distanze.' };
+    let vicino = Infinity;
+    for (const f of fs) for (const l of info.lines) vicino = Math.min(vicino, distSeg(f.x, f.y, l) - Math.max(f.w, f.h) / 2);
+    if (minimo && vicino < minimo) return { av: `Un foro è a ${virgola(Math.max(0, Math.round(vicino * 10) / 10))} mm dal bordo della parte piana: sotto ${virgola(minimo)} mm vicino a una piega può deformarsi.` };
+    return {};
+  };
+  const nomi = { tondo: ['foro', 'fori'], asola: ['asola', 'asole'], finestra: ['finestra', 'finestre'] };
+  const disegno = () => {
+    const fs = forme();
+    const pezzo = `<rect class="out" x="${X(0)}" y="${Y(H)}" width="${W * k}" height="${H * k}"/>`;
+    const facce = info.lines.map(([ax, ay, bx, by]) => `<line class="fl" x1="${X(ax)}" y1="${Y(ay)}" x2="${X(bx)}" y2="${Y(by)}"/>`).join('');
+    const vecchi = info.circles.map(([cx, cy, r]) => `<circle class="old" cx="${X(cx)}" cy="${Y(cy)}" r="${r * k}"/>`).join('');
+    const nuovi = fs.map(f => `<rect class="nf" x="${X(f.x - f.w / 2)}" y="${Y(f.y + f.h / 2)}" width="${f.w * k}" height="${f.h * k}" rx="${f.r * k}"/>`).join('');
+    const f0 = fs[0];
+    let q = '';
+    if (f0 && !Number.isNaN(f0.x)) {
+      q += `<line class="q" x1="${X(0)}" y1="${Y(f0.y) - 16}" x2="${X(f0.x)}" y2="${Y(f0.y) - 16}"/><text class="qt" x="${(X(0) + X(f0.x)) / 2}" y="${Y(f0.y) - 22}">${esc(virgola(f0.x))}</text>`;
+      q += `<line class="q" x1="${X(f0.x) - 16}" y1="${Y(0)}" x2="${X(f0.x) - 16}" y2="${Y(f0.y)}"/><text class="qt" x="${X(f0.x) - 22}" y="${(Y(0) + Y(f0.y)) / 2 + 5}" text-anchor="end">${esc(virgola(f0.y))}</text>`;
+      if (fs.length > 1) {
+        const f1 = fs[1];
+        q += v.verso === 'x' ? `<line class="q" x1="${X(f0.x)}" y1="${Y(f0.y) + 22}" x2="${X(f1.x)}" y2="${Y(f1.y) + 22}"/><text class="qt" x="${(X(f0.x) + X(f1.x)) / 2}" y="${Y(f0.y) + 40}">${esc(virgola(v.passo))}</text>`
+          : `<line class="q" x1="${X(f0.x) - 22}" y1="${Y(f0.y)}" x2="${X(f1.x) - 22}" y2="${Y(f1.y)}"/><text class="qt" x="${X(f0.x) - 28}" y="${(Y(f0.y) + Y(f1.y)) / 2 + 5}" text-anchor="end">${esc(virgola(v.passo))}</text>`;
+      }
+    }
+    return `<svg id="fo-svg" viewBox="0 0 ${(W + 2 * M) * k} ${(H + 2 * M) * k}" role="img" aria-label="La faccia vista da sopra con i fori">
+      ${pezzo}${facce}${vecchi}${nuovi}${q}
+      <text class="lb" x="${X(0)}" y="${Y(0) + 26}">bordo davanti</text><text class="lb" x="${X(0) - 8}" y="${Y(H) - 10}">bordo sinistro ↓</text></svg>`;
+  };
+  const campo = (id, l, val, unit = 'mm') => `<label class="nc"><span class="nl vuota"></span><span class="nt">${l}</span><span class="nv">
+    <input class="field" data-fo="${id}" value="${esc(String(val))}" autocomplete="off">${unit ? `<small>${unit}</small>` : ''}</span></label>`;
+  const misure = () => v.tipo === 'tondo' ? campo('d', 'Diametro', v.d)
+    : campo('lungh', v.tipo === 'asola' ? 'Lunghezza (tutta)' : 'Larghezza', v.lungh) + campo('larg', v.tipo === 'asola' ? 'Larghezza' : 'Altezza', v.larg)
+      + (v.tipo === 'asola' ? `<div class="fo-scelta"><span>Messa</span><button type="button" data-fv="0" class="${v.verticale ? '' : 'on'}">orizzontale ↔</button><button type="button" data-fv="1" class="${v.verticale ? 'on' : ''}">verticale ↕</button></div>` : '');
+  const pannello = () => {
+    const fs = forme(), c = controlla(fs), [uno, tanti] = nomi[v.tipo];
+    const ult = fs[fs.length - 1];
+    const ris = c.no ? `<div class="n-ris warn">${esc(c.no)}</div>`
+      : `<div class="n-ris ${c.av ? 'warn' : 'ok'}">${fs.length > 1 ? `${fs.length} ${tanti}` : `1 ${uno}`}${v.tipo === 'tondo' ? ' Ø' + esc(virgola(v.d)) : ''}${fs.length > 1 && ult
+        ? `, l’ultimo a ${esc(virgola(Math.round((v.verso === 'x' ? W - ult.x : H - ult.y) * 10) / 10))} mm dal bordo ${v.verso === 'x' ? 'destro' : 'dietro'}` : ''}.
+        ${c.av ? esc(c.av) : 'Lontano dai bordi e dalle pieghe: si piega bene.'}</div>`;
+    return `<div class="fo-tipi">${[['tondo', 'Foro tondo', '<circle cx="18" cy="15" r="9"/>'], ['asola', 'Asola', '<rect x="4" y="9" width="28" height="12" rx="6"/>'],
+      ['finestra', 'Finestra', '<rect x="7" y="7" width="22" height="16"/>']].map(([id, l, ico]) => `<button type="button" data-ft="${id}" class="${v.tipo === id ? 'on' : ''}">
+        <svg viewBox="0 0 36 30" aria-hidden="true">${ico}</svg>${l}</button>`).join('')}</div>
+      ${misure()}
+      ${campo('x', 'Centro dal bordo sinistro', v.x)}${campo('y', 'Centro dal bordo davanti', v.y)}
+      <label class="fo-fila"><input type="checkbox" id="fo-fila" ${v.fila ? 'checked' : ''}> Fanne una fila</label>
+      ${v.fila ? `${campo('n', 'Quanti in tutto', v.n, '')}${campo('passo', 'Uno ogni', v.passo)}
+        <div class="fo-scelta"><span>Verso</span><button type="button" data-fd="x" class="${v.verso === 'x' ? 'on' : ''}">verso destra →</button><button type="button" data-fd="y" class="${v.verso === 'y' ? 'on' : ''}">verso dietro ↑</button></div>` : ''}
+      ${ris}`;
+  };
+  modal(`<h3>Fori e asole: ${esc(info.label)}</h3>
+    <div class="n-main"><div class="n-pic fo-pic" id="fo-pic">${disegno()}</div><div class="n-campi" id="fo-campi">${pannello()}</div></div>
+    <p class="hint">Le distanze sono dal bordo esterno del pezzo (fuori tutto), al centro del foro. Un clic nel disegno sposta il foro lì.</p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Fai</button></div>`, close => {
+    $('#modal-box').classList.add('nuovo');
+    const box = $('#modal-box');
+    const aggiorna = (tutto = false) => {
+      if (tutto) {
+        const f = document.activeElement?.dataset?.fo;
+        $('#fo-campi').innerHTML = pannello();
+        if (f) { const i = box.querySelector(`[data-fo="${f}"]`); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+      } else {
+        const tmp = document.createElement('div'); tmp.innerHTML = pannello();     // solo il riassunto: il campo resta com'è
+        box.querySelector('#fo-campi .n-ris')?.replaceWith(tmp.querySelector('.n-ris'));
+      }
+      $('#fo-pic').innerHTML = disegno();
+      const fs = forme(), c = controlla(fs), [uno, tanti] = nomi[v.tipo];
+      $('#m-ok').disabled = !!c.no;
+      $('#m-ok').textContent = c.no ? 'Controlla le misure' : fs.length > 1 ? `Fai ${v.tipo === 'tondo' ? 'i' : 'le'} ${fs.length} ${tanti}` : `Fai ${v.tipo === 'tondo' ? 'il foro' : v.tipo === 'asola' ? 'l’asola' : 'la finestra'}`;
+    };
+    box.addEventListener('input', ev => { const f = ev.target.dataset?.fo; if (f) { v[f] = ev.target.value.trim(); aggiorna(); } });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-ft],[data-fd],[data-fv],#fo-fila');
+      if (b?.dataset.ft) { v.tipo = b.dataset.ft; aggiorna(true); }
+      else if (b?.dataset.fd) { v.verso = b.dataset.fd; aggiorna(true); }
+      else if (b?.dataset.fv) { v.verticale = b.dataset.fv === '1'; aggiorna(true); }
+      else if (b?.id === 'fo-fila') { v.fila = b.checked; aggiorna(true); }
+      const svg = ev.target.closest('#fo-svg');
+      if (svg) {                                                     // clic nel disegno: il foro va lì
+        const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+        const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+        v.x = String(Math.round(q.x / k - M)); v.y = String(Math.round(H - (q.y / k - M)));
+        aggiorna(true);
+      }
+    });
+    aggiorna(true);
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      if (controlla(forme()).no) return;
+      ultimiFori = { ...v };
+      close();
+      inCoda(async () => {
+        const r = await call('fori_guidati', info.face, { ...v, x: num(v.x), y: num(v.y) });
+        await apply(r, r.message);
+      });
+    };
+    box.onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+  });
 }
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-face-sketch]');
@@ -915,18 +1140,67 @@ function deleteSelected() {
 const opts = (o, cur) => Object.entries(o).map(([k, v]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
 let ultimaFlangia = { length: '30', angle: '90', direction: 'up', position: 'inside' };
 function flangeFields(d, dirs, pos, p = 'f') {
-  const seg = (id, o, cur) => `<div class="seg" id="${p}-${id}">${Object.entries(o).map(([k, v]) =>
-    `<button type="button" data-v="${k}" class="${k === cur ? 'on' : ''}" title="${esc(SPIEGA[k + (o === VERSI_PUNTA ? '_t' : '')] || '')}">${esc(v)}</button>`).join('')}</div>`;
-  return `<div class="ff">
-    <label>Lunghezza<span class="inp"><input class="field" id="${p}-len" value="${esc(String(d.length ?? '').replace('.', ','))}"><i>mm</i></span></label>
-    <label>Angolo<span class="inp"><input class="field" id="${p}-ang" value="${esc(String(d.angle ?? 90).replace('.', ','))}"><i>°</i></span></label></div>
+  const icona = k => (k === 'up' ? '<svg viewBox="0 0 36 28" aria-hidden="true"><path d="M2 24h22V4"/></svg>'
+    : k === 'down' ? '<svg viewBox="0 0 36 28" aria-hidden="true"><path d="M2 4h22v20"/></svg>' : '');
+  const seg = (id, o, cur) => `<div class="seg big" id="${p}-${id}">${Object.entries(o).map(([k, v]) =>
+    `<button type="button" data-v="${k}" class="${k === cur ? 'on' : ''}" title="${esc(SPIEGA[k + (o === VERSI_PUNTA ? '_t' : '')] || '')}">${id === 'dir' ? icona(k) : ''}${esc(v)}</button>`).join('')}</div>`;
+  const ang = String(d.angle ?? 90).replace('.', ',');
+  return `<div class="fp-pic" id="${p}-pic">${profiloPiega(d)}</div>
+    <div class="fp-riga"><span>Quanto è alta</span><div class="fp-len">
+      <button type="button" class="pm" data-pm="-1" data-for="${p}-len" aria-label="Un millimetro in meno">−</button>
+      <span class="inp"><input class="field" id="${p}-len" value="${esc(String(d.length ?? '').replace('.', ','))}"><i>mm</i></span>
+      <button type="button" class="pm" data-pm="1" data-for="${p}-len" aria-label="Un millimetro in più">+</button></div></div>
+    <div class="fp-riga"><span>Angolo</span><div class="fp-ang">${[90, 45, 135].map(a => `<button type="button" class="chip${ang === String(a) ? ' on' : ''}"
+      data-ang="${a}" data-for="${p}-ang">${a}°</button>`).join('')}<span class="inp"><input class="field" id="${p}-ang" value="${esc(ang)}" aria-label="Angolo"><i>°</i></span></div></div>
     <div class="seg-row"><span>Verso</span>${seg('dir', dirs, d.direction || 'up')}</div>
     <div class="seg-row"><span>Misura</span>${seg('pos', pos, d.position || 'inside')}</div>`;
 }
-const VERSI_UI = { up: 'su', down: 'giù' };
+// il profilo della piega visto di fianco: la base, la piega con la sua altezza e l'angolo
+function profiloPiega(d) {
+  const a = (parseFloat(String(d.angle ?? 90).replace(',', '.')) || 90) * Math.PI / 180;
+  const giu = (d.direction || 'up') === 'down' ? 1 : -1;
+  const x0 = 170, y0 = giu < 0 ? 112 : 38, L = 78;
+  const ux = Math.cos(a), uy = giu * Math.sin(a);
+  const x1 = x0 + ux * L, y1 = y0 + uy * L;
+  const [nx, ny] = giu < 0 ? [-uy, ux] : [uy, -ux];                 // dalla parte di fuori della piega
+  const o = 15, lx = (x0 + x1) / 2 + nx * 34, ly = (y0 + y1) / 2 + ny * 34 + 6;
+  let bx = -1 + ux, by = uy;                                      // dentro l'angolo: la bisettrice tra base e piega
+  const bl = Math.hypot(bx, by) || 1; bx /= bl; by /= bl;
+  const f = v => v.toFixed(1);
+  const len = esc(String(d.length ?? '').replace('.', ','));
+  return `<svg viewBox="0 0 300 150" role="img" aria-label="Profilo della piega">
+    <path class="pz" d="M40 ${y0}H${x0}L${f(x1)} ${f(y1)}"/>
+    <path class="q" d="M${f(x0 + nx * o)} ${f(y0 + ny * o)}L${f(x1 + nx * o)} ${f(y1 + ny * o)}"/>
+    <text class="qt" x="${f(lx)}" y="${f(ly)}">${len}</text>
+    <text class="at" x="${f(x0 + bx * 34)}" y="${f(y0 + by * 34 + 5)}">${esc(String(d.angle ?? 90).replace('.', ','))}°</text></svg>`;
+}
+document.addEventListener('click', ev => {
+  const pm = ev.target.closest('[data-pm]'), ch = ev.target.closest('[data-ang]');
+  const b = pm || ch;
+  if (!b) return;
+  const i = document.getElementById(b.dataset.for);
+  if (!i) return;
+  if (pm) { const v = parseFloat(i.value.replace(',', '.')) || 0; i.value = String(Math.max(1, Math.round((v + +pm.dataset.pm) * 100) / 100)).replace('.', ','); }
+  else { i.value = ch.dataset.ang; b.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b)); }
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+  i.dispatchEvent(new Event('change', { bubbles: true }));
+});
+// il disegno segue quello che scrivi o scegli
+document.addEventListener('input', ev => { if (/^[a-z]+-(len|ang)$/.test(ev.target.id || '')) ridisegnaProfilo(ev.target.id.split('-')[0]); });
+document.addEventListener('change', ev => { if (ev.target.closest?.('.seg')) ridisegnaProfilo(ev.target.closest('.seg').id.split('-')[0]); });
+function ridisegnaProfilo(p) {
+  const box = document.getElementById(`${p}-pic`);
+  if (!box || !document.getElementById(`${p}-len`)) return;
+  const d = readFlange(p);
+  box.innerHTML = profiloPiega(d);
+  document.querySelectorAll(`[data-for="${p}-ang"].chip`).forEach(c => c.classList.toggle('on', c.dataset.ang === d.angle.replace(',', '.')));
+}
+const VERSI_UI = { up: 'In su', down: 'In giù' };
 // per una flangia sulla punta di un'altra: "su" continua a chiudere (verso dentro), "giù" apre verso fuori (omega)
-const VERSI_PUNTA = { up: 'dentro', down: 'fuori' };
-const POS_UI = { inside: 'esterna', outside: 'dal bordo' };
+const VERSI_PUNTA = { up: 'Verso dentro', down: 'Verso fuori' };
+const POS_UI = { inside: 'Fuori tutto', outside: 'Dal bordo' };
+// il lato di una piega in parole di officina
+const LATI = { 'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra', 'lato sinistro': 'a sinistra' };
 const SPIEGA = { up_t: 'Verso dentro: chiude, es. il bordo di una scatola', down_t: 'Verso fuori: apre, es. la tesa di un omega',
   inside: 'La lunghezza è la quota esterna, misurata dal contorno: il pezzo resta delle misure disegnate',
   outside: 'La piega parte dal bordo del contorno e la flangia sta fuori: il pezzo cresce dello spessore' };
@@ -1007,11 +1281,15 @@ function flangePanel(s) {
       <label>Sporgenza<span class="inp"><input class="field" id="i-s" value="0"><i>mm</i></span></label></div>
     <div class="row-btns"><button class="btn primary" id="i-add">Crea gli incastri</button></div></details>` : '';
   const dati = s.rows.filter(r => !['Lato', 'Piegata sulla punta di'].includes(r[0]));
-  return `<div class="fhead"><div><h3>Flangia ${esc(s.flange)}</h3><div class="fsub">${esc(dove)}</div></div>
-      <button class="ibtn danger" id="f-del" title="Elimina la flangia (Canc)"><img src="icons/delete.svg" alt=""></button></div>
-    ${flangeFields(s.def, s.parent ? VERSI_PUNTA : s.directions, POS_UI)}
+  const lato = riga('Lato') || '';
+  const titolo = s.parent ? (Math.abs(+s.def.angle) >= 170 ? 'Orlo' : 'Piega sulla punta') : `Piega ${LATI[lato] || lato}`;
+  const sotto = s.parent ? `sulla piega ${s.parent}` : (riga('Larghezza') ? `bordo da ${riga('Larghezza')}` : '');
+  return `<div class="fhead" data-flangia="${esc(s.flange)}"><div><h3>${esc(titolo)}</h3><div class="fsub">${esc(sotto)} <span class="fid">${esc(s.flange)}</span></div></div></div>
+    ${flangeFields(s.def, s.parent ? VERSI_PUNTA : (s.directions?.up ? VERSI_UI : s.directions), POS_UI)}
     ${sezLinguetta}${sezAngoli}${sezIncastri}${sezPunta}
-    ${rigaPiega(dati)}`;
+    ${rigaPiega(dati)}
+    <div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button>
+      <button class="btn primary big" id="f-fatto">Fatto</button></div>`;
 }
 // i dati di piega stanno in un posto solo (la scheda Lamiera in basso): qui un riassunto e "cambia"
 function rigaPiega(righe = []) {
@@ -1203,6 +1481,7 @@ function wireFlange(s) {
     $('#f-gap').onchange = gap;
   }
   $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); };
+  $('#f-fatto').onclick = () => { applica(); clearSelection(); };
   if ($('#i-add')) $('#i-add').onclick = () => inCoda(async () => apply(await call('auto_tabs', s.feature, s.flange,
     $('#i-n').value.trim(), $('#i-w').value.trim(), $('#i-c').value.trim(), $('#i-s').value.trim())));
   if ($('#f-ext')) $('#f-ext').onclick = () => inCoda(async () => { if (await apply(await call('extend_over_tab', s.feature, s.flange))) await refreshSel(); });
@@ -1440,7 +1719,7 @@ function toast(msg, kind = '') {
 }
 
 function modal(html, wire) {
-  $('#modal-box').classList.remove('wide');
+  $('#modal-box').classList.remove('wide', 'nuovo');
   $('#modal-box').innerHTML = html;
   $('#modal').hidden = false;
   const close = () => { $('#modal').hidden = true; };
@@ -1451,71 +1730,180 @@ function modal(html, wire) {
 const virgola = v => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 // dalla pagina iniziale (daHome) la finestra mostra solo il tipo scelto e le sue misure; da Ctrl+N anche
 // la scelta del tipo, con gli stessi nomi e gruppi della pagina iniziale
-function newDialog(iniziale = 'lamiera', daHome = false) {
-  const MODELLI = {
-    telaio: { titolo: 'Telaio / tavolo', nota: 'Telaio sopra e 4 gambe in tubolare',
-      campi: [['L', 'Lunghezza', 2000], ['P', 'Profondità', 1000], ['H', 'Altezza', 900], ['profilo', 'Profilo telaio', '40x40x3'], ['gambe', 'Profilo gambe', '40x40x3']] },
-    zero: { titolo: 'Disegna il contorno', nota: 'Parti dallo sketch: poi diventa lamiera o piastra', campi: [] },
-    disegno: { titolo: 'Struttura da disegno', nota: 'Disegni lo scheletro, poi Crea struttura',
-      campi: [['piano', 'Su quale piano disegni', 'XZ', { XZ: 'Di fronte (XZ): cancelli, spalle', XY: 'Pianta (XY): basamenti, telai a terra', YZ: 'Di fianco (YZ)' }]] },
-    scaffale: { titolo: 'Scaffale', nota: 'Due spalle collegate a ogni ripiano',
-      campi: [['L', 'Lunghezza', 1000], ['P', 'Profondità', 400], ['H', 'Altezza', 1800], ['ripiani', 'Ripiani (a terra e in cima compresi)', 4],
-        ['montanti', 'Profilo montanti', '30x30x2'], ['traversi', 'Profilo traversi', '40x20x2']] },
-    armadio: { titolo: 'Telaio armadio', nota: 'Telaio da chiudere con la lamiera',
-      campi: [['L', 'Larghezza', 800], ['P', 'Profondità', 600], ['H', 'Altezza', 2000], ['ripiani', 'Livelli (sotto e sopra compresi)', 3], ['profilo', 'Profilo', '40x40x2']] },
-    cancello: { titolo: 'Cancello', nota: 'Telaio e sbarre a passo uguale',
-      campi: [['L', 'Larghezza', 1500], ['H', 'Altezza', 1200], ['telaio', 'Profilo telaio', '60x60x3'], ['sbarre', 'Profilo sbarre', '20x20x2'], ['passo', 'Passo sbarre', 120]] },
-    cono: { titolo: 'Cono / tronco di cono', nota: 'Misure finite; sviluppo a pieghe o calandrato',
-      campi: [['D1', 'Ø grande', 400], ['D2', 'Ø piccolo (0 = a punta)', 200], ['H', 'Altezza', 300], ['spessore', 'Spessore', 2],
-        ['riferimento', 'Misure', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }], ['modo', 'Lavorazione', 'press', { press: 'a pieghe (piegatrice)', rolled: 'calandrato' }],
-        ['passo', 'Passo pieghe sul bordo (vuoto = dal raggio)', ''], ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)],
-        ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
-    tramoggia: { titolo: 'Raccordo quadro-tondo', nota: 'Rettangolo → tondo, anche eccentrico',
-      campi: [['A', 'Lato A (X)', 600], ['B', 'Lato B (Y)', 400], ['D', 'Ø tondo', 250], ['H', 'Altezza', 300],
-        ['ex', 'Spostamento tondo X', 0], ['ey', 'Spostamento tondo Y', 0], ['spessore', 'Spessore', 2],
-        ['rif_base', 'Misure base', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }], ['rif_tondo', 'Misure tondo', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }],
-        ['passo', 'Passo pieghe sul tondo (vuoto = dal raggio)', ''], ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)],
-        ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
-    tramoggia_cassone: { titolo: 'Tramoggia con cassone', nota: 'Cassone + tramoggia a falde, divisa in pezzi da piegare (più pieghe possibile nel foglio)',
-      campi: [['A', 'Bocca: lato A (X)', 1000], ['B', 'Bocca: lato B (Y)', 1000], ['Hc', 'Altezza cassone (0 = solo tramoggia)', 700],
-        ['a', 'Scarico: lato a', 250], ['b', 'Scarico: lato b', 250], ['Ht', 'Altezza tramoggia', 700],
-        ['ex', 'Scarico spostato in X', 0], ['ey', 'Scarico spostato in Y', 0], ['bordo', 'Bordo in alto (0 = niente)', 40],
-        ['angoli_bordo', 'Angoli dei bordi', 'aperti', { aperti: 'aperti (scasso, più pieghe)', 45: 'a 45° (da saldare)' }],
-        ['flangia', 'Flangia allo scarico (0 = niente)', 0], ['smusso', 'Angoli smussati (0 = vivi)', 0], ['spessore', 'Spessore', 3],
-        ['riferimento', 'Misure', 'esterno', { esterno: 'esterne (finite)', interno: 'interne', asse: 'in asse lamiera' }],
-        ['divisione', 'Divisione in pezzi', 'auto', { auto: 'automatica (meno saldature)', verticali: 'pieghe sugli spigoli verticali', tramoggia: 'pieghe sugli spigoli della tramoggia', lati: 'un pezzo per lato' }],
-        ['foglio', 'Foglio', '1500x3000'], ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)],
-        ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
-    vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste', campi: [] },
-    lamiera: { titolo: 'Lamiera piegata', nota: 'Base rettangolare, poi clic su un lato per la flangia',
-      campi: [['larghezza', 'Larghezza', 500], ['profondita', 'Profondità', 300], ['spessore', 'Spessore', 2],
-        ['raggio', 'Raggio interno di piega', virgola(S?.bend_default?.radius)], ['k', 'K-factor', virgola(S?.bend_default?.k)]] },
-    piastra: { titolo: 'Piastra', nota: 'Lamiera piana con foro, per DXF',
-      campi: [['larghezza', 'Larghezza', 300], ['altezza', 'Altezza', 200], ['spessore', 'Spessore', 5], ['foro', 'Diametro foro', 30]] },
+// ------------------------------------------------------------- pezzo nuovo: le misure sul disegno
+// Ogni misura ha una lettera sul disegno e la stessa lettera accanto alla casella; sotto, a parole, cosa viene
+// fuori (calcolato dal motore mentre si scrive). Raggio, K e passo delle pieghe stanno in "Altro".
+const DISEGNI = (() => {
+  const b = (x, y, l) => `<g class="lt"><circle cx="${x}" cy="${y}" r="15"/><text x="${x}" y="${y + 6}">${l}</text></g>`;
+  const qo = (x1, x2, y) => `<path class="q" d="M${x1} ${y}H${x2}M${x1} ${y - 7}v14M${x2} ${y - 7}v14"/>`;
+  const qv = (x, y1, y2) => `<path class="q" d="M${x} ${y1}V${y2}M${x - 7} ${y1}h14M${x - 7} ${y2}h14"/>`;
+  const svg = c => `<svg viewBox="0 0 520 380" role="img" aria-label="Disegno con le misure">${c}</svg>`;
+  const scaff = (chiuso) => svg(`<g class="ln">
+      <rect x="150" y="50" width="200" height="280"/>${chiuso ? '' : ''}
+      <path d="M150 120h200M150 190h200M150 260h200"/><path d="M350 50l60-28v280l-60 28M150 50l60-28h200"/></g>
+      ${qo(150, 350, 355)}${b(250, 355, 'A')}<path class="q" d="M362 62l60-28M357 52l10 20M417 24l10 20"/>${b(410, 58, 'B')}${qv(115, 50, 330)}${b(115, 190, 'C')}
+      <text class="nota" x="232" y="160">D piani</text>`);
+  return {
+    lamiera: svg(`<g class="ln"><path class="pz" d="M70 230l230 80 160-110-230-70z"/><path d="M70 230v12l230 80v-12M300 322l160-110v-12"/></g>
+      <path class="q" d="M62 262l230 80M58 250l8 24M288 330l8 24"/>${b(170, 318, 'A')}
+      <path class="q" d="M318 336l160-110M306 330l20 12M466 220l20 12"/>${b(410, 300, 'B')}
+      <path class="q" d="M50 230v12"/>${b(30, 236, 'C')}`),
+    piastra: svg(`<g class="ln"><rect class="pz" x="90" y="60" width="300" height="220"/><circle cx="240" cy="170" r="34"/>
+      <rect class="pz" x="430" y="60" width="18" height="220"/></g>
+      ${qo(90, 390, 315)}${b(240, 315, 'A')}${qv(55, 60, 280)}${b(55, 170, 'B')}
+      <path class="q" d="M206 170h68"/>${b(240, 120, 'C')}${qo(430, 448, 315)}${b(439, 345, 'D')}`),
+    telaio: svg(`<g class="ln"><path d="M80 120l250 60 140-70-250-50z"/><path d="M80 120v190M330 180v190M470 110v190M220 60v150"/></g>
+      <path class="q" d="M70 330l250 60"/>${b(190, 372, 'A')}<path class="q" d="M345 392l140-70"/>${b(430, 372, 'B')}
+      ${qv(40, 120, 310)}${b(40, 215, 'C')}`),
+    scaffale: scaff(false),
+    armadio: scaff(true),
+    cancello: svg(`<g class="ln"><rect class="pz" x="60" y="60" width="400" height="240"/><rect x="72" y="72" width="376" height="216"/>
+      <path d="M110 72v216M150 72v216M190 72v216M230 72v216M270 72v216M310 72v216M350 72v216M390 72v216M430 72v216"/></g>
+      ${qo(60, 460, 335)}${b(260, 335, 'A')}${qv(28, 60, 300)}${b(28, 180, 'B')}${qo(150, 190, 40)}${b(170, 40, 'C')}`),
+    cono: svg(`<g class="ln"><path class="pz" d="M180 70h160l80 240H100z"/><ellipse cx="260" cy="70" rx="80" ry="12"/></g>
+      ${qo(100, 420, 345)}${b(260, 345, 'A')}${qo(180, 340, 35)}${b(260, 35, 'B')}${qv(455, 70, 310)}${b(455, 190, 'C')}`),
+    tramoggia: svg(`<g class="ln"><path class="pz" d="M70 300l170 50 210-80-170-40z"/><ellipse cx="270" cy="90" rx="70" ry="22"/>
+      <path d="M70 300L200 90M240 350L270 112M450 270L340 90M280 230L240 70"/></g>
+      <path class="q" d="M62 330l170 50"/>${b(140, 358, 'A')}<path class="q" d="M248 380l210-80"/>${b(370, 352, 'B')}
+      <path class="q" d="M200 52h140"/>${b(270, 40, 'C')}${qv(490, 90, 270)}${b(490, 180, 'D')}`),
   };
-  const GRUPPI = [['Lamiera', ['lamiera', 'zero', 'piastra']], ['Forme', ['cono', 'tramoggia', 'tramoggia_cassone']],
+})();
+
+function newDialog(iniziale = 'lamiera', daHome = false) {
+  // campi: k = parametro del modello, l = come si chiama, v = valore proposto, lettera sul disegno,
+  // scelte = elenco, prof = un tubo/profilo (con i suggerimenti), altro = sotto "Altro" (chiuso)
+  const BD = S?.bend_default || {};
+  // raggio e K: in "Altro" se ci sono già quelli della piegatrice (Regole), se no in vista perché vanno scritti
+  const conPiegatrice = BD.radius != null && BD.k != null;
+  const piega = [{ k: 'raggio', l: 'Raggio interno di piega', v: virgola(BD.radius), altro: conPiegatrice, unit: 'mm' },
+    { k: 'k', l: 'K-factor', v: virgola(BD.k), altro: conPiegatrice }];
+  const RIF = { esterno: 'fuori tutto (finite)', interno: 'dentro', asse: 'in asse lamiera' };
+  const MODELLI = {
+    lamiera: { titolo: 'Lamiera piegata', nota: 'Un rettangolo: le pieghe le aggiungi dopo, cliccando i bordi.', nome: 'Lamiera',
+      campi: [{ k: 'larghezza', l: 'Larghezza', v: 500, lettera: 'A' }, { k: 'profondita', l: 'Profondità', v: 300, lettera: 'B' },
+        { k: 'spessore', l: 'Spessore', v: 2, lettera: 'C' }, ...piega] },
+    piastra: { titolo: 'Piastra piana', nota: 'Piastra con un foro; gli altri fori li aggiungi dopo.', nome: 'Piastra',
+      campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
+        { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
+    zero: { titolo: 'Una forma disegnata', nota: 'Disegni il contorno con le linee; poi diventa lamiera o piastra.', nome: 'Pezzo', campi: [] },
+    telaio: { titolo: 'Telaio o banco', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Banco',
+      campi: [{ k: 'L', l: 'Lunghezza', v: 2000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 1000, lettera: 'B' },
+        { k: 'H', l: 'Altezza', v: 900, lettera: 'C' }, { k: 'profilo', l: 'Tubo del telaio', v: '40x40x3', prof: true },
+        { k: 'gambe', l: 'Tubo delle gambe', v: '40x40x3', prof: true }] },
+    scaffale: { titolo: 'Scaffale', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Scaffale',
+      campi: [{ k: 'L', l: 'Larghezza', v: 1000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 400, lettera: 'B' },
+        { k: 'H', l: 'Altezza', v: 1800, lettera: 'C' }, { k: 'ripiani', l: 'Quanti piani (a terra e in cima compresi)', v: 4, lettera: 'D' },
+        { k: 'montanti', l: 'Tubo dei montanti', v: '30x30x2', prof: true }, { k: 'traversi', l: 'Tubo dei traversi', v: '40x20x2', prof: true }] },
+    armadio: { titolo: 'Telaio per armadio', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Telaio armadio',
+      campi: [{ k: 'L', l: 'Larghezza', v: 800, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 600, lettera: 'B' },
+        { k: 'H', l: 'Altezza', v: 2000, lettera: 'C' }, { k: 'ripiani', l: 'Quanti livelli (sotto e sopra compresi)', v: 3, lettera: 'D' },
+        { k: 'profilo', l: 'Tubo', v: '40x40x2', prof: true }] },
+    cancello: { titolo: 'Cancello', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Cancello',
+      campi: [{ k: 'L', l: 'Larghezza', v: 1500, lettera: 'A' }, { k: 'H', l: 'Altezza', v: 1200, lettera: 'B' },
+        { k: 'passo', l: 'Distanza tra le sbarre, circa', v: 120, lettera: 'C' },
+        { k: 'telaio', l: 'Tubo del telaio', v: '60x60x3', prof: true }, { k: 'sbarre', l: 'Tubo delle sbarre', v: '20x20x2', prof: true }] },
+    disegno: { titolo: 'Struttura disegnata da te', nota: 'Tracci le linee dello scheletro: diventano tubi.', nome: 'Struttura',
+      campi: [{ k: 'piano', l: 'Da dove la guardi mentre la disegni', v: 'XZ',
+        scelte: { XZ: 'Di fronte: cancelli, spalle, portali', XY: 'Dall’alto: basamenti, telai a terra', YZ: 'Di fianco' } }] },
+    cono: { titolo: 'Cono o tronco di cono', nota: 'Misure finite del pezzo.', nome: 'Tronco di cono',
+      campi: [{ k: 'D1', l: 'Diametro grande', v: 400, lettera: 'A' }, { k: 'D2', l: 'Diametro piccolo (0 = a punta)', v: 200, lettera: 'B' },
+        { k: 'H', l: 'Altezza', v: 300, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 2 },
+        { k: 'modo', l: 'Come lo fai', v: 'press', scelte: { press: 'a pieghe, con la piegatrice', rolled: 'calandrato' } },
+        { k: 'riferimento', l: 'Le misure sono', v: 'esterno', scelte: RIF },
+        { k: 'passo', l: 'Distanza tra le pieghe sul bordo (vuoto = dal raggio)', v: '', altro: true, unit: 'mm' }, ...piega] },
+    tramoggia: { titolo: 'Raccordo quadro-tondo', nota: 'Misure finite del pezzo.', nome: 'Raccordo quadro-tondo',
+      campi: [{ k: 'A', l: 'Lato lungo della base', v: 600, lettera: 'A' }, { k: 'B', l: 'Lato corto della base', v: 400, lettera: 'B' },
+        { k: 'D', l: 'Diametro del tondo', v: 250, lettera: 'C' }, { k: 'H', l: 'Altezza', v: 300, lettera: 'D' },
+        { k: 'spessore', l: 'Spessore', v: 2 },
+        { k: 'ex', l: 'Tondo spostato di lato (X)', v: 0, altro: true, unit: 'mm' }, { k: 'ey', l: 'Tondo spostato avanti/dietro (Y)', v: 0, altro: true, unit: 'mm' },
+        { k: 'rif_base', l: 'Misure della base', v: 'esterno', scelte: RIF, altro: true }, { k: 'rif_tondo', l: 'Misure del tondo', v: 'esterno', scelte: RIF, altro: true },
+        { k: 'passo', l: 'Distanza tra le pieghe sul tondo (vuoto = dal raggio)', v: '', altro: true, unit: 'mm' }, ...piega] },
+    tramoggia_cassone: { titolo: 'Tramoggia con cassone', nota: 'Cassone e tramoggia a falde, divisa in pezzi da piegare (più pieghe possibile nel foglio).', nome: 'Tramoggia',
+      campi: [{ k: 'A', l: 'Bocca: lato A', v: 1000, lettera: 'A' }, { k: 'B', l: 'Bocca: lato B', v: 1000, lettera: 'B' },
+        { k: 'Hc', l: 'Altezza del cassone (0 = solo tramoggia)', v: 700 }, { k: 'a', l: 'Scarico: lato a', v: 250 }, { k: 'b', l: 'Scarico: lato b', v: 250 },
+        { k: 'Ht', l: 'Altezza della tramoggia', v: 700 }, { k: 'spessore', l: 'Spessore', v: 3 },
+        { k: 'bordo', l: 'Bordo in alto (0 = niente)', v: 40, altro: true, unit: 'mm' },
+        { k: 'angoli_bordo', l: 'Angoli dei bordi', v: 'aperti', scelte: { aperti: 'aperti (scasso, più pieghe)', 45: 'a 45° (da saldare)' }, altro: true },
+        { k: 'flangia', l: 'Flangia allo scarico (0 = niente)', v: 0, altro: true, unit: 'mm' }, { k: 'smusso', l: 'Angoli smussati (0 = vivi)', v: 0, altro: true, unit: 'mm' },
+        { k: 'ex', l: 'Scarico spostato di lato (X)', v: 0, altro: true, unit: 'mm' }, { k: 'ey', l: 'Scarico spostato avanti/dietro (Y)', v: 0, altro: true, unit: 'mm' },
+        { k: 'riferimento', l: 'Le misure sono', v: 'esterno', scelte: RIF },
+        { k: 'divisione', l: 'Divisione in pezzi', v: 'auto', scelte: { auto: 'automatica (meno saldature)', verticali: 'pieghe sugli spigoli verticali', tramoggia: 'pieghe sugli spigoli della tramoggia', lati: 'un pezzo per lato' }, altro: true },
+        { k: 'foglio', l: 'Foglio', v: '1500x3000', altro: true }, ...piega] },
+    vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste.', nome: 'Struttura', campi: [] },
+  };
+  const GRUPPI = [['Lamiera', ['lamiera', 'piastra', 'zero']], ['Forme', ['cono', 'tramoggia', 'tramoggia_cassone']],
     ['Strutture', ['telaio', 'scaffale', 'armadio', 'cancello', 'disegno', 'vuoto']]];
-  let kind = iniziale;
+  let kind = iniziale in MODELLI ? iniziale : 'lamiera';
+  const numerico = c => !c.scelte && !c.prof && typeof c.v === 'number';
+  const casella = c => {
+    const lettera = c.lettera ? `<span class="nl">${c.lettera}</span>` : '<span class="nl vuota"></span>';
+    if (c.scelte) return `<label class="nc">${lettera}<span class="nt">${esc(c.l)}</span><select class="field" data-f="${c.k}">${Object.entries(c.scelte)
+      .map(([a, t]) => `<option value="${a}"${a === c.v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+    return `<label class="nc">${lettera}<span class="nt">${esc(c.l)}</span><span class="nv"><input class="field" data-f="${c.k}" value="${esc(virgola(c.v))}"
+      ${c.prof ? 'list="n-profili"' : ''} autocomplete="off">${numerico(c) || c.unit ? `<small>${c.unit || (c.k === 'ripiani' ? '' : 'mm')}</small>` : ''}</span></label>`;
+  };
   const disegna = () => {
     const m = MODELLI[kind];
-    const scelta = daHome ? `<p class="hint" style="margin:-6px 0 12px">${esc(m.nota)}</p>`
-      : GRUPPI.map(([g, ks]) => `<div class="sub">${g}</div><div class="choice kinds">${ks.map(k =>
-        `<button data-k="${k}" class="${k === kind ? 'on' : ''}" title="${esc(MODELLI[k].nota)}">${esc(MODELLI[k].titolo)}</button>`).join('')}</div>`).join('');
-    return `<h3>${daHome ? 'Nuovo: ' + esc(m.titolo) : 'Nuovo progetto'}</h3>
-      ${scelta}
-      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="${{ telaio: 'Tavolo', piastra: 'Piastra', vuoto: 'Struttura', lamiera: 'Lamiera', zero: 'Pezzo', disegno: 'Struttura', scaffale: 'Scaffale', armadio: 'Telaio armadio', cancello: 'Cancello', cono: 'Tronco di cono', tramoggia: 'Raccordo quadro-tondo', tramoggia_cassone: 'Tramoggia' }[kind]}"></label>
-      ${m.campi.map(([k, l, v, scelte]) => scelte
-        ? `<label style="grid-column:1/-1">${esc(l)}<select class="field" data-f="${k}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
-        : `<label>${esc(l)}<input class="field" data-f="${k}" value="${esc(v)}"></label>`).join('')}</div>
-      ${S?.dirty ? '<div class="msg warn">Le modifiche non salvate del progetto aperto andranno perse (resta il salvataggio automatico).</div>' : ''}
-      <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea</button></div>`;
+    const visibili = m.campi.filter(c => !c.altro), altri = m.campi.filter(c => c.altro);
+    const scelta = daHome ? '' : `<div class="n-kinds choice">${GRUPPI.map(([g, ks]) => `<span>${g}</span>${ks.map(k =>
+      `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${esc(MODELLI[k].titolo)}</button>`).join('')}`).join('')}</div>`;
+    const pic = DISEGNI[kind];
+    const riassuntoPiega = altri.some(c => c.k === 'raggio') && conPiegatrice ? `Piegatrice: R ${esc(virgola(BD.radius) || '?')} · K ${esc(virgola(BD.k) || '?')}` : 'Altre misure';
+    return `<h3>${daHome ? 'Nuovo: ' + esc(m.titolo) : 'Nuovo pezzo'}</h3>${scelta}
+      <div class="n-main${pic ? '' : ' senza'}">
+        ${pic ? `<div class="n-pic">${pic}</div>` : ''}
+        <div class="n-campi">
+          <p class="hint">${esc(m.nota)}</p>
+          <label class="nc"><span class="nl vuota"></span><span class="nt">Nome del lavoro</span><span class="nv"><input class="field" id="n-name" value="${esc(m.nome)}"></span></label>
+          ${visibili.map(casella).join('')}
+          ${altri.length ? `<details class="n-altro"><summary>${riassuntoPiega}</summary>${altri.map(casella).join('')}</details>` : ''}
+          <div class="n-ris" id="n-ris"></div>
+        </div>
+      </div>
+      <datalist id="n-profili"></datalist>
+      ${S?.dirty ? '<div class="msg warn">Il lavoro aperto ha modifiche non salvate: restano nel salvataggio automatico.</div>' : ''}
+      <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary big" id="n-ok">Crea ${esc(m.titolo.toLowerCase())}</button></div>`;
+  };
+  const valori = () => {
+    const v = { name: $('#n-name').value.trim() || MODELLI[kind].nome };
+    $('#modal-box').querySelectorAll('[data-f]').forEach(i => { v[i.dataset.f] = i.value.trim(); });
+    return v;
+  };
+  // le caselle numeriche: una lettera o una virgola sbagliata si vede subito, senza il messaggio del motore
+  const controlla = () => {
+    let ok = true;
+    for (const c of MODELLI[kind].campi.filter(numerico)) {
+      const i = $(`#modal-box [data-f="${c.k}"]`);
+      const giusto = /^\s*-?\d+([.,]\d+)?\s*$/.test(i.value);
+      i.closest('.nc').classList.toggle('bad', !giusto);
+      ok = ok && giusto;
+    }
+    return ok;
+  };
+  let timer = null, giro = 0;
+  const riassunto = () => {
+    clearTimeout(timer);
+    const box = $('#n-ris');
+    if (!box) return;
+    if (!MODELLI[kind].campi.length || kind === 'disegno') { box.innerHTML = ''; return; }
+    if (!controlla()) { box.className = 'n-ris warn'; box.textContent = 'Scrivi un numero nelle caselle segnate in rosso.'; return; }
+    const mio = ++giro;
+    timer = setTimeout(async () => {
+      const r = await call('new_project_preview', kind, valori());
+      if (mio !== giro || !$('#n-ris')) return;
+      if (r.text) { box.className = 'n-ris ok'; box.textContent = r.text; } else if (r.warning) { box.className = 'n-ris warn'; box.textContent = r.warning; } else box.innerHTML = '';
+    }, 350);
   };
   const wire = close => {
-    $('#modal-box').querySelectorAll('.choice button').forEach(b => b.onclick = () => { kind = b.dataset.k; $('#modal-box').innerHTML = disegna(); wire(close); });
+    $('#modal-box').classList.add('nuovo');
+    $('#modal-box').querySelectorAll('.n-kinds button').forEach(b => b.onclick = () => { kind = b.dataset.k; $('#modal-box').innerHTML = disegna(); wire(close); });
+    call('profile_suggestions').then(l => { const d = $('#n-profili'); if (d && Array.isArray(l)) d.innerHTML = l.map(x => `<option value="${esc(x)}">`).join(''); });
+    $('#modal-box').querySelectorAll('[data-f]').forEach(i => { i.oninput = riassunto; i.onchange = riassunto; });
+    riassunto();
     $('#n-no').onclick = close;
     $('#n-ok').onclick = () => {
-      const v = { name: $('#n-name').value.trim() || MODELLI[kind].titolo };
-      $('#modal-box').querySelectorAll('[data-f]').forEach(i => { v[i.dataset.f] = i.value.trim(); });
+      if (MODELLI[kind].campi.length && !controlla()) { riassunto(); return; }
+      const v = valori();
       close();
       primaVolta = true; sel = null; clearSelection();
       if (SK) exitSketch();
@@ -1527,7 +1915,8 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
         if (['cono', 'tramoggia', 'tramoggia_cassone'].includes(kind)) await select('body');
       });
     };
-    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter' && ev.target.tagName !== 'SUMMARY') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
+    setTimeout(() => { const f = $('#modal-box [data-f]'); if (f) { f.focus(); f.select?.(); } }, 30);
   };
   modal(disegna(), wire);
 }
@@ -1758,6 +2147,7 @@ const CMDS = [
   { id: 'home', label: 'Pagina iniziale', run: () => inCoda(() => showHome()) },
   { id: 'new_asm', label: 'Nuovo assieme…', run: newAssemblyDialog },
   { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
+  { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(preparaDialog) },
   { id: 'asm_insert', label: 'Assieme: inserisci pezzo…', run: () => inCoda(async () => { const r = await call('asm_insert_dialog'); if (await apply(r) && r.select) await select(r.select); }) },
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
@@ -1797,7 +2187,7 @@ const CMDS = [
     toast('Passa col mouse su un bordo della lamiera: si accende in arancio. Clicca e scegli lunghezza e verso.');
   } },
   { id: 'contour_help', label: 'Lamiera a contorno', run: () => toast(S?.sheet?.data
-    ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi «Lamiera a contorno».'
+    ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi Altro → «Lamiera a contorno».'
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
   { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna su questa faccia» nel pannello a destra.') },
   { id: 'member_help', label: 'Nuova asta', run: () => toast(nodes.length ? 'Clicca un nodo (pallino) del telaio: nel pannello scegli direzione e lunghezza della nuova asta.' : 'Prima serve una struttura: Telaio / tavolo o Struttura libera.', nodes.length ? '' : 'err') },
@@ -1924,12 +2314,13 @@ const skRubber = new THREE.Group();
 scene.add(skGroup, skGrid, skRubber);
 const SK_LINE = new THREE.LineBasicMaterial({ color: 0x1F5FBF });
 const SK_SEL = new THREE.LineBasicMaterial({ color: 0xE09A00 });
+const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
 const SK_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF });
 const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5FBF, dashSize: 6, gapSize: 4 });
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE });
 const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5 });
 const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', slot: 'Asola', arc3: 'Arco', polygon: 'Poligono', select: 'Seleziona',
-  dim: 'Quota', trim: 'Taglia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso' };
+  dim: 'Quota', trim: 'Accorcia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso' };
 const SK_CUT_FILL = new THREE.MeshBasicMaterial({ color: 0xD92D20, side: THREE.DoubleSide, depthTest: false });   // il pezzo che il Taglia toglie
 // una linea spessa px pixel (in WebGL le linee sono sempre da 1 pixel): una striscia nel piano dello sketch
 function fatLine(pts, px, mat) {
@@ -1979,7 +2370,7 @@ const AIUTI = {
   chamfer: 'Smusso: clic sullo spigolo, oppure sulle due linee una dopo l’altra · poi la misura nella casella + Invio',
   select: 'Clic su linee e cerchi (Maiusc per aggiungere, doppio clic = tutto il contorno, Ctrl+A tutto) · poi i comandi',
   dim: 'Clic su una linea (lunghezza) o un cerchio (diametro) · oppure su due punti, o un punto e una linea (distanza)',
-  trim: 'Taglia: passa sul pezzo da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
+  trim: 'Accorcia: passa sul pezzo di linea da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
   extend: 'Allunga: passa vicino all’estremità di una linea (l’allungamento tratteggiato) e clicca · Esc finisce',
 };
 
@@ -2016,6 +2407,7 @@ async function enterSketch(sid) {
   const r = await call('sketch_view', sid);
   if (!r.ok) { toast(r.message, 'err'); return; }
   SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '', constr: false, pick: null, dimPick: [], ghost: false, grid: aggancioGriglia };
+  aggiornaLayout();
   if (flatView) flatView = false;
   clearSelection();
   controls.enableRotate = false;
@@ -2047,6 +2439,7 @@ function exitSketch() {
   if (!SK) return;
   const era = SK;
   SK = null;
+  aggiornaLayout();
   // uno sketch su faccia/sviluppo lasciato vuoto non resta nell'albero
   if (era.v.on_face || era.v.on_flat) inCoda(async () => apply(await call('sketch_close', era.sid)));
   controls.enableRotate = true;
@@ -2128,7 +2521,7 @@ function drawSketch() {
   skGrid.position.copy(v3(v.z_dir).multiplyScalar(-0.05));
   for (const l of v.lines) {
     const mat = SK.sel.has(l.id) ? (l.construction && !l.ref ? SK_CONSTR_SEL : SK_SEL) : SK.hover === l.id ? SK_HOV
-      : l.xray ? SK_XRAY : l.ref ? SK_REF : l.construction ? SK_CONSTR : SK_LINE;
+      : l.xray ? SK_XRAY : l.ref ? SK_REF : l.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(l.id) ? SK_SCIOLTA : SK_LINE;
     const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat);
     if ((l.construction && !l.ref) || l.xray) ln.computeLineDistances();
     skGroup.add(ln);
@@ -2154,7 +2547,7 @@ function drawSketch() {
   for (const a of v.arcs || []) {
     const pts = [], ctr = v3(a.center), x = v3(v.x_dir), y = v3(v.y_dir);
     for (let i = 0; i <= 64; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 64; pts.push(ctr.clone().addScaledVector(x, a.r * Math.cos(t)).addScaledVector(y, a.r * Math.sin(t))); }
-    const mat = SK.sel.has(a.id) ? SK_SEL : SK.hover === a.id ? SK_HOV : a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : SK_LINE;
+    const mat = SK.sel.has(a.id) ? SK_SEL : SK.hover === a.id ? SK_HOV : a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(a.id) ? SK_SCIOLTA : SK_LINE;
     const al = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
     if ((a.construction && !a.ref) || a.xray) al.computeLineDistances();
     skGroup.add(al);
@@ -2169,14 +2562,14 @@ function drawSketch() {
   else if (!v.drawn) testo = suPezzo
     ? 'Vuoto. Scegli Rettangolo o Cerchio e disegna sulla faccia. Le misure partono dall’angolo in basso a sinistra (0;0); i bordi del pezzo sono in arancio: ci si aggancia e ci si fa l’offset.'
     : 'Vuoto. Scegli Linea o Rettangolo e disegna il contorno.';
-  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Taglia attraverso»' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`; }
-  else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Spezzata aperta, da bordo a bordo della faccia (arancio): «Taglia attraverso» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. «Lamiera a contorno»: se parte dallo spigolo di un bordo libero diventa lamiera piegata.'; }
+  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`;
+    if (v.sciolte?.length) { cls = 'todo'; testo += ' ⚠ ' + v.status; } }
+  else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: Altro → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
   else { cls = 'bad'; testo = (v.status || '').startsWith('Lo sketch') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
   $('#sk-status').textContent = testo;
-  $('#sk-selbar').hidden = !SK.sel.size;
-  $('#sk-nsel').textContent = SK.sel.size === 1 ? '1 elemento' : `${SK.sel.size} elementi`;
+  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"])').forEach(b => { b.disabled = !SK.sel.size; });
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);
   $('#sk-finish-box').hidden = !libero;
@@ -2186,11 +2579,15 @@ function drawSketch() {
   $('#sk-make').hidden = suPezzo;
   $('#sk-face').hidden = !suPezzo;
   $('#sk-boss').hidden = !!v.on_sheet;
-  document.querySelectorAll('#sk-finish-box button').forEach(b => { b.disabled = !pronto; });
+  document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => { b.disabled = !pronto; });
   $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn));
   $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);   // bastano linee aperte   // da bordo a bordo: la chiudo io
   for (const q of ['#sk-louver', '#sk-dimple']) { $(q).hidden = !(v.on_sheet && v.on_face); $(q).disabled = !v.drawn; }
   $('#sk-fold').hidden = !(v.on_flat || (v.on_sheet && /\/(sopra|sotto)$/.test(v.on_face || '')));
+  // sullo sviluppo si disegna quasi sempre per piegare: lì la piega è un pulsante grande, altrove sta in Altro
+  $('#sk-fold-big').hidden = !v.on_flat; $('#sk-fold-big').disabled = !v.drawn;
+  if (v.on_flat) $('#sk-fold').hidden = true;
+  $('#sk-face [data-make="cut"]').classList.toggle('primary', !v.on_flat);
   $('#sk-fold').disabled = !v.drawn;
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
   $('#sk-tab').hidden = !(v.on_sheet && v.on_face);
@@ -2198,9 +2595,9 @@ function drawSketch() {
   $('#sk-contour').disabled = !v.drawn || !v.lines.some(l => !l.construction);
   $('.sk-legend .l-ref').parentElement.hidden = !suPezzo;
   // "Altro" solo se dentro c'è qualcosa; i pulsanti spenti dicono perché
-  $('#sk-more').hidden = [...document.querySelectorAll('#sk-more button')].every(b => b.hidden);
+  $('#sk-more').hidden = [...document.querySelectorAll('#sk-more .drop button')].every(b => b.hidden);
   const perche = !v.drawn ? 'prima disegna qualcosa' : !pronto ? 'il contorno non è chiuso: torna sul primo punto' : '';
-  document.querySelectorAll('#sk-finish-box button').forEach(b => {
+  document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';
     b.title = b.disabled ? `Non disponibile: ${b.dataset.make === 'structure' ? 'disegna almeno una linea' : perche || 'serve un contorno chiuso'}` : b.dataset.title;
   });
@@ -3049,20 +3446,28 @@ function skDimClick(ev) {
   const punto = c && c.id ? c.id : null;
   const h = punto ? null : skHit(ev);
   const sid = SK.sid;
+  // come in ogni CAD: dopo il clic si scrive subito la misura (anche se la quota c'era già)
+  const quota = (kind, refs) => inCoda(async () => {
+    const r = await call('sketch_dimension', sid, kind, refs);
+    if (!await apply(r) || !r.dim) return;
+    const x = dimEls.find(e => e.d.sketch === sid && e.d.dim === r.dim);
+    if (x) { x.el.style.display = ''; editDim(x.el, x.d); }
+  });
   if (!SK.dimPick.length) {
     if (punto) { SK.dimPick = [punto]; setHelp('Quota: ora clic su un altro punto o su una linea · Esc annulla'); return; }
-    if (h && SK.v.circles.some(x => x.id === h)) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'diameter', [h])); }); return; }
-    if (h) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'length', [h])); }); return; }
+    if (h && SK.v.circles.some(x => x.id === h)) { quota('diameter', [h]); return; }
+    if (h && SK.v.arcs?.some(x => x.id === h)) { quota('radius', [h]); return; }
+    if (h) { quota('length', [h]); return; }
     return;
   }
   const a = SK.dimPick[0];
   SK.dimPick = []; setTool('dim');
-  if (h && SK.v.lines.some(l => l.id === h)) { inCoda(async () => { await apply(await call('sketch_dimension', sid, 'pldistance', [a, h])); }); return; }
+  if (h && SK.v.lines.some(l => l.id === h)) { quota('pldistance', [a, h]); return; }
   if (!punto || punto === a) return;
   modal(`<h3>Quota tra due punti</h3><div class="choice"><button data-k="hdistance">Orizzontale</button><button data-k="vdistance">Verticale</button><button data-k="distance">Allineata</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button></div>`, close => {
     $('#m-no').onclick = close;
-    $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); inCoda(async () => { await apply(await call('sketch_dimension', sid, b.dataset.k, [a, punto])); }); }; });
+    $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); quota(b.dataset.k, [a, punto]); }; });
   });
 }
 
@@ -3115,20 +3520,28 @@ function makeDialog(kind) {
     return;
   }
   if (kind === 'fold') {
-    modal(`<h3>Piega su questa linea</h3>
-      <p class="hint">La linea è lo spigolo esterno della piega. Si piega la parte più piccola; lo sviluppo resta quello che hai disegnato.</p>
-      <div class="ff"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="90"><i>°</i></span></label><span></span></div>
+    // più linee = pieghe in serie (calandratura a colpi, "bumping"): si scrive l'angolo totale, si divide per i colpi
+    const n = SK.v.lines.filter(l => !l.ref && !l.construction && !l.xray).length;
+    const serie = n > 1;
+    modal(`<h3>${serie ? `${n} pieghe in serie (a colpi)` : 'Piega su questa linea'}</h3>
+      <p class="hint">${serie ? `Ogni linea è un colpo di piega. La parte più grande resta ferma, le altre strisce girano tutte dallo stesso verso. Lo sviluppo resta quello che hai disegnato.`
+        : 'La linea è lo spigolo esterno della piega. Si piega la parte più piccola; lo sviluppo resta quello che hai disegnato.'}</p>
+      <div class="ff"><label>${serie ? 'Angolo totale della curva' : 'Angolo'}<span class="inp"><input class="field" id="m-ang" value="90"><i>°</i></span></label><span class="hint" id="m-colpo"></span></div>
       <div class="seg-row"><span>Verso</span><div class="seg" id="m-dir"><button type="button" data-v="up" class="on">su</button><button type="button" data-v="down">giù</button></div></div>
-      <label class="check"><input type="checkbox" id="m-flip"> piega l’altra parte</label>
+      ${serie ? '' : `<label class="check"><input type="checkbox" id="m-flip"> piega l’altra parte</label>
       <details class="bump"><summary>Bumping: raggio grande a colpi</summary>
         <p class="hint">Tanti colpi piccoli a passo costante, con il punzone normale: il raggio grande senza calandra. Vuoto = piega normale.</p>
         <div class="ff"><label>Colpi<input class="field" id="m-colpi" placeholder="es. 15"></label>
-        <label>Raggio grande (interno)<span class="inp"><input class="field" id="m-rg" placeholder="es. 200"><i>mm</i></span></label></div></details>
+        <label>Raggio grande (interno)<span class="inp"><input class="field" id="m-rg" placeholder="es. 200"><i>mm</i></span></label></div></details>`}
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Piega</button></div>`, close => {
+      const colpo = () => { const t = parseFloat($('#m-ang').value.replace(',', '.')); return isFinite(t) ? Math.round(t / n * 1000) / 1000 : null; };
+      const scrivi = () => { if (serie) { const c = colpo(); $('#m-colpo').textContent = c == null ? '' : `= ${String(c).replace('.', ',')}° per ogni colpo (${n} colpi)`; } };
+      $('#m-ang').oninput = scrivi; scrivi();
       $('#m-no').onclick = close;
       $('#m-ok').onclick = () => {
-        const sid = SK.sid, ang = $('#m-ang').value.trim(), dir = $('#m-dir .on').dataset.v, flip = $('#m-flip').checked;
-        const bump = $('#m-colpi').value.trim() ? { colpi: $('#m-colpi').value.trim(), raggio: $('#m-rg').value.trim() } : null;
+        const sid = SK.sid, dir = $('#m-dir .on').dataset.v, flip = !serie && $('#m-flip').checked;
+        const ang = serie ? String(colpo() ?? '') : $('#m-ang').value.trim();
+        const bump = !serie && $('#m-colpi').value.trim() ? { colpi: $('#m-colpi').value.trim(), raggio: $('#m-rg').value.trim() } : null;
         close();
         inCoda(async () => { const r = await call('sheet_fold', sid, ang, dir, flip, bump); if (await apply(r)) exitSketch(); });
       };
@@ -3203,14 +3616,6 @@ canvas.addEventListener('dblclick', ev => {
   if (!h || !SK.v.lines.some(l => l.id === h)) return;
   SK.sel = chainOf(h); drawSketch();
 });
-$('#sk-panel').addEventListener('click', ev => {
-  const b = ev.target.closest('button');
-  if (!b || !SK) return;
-  if (b.id === 'sk-grid') { SK.grid = aggancioGriglia = !SK.grid; drawSketch(); return; }
-  if (b.dataset.act) { skAction(b.dataset.act); return; }
-  if (b.dataset.tool) setTool(b.dataset.tool);
-  else if (b.dataset.make) makeDialog(b.dataset.make);
-});
 
 // ===================================================================== barra a schede (stile SolidCraft)
 let schedaPrima = 'lamiera';
@@ -3246,18 +3651,22 @@ function aggiornaComandi() {
     b.title = no ? `${b.dataset.title} · Non disponibile: ${no}` : b.dataset.title;
     if (b.hasAttribute('data-no-shape')) b.hidden = forma;
   });
+  document.querySelectorAll('#ribbon .rb[data-serve="lam"]').forEach(b => {
+    if (b.dataset.title === undefined) b.dataset.title = b.title || '';
+    b.disabled = !S?.sheet?.data; b.title = b.disabled ? `${b.dataset.title} · Non disponibile: prima serve una lamiera` : b.dataset.title;
+    if (b.hasAttribute('data-no-shape')) b.hidden = forma;
+  });
   document.querySelectorAll('.rmenu .drop [data-cmd]').forEach(b => { b.hidden = !!motivoNo(b.dataset.cmd); });
   document.querySelectorAll('#top .drop [data-cmd^="export_"]').forEach(b => {
     const no = motivoNo(b.dataset.cmd);
     b.disabled = !!no; b.title = no ? 'Non disponibile: ' + no : '';
   });
-  $('#navbar [data-cmd="unfold"]').hidden = !S?.sheet?.data;
   gruppiVuoti();
 }
 // un gruppo del ribbon senza pulsanti visibili sparisce, nome compreso
 function gruppiVuoti() {
   document.querySelectorAll('#ribbon .rgroup').forEach(g => {
-    const bs = g.querySelectorAll('.rbtns > .rb, .rbtns > .rmenu');
+    const bs = g.querySelectorAll('.rbtns .rb');
     g.hidden = bs.length > 0 && [...bs].every(b => b.hidden);
   });
 }
@@ -3268,10 +3677,14 @@ function showRibbon(t) {
 $('#ribbon').addEventListener('click', ev => {
   const tab = ev.target.closest('.rtabs button');
   if (tab) { showRibbon(tab.dataset.rtab); if (tab.dataset.rtab !== 'sketch') schedaPrima = tab.dataset.rtab; return; }
+  const mk = ev.target.closest('[data-make]');
+  if (mk) { mk.closest('.menu-item')?.classList.remove('open'); if (SK && !mk.disabled) makeDialog(mk.dataset.make); return; }
   const b = ev.target.closest('.rb');
   if (!b || b.disabled) return;
   if (b.dataset.cmd) return;                         // ci pensa il gestore generale dei data-cmd
+  if (b.dataset.azione) { azione(b.dataset.azione); return; }
   if (!SK) return;
+  if (b.id === 'sk-grid') { SK.grid = aggancioGriglia = !SK.grid; drawSketch(); return; }
   if (b.id === 'rb-constr') { costruzione(); return; }
   if (b.id === 'rb-xray') { toggleXray(); return; }
   if (b.id === 'sk-ghost') { SK.ghost = !SK.ghost; applyLook(); return; }
@@ -3386,7 +3799,7 @@ async function start() {
   introStato('Pronto', 0.95);
   requestAnimationFrame(loop);
   introFine();
-  window.__steelcad = { ready: true, get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
+  window.__steelcad = { ready: true, runCmd: id => runCmd(id), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, skScreen: xy => skScreen(xy), enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }

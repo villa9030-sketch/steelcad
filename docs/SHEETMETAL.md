@@ -126,10 +126,10 @@ trasparenza con **Pezzo 3D** (tasto G). I bordi della faccia entrano nello sketc
 costruzione fisse ("bordo del pezzo"): ci si aggancia, si quota da lì e si fa l'offset (doppio clic su un
 bordo = tutto il contorno, poi Offset… verso dentro). Lo stesso sullo sviluppo. Uno sketch lasciato vuoto
 sparisce uscendo. Poi:
-- su una lamiera (base sopra o sotto, flangia dentro o fuori) → **Taglia attraverso**: il contorno
+- su una lamiera (base sopra o sotto, flangia dentro o fuori) → **Togli materiale**: il contorno
   attraversa lo spessore ed entra nello sviluppo, portato in piano nella posizione giusta.
   Un taglio che tocca una piega è rifiutato;
-- su un pezzo pieno → **Taglia attraverso** (tasca passante) oppure **Estrudi** di una distanza.
+- su un pezzo pieno → **Togli materiale** (tasca passante) oppure **Estrudi** di una distanza.
 
 I bordi complanari di una scatola che si toccano diventano un'unica faccia, col nome di uno solo: il
 taglio va comunque al bordo su cui cade il contorno.
@@ -138,7 +138,7 @@ taglio va comunque al bordo su cui cade il contorno.
 **Spiega** (pulsante sulla vista, tasto U, scheda Lamiera) mostra lo sviluppo al posto del pezzo
 piegato: contorno, linee di piega tratteggiate e, in rosso chiaro, le strisce delle pieghe.
 **Disegna sullo sviluppo** apre uno sketch sul piano dello sviluppo (`{"flat": "SM1"}`). Con
-**Taglia attraverso** ogni contorno chiuso:
+**Togli materiale** ogni contorno chiuso:
 - si taglia nello sviluppo esattamente dove l'hai disegnato;
 - nel pezzo piegato va sul tratto piano dove cade (la base o una flangia, anche sulla punta di un'altra),
   portato al suo posto con le stesse coordinate locali usate per i tagli disegnati sulle facce.

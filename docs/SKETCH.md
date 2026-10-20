@@ -45,7 +45,7 @@ diversi), poi Taglia le metà interne (resta un contorno chiuso con gli stessi p
 - Nel pannello a destra (al posto delle Proprietà): in alto **dove stai disegnando**
   e **cosa fare adesso** (verde: contorni chiusi, pronto; giallo: cosa manca), poi *1 · Disegna*
   (Linea, Rettangolo, Cerchio, Offset, Quota, Seleziona, con il tasto accanto), i comandi sulla
-  selezione quando c'è, *2 · Quando il contorno è chiuso* (Taglia attraverso / Crea lamiera…, attivi
+  selezione quando c'è, *2 · Quando hai finito di disegnare* (Togli materiale / Crea lamiera…, attivi
   solo quando c'è un contorno chiuso), la legenda dei colori, Mostra il pezzo 3D ed Esci.
 - Nella vista resta solo il disegno, con una riga d'aiuto in basso per lo strumento scelto; delle
   viste resta Adatta.

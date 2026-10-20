@@ -1015,3 +1015,55 @@ def test_pagina_iniziale_anteprime_e_date(tmp_path, monkeypatch):
     os.utime(p, (ieri, ieri))
     assert s.home_info()['recent'][0]['when'] == 'ieri'
     assert S._quando(time.time() - 40 * 86400)[0].isdigit()
+
+
+def test_pezzo_nuovo_il_riassunto_a_parole():
+    """Mentre si scrivono le misure: cosa viene fuori, a parole, senza toccare il progetto aperto."""
+    s = Service()
+    r = s.new_project_preview('cancello', {'L': 1500, 'H': 1200, 'telaio': '60x60x3', 'sbarre': '20x20x2', 'passo': 120})
+    assert r['ok'] and 'Escono 11 sbarre ogni 125 mm' in r['text'] and 'Fuori tutto 1560 × 1260 mm' in r['text']
+    assert 'Sviluppo 500 × 300 mm' in s.new_project_preview('lamiera', {'larghezza': 500, 'profondita': 300, 'spessore': 2})['text']
+    assert 'Calandrato' in s.new_project_preview('cono', {'modo': 'rolled'})['text']
+    male = s.new_project_preview('telaio', {'L': -5})
+    assert male['ok'] and not male['text'] and male['warning']
+    assert s.result.body is None and not s.result.structures            # il progetto aperto non è cambiato
+
+
+def test_prepara_per_il_laser(tmp_path):
+    """Un pulsante solo: si sceglie a chi serve (laser, piegatrice, officina, altro CAD) e i file finiscono insieme
+    nella cartella del lavoro, con i nomi già fatti; il controllo del laser si vede prima."""
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'Canalina 500 × 300', 'larghezza': 500, 'profondita': 300, 'spessore': 2,
+                                     'raggio': 1, 'k': 0.21})['ok']
+    assert s.add_flange('SM1', 'L1', {'length': '40'})['ok']
+    info = s.prepara_info()
+    voci = {v['id']: v for v in info['voci']}
+    assert info['controllo']['ok'] and voci['laser']['si'] and voci['piegatrice']['scelta']
+    assert voci['laser']['file'] == 'Canalina 500 x 300_sviluppo.dxf'
+    r = s.prepara(str(tmp_path / 'out'), ['laser', 'piegatrice', 'officina', 'step'])
+    assert r['ok'], r.get('message')
+    assert sorted(p.name for p in (tmp_path / 'out').iterdir()) == sorted(v['file'] for v in info['voci'])
+    s2 = Service()
+    assert s2.new_project('cancello', {})['ok']
+    v2 = {v['id']: v for v in s2.prepara_info()['voci']}
+    assert not v2['laser']['si'] and v2['officina']['scelta'] and 'lista di taglio' in v2['officina']['desc']
+
+
+def test_fori_guidati_dal_bordo_esterno_e_un_annulla():
+    """Fori come si segnano sul pezzo: centro dal bordo sinistro e dal bordo davanti, fuori tutto (anche con la
+    piega davanti); una fila di 5 si fa e si toglie con un Annulla solo."""
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 500, 'profondita': 300, 'spessore': 2, 'raggio': 1, 'k': 0.21})['ok']
+    assert s.add_flange('SM1', 'L1', {'length': '40'})['ok']
+    faccia = s.fori_faccia()
+    info = s.fori_info(faccia)
+    assert faccia == 'SM1/sopra' and info['outer'] == [500.0, 300.0]
+    r = s.fori_guidati(faccia, {'tipo': 'tondo', 'd': 10, 'x': 60, 'y': 100, 'fila': True, 'n': 5, 'passo': 80, 'verso': 'x'})
+    assert r['ok'] and r['message'] == 'Fatti 5 fori.'
+    fl = s.result.body.sheet.flat
+    ob = fl.outer_wire().bounding_box()
+    centri = sorted(round((w.bounding_box().min.X + w.bounding_box().max.X) / 2 - ob.min.X, 3) for w in fl.inner_wires())
+    assert centri == [60, 140, 220, 300, 380]
+    assert {p['name']: p['label'] for p in s.state()['parameters']}.get('px1') == 'Distanza tra i fori della fila'
+    s.undo()
+    assert not s.result.body.sheet.flat.inner_wires()
