@@ -277,7 +277,7 @@ def main():
                     testo = pg.inner_text('#toasts')[:70].replace('\n', ' ') if tipo == 'toast' else ''
                     ok(f'barra {tab.upper()} → {cmd}: risponde {testo!r}', risposta)
             ok('schermata del pezzo: comandi nella barra in alto, pannello a destra chiuso',
-               pg.is_visible('#ribbon [data-azione="fori"]') and not pg.is_visible('#right'))
+               pg.is_visible('#ribbon [data-azione="tipo_foro"]') and not pg.is_visible('#right'))
             pg.click('#ribbon [data-cmd="unfold"]')
             time.sleep(0.5)
             ok('barra → Spiega: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))

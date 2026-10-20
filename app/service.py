@@ -345,6 +345,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     from OCP.BRepAdaptor import BRepAdaptor_Surface
                     from OCP.GeomAbs import GeomAbs_Plane
                     dati['face']['planar'] = BRepAdaptor_Surface(f).GetType() == GeomAbs_Plane
+                    foro = self._foro_della_faccia(f, dati['face']['name'] or '')
+                    if foro:
+                        dati['foro'] = foro
+                        dati['title'] = f'Foro Ø{fmt_mm(round(foro["d"], 2))}'
+                        h = foro['hole'] or {}
+                        dati['rows'] = [['Tipo', {'filettato': f'filettato {h.get("M")} (preforo)', 'svasato': f'svasato Ø{h.get("D")} a {h.get("angolo")}°',
+                                                  'inserto': f'per inserto {h.get("codice")}'}.get(h.get('tipo'), 'semplice')],
+                                        ['Fori uguali nel disegno', str(len(foro['uguali']))]]
                     dati['rows'].append(['Area faccia', f'{dati["face"]["area"]:.1f} mm²'])
                     nome = dati['face']['name'] or ''
                     parti = nome.split('/')
@@ -1261,6 +1269,40 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             ent['hole'] = {'tipo': 'svasato', 'D': D, 'angolo': ang}
         else:
             raise SteelCADError(f'Tipo di foro "{tipo}" sconosciuto.', code='foro')
+
+    def _foro_della_faccia(self, f, nome: str) -> dict | None:
+        """Hai cliccato la parete di un foro sul pezzo: quale cerchio di quale sketch l'ha fatto (centro sull'asse del
+        cilindro, stesso raggio), così lo si fa svasato o filettato come in ogni CAD. None se non è un foro tondo."""
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cylinder
+        su = BRepAdaptor_Surface(f)
+        if su.GetType() != GeomAbs_Cylinder:
+            return None
+        cil = su.Cylinder()
+        R = cil.Radius()
+        o, d = cil.Axis().Location(), cil.Axis().Direction()
+        prima = nome.split('/')[0] if nome else None
+        tagli = [x for x in self.doc.features if not isinstance(x, Sketch) and x.get('sketch')
+                 and (x.get('type') == 'sheet_cut' or (x.get('type') == 'extrude' and x.get('operation') == 'cut'))]
+        tagli.sort(key=lambda x: x.get('id') != prima)              # prima il taglio che ha fatto questa faccia
+        for t in tagli:
+            sid = t['sketch']
+            fatto = (self.doc._sketch_results or {}).get(sid)
+            if not fatto or fatto[1] is None:
+                continue
+            ss, pl = fatto[0], fatto[1].plane
+            sk = self.doc.sketch(sid)
+            for cid, (c, r) in ss.circles.items():
+                if sk.entities[cid].get('construction') or abs(r - R) > 1e-3:
+                    continue
+                q = pl.from_local_coords(ss.points[c])
+                v = (q.X - o.X(), q.Y - o.Y(), q.Z - o.Z())
+                along = v[0] * d.X() + v[1] * d.Y() + v[2] * d.Z()
+                fuori = (v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - along ** 2) ** 0.5 if v[0] ** 2 + v[1] ** 2 + v[2] ** 2 > along ** 2 else 0.0
+                if fuori < 1e-3:
+                    uguali = [k for k, (_, r2) in ss.circles.items() if abs(r2 - r) < 1e-6 and not sk.entities[k].get('construction')]
+                    return {'sketch': sid, 'cerchio': cid, 'd': 2 * r, 'hole': sk.entities[cid].get('hole'), 'uguali': uguali}
+        return None
 
     @staticmethod
     def _set_diameter(sk, cid, d):

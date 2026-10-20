@@ -1088,3 +1088,23 @@ def test_fori_guidati_filettati_e_svasati():
     assert r['ok'], r.get('message')
     r = s.fori_guidati(faccia, {'tipo': 'tondo', 'foro': 'svasato', 'd': 6.5, 'sD': 5, 'x': 200, 'y': 150})
     assert not r['ok'] and 'più larga del foro' in r['message']
+
+
+def test_clic_sul_foro_del_pezzo_lo_filetta():
+    """20/10: svasare e filettare si fa cliccando il foro sul pezzo, come negli altri CAD: la parete del foro porta al
+    cerchio che l'ha fatto e ai fori uguali dello stesso disegno."""
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 300, 'profondita': 200, 'spessore': 3, 'raggio': 1, 'k': 0.21})['ok']
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    for x in (50, 100, 150):
+        assert s.sketch_add_circle(sid, [x, 60], 5)['ok']
+    assert s.sketch_add_circle(sid, [250, 150], 8)['ok']
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    pareti = [x for x in s.scene()['objects'][0]['faces'] if x['name'] == 'TG1/parete']
+    fori = [s.select('body', x['index'], x['name'])['selection']['foro'] for x in pareti]
+    assert sorted(round(f['d'], 3) for f in fori) == [10, 10, 10, 16]
+    dieci = next(f for f in fori if round(f['d']) == 10)
+    assert len(dieci['uguali']) == 3
+    assert s.sketch_hole_type(dieci['sketch'], dieci['uguali'], {'tipo': 'filettato', 'M': 'M5'})['ok']
+    diam = sorted(round(w.bounding_box().max.X - w.bounding_box().min.X, 3) for w in s.result.body.sheet.flat.inner_wires())
+    assert diam == [4.2, 4.2, 4.2, 16]
