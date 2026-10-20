@@ -54,6 +54,7 @@ class Member:
     solid: bd.Solid | None = None
     cuts: tuple = (0.0, 0.0)    # angolo di taglio all'inizio e alla fine (0 = dritto)
     length: float = 0.0         # lunghezza di taglio (massimo ingombro lungo l'asse)
+    ruolo: str = ''             # 'collega' = traverso tra due ripetizioni di uno scheletro (batte contro le spalle)
 
     @property
     def w(self) -> bd.Vector:
@@ -127,7 +128,7 @@ def _skeletons(fdef, params, sketches, pts, nome, fid) -> list:
                 pts[f'{kid}.{k}.{p}'] = prof.plane.from_local_coords(solved.points[p]) + d
             for lid, (a, b) in linee.items():
                 righe.append({'id': f'{kid}.{k}.{lid}', 'from': f'{kid}.{k}.{a}', 'to': f'{kid}.{k}.{b}',
-                              'profile': sk_def.get('profile'), 'group': sk_def.get('group', ''),
+                              'profile': sk_def.get('profile'), 'group': sk_def.get('group', ''), 'ruolo': f'{kid}.{k}',
                               **({'material': sk_def['material']} if sk_def.get('material') else {})})
         con = sk_def.get('connect')
         if con and len(copie) > 1:
@@ -136,7 +137,7 @@ def _skeletons(fdef, params, sketches, pts, nome, fid) -> list:
                 for p in quali:
                     righe.append({'id': f'{kid}.{k}-{k + 1}.{p}', 'from': f'{kid}.{k}.{p}', 'to': f'{kid}.{k + 1}.{p}',
                                   'profile': con.get('profile') or sk_def.get('profile'),
-                                  'group': con.get('group', 'Collegamenti')})
+                                  'group': con.get('group', 'Collegamenti'), 'ruolo': 'collega'})
     for m in fdef.get('members') or []:
         if 'line' in m and 'sketch' in m:
             sid, lid = m['sketch'], m['line']
@@ -227,6 +228,7 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         ox, oy = (evaluate(v, params, what=f'offset dell\'asta {mid}') for v in (m.get('offset') or [0, 0]))
         shift = x * (-ax * prof.width / 2 + ox) + y * (-ay * prof.height / 2 + oy)
         members.append(Member(mid, m.get('group', ''), prof, mat, a, b, x, y, shift))
+        members[-1].ruolo = m.get('ruolo', '')
     if not members:       # si parte da un nodo e si costruisce: nessuna asta va bene
         return StructureResult(fid, nome, [], [], _node_info(pts, [], {}, fdef))
     ids = [m.id for m in members]
@@ -370,11 +372,39 @@ def _nodes(members, pts, joints, by_id, fid):
             for m, i in lst:
                 out[(m.id, i)] = ('butt', node, passanti)
             continue
+        # come in officina (20/10, mensola «terrificante»):
+        # - un traverso di collegamento e un tubo della spalla soli nel nodo (il piede di una mensola): il traverso
+        #   batte contro il tubo, che resta dritto (non una cornice a 45°);
+        # - due tubi della spalla ad angolo stretto (un diagonale sul braccio): il diagonale si appoggia sotto il
+        #   braccio, il braccio va oltre il nodo quanto lo copre, i traversi battono contro il braccio.
+        # Gli altri nodi come sempre: il più verticale batte, gli ultimi due a 45° (telai, scaffali, cornici)
+        collega = [e for e in lst if e[0].ruolo == 'collega']
+        telaio = [e for e in lst if e[0].ruolo != 'collega']
+        if len(lst) == 2 and len(collega) == 1 and len(telaio) == 1:
+            (c, ic), (t, it) = collega[0], telaio[0]
+            out[(c.id, ic)] = ('butt', node, [t])
+            interno = _lies_on(node, members, t)
+            out[(t.id, it)] = ('butt', node, interno) if interno else ('square', node, [])
+            continue
+        if len(telaio) == 2 and _angolo_stretto(telaio, node):
+            (a, ia), (b, ib) = sorted(telaio, key=lambda e: (-abs(e[0].w.dot(bd.Vector(0, 0, 1))), e[0].id))
+            out[(b.id, ib)] = ('extend', node, [(a, ia)])
+            out[(a.id, ia)] = ('butt', node, [b])
+            for m, i in collega:
+                out[(m.id, i)] = ('butt', node, [b])
+            continue
         resto = sorted(lst, key=lambda e: (-abs(e[0].w.dot(bd.Vector(0, 0, 1))), e[0].id))
         batte = []
         while len(resto) > 2:
             batte.append(resto.pop(0))
-        if len(resto) == 2:
+        if len(resto) == 2 and _sezione(resto[0][0]) != _sezione(resto[1][0]):
+            # tubi di sezione diversa non si tagliano a 45° (le facce non combaciano): il più grosso passa, l'altro
+            # gli batte contro (20/10: braccio 40×40 a 45° col traverso 40×20)
+            (g, ig), (p, ip) = sorted(resto, key=lambda e: (-max(e[0].profile.width, e[0].profile.height),
+                                                            -e[0].profile.area_mm2, e[0].id))
+            out[(g.id, ig)] = ('extend', node, [(p, ip)] + batte)   # a filo anche del montante che batte sotto
+            out[(p.id, ip)] = ('butt', node, [g])
+        elif len(resto) == 2:
             (a, ia), (b, ib) = resto
             out[(a.id, ia)] = ('miter', node, (b, ib))
             out[(b.id, ib)] = ('miter', node, (a, ia))
@@ -395,6 +425,20 @@ def _nodes(members, pts, joints, by_id, fid):
                 interno = _lies_on(p, members, m)
                 out[(m.id, i)] = ('butt', p, interno) if interno else ('square', p, [])
     return out
+
+
+def _sezione(m) -> tuple:
+    """La sezione dell'asta per decidere se due aste si possono tagliare a 45° tra loro (stesse misure esterne)."""
+    return (m.profile.family, round(m.profile.width, 3), round(m.profile.height, 3))
+
+
+def _angolo_stretto(coppia, node, limite=50.0) -> bool:
+    """Le due aste che escono dal nodo fanno un angolo più stretto di `limite` gradi (diagonale contro braccio)."""
+    dirs = []
+    for m, i in coppia:
+        dirs.append(m.w if i == 0 else -m.w)       # dal nodo verso l'asta
+    c = max(-1.0, min(1.0, dirs[0].dot(dirs[1])))
+    return math.degrees(math.acos(c)) < limite
 
 
 def _lies_on(p, members, skip):

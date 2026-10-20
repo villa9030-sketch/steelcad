@@ -16,7 +16,9 @@ def _righe(res):
 def test_spalla_ripetuta_e_collegata():
     """Scaffale disegnato: spalla di fianco 400 × 1800 con 4 ripiani, ripetuta a L = 1000 e collegata.
     Montanti 30×30 sotto e sopra battono contro i traversi (1800 − 2·20 del 40×20 messo in piedi), i traversi
-    intermedi battono contro i montanti (400 − 30), quelli in cima e a terra si tagliano a 45°."""
+    intermedi battono contro i montanti (400 − 30). Negli angoli in cima e a terra il 40×20 lungo passa (1000 + 30) e il
+    30×30 di fianco gli batte contro (400 − 20): tubi di sezione diversa non si tagliano a 45° tra loro (20/10, prima
+    venivano a 45° un 30×30 e un 40×20, che non combaciano)."""
     d = Document('Scaffale', 'S235')
     d.set_parameter('L', 1000)
     sk = d.add_sketch('YZ', 'Spalla')
@@ -30,9 +32,9 @@ def test_spalla_ripetuta_e_collegata():
     res = d.rebuild()
     assert res.ok, [f.message for f in res.errors]
     assert len(res.structures[0].members) == 20 and not res.structures[0].warnings
-    assert _righe(res) == [('30×30×2', 370.0, 'dritto/dritto', 4), ('30×30×2', 430.0, '45°/45°', 4),
+    assert _righe(res) == [('30×30×2', 370.0, 'dritto/dritto', 4), ('30×30×2', 380.0, 'dritto/dritto', 4),
                            ('30×30×2', 1760.0, 'dritto/dritto', 4),
-                           ('40×20×2', 970.0, 'dritto/dritto', 4), ('40×20×2', 1020.0, '45°/45°', 4)]
+                           ('40×20×2', 970.0, 'dritto/dritto', 4), ('40×20×2', 1030.0, 'dritto/dritto', 4)]
     d.set_parameter('L', 1200)                     # la distanza è un parametro
     assert ('40×20×2', 1170.0, 'dritto/dritto', 4) in _righe(d.rebuild())
 
