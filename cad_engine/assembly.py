@@ -303,7 +303,15 @@ def solve(asm: Assembly, parts: dict) -> dict:
         R, T = pose[ist['id']]
         ist['R'], ist['T'] = R.tolist(), T.tolist()
     # controllo: quanto sono rispettati
+    nomi = {i['id']: i.get('name') or i['id'] for i in asm.instances}
     for m in mates:
+        if m['a']['inst'] not in fatti and m['b']['inst'] not in fatti:
+            # nessuno dei due è fisso né agganciato a un pezzo fisso: non c'è da dove partire (20/10: diceva «in
+            # contrasto con gli altri» e si cercava la cosa sbagliata)
+            asm.warnings.append(f'L’accoppiamento {m["id"]} tra {nomi.get(m["a"]["inst"])} e {nomi.get(m["b"]["inst"])} '
+                                'aspetta: nessuno dei due è fisso o attaccato a un pezzo fisso. Rendi fisso uno dei due '
+                                '(clic sul pezzo, «Fisso») oppure accoppialo a un pezzo fisso.')
+            continue
         err = mate_error(m, pose, parts, asm)
         if err is not None and err > 1e-3:
             asm.warnings.append(f'L’accoppiamento {m["id"]} ({MATE_TYPES[m["type"]]}) non si riesce a rispettare '

@@ -70,3 +70,23 @@ def test_tabella_pieghe_con_i_colpi_in_fila():
     assert s.sheet_fold(sid, 90, 'up', False, {'colpi': 8, 'raggio': 60})['ok']
     nomi = [r['flange'] for r in s.result.body.sheet.summary()['bends']]
     assert nomi == ['PL1'] + [f'PL1.{k}' for k in range(2, 9)]
+
+
+def test_mensola_diagonale_tagliato_e_niente_traversi_doppi():
+    """Il punto dove il diagonale incontra il tubo di sopra veniva a 399,99994 invece di 400: due nodi diversi, il
+    diagonale tagliato dritto sporgeva sopra e oltre la punta, e il traverso di collegamento nasceva doppio."""
+    s = Service()
+    assert s.new_project('disegno', {'name': 'Mensola', 'piano': 'XZ'})['ok']
+    sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
+    assert s.sketch_add_polyline(sid, [[0, 0], [0, 400], [350, 400]], False)['ok']
+    assert s.sketch_add_polyline(sid, [[0, 120], [350, 400]], False)['ok']
+    r = s.create_from_sketch(sid, 'structure', {'profile': '40x40x3', 'copies': 2, 'distance': 300, 'side': 'back',
+                                                'connect': True, 'connect_profile': '40x20x2', 'connect_group': 'Traversi'})
+    assert r['ok'], r.get('message')
+    aste = [m for st in s.result.structures for m in st.members]
+    assert len(aste) == 10
+    for m in aste:
+        b = m.solid.bounding_box()
+        assert b.max.Z <= 420 + 1e-6 and b.max.X <= 370 + 1e-6, (m.id, b.max.Z, b.max.X)
+    diag = [m for m in aste if m.id.endswith('L3')]
+    assert all(m.solid.bounding_box().max.Z <= 380 + 1e-6 for m in diag)

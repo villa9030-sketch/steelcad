@@ -32,7 +32,7 @@ def verify(path, expected_volume: float | None = None) -> dict:
     if expected_volume is not None:
         diff = abs(vol - expected_volume) / max(expected_volume, 1e-9)
         out['volume_diff_rel'] = diff
-        if diff > 1e-6:
+        if diff > 1e-4:          # 0,01 %: un file rovinato sbaglia di molto; un solido di tante facce fuse si rilegge a 1e-5 (tramoggia, 20/10)
             raise ExportError(f'Lo STEP riletto ha volume {vol:.3f} mm³ invece di {expected_volume:.3f} mm³: '
                               'il file non è affidabile.')
     return out

@@ -34,7 +34,7 @@ const view = $('#view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(35, 1, 1, 1e7);
+const camera = new THREE.PerspectiveCamera(15, 1, 1, 1e7);   // prospettiva leggera: con 35° le gambe di un telaio sembravano aperte a ventaglio
 camera.up.set(0, 0, 1);
 camera.position.set(3000, -4000, 2500);
 const controls = new OrbitControls(camera, canvas);

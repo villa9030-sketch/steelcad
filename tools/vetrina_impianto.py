@@ -223,11 +223,11 @@ def telaio():
     passo('cambio idea dal riquadro del modello: un po’ più alto, 1600')
     st_id = next(f['id'] for f in s.doc.features if not hasattr(f, 'constraints') and f.get('type') == 'structure')
     ok('structure_template_apply', st_id, {'H': 1600})
-    passo('una gamba più robusta: clic sull’asta, tubo 80×80×4 (solo quella)')
+    passo('gambe più robuste: clic su una gamba, tubo 60×60×4 per tutte le gambe uguali (stessa misura del telaio)')
     st = s.result.structures[0]
     gamba = next(m for m in st.members if abs(m.start.Z - m.end.Z) > 1000)
     ok('select', f'{st.id}/{gamba.id}')
-    ok('edit_member', f'{st.id}/{gamba.id}', {'profile': '80x80x4'}, False)
+    ok('edit_member', f'{st.id}/{gamba.id}', {'profile': '60x60x4'}, True)
     b = bd.Compound([m.solid for st in s.result.structures for m in st.members]).bounding_box()
     GEO['telaio'] = b
     salva('telaio', lamiera=False)
@@ -490,13 +490,13 @@ def assieme():
         metti(bo, rot=[('x', 180)], centro=[trb.center().X + 120, trb.center().Y, trb.min.Z - bb_ist(bo).size.Z / 2])
         bob = bb_ist(bo)
         passo('tronchetto sotto la bocca, inclinato di 25° (Ruota sull’asse Y)')
-        metti(ids['Tronchetto'], rot=[('y', 25)], centro=[bob.center().X + 40, bob.center().Y, bob.min.Z - 100])
+        metti(ids['Tronchetto'], rot=[('y', 25)], centro=[bob.center().X + 40, bob.center().Y, bob.min.Z - 140])
         passo('mensola sulla gamba del telaio, cabina sopra la mensola, porta davanti alla cabina')
         metti(ids['Mensola'], minimo=[tb.max.X, tb.min.Y + 200, 700])
         mb = bb_ist(ids['Mensola'])
         metti(ids['Cabina'], rot=[('x', 90)], minimo=[mb.min.X + 20, mb.min.Y, mb.max.Z])
         cb = bb_ist(ids['Cabina'])
-        metti(ids['Porta cabina'], rot=[('x', 90)], minimo=[cb.min.X, cb.min.Y - 25, cb.min.Z])
+        metti(ids['Porta cabina'], rot=[('x', 90)], minimo=[cb.min.X, cb.min.Y - 60, cb.min.Z])
         passo('cappa vicino all’impianto, appesa a 2,4 m; camino sopra; deflettore sotto la cappa')
         metti(ids['Cappa'], minimo=[tb.min.X - 1100, tb.min.Y, 2400])
         kb = bb_ist(ids['Cappa'])
@@ -506,13 +506,35 @@ def assieme():
 
     prova('montaggio', monta)
 
+    def faccia_verso(iid, verso):
+        """La faccia piana dell'istanza girata verso `verso` (nel mondo) che sta più in là in quella direzione: quella
+        che l'utente clicca (il piano della mensola, il fondo della cabina)."""
+        import numpy as np
+        i = s.asm.instance(iid)
+        R, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+        meglio = None
+        for o in s.scene()['objects']:
+            if o['id'] != iid:
+                continue
+            for f in o['faces']:
+                inf = s._asm_face(iid, f['index'])
+                if inf['kind'] != 'piana':
+                    continue
+                n, q = R @ np.array(inf['n']), R @ np.array(inf['p']) + T
+                if n @ np.array(verso) > 0.99 and (meglio is None or q @ np.array(verso) > meglio[0]):
+                    meglio = (q @ np.array(verso), f['index'])
+        if meglio is None:
+            raise Buco(f'{iid}: nessuna faccia piana verso {verso}')
+        return meglio[1]
+
     def accoppia():
-        passo('accoppiamento faccia su faccia: la cabina appoggiata sulla mensola')
-        fc = next(f['index'] for o in s.scene()['objects'] if o['id'] == ids['Cabina'] for f in o['faces']
-                  if s._asm_face(ids['Cabina'], f['index'])['kind'] == 'piana')
-        fm = next(f['index'] for o in s.scene()['objects'] if o['id'] == ids['Mensola'] for f in o['faces']
-                  if s._asm_face(ids['Mensola'], f['index'])['kind'] == 'piana')
-        ok('asm_add_mate', 'faccia', {'inst': ids['Mensola'], 'face': fm}, {'inst': ids['Cabina'], 'face': fc}, 0, False)
+        passo('la mensola è avvitata alla gamba: la rendo fissa; poi il fondo della cabina sul piano della mensola')
+        ok('asm_set', ids['Mensola'], {'fixed': True})
+        ok('asm_add_mate', 'faccia', {'inst': ids['Mensola'], 'face': faccia_verso(ids['Mensola'], (0, 0, 1))},
+           {'inst': ids['Cabina'], 'face': faccia_verso(ids['Cabina'], (0, 0, -1))}, 0, False)
+        avvisi = s.state()['warnings']
+        if avvisi:
+            raise Buco('accoppiamento con avvisi: ' + '; '.join(avvisi))
 
     prova('accoppiamento cabina-mensola', accoppia)
     return ids
@@ -523,6 +545,8 @@ def controlli():
     t = time.time()
     inter = ok('asm_interferences').get('interferences', [])
     passo(f'interferenze in {time.time() - t:.1f} s: ' + ('nessuna' if not inter else '; '.join(x['label'] for x in inter[:6])))
+    for x in inter:
+        BUCHI.append(('interferenza', x['label']))
     righe = A.bom(s.asm, s.asm_parts)
     print('   DISTINTA')
     tot = 0

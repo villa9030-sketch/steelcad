@@ -103,13 +103,16 @@ def _skeletons(fdef, params, sketches, pts, nome, fid) -> list:
                                'diventano aste).', feature=fid)
         copie = sk_def.get('copies') or [[0, 0, 0]]
         # punti nello stesso posto (disegnati due volte senza aggancio) sono lo stesso nodo
-        uguale = {}
+        # (a meno di un centesimo: arrotondando alla quarta cifra 400,0000 e 399,99994 restavano due nodi, il diagonale
+        # di una mensola non vedeva il tubo che incontra e il traverso di collegamento nasceva doppio, 20/10)
+        canon, rapp = {}, []
         for p in sorted({p for ab in linee.values() for p in ab}):
             x, y = solved.points[p]
-            chiave = (round(x, 4), round(y, 4))
-            uguale.setdefault(chiave, p)
-        canon = {p: uguale[(round(solved.points[p][0], 4), round(solved.points[p][1], 4))]
-                 for ab in linee.values() for p in ab}
+            uno = next((q for q in rapp if math.dist((x, y), solved.points[q]) < 1e-2), None)
+            if uno is None:
+                rapp.append(p)
+                uno = p
+            canon[p] = uno
         linee = {lid: (canon[a], canon[b]) for lid, (a, b) in linee.items() if canon[a] != canon[b]}
         doppie, viste = [], set()
         for lid, (a, b) in list(linee.items()):

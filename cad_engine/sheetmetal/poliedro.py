@@ -571,16 +571,24 @@ def _solido_a_facce(S: Facce, t: float):
     import build123d as bd
 
     from .shapes import _faccia_piana
-    prismi = []
+    prismi, perse = [], 0
     for f in S.facce:
         n = _normale(S.punti, f)
         pts = [tuple(S.punti[i][q] - n[q] * t / 2 for q in range(3)) for i in f]
+        # spostati a metà spessore i vertici di una faccia possono non stare più su un piano (scarico spostato: le
+        # falde davanti e dietro): si riportano sul piano medio della faccia. Prima la faccia falliva e si perdeva
+        # in silenzio: nel 3D mancavano due lati, lo sviluppo li aveva (20/10)
+        c = [sum(q[k] for q in pts) / len(pts) for k in range(3)]
+        pts = [tuple(q[k] - sum((q[j] - c[j]) * n[j] for j in range(3)) * n[k] for k in range(3)) for q in pts]
         try:
             prismi.append(bd.extrude(bd.Face(_faccia_piana(pts)), amount=t, dir=n))
         except Exception:  # noqa: BLE001
-            continue
+            perse += 1
     if not prismi:
         raise FeatureError('Non riesco a fare il solido della forma.')
+    if perse:
+        raise FeatureError(f'Il 3D della forma resta senza {perse} {"faccia" if perse == 1 else "facce"}: non le so '
+                           'costruire (lo sviluppo c’è). Cambia di poco le misure o scrivimi il caso.')
     tutto = prismi[0].fuse(*prismi[1:]) if len(prismi) > 1 else prismi[0]
     return tutto.clean() if hasattr(tutto, 'clean') else tutto
 
