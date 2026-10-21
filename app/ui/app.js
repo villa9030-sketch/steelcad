@@ -1593,6 +1593,8 @@ async function drawingsDialog() {
   modal(`<div class="tav"><div class="tav-side"><h3>Tavole</h3>
       <div class="form">${campo('azienda', 'Azienda', ' style="grid-column:1/-1"')}${campo('disegnatore', 'Disegnatore')}${campo('numero', 'N. disegno')}
       ${campo('revisione', 'Revisione')}<label>Formato<select class="field" data-c="formato">${['A4', 'A3', 'A2'].map(f => `<option${c.formato === f ? ' selected' : ''}>${f}</option>`).join('')}</select></label>
+      <label>Scala<select class="field" data-c="scala_fissa">${['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:20'].map(x => `<option${(c.scala_fissa || 'auto') === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label>Quote dei fori<select class="field" data-c="quote_fori">${['sì', 'no'].map(x => `<option${(c.quote_fori || 'sì') === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
       ${campo('note', 'Note', ' style="grid-column:1/-1"')}</div>
       ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi (con gli sviluppi)</label>' : ''}
       <p class="hint">Azienda e disegnatore si ricordano per le prossime tavole. Viste in proiezione europea, quote d’ingombro e note dei fori automatiche.</p>

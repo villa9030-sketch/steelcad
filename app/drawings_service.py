@@ -38,7 +38,8 @@ def _scrivi_fissi(d: dict):
 class DrawingsMixin:
     def drawing_fields(self) -> dict:
         """I campi del cartiglio da proporre: i fissi ricordati + quelli del progetto."""
-        out = {'azienda': '', 'disegnatore': '', 'numero': '', 'revisione': 'A', 'note': '', 'formato': 'A3'}
+        out = {'azienda': '', 'disegnatore': '', 'numero': '', 'revisione': 'A', 'note': '', 'formato': 'A3',
+               'scala_fissa': 'auto', 'quote_fori': 'sì'}
         out.update(_leggi_fissi())
         if self.asm is None:
             out.update({k: v for k, v in (self.doc.meta.get('disegno') or {}).items() if k in out})

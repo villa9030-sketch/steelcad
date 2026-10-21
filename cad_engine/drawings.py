@@ -389,6 +389,39 @@ def _fori(f: Foglio, v: dict, T, s, etichette: dict, gia: set):
         f.text('quote', (e[0] + 1, e[1] + 0.8), testo, 2.6)
 
 
+def _centri_fori(v: dict) -> tuple:
+    """Le x e le y diverse dei centri dei fori visti in pianta (una volta sola per svasature e cerchi doppi)."""
+    xs, ys = [], []
+    for c, r in v['cerchi']:
+        if 2 * r < 0.5:
+            continue
+        if not any(abs(c[0] - x) < 0.05 for x in xs):
+            xs.append(c[0])
+        if not any(abs(c[1] - y) < 0.05 for y in ys):
+            ys.append(c[1])
+    return sorted(xs), sorted(ys)
+
+
+def _catene_fori(f: Foglio, v: dict, T, xs, ys):
+    """Catene di quote dei fori: sotto la vista (dal bordo sinistro) e a sinistra (dal bordo di sotto)."""
+    x0, y0, x1, y1 = v['bbox']
+    tappe = [x0] + [x for x in xs if x0 + 1e-6 < x < x1 - 1e-6]
+    for a, b in zip(tappe, tappe[1:]):
+        quota(f, T((a, y0)), T((b, y0)), -18, b - a)
+    tappe = [y0] + [y for y in ys if y0 + 1e-6 < y < y1 - 1e-6]
+    for a, b in zip(tappe, tappe[1:]):
+        quota(f, T((x0, a)), T((x0, b)), 18, b - a)
+
+
+def _scala_scelta(v) -> float | None:
+    """«1:2», «2:1», «1:1» → il fattore; «auto» o vuoto → None."""
+    try:
+        a, b = str(v).replace(' ', '').replace(',', '.').split(':')
+        return float(a) / float(b)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
 def etichette_fori(doc) -> dict:
     """Diametro → testo per i fori speciali disegnati negli sketch del pezzo."""
     out = {}
@@ -462,6 +495,12 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     gF = 22 + 18 * n_or                    # sotto la fronte: quota di larghezza, catene di passo e note, titolo dell'alto
     gT = 14                                # sotto l'alto: la sua quota
     gTop = 10                              # sopra la fronte: il titolo
+    # quote dei fori nella vista dall'alto: catene dall'angolo del pezzo (se i fori non sono troppi)
+    fx, fy = _centri_fori(v['alto'])
+    quote_fori = str(campi.get('quote_fori', 'sì')).lower() not in ('no', 'false', '0') and 0 < max(len(fx), len(fy)) <= 15
+    if quote_fori:
+        gT += 10
+        gL += 10
 
     def scala_zona(r):
         aw = (r[2] - r[0]) - gL - gS - 6
@@ -476,6 +515,9 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     aw_z, ah_z = (zona[2] - zona[0]) - gL - gS - 6, (zona[3] - zona[1]) - gT - gF - gTop
     if (wF + wL) * s > aw_z or (max(hF, hL) + hT) * s > ah_z:     # non entra neanche all'1:100: scala fuori serie
         s = max(1e-3, min(aw_z / max(wF + wL, 1e-6), ah_z / max(max(hF, hL) + hT, 1e-6)))
+    fissa = _scala_scelta(campi.get('scala_fissa'))
+    if fissa:                                         # scelta a mano (se non entra nel foglio, resta quella)
+        s = fissa
     campi = {**campi, 'scala': scala_testo(s)}
     f.testi = []
     f.linee, f.cerchi, f.pieni = [], [], []
@@ -487,6 +529,8 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     if file_passo:
         catene_di_passo(f, v['fronte'], s, TF, file_passo)
     TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
+    if quote_fori:
+        _catene_fori(f, v['alto'], TT, fx, fy)
     xL = ox + wF * s + gS
     TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF)
     for nome, (x, y) in (('VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
