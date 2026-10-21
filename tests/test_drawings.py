@@ -52,7 +52,7 @@ def test_tavole_dell_assieme(tmp_path):
     # l'assieme e la vista esplosa (22/10: «per far capire come si monta»)
     assert p['ok'] and len(p['sheets']) == 2 and 'DISTINTA' in p['sheets'][0]['svg']
     esp = p['sheets'][1]['svg']
-    assert 'VISTA ESPLOSA' in esp and 'ORDINE DI MONTAGGIO' in esp and 'è la base' in esp
+    assert 'VISTA ESPLOSA' in esp and 'ORDINE DI MONTAGGIO' in esp and 'senza accoppiamenti' in esp
     p = a.drawing_preview(campi, True)
     assert [x['title'] for x in p['sheets']] == ['Due staffe', 'Due staffe — esploso', 'Staffa', 'Staffa — sviluppo']
     assert a.export_drawings(str(tmp_path / 'a.pdf'), campi, True)['ok']
@@ -94,3 +94,28 @@ def test_sviluppo_numeri_e_quote_delle_pieghe():
         assert q in testi and any(t.endswith(' ' + q) for t in testi)        # sul disegno e in tabella (↑ …)
     assert sum(1 for c in f.cerchi if c[0] == 'piega') == len(sd.bend_lines)   # un cerchio col numero per linea
     assert not any(t.startswith('FL') and 'SU' in t for t in testi)            # niente scritte lunghe sulle linee
+
+
+def test_stessa_tavola_scalata_nei_formati():
+    """22/10: le tavole sono sempre le stesse (impaginate in A2) scalate tali e quali sul foglio scelto; nel cartiglio
+    la scala vera del foglio stampato e quella dell'A2; anteprima e salvataggio non rifanno le tavole."""
+    s = _pezzo()
+    campi = s.drawing_fields()['fields']
+    fogli = {}
+    for formato in ('A2', 'A3', 'A4'):
+        s._tavole_fatte = None
+        fogli[formato] = s._fogli({**campi, 'formato': formato})
+    for formato, k in (('A3', 420 / 594), ('A4', 297 / 594)):
+        for f2, f in zip(fogli['A2'], fogli[formato]):
+            assert f.size == D.FORMATI[formato]
+            assert len(f.linee) == len(f2.linee) and len(f.testi) == len(f2.testi)
+            p2, p = f2.linee[-1][1][0], f.linee[-1][1][0]
+            # stessa posizione relativa sul foglio (l'impaginazione non cambia)
+            assert abs(p[0] / f.size[0] - p2[0] / f2.size[0]) < 1e-9 and abs(p[1] / f.size[1] - p2[1] / f2.size[1]) < 1e-3
+            sc = f.testi[f.i_scala][2]                             # «1:14,14 (A2 1:10)»: vera e quella dell'A2
+            vera, a2 = sc.split(' (A2 ')
+            atteso = D._scala_da_testo(a2.rstrip(')')) * k
+            assert abs(D._scala_da_testo(vera) - atteso) < 0.01 * atteso, sc
+    s._tavole_fatte = None
+    a = s._fogli(campi)
+    assert s._fogli(campi) is a                                    # la seconda volta: le stesse, non rifatte

@@ -116,6 +116,20 @@ class DrawingsMixin:
         return fogli
 
     def _fogli(self, campi: dict, tutte: bool = False) -> list:
+        """Le tavole; le stesse (progetto non cambiato, stessi campi) si ricordano: l'anteprima e poi il salvataggio
+        le facevano due volte (22/10: «perché ci vuole così tanto a crearle»)."""
+        chiave = (getattr(self, 'scene_version', 0), id(getattr(self, 'asm', None)), id(getattr(self, 'result', None)),
+                  json.dumps(campi, sort_keys=True, default=str), bool(tutte))
+        gia = getattr(self, '_tavole_fatte', None)
+        if gia is not None and gia[0] == chiave:
+            return gia[1]
+        # impaginate sempre in A2 e poi scalate tali e quali sul foglio scelto
+        formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
+        fogli = [D.in_formato(f, formato) for f in self._fogli_nuovi({**campi, 'formato': 'A2'}, tutte)]
+        self._tavole_fatte = (chiave, fogli)
+        return fogli
+
+    def _fogli_nuovi(self, campi: dict, tutte: bool = False) -> list:
         formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
         if self.asm is None:
             return self._fogli_pezzo(self.doc, self.result, campi, formato)
@@ -143,7 +157,8 @@ class DrawingsMixin:
         fogli = [D.tavola_assieme(forme, ca, distinta, formato)]
         if esploso:
             ce = {**ca, 'titolo': f'{self.asm.name} — esploso', 'foglio': f'2/{tot}'}
-            fogli.append(D.tavola_esploso(forme, ce, distinta, self._ordine_montaggio(pos), formato))
+            fogli.append(D.tavola_esploso(forme, ce, distinta, self._ordine_montaggio(pos), formato,
+                                          figli=self._viti_esploso()))
         if tutte:
             n = 2 + int(esploso)
             for k, r in enumerate(righe):
@@ -156,36 +171,138 @@ class DrawingsMixin:
                 fogli += nuovi
         return fogli
 
+    def _viti_esploso(self) -> list:
+        """Per la vista esplosa, per ogni copia (nell'ordine delle forme): None, oppure (indice del pezzo in cui va,
+        direzione in cui si sfila, quanto) per i pezzi piccoli infilati in un foro (foro su foro, cono su cono):
+        viti, perni, boccole. Si sfilano dalla parte della testa (la parte più larga)."""
+        import numpy as np
+
+        from cad_engine import assembly as A
+        ist = [i for i in self.asm.instances if i['file'] in self.asm_parts]
+        indice = {i['id']: k for k, i in enumerate(ist)}
+        dim = {}
+        for i in ist:
+            sh = A.placed_shape(self.asm_parts[i['file']], i['R'], i['T'])
+            b = sh.bounding_box()
+            dim[i['id']] = (max(b.size.X, b.size.Y, b.size.Z), sh)
+        out = [None] * len(ist)
+        for i in ist:
+            mie = [m for m in self.asm.mates if not m.get('off') and m['type'] in ('asse', 'cono')
+                   and i['id'] in (m['a']['inst'], m['b']['inst'])]
+            for m in mie:
+                altro = m['b']['inst'] if m['a']['inst'] == i['id'] else m['a']['inst']
+                if altro not in indice or dim[i['id']][0] > 0.5 * dim[altro][0]:
+                    continue                                   # non è un pezzo piccolo infilato nell'altro
+                ref = m['a'] if m['a']['inst'] == altro else m['b']
+                ia = self.asm.instance(altro)
+                try:
+                    info = A.resolve_ref(self.asm_parts[ia['file']], ref)
+                except Exception:  # noqa: BLE001
+                    continue
+                R, T = np.array(ia['R'], dtype=float), np.array(ia['T'], dtype=float)
+                p, a = R @ np.array(info['p']) + T, R @ np.array(info['n'])
+                a = a / np.linalg.norm(a)
+                # la testa: l'estremità dove il pezzo è più largo attorno all'asse
+                pts = [np.array(tuple(v)) for v in dim[i['id']][1].vertices()]
+                if not pts:
+                    continue
+                tt = [float(np.dot(q - p, a)) for q in pts]
+                lo, hi = min(tt), max(tt)
+                larg = lambda sel: max([float(np.linalg.norm((q - p) - np.dot(q - p, a) * a)) for q, t in zip(pts, tt) if sel(t)] or [0])  # noqa: E731
+                verso = 1.0 if larg(lambda t: t > hi - 0.25 * (hi - lo)) >= larg(lambda t: t < lo + 0.25 * (hi - lo)) else -1.0
+                out[indice[i['id']]] = (indice[altro], (a * verso).tolist(), 1.6 * dim[i['id']][0] + 15)
+                break
+        return out
+
     def _ordine_montaggio(self, pos: dict) -> list:
-        """L'ordine di montaggio dagli accoppiamenti: prima il pezzo fermo, poi i pezzi attaccati a quelli già messi
-        (come li mette a posto il calcolo), ognuno con a chi e come si attacca."""
+        """L'ordine di montaggio dagli accoppiamenti: prima il pezzo fermo e quelli attaccati a lui (come li mette a
+        posto il calcolo), poi gli altri gruppi di pezzi accoppiati tra loro. Le copie uguali messe nello stesso
+        modo sullo stesso pezzo (le viti) sono una riga sola, con quante sono."""
         from cad_engine import assembly as A
         ist = {i['id']: i for i in self.asm.instances}
         nome = lambda iid: f'pos. {pos.get(ist[iid]["file"], "?")} {ist[iid].get("name") or iid}'  # noqa: E731
+        tipo_di = lambda iid: f'pos. {pos.get(ist[iid]["file"], "?")} {Path(ist[iid]["file"]).stem}'  # noqa: E731
         mates = [m for m in self.asm.mates if not m.get('off')]
-        terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
-        fatti, out = [terra], [f'1. {nome(terra)}: è la base, sta ferma']
-        while True:
-            nuovo = None
-            for i in self.asm.instances:
-                if i['id'] in fatti:
-                    continue
-                con = [m for m in mates if {m['a']['inst'], m['b']['inst']} & {i['id']} and
-                       ({m['a']['inst'], m['b']['inst']} - {i['id']}) <= set(fatti)]
-                if con:
-                    nuovo = (i['id'], con)
-                    break
-            if nuovo is None:
-                break
-            iid, con = nuovo
+        fatti, passi = [], []
+
+        def dim_di(iid):
+            try:
+                b = self.asm_parts[ist[iid]['file']].shape
+                import build123d as bd
+                bb = bd.Shape.cast(b).bounding_box()
+                return max(bb.size.X, bb.size.Y, bb.size.Z)
+            except Exception:  # noqa: BLE001
+                return 0.0
+
+        def cresci():
+            while True:
+                nuovo = None
+                for i in self.asm.instances:
+                    if i['id'] in fatti:
+                        continue
+                    con = [m for m in mates if i['id'] in (m['a']['inst'], m['b']['inst'])
+                           and ({m['a']['inst'], m['b']['inst']} - {i['id']}) <= set(fatti)]
+                    if con:
+                        nuovo = (i['id'], con)
+                        break
+                if nuovo is None:
+                    return
+                iid, con = nuovo
+                fatti.append(iid)
+                altri = tuple(sorted({m['a']['inst'] if m['b']['inst'] == iid else m['b']['inst'] for m in con}))
+                tipi = tuple(sorted({A.MATE_TYPES.get(m['type'], m['type']) for m in con}))
+                passi.append(('su', iid, altri, tipi))
+
+        def radice(iid, testo):
             fatti.append(iid)
-            altri = sorted({m['a']['inst'] if m['b']['inst'] == iid else m['b']['inst'] for m in con})
-            tipi = sorted({A.MATE_TYPES.get(m['type'], m['type']) for m in con})
-            out.append(f'{len(fatti)}. {nome(iid)} su {", ".join(nome(x) for x in altri)}: {", ".join(tipi)}')
+            passi.append(('base', iid, testo, ()))
+            cresci()
+        # i gruppi di pezzi accoppiati tra loro, dal più grande: si comincia dalla struttura, non da un rinforzo
+        gruppo = {i['id']: i['id'] for i in self.asm.instances}
+
+        def capo(x):
+            while gruppo[x] != x:
+                gruppo[x] = gruppo[gruppo[x]]
+                x = gruppo[x]
+            return x
+        for m in mates:
+            a, b = m['a']['inst'], m['b']['inst']
+            if a in gruppo and b in gruppo:
+                gruppo[capo(a)] = capo(b)
+        gruppi = {}
+        for i in self.asm.instances:
+            gruppi.setdefault(capo(i['id']), []).append(i['id'])
+        legami = lambda x: sum(1 for m in mates if x in (m['a']['inst'], m['b']['inst']))  # noqa: E731
+        primo = True
+        for membri in sorted((g for g in gruppi.values() if len(g) > 1), key=len, reverse=True):
+            fermo = next((x for x in membri if ist[x].get('fixed')), None)
+            r = fermo or max(membri, key=lambda x: (dim_di(x), legami(x)))
+            radice(r, 'è la base' + (', sta ferma' if fermo else '') if primo else
+                   'gruppo a parte: si monta a sé, poi si porta al suo posto')
+            primo = False
         for i in self.asm.instances:
             if i['id'] not in fatti:
-                out.append(f'{len(out) + 1}. {nome(i["id"])}: al suo posto (senza accoppiamenti)')
                 fatti.append(i['id'])
+                passi.append(('base', i['id'], 'al suo posto (senza accoppiamenti)', ()))
+        # le viti: stesse copie, stesso pezzo, stessi accoppiamenti → una riga «× n»
+        righe, visti = [], {}
+        for kind, iid, altri, tipi in passi:
+            if kind == 'su':
+                chiave = (ist[iid]['file'], altri, tipi)
+                if chiave in visti:
+                    righe[visti[chiave]][1] += 1
+                    continue
+                visti[chiave] = len(righe)
+                righe.append([kind, 1, iid, altri, tipi])
+            else:
+                righe.append([kind, 1, iid, altri, tipi])
+        out = []
+        for k, (kind, n, iid, altri, tipi) in enumerate(righe, 1):
+            if kind == 'base':
+                out.append(f'{k}. {nome(iid)}: {altri}')
+            else:
+                chi = f'{tipo_di(iid)} × {n}' if n > 1 else nome(iid)
+                out.append(f'{k}. {chi} su {", ".join(nome(x) for x in altri)}: {", ".join(tipi)}')
         return out
 
     def drawing_preview(self, campi: dict | None = None, tutte: bool = False) -> dict:

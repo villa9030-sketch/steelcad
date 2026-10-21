@@ -29,6 +29,7 @@ class Foglio:
     cerchi: list = field(default_factory=list)      # (layer, (x, y), r)
     testi: list = field(default_factory=list)       # (layer, (x, y), testo, altezza, allineamento 'l'|'c'|'r')
     pieni: list = field(default_factory=list)       # (layer, [(x, y), ...]) triangoli pieni (frecce)
+    i_scala: int = -1                               # la scritta della scala nel cartiglio (si riscrive scalando)
 
     @property
     def size(self):
@@ -58,8 +59,24 @@ VISTE = {'fronte': ((0, -1, 0), (0, 0, 1)), 'alto': ((0, 0, 1), (0, 1, 0)), 'sin
          'iso': ((1, -1, 1), (0, 0, 1))}
 
 
-def proietta(shape, vista: str) -> dict:
-    """Spigoli visti, tangenti e nascosti della vista, come polilinee 2D (mm del pezzo), più i cerchi visti."""
+_PROIEZIONI: dict = {}          # (forma, vista) → linee: le linee nascoste sono la parte lenta delle tavole
+
+
+def proietta(shape, vista: str, veloce: bool = False) -> dict:
+    """Spigoli visti, tangenti e nascosti della vista, come polilinee 2D (mm del pezzo), più i cerchi visti.
+    La stessa forma (un pezzo non cambiato) non si riproietta: si rende quella già fatta."""
+    chiave = (hash(shape), vista, veloce)
+    gia = _PROIEZIONI.get(chiave)
+    if gia is not None and gia[0].IsEqual(shape):
+        return gia[1]
+    res = _proietta(shape, vista, veloce)
+    if len(_PROIEZIONI) > 200:
+        _PROIEZIONI.pop(next(iter(_PROIEZIONI)))
+    _PROIEZIONI[chiave] = (shape, res)
+    return res
+
+
+def _proietta(shape, vista: str, veloce: bool = False) -> dict:
     import build123d as bd
     from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
     from OCP.HLRAlgo import HLRAlgo_Projector
@@ -69,54 +86,96 @@ def proietta(shape, vista: str) -> dict:
     from OCP.TopExp import TopExp_Explorer
 
     d, up = VISTE[vista]
-    algo = HLRBRep_Algo()
-    algo.Add(shape)
     ax = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(*d))
     ax.SetYDirection(gp_Dir(*up) if vista != 'iso' else _up_iso(d))
-    algo.Projector(HLRAlgo_Projector(ax))
-    algo.Update()
-    algo.Hide()
-    h = HLRBRep_HLRToShape(algo)
+    if veloce:
+        # assiemi (tanti pezzi, viti filettate): linee nascoste sulla maglia triangolata, molto più veloce del
+        # calcolo esatto; a scala d'assieme non si vede la differenza
+        from OCP.BRepMesh import BRepMesh_IncrementalMesh
+        from OCP.HLRBRep import HLRBRep_PolyAlgo, HLRBRep_PolyHLRToShape
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+        scatola = Bnd_Box()
+        BRepBndLib.Add_s(shape, scatola)
+        diag = math.sqrt(scatola.SquareExtent()) if not scatola.IsVoid() else 100.0
+        BRepMesh_IncrementalMesh(shape, max(0.02, diag * 4e-4), False, 0.3, True)
+        palgo = HLRBRep_PolyAlgo(shape)
+        palgo.Projector(HLRAlgo_Projector(ax))
+        palgo.Update()
+        h = HLRBRep_PolyHLRToShape()
+        h.Update(palgo)
+    else:
+        algo = HLRBRep_Algo()
+        algo.Add(shape)
+        algo.Projector(HLRAlgo_Projector(ax))
+        algo.Update()
+        algo.Hide()
+        h = HLRBRep_HLRToShape(algo)
+
+    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Line
+    from OCP.TopoDS import TopoDS  # noqa: F811
 
     def spigoli(comp):
+        """Gli spigoli della vista, letti direttamente (senza oggetti build123d: con migliaia di spigolini la
+        conversione era metà del tempo delle tavole, 22/10)."""
         out = []
         if comp.IsNull():
             return out
         ex = TopExp_Explorer(comp, TopAbs_EDGE)
         while ex.More():
-            out.append(bd.Edge(ex.Current()))
+            out.append(TopoDS.Edge(ex.Current()))
             ex.Next()
         return out
 
     def poly(e):
-        if e.geom_type == bd.GeomType.LINE:
-            a, b = e.start_point(), e.end_point()
-            return [(a.X, a.Y), (b.X, b.Y)]
-        n = max(8, min(96, int(e.length / 1.5)))
-        # punti presi direttamente sulla curva (positions di build123d, a lunghezza d'arco, era il 70% del
-        # tempo delle tavole di una struttura: migliaia di archetti sugli spigoli dei tubi)
-        c = BRepAdaptor_Curve(e.wrapped)
+        """(polilinea 2D, cerchio intero o None); None se lo spigolo è lungo zero."""
+        c = BRepAdaptor_Curve(e)
         u0, u1 = c.FirstParameter(), c.LastParameter()
-        if e.wrapped.Orientation() == TopAbs_REVERSED:
+        if e.Orientation() == TopAbs_REVERSED:
             u0, u1 = u1, u0
-        return [(q.X(), q.Y()) for q in (c.Value(u0 + (u1 - u0) * i / n) for i in range(n + 1))]
+        tipo = c.GetType()
+        if tipo == GeomAbs_Line:
+            a, b = c.Value(u0), c.Value(u1)
+            if a.Distance(b) < 1e-6:
+                return None, None
+            return [(a.X(), a.Y()), (b.X(), b.Y())], None
+        a, m, b = c.Value(u0), c.Value((u0 + u1) / 2), c.Value(u1)
+        corda = a.Distance(m) + m.Distance(b)
+        if corda < 1e-6 and tipo != GeomAbs_Circle:
+            return None, None
+        cerchio = None
+        if tipo == GeomAbs_Circle:
+            ci = c.Circle()
+            r = ci.Radius()
+            lung = abs(u1 - u0) * r
+            if lung < 1e-6:
+                return None, None
+            n = max(8, min(96, int(lung / 1.5)))
+            if abs(abs(u1 - u0) - 2 * math.pi) < 1e-6:
+                q = ci.Location()
+                cerchio = ((q.X(), q.Y()), r)
+        else:
+            n = max(8, min(96, int(corda / 1.5)))
+        return [(q.X(), q.Y()) for q in (c.Value(u0 + (u1 - u0) * k / n) for k in range(n + 1))], cerchio
 
     res = {'visti': [], 'tangenti': [], 'nascosti': [], 'cerchi': []}
     for comp in (h.VCompound(), h.OutLineVCompound()):
         for e in spigoli(comp):
-            if e.length < 1e-6:
+            pl, cerchio = poly(e)
+            if pl is None:
                 continue
-            res['visti'].append(poly(e))
-            if e.geom_type == bd.GeomType.CIRCLE and abs(e.length - 2 * math.pi * e.radius) < 1e-6:
-                c = e.arc_center
-                res['cerchi'].append(((c.X, c.Y), e.radius))
+            res['visti'].append(pl)
+            if cerchio:
+                res['cerchi'].append(cerchio)
     for e in spigoli(h.Rg1LineVCompound()):
-        if e.length > 1e-6:
-            res['tangenti'].append(poly(e))
+        pl, _ = poly(e)
+        if pl is not None:
+            res['tangenti'].append(pl)
     for comp in (h.HCompound(), h.OutLineHCompound()):
         for e in spigoli(comp):
-            if e.length > 1e-6:
-                res['nascosti'].append(poly(e))
+            pl, _ = poly(e)
+            if pl is not None:
+                res['nascosti'].append(pl)
     pts = [p for k in ('visti', 'tangenti') for pl in res[k] for p in pl]
     if pts:
         res['bbox'] = (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
@@ -230,6 +289,8 @@ def _cornice(f: Foglio, campi: dict):
     ]
     for x, y, w, et, val in celle:
         f.text(L, (x + 1.5, y + 7.2), et, 1.8)
+        if et == 'Scala':
+            f.i_scala = len(f.testi)
         f.text(L, (x + 1.5, y + 2), _taglia(val, w, 3.2 if w > 100 else 2.8), 3.2 if w > 100 else 2.8)
     if campi.get('note'):
         f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5), 2.5)   # non sotto il cartiglio
@@ -451,12 +512,18 @@ def etichette_fori(doc) -> dict:
     return out
 
 
+# le tavole si impaginano in A2 e si stampano scalate sul foglio scelto: le scale provate sono quelle che sul
+# foglio stampato diventano scale normali (1:10 su un A3 è 1:7,07 nell'A2 di lavoro)
+FATTORE_USCITA = 1.0
+
+
 def _scegli_scala(dims: list, area_w: float, area_h: float) -> float:
     """dims: (larghezza totale, altezza totale) in mm del pezzo, già con le viste affiancate."""
-    for s in SCALE:
+    for s0 in SCALE:
+        s = s0 / FATTORE_USCITA
         if dims[0] * s <= area_w and dims[1] * s <= area_h:
             return s
-    return SCALE[-1]
+    return SCALE[-1] / FATTORE_USCITA
 
 
 # ------------------------------------------------------------------------------------------ le tavole
@@ -517,7 +584,7 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
         s = max(1e-3, min(aw_z / max(wF + wL, 1e-6), ah_z / max(max(hF, hL) + hT, 1e-6)))
     fissa = _scala_scelta(campi.get('scala_fissa'))
     if fissa:                                         # scelta a mano (se non entra nel foglio, resta quella)
-        s = fissa
+        s = fissa / FATTORE_USCITA               # la scala vale sul foglio stampato
     campi = {**campi, 'scala': scala_testo(s)}
     f.testi = []
     f.linee, f.cerchi, f.pieni = [], [], []
@@ -719,19 +786,25 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     import build123d as bd
     f = Foglio(formato, campi.get('titolo', ''))
     tutto = bd.Compound(children=[s for _, s in forme]).wrapped
-    vF, vT, vI = proietta(tutto, 'fronte'), proietta(tutto, 'alto'), proietta(tutto, 'iso')
+    veloce = len(forme) > 4
+    vF, vT, vI = proietta(tutto, 'fronte', veloce), proietta(tutto, 'alto', veloce), proietta(tutto, 'iso', veloce)
     wF, hF = vF['bbox'][2] - vF['bbox'][0], vF['bbox'][3] - vF['bbox'][1]
     hT = vT['bbox'][3] - vT['bbox'][1]
     W, H = FORMATI[formato]
     g = 28
     area, cart = _cornice(f, {**campi, 'scala': ''})
-    larg_viste = min((W - 40) * 0.42, cart[0] - 10 - area[0])          # a sinistra del cartiglio, sempre
+    larg_viste = min((W - 40) * 0.5, cart[0] - 10 - area[0])           # a sinistra del cartiglio, sempre
     s = _scegli_scala((wF, hF + hT), larg_viste - g - 6, (area[3] - area[1]) - 2 * g - 10)
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     campi = {**campi, 'scala': scala_testo(s)}
     area, cart = _cornice(f, campi)
-    ox, oyT = area[0] + g, area[1] + g
-    oyF = oyT + hT * s + g
+    # le due viste in alto a sinistra, una sotto l'altra (in basso resta posto per le note)
+    ox = area[0] + g
+    oyF = area[3] - 14 - hF * s
+    oyT = oyF - g - hT * s
+    if oyT < area[1] + g:                              # non ci stanno dall'alto: dal basso come prima
+        oyT = area[1] + g
+        oyF = oyT + hT * s + g
     _metti_vista(f, {**vF, 'nascosti': []}, s, ox, oyF)
     _metti_vista(f, {**vT, 'nascosti': []}, s, ox, oyT)
     f.text('testo', (ox, oyF + hF * s + 4), 'VISTA DI FRONTE', 2.5)
@@ -778,7 +851,8 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     return f
 
 
-def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, formato: str = 'A3', quanto: float = 0.8) -> Foglio:
+def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, formato: str = 'A3', quanto: float = 0.8,
+                   figli: list | None = None) -> Foglio:
     """Vista esplosa per far capire come si monta (22/10): ogni pezzo allontanato dal centro dell'assieme, i
     palloncini con la posizione della distinta, le linee di montaggio tratteggiate (da dove è disegnato a dove va)
     e l'ordine di montaggio scritto. forme: [(posizione, forma al suo posto)]; montaggio: righe di testo."""
@@ -790,21 +864,95 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
     tutto_bb = bd.Compound(children=[sh for _, sh in forme]).bounding_box()
     grande = max(tutto_bb.size.X, tutto_bb.size.Y, tutto_bb.size.Z)
     spost, in_fila = [], {}
-    for (_, sh), c in zip(forme, centri):
+    figli = figli or [None] * len(forme)
+    for (_, sh), c, fg in zip(forme, centri, figli):
+        if fg is not None:
+            spost.append(None)                       # le viti: dopo, attaccate al loro pezzo
+            continue
         dd = (c - C) * quanto
         if np.linalg.norm(dd) < 0.2 * grande:
-            # vicino al centro (un fondo, un rinforzo dentro la cornice): esce lungo il suo spessore, dalla parte in
-            # cui sta (o sotto); più pezzi dalla stessa parte si mettono in fila, non uno sopra l'altro
-            bb = sh.bounding_box()
-            ax = int(np.argmin([bb.size.X, bb.size.Y, bb.size.Z]))
-            verso = np.sign((c - C)[ax]) or -1.0
-            k = in_fila.get((ax, verso), 0)
-            in_fila[(ax, verso)] = k + 1
-            dd = np.zeros(3)
-            dd[ax] = verso * grande * (0.55 + 0.35 * k)
+            dd = None                                 # vicino al centro: dopo, uno alla volta (sotto)
         spost.append(dd)
-    esplose = [sh.moved(bd.Location(bd.Vector(*map(float, d)))) for (_, sh), d in zip(forme, spost)]
-    vI = proietta(bd.Compound(children=esplose).wrapped, 'iso')
+    # i pezzi vicini al centro (un fondo, un rinforzo dentro la cornice): escono lungo il loro spessore, dalla parte in
+    # cui stanno (o sotto), dal più grande; ognuno abbastanza lontano da non finire dietro a un altro nella vista
+    # (22/10: il rinforzo sotto il fondo spariva dietro il fondo)
+    dv = np.array(VISTE['iso'][0], dtype=float)
+    dv /= np.linalg.norm(dv)
+    upv = _up_iso(VISTE['iso'][0])
+    upv = np.array([upv.X(), upv.Y(), upv.Z()])
+    xv = np.cross(upv, dv)
+
+    def impronta(k, d):
+        b = forme[k][1].bounding_box()
+        pts = [np.array([x, y, z]) + d for x in (b.min.X, b.max.X) for y in (b.min.Y, b.max.Y) for z in (b.min.Z, b.max.Z)]
+        u = [float(np.dot(q, xv)) for q in pts]
+        v = [float(np.dot(q, upv)) for q in pts]
+        return min(u), min(v), max(u), max(v)
+
+    def si_coprono(a, b):
+        return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+    def spessore(k):
+        b = forme[k][1].bounding_box()
+        ax = int(np.argmin([b.size.X, b.size.Y, b.size.Z]))
+        return ax
+
+    def area(r):
+        return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
+
+    def comune(a, b):
+        return area((max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])))
+    for k, d in enumerate(spost):                     # vicini al centro: per cominciare, fuori lungo lo spessore
+        if d is None and figli[k] is None:
+            ax = spessore(k)
+            dd = np.zeros(3)
+            dd[ax] = (np.sign((centri[k] - C)[ax]) or -1.0) * grande * 0.55
+            spost[k] = dd
+    # poi, dal più grande: un pezzo coperto per buona parte da uno già messo (nella vista) esce lungo il suo spessore
+    # finché si vede
+    ordine = sorted((k for k in range(len(forme)) if figli[k] is None), key=lambda k: -forme[k][1].bounding_box().diagonal)
+    messi = []
+    for k in ordine:
+        dd = np.array(spost[k], dtype=float)
+        imp = impronta(k, dd)
+        coperto = lambda r: max([comune(r, m) / max(area(r), 1e-9) for _, m in messi] or [0.0])  # noqa: E731
+        if coperto(imp) > 0.5:
+            ax = spessore(k)
+            altro = max(messi, key=lambda m: comune(imp, m[1]))[0]
+            verso = np.sign((centri[k] - centri[altro])[ax]) or -1.0
+            base = dd.copy()
+            for passo in range(1, 40):
+                dd = base.copy()
+                dd[ax] += verso * grande * 0.12 * passo
+                imp = impronta(k, dd)
+                if coperto(imp) < 0.1:
+                    break
+        spost[k] = dd
+        messi.append((k, imp))
+    # le viti (e i pezzi piccoli infilati in un foro): seguono il pezzo in cui vanno e si sfilano lungo l'asse del
+    # foro, dalla parte della testa, appena fuori (22/10: «le viti dovrebbero apparire prima della piastra dove
+    # vanno messe, non in cima alla pagina»)
+    for _giro in range(len(forme)):
+        fatto = True
+        for k, fg in enumerate(figli):
+            if fg is None or spost[k] is not None:
+                continue
+            padre, asse, sfila = fg
+            if spost[padre] is None:
+                fatto = False
+                continue
+            spost[k] = spost[padre] + np.array(asse, dtype=float) * sfila
+        if fatto:
+            break
+    spost = [d if d is not None else np.zeros(3) for d in spost]
+    from OCP.gp import gp_Trsf, gp_Vec
+    from OCP.TopLoc import TopLoc_Location
+
+    def sposta(sh, d):
+        t = gp_Trsf()
+        t.SetTranslation(gp_Vec(*map(float, d)))
+        return bd.Shape.cast(sh.wrapped.Moved(TopLoc_Location(t)))
+    esplose = [sposta(sh, d) for (_, sh), d in zip(forme, spost)]
+    vI = proietta(bd.Compound(children=esplose).wrapped, 'iso', len(forme) > 4)
     area, cart = _cornice(f, {**campi, 'scala': 'fuori scala'})
     h_riga = 5.0 if len(distinta) <= 12 else max(3.4, 60 / (len(distinta) + 1))
     col = [0, 10, 62, 74, 98, 118, 140]
@@ -853,6 +1001,37 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
         for k, r in enumerate(righe_m):
             f.text('testo', (area[0] + 4, y - 5 - 4.2 * k), _taglia(r, cart[0] - area[0] - 12, 2.4), 2.4)
     return f
+
+
+def _scala_da_testo(t: str):
+    """'1:10' → 0.1, '2:1' → 2, '1:2,5' → 0.4; None se non è una scala."""
+    try:
+        a, b = str(t).replace(',', '.').split(':')
+        return float(a) / float(b)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def in_formato(f: Foglio, formato: str) -> Foglio:
+    """La stessa tavola su un altro foglio della serie A, tale e quale scalata (22/10: «dovrebbero essere sempre
+    uguali ma scalate nei vari formati»): tutto si moltiplica per il rapporto tra i fogli, la scala scritta nel
+    cartiglio diventa quella vera sul foglio nuovo."""
+    if formato == f.formato or formato not in FORMATI:
+        return f
+    k = FORMATI[formato][0] / FORMATI[f.formato][0]
+    S = lambda p: (p[0] * k, p[1] * k)  # noqa: E731
+    g = Foglio(formato, f.titolo)
+    g.linee = [(l, [S(p) for p in pts]) for l, pts in f.linee]
+    g.cerchi = [(l, S(c), r * k) for l, c, r in f.cerchi]
+    g.pieni = [(l, [S(p) for p in pts]) for l, pts in f.pieni]
+    g.testi = [(l, S(p), t, h * k, al) for l, p, t, h, al in f.testi]
+    g.i_scala = f.i_scala
+    if 0 <= f.i_scala < len(g.testi):
+        l, p, t, h, al = g.testi[f.i_scala]
+        sc = _scala_da_testo(t)
+        if sc:          # la scala vera sul foglio stampato, e quella dell'impaginazione in A2 (come si legge sui disegni)
+            g.testi[f.i_scala] = (l, p, f'{scala_testo(sc * k)} ({f.formato} {scala_testo(sc)})', h, al)
+    return g
 
 
 # ------------------------------------------------------------------------------------------ uscite

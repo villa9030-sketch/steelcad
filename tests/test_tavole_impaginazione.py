@@ -10,8 +10,9 @@ from cad_engine import drawings as D
 
 def _fuori_posto(f):
     W, H = f.size
-    cart = (W - 190 + 0.5, 10 + 0.5, W - 10 - 0.5, 60 - 0.5)
-    pagina = (20 - 0.5, 10 - 0.5, W - 10 + 0.5, H - 10 + 0.5)
+    k = W / 594.0             # 22/10: le tavole si impaginano in A2 e si scalano tali e quali (cartiglio compreso)
+    cart = (W - 190 * k + 0.5, 10 * k + 0.5, W - 10 * k - 0.5, 60 * k - 0.5)
+    pagina = (20 * k - 0.5, 10 * k - 0.5, W - 10 * k + 0.5, H - 10 * k + 0.5)
     dentro = lambda p, r: r[0] < p[0] < r[2] and r[1] < p[1] < r[3]  # noqa: E731
     male = []
     for layer, pts in f.linee:
