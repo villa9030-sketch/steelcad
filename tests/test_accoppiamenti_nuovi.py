@@ -152,3 +152,36 @@ def test_blocca_tiene_il_pezzo_dove_sta(tmp_path):
     assert s.asm_move('I2', 500, 0, 0)['ok']                      # lo sposti: torna lì, è bloccato
     dopo = _bb(s, 'I2')
     assert abs(dopo.min.X - prima.min.X) < 1e-6 and abs(dopo.max.Z - prima.max.Z) < 1e-6
+
+
+def test_spigolo_su_spigolo_e_su_faccia(tmp_path):
+    """Due piastre bordo contro bordo (spigolo su spigolo), poi uno spigolo appoggiato su una faccia."""
+    a, b = _piastra(tmp_path, 'A', 300, 200, 10), _piastra(tmp_path, 'B', 100, 100, 5)
+    s = _assieme(tmp_path, a, b)
+    assert s.asm_rotate('I2', 'z', 30)['ok'] and s.asm_move('I2', 400, 50, 40)['ok']
+    # lo spigolo in alto davanti di A (y = 0, z = 10) e lo spigolo in basso davanti di B
+    bb = _bb(s, 'I2')
+    pa = [150, 0, 10]
+    pb = [(bb.min.X + bb.max.X) / 2, bb.min.Y + 1e-3, bb.min.Z]
+    i2 = s.asm.instance('I2')
+    R, T = np.array(i2['R']), np.array(i2['T'])
+    pb = (R @ np.array([50, 0, 0]) + T).tolist()                     # lo spigolo y = 0, z = 0 di B nel mondo
+    r = s.asm_add_mate('spigolo', {'inst': 'I1', 'edge_pt': pa}, {'inst': 'I2', 'edge_pt': pb})
+    assert r['ok'], r.get('message')
+    assert not s.asm.warnings
+    i2 = s.asm.instance('I2')
+    R, T = np.array(i2['R']), np.array(i2['T'])
+    for q in ([0, 0, 0], [100, 0, 0]):                                # i due capi dello spigolo di B sulla retta di A
+        w = R @ np.array(q) + T
+        assert abs(w[1]) < 1e-6 and abs(w[2] - 10) < 1e-6
+    r = s.asm_add_mate('spigolo', {'inst': 'I1', 'face': _faccia(s, 'I1', Z)['face']}, {'inst': 'I2', 'edge_pt': pb})
+    assert not r['ok']
+    s2 = _assieme(tmp_path, a, b)
+    assert s2.asm_move('I2', 50, 50, 80)['ok']
+    i2 = s2.asm.instance('I2')
+    pb = (np.array(i2['R']) @ np.array([50, 0, 0]) + np.array(i2['T'])).tolist()
+    r = s2.asm_add_mate('spigolo_faccia', _faccia(s2, 'I1', Z), {'inst': 'I2', 'edge_pt': pb})
+    assert r['ok'], r.get('message')
+    i2 = s2.asm.instance('I2')
+    for q in ([0, 0, 0], [100, 0, 0]):
+        assert abs((np.array(i2['R']) @ np.array(q) + np.array(i2['T']))[2] - 10) < 1e-6

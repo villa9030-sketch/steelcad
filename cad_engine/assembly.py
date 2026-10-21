@@ -33,7 +33,8 @@ EXT = '.steelcad-asm'
 FORMAT_VERSION = 1
 MATE_TYPES = {'faccia': 'faccia su faccia', 'asse': 'foro su foro (coassiale)', 'distanza': 'distanza',
               'parallelo': 'parallele', 'perpendicolare': 'perpendicolari', 'angolo': 'angolo',
-              'tangente': 'tangente', 'centra': 'in mezzo', 'blocca': 'blocca'}
+              'tangente': 'tangente', 'centra': 'in mezzo', 'blocca': 'blocca',
+              'spigolo': 'spigolo su spigolo', 'spigolo_faccia': 'spigolo su faccia'}
 
 
 class AssemblyError(SteelCADError):
@@ -218,10 +219,53 @@ def face_info(part: Part, face) -> dict:
     return {'kind': 'altra', 'name': nome, 'p': [c.X, c.Y, c.Z], 'n': [0, 0, 1]}
 
 
+def edge_info(part: Part, edge) -> dict:
+    """Uno spigolo dritto: punto di mezzo e direzione (nelle coordinate del pezzo) e il riferimento stabile (le due
+    facce con nome che lo separano)."""
+    import build123d as bd
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.GeomAbs import GeomAbs_Line
+
+    from .topology import NamedShape
+    if BRepAdaptor_Curve(edge).GetType() != GeomAbs_Line:
+        raise AssemblyError('Per gli accoppiamenti su spigolo scegli uno spigolo dritto.')
+    be = bd.Edge(edge)
+    a, b = be.position_at(0), be.position_at(1)
+    d = (b - a).normalized()
+    try:
+        ref = NamedShape(part.shape, part.names).edge_ref(edge)
+    except SteelCADError as ex:
+        raise AssemblyError(f'Questo spigolo non si può usare: {ex.message}') from None
+    m = (a + b) * 0.5
+    return {'kind': 'spigolo', 'name': None, 'faces': ref['faces'], **({'index': ref['index']} if 'index' in ref else {}),
+            'p': [m.X, m.Y, m.Z], 'n': [d.X, d.Y, d.Z], 'L': be.length}
+
+
+def _resolve_edge(part: Part, ref: dict) -> dict:
+    from .topology import NamedShape
+    try:
+        spigoli = NamedShape(part.shape, part.names).edges({'faces': ref['faces'], **({'index': ref['index']} if 'index' in ref else {})})
+    except SteelCADError:
+        raise AssemblyError('Un accoppiamento non trova più il suo spigolo nel pezzo (è stato tolto?).') from None
+    p0 = np.array(ref['p'], dtype=float)
+    cand = []
+    for e in spigoli:
+        try:
+            info = edge_info(part, e)
+        except AssemblyError:
+            continue
+        cand.append((np.linalg.norm(np.array(info['p']) - p0), info))
+    if not cand:
+        raise AssemblyError('Lo spigolo di un accoppiamento non è più dritto.')
+    return min(cand, key=lambda x: x[0])[1]
+
+
 def resolve_ref(part: Part, ref: dict) -> dict:
     """Ritrova la faccia di un riferimento anche se il pezzo è cambiato: tra le facce con quel nome (se c'è) e di
     quel tipo, quella più vicina al punto salvato."""
     from .topology.naming import _faces_of
+    if ref.get('kind') == 'spigolo':
+        return _resolve_edge(part, ref)
     tipo = 'piana' if ref.get('kind') == 'piana' else 'cilindrica'
     cand = []
     nome = ref.get('name')
@@ -399,6 +443,13 @@ def residui(m, F: dict, pose_ab=None, peso=PESO_DIR) -> np.ndarray:
         d = np.linalg.norm(_perp(B['p'] - A['p'], nA))          # due tubi: fuori (somma dei raggi) o dentro (differenza)
         voluto = (A['r'] + B['r'] if s > 0 else abs(A['r'] - B['r'])) + off
         return np.concatenate([np.cross(nA, nB) * PESO_DIR, [d - voluto]])
+    if t == 'spigolo':
+        # sulla stessa linea: direzioni parallele, e il punto di b sulla retta di a
+        return np.concatenate([np.cross(nA, nB) * PESO_DIR, _perp(B['p'] - A['p'], nA)])
+    if t == 'spigolo_faccia':
+        # lo spigolo appoggiato sulla faccia: dentro il suo piano (a distanza «offset»)
+        pf, sp = (A, B) if A['kind'] == 'piana' else (B, A)
+        return np.array([np.dot(pf['n'], sp['n']) * PESO_DIR, np.dot(pf['n'], sp['p'] - pf['p']) - off])
     if t == 'centra':
         # le due facce di b a metà tra le due di a (un piatto in mezzo a un U, un tubo centrato su una piastra)
         mezzo_a = (np.dot(nA, A['p']) + np.dot(nA, F['a2']['p'])) / 2

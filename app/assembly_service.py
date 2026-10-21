@@ -260,7 +260,33 @@ class AssemblyMixin:
                      'Tangente vuole un tubo (o un foro) e una faccia piana, o due tubi.'),
         'centra': ({'piana'}, {'piana'}, 'In mezzo vuole facce piane: due del pezzo fermo, due di quello da centrare.'),
         'blocca': (None, None, ''),
+        'spigolo': ({'spigolo'}, {'spigolo'}, 'Spigolo su spigolo vuole due spigoli dritti.'),
+        'spigolo_faccia': ({'piana'}, {'spigolo'}, 'Spigolo su faccia: prima la faccia piana del pezzo fermo, poi lo '
+                           'spigolo dritto dell’altro.'),
     }
+
+    def _asm_edge(self, iid, punto):
+        """Lo spigolo dritto della copia iid più vicino al punto cliccato (nel mondo)."""
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.gp import gp_Pnt
+
+        from cad_engine.topology.naming import _edges_of
+        i = self.asm.instance(iid)
+        part = self.asm_parts.get(i['file'])
+        if part is None:
+            raise A.AssemblyError(f'Il pezzo di {iid} non si legge.')
+        Rm, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+        q = Rm.T @ (np.array(punto, dtype=float) - T)
+        v = BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(c) for c in q])).Vertex()
+        migliore = None
+        for e in _edges_of(part.shape):
+            dd = BRepExtrema_DistShapeShape(v, e)
+            if dd.IsDone() and (migliore is None or dd.Value() < migliore[0]):
+                migliore = (dd.Value(), e)
+        if migliore is None or migliore[0] > 2.0:
+            raise A.AssemblyError('Clicca proprio sullo spigolo.')
+        return {'inst': iid, **A.edge_info(part, migliore[1])}
 
     def _misura_mate(self, m: dict) -> float:
         """Il valore che l'accoppiamento ha adesso, per partire da lì senza spostare niente: la distanza (mm) o
@@ -304,7 +330,8 @@ class AssemblyMixin:
             if kind == 'blocca':
                 rf = {'a': {'inst': a['inst']}, 'b': {'inst': b['inst']}}
             else:
-                rf = {k: self._asm_face(v['inst'], v.get('face')) for k, v in refs.items()}
+                rf = {k: (self._asm_edge(v['inst'], v['edge_pt']) if v.get('edge_pt') is not None
+                          else self._asm_face(v['inst'], v.get('face'))) for k, v in refs.items()}
                 for k, r in rf.items():
                     if r['kind'] not in (serve_a if k.startswith('a') else serve_b):
                         raise A.AssemblyError(msg)
@@ -330,7 +357,7 @@ class AssemblyMixin:
                 m['angle'] = round(self._misura_mate(m), 3) if vuoto else _numero(offset, 'l’angolo')
                 if not 0 <= m['angle'] <= 180:
                     raise A.AssemblyError('L’angolo va da 0° a 180°.')
-            elif kind in ('faccia', 'distanza', 'tangente', 'centra'):
+            elif kind in ('faccia', 'distanza', 'tangente', 'centra', 'spigolo_faccia'):
                 m['offset'] = round(self._misura_mate(m), 3) if vuoto else _numero(offset, 'la distanza')
             self.asm.mates.append(m)
             return {'select': 'mate=' + mid}

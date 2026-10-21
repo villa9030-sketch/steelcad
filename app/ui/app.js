@@ -1386,6 +1386,8 @@ const MATE_UI = {
   perpendicolare: { nome: 'Perpendicolari', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
   centra: { nome: 'In mezzo', clic: ['un lato del pezzo che sta fermo (es. un’ala dell’U)', 'il lato opposto dello stesso pezzo', 'una faccia del pezzo da centrare', 'la sua faccia opposta'], val: 0 },
   blocca: { nome: 'Blocca', clic: ['il pezzo che sta fermo', 'il pezzo da bloccare'], val: 0 },
+  spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
+  spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
@@ -1401,16 +1403,48 @@ document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-asm-tool]');
   if (b) asmTool(ASM.tool === b.dataset.asmTool ? null : b.dataset.asmTool);
 });
+function pickInstEdge(ev) {                          // lo spigolo di una copia dell'assieme sotto il mouse (punto nel mondo)
+  const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height]; };
+  const corpi = [...objs.values()].map(o => o.mesh);
+  let best = null;
+  for (const o of objs.values()) {
+    if (o.data.kind !== 'instance') continue;
+    for (const e of o.data.edges) for (let i = 0; i + 5 < e.length; i += 3) {
+      const A = new THREE.Vector3(e[i], e[i + 1], e[i + 2]), B = new THREE.Vector3(e[i + 3], e[i + 4], e[i + 5]);
+      if (o.pos) { A.applyMatrix4(o.pos); B.applyMatrix4(o.pos); }
+      const a = scr(A), b = scr(B), dx = b[0] - a[0], dy = b[1] - a[1], LL = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((mx - a[0]) * dx + (my - a[1]) * dy) / LL));
+      const d = Math.hypot(mx - a[0] - t * dx, my - a[1] - t * dy);
+      if (d > 8 || (best && d >= best.d)) continue;
+      const P = A.clone().lerp(B, t), dir = P.clone().sub(camera.position), dist = dir.length();
+      ray.set(camera.position, dir.normalize());
+      const hit = ray.intersectObjects(corpi, false)[0];
+      if (hit && hit.distance < dist - 0.5) continue;
+      best = { id: o.data.id, d, p: [P.x, P.y, P.z] };
+    }
+  }
+  return best;
+}
 function asmClick(ev) {
-  const h = pick(ev);
-  if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
-  const u = MATE_UI[ASM.tool], k = ASM.clic.length, c = { inst: h.id, face: h.face };
+  const u0 = MATE_UI[ASM.tool], k0 = ASM.clic.length;
+  let h, c;
+  if (u0.spigoli?.[k0 < u0.clic.length / 2 ? 0 : 1]) {
+    h = pickInstEdge(ev);
+    if (!h) { toast('Clicca proprio su uno spigolo dritto (la linea del bordo).', 'err'); return; }
+    c = { inst: h.id, edge_pt: h.p };
+  } else {
+    h = pick(ev);
+    if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
+    c = { inst: h.id, face: h.face };
+  }
+  const u = u0, k = k0;
   const daFermo = k < u.clic.length / 2;                // le prime metà dei clic sono sul pezzo fermo
   if (k > 0 && daFermo && h.id !== ASM.clic[0].inst) { toast('Questa faccia va scelta sullo stesso pezzo di prima.', 'err'); return; }
   if (!daFermo && h.id === ASM.clic[0].inst) { toast('Scegli una faccia di un altro pezzo.', 'err'); return; }
   if (k > u.clic.length / 2 && h.id !== ASM.clic[u.clic.length / 2].inst) { toast('Questa faccia va scelta sullo stesso pezzo di prima.', 'err'); return; }
   ASM.clic.push(c);
-  if (ASM.clic.length < u.clic.length) { sel = { id: h.id, face: h.face }; paint(); asmHelp(); return; }
+  if (ASM.clic.length < u.clic.length) { sel = c.face != null ? { id: h.id, face: h.face } : { id: h.id }; paint(); asmHelp(); return; }
   const cc = ASM.clic, tipo = ASM.tool;
   const [a, a2, b, b2] = cc.length === 4 ? cc : [cc[0], null, cc[1], null];
   asmTool(tipo);                                       // resta attivo per un altro accoppiamento

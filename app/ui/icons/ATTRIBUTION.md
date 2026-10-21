@@ -12,3 +12,4 @@ dalla stessa cartella e citate qui.
 Aggiunte il 21/10/2026 (accoppiamenti), dalla stessa cartella e commit: c_parallel, c_perpendicular, c_tangent,
 c_symmetry, c_fix, plane_angle.
 text (21/10/2026), dalla stessa cartella e commit.
+c_collinear, c_coincident (21/10/2026), dalla stessa cartella e commit.

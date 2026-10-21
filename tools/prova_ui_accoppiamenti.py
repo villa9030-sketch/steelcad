@@ -68,8 +68,9 @@ try:
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8)
-        tutti = ['faccia', 'asse', 'distanza', 'angolo', 'tangente', 'parallelo', 'perpendicolare', 'centra', 'blocca']
-        ok('nella barra in alto ci sono tutti e 9 gli accoppiamenti',
+        tutti = ['faccia', 'asse', 'distanza', 'angolo', 'tangente', 'parallelo', 'perpendicolare', 'centra', 'blocca',
+                 'spigolo', 'spigolo_faccia']
+        ok('nella barra in alto ci sono tutti e 11 gli accoppiamenti',
            all(pg.is_visible(f'#ribbon [data-asm-tool="{t}"]') for t in tutti))
         pg.screenshot(path=str(SHOTS / '1_barra.png'))
 
@@ -119,6 +120,26 @@ try:
         ok('pannello di Blocca: niente campo e niente «gira»', not pg.is_visible('#m-off') and not pg.is_visible('#m-flip'))
         pg.mouse.move(5, 895)
         pg.screenshot(path=str(SHOTS / '4_blocca.png'))
+        # Spigolo su spigolo col mouse: via gli accoppiamenti, il piatto si mette bordo contro bordo con la base
+        for mid in ('M1', 'M2', 'M3'):
+            api('asm_delete_mate', mid)
+        api('asm_move', 'I2', 0, 0, 0)
+        pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5)
+        if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
+        pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8)
+        PUNTO = """([iid, q]) => { const S = window.__steelcad, T = S.THREE, o = S.objs.get(iid), r = document.querySelector('#c3d').getBoundingClientRect();
+          const P = new T.Vector3(...q); if (o.pos) P.applyMatrix4(o.pos); const v = P.project(S.camera);
+          return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }"""
+        pg.click('#ribbon [data-asm-tool="spigolo"]')
+        ok('Spigolo su spigolo: chiede uno spigolo', 'spigolo' in pg.inner_text('#sk-help'))
+        for iid, q in (('I1', [150, 0, 10]), ('I2', [50, 0, 0])):
+            x, y = pg.evaluate(PUNTO, [iid, q])
+            pg.mouse.move(x, y); time.sleep(0.2); pg.mouse.click(x, y); time.sleep(0.5)
+        pg.wait_for_function("JSON.stringify(window.__steelcad.state.tree).includes('spigolo su spigolo')", timeout=15000)
+        st = pg.evaluate('window.__steelcad.state')
+        ok('spigolo su spigolo fatto col mouse, senza avvisi', not st['warnings'])
+        pg.keyboard.press('Escape'); time.sleep(0.5); pg.mouse.move(5, 895)
+        pg.screenshot(path=str(SHOTS / '5_spigolo.png'))
         ok('nessun errore in pagina', not errori)
         if errori:
             print(errori)
