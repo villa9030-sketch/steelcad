@@ -287,6 +287,70 @@ def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=Tr
     return T, w, h
 
 
+MAX_RICHIAMI = 5          # più tipi di foro di così: lettere sui fori e tabella fori (i richiami si accavallano)
+
+
+def _gruppi_fori(v: dict, etichette: dict, gia: set) -> list:
+    """I fori di una vista per tipo: [(testo, diametro, centri)], senza quelli già visti in un'altra vista."""
+    gruppi: dict = {}
+    for c, r in v['cerchi']:
+        k = round(2 * r, 3)
+        gruppi.setdefault(k, []).append(c)
+    out = []
+    for k, cs in sorted(gruppi.items()):
+        if k < 0.5:
+            continue
+        uniq = []
+        for c in cs:
+            if not any(math.dist(c, u) < 1e-3 for u in uniq):
+                uniq.append(c)
+        base = etichette.get(k, f'Ø{fmt(k)}')
+        if base in gia:
+            continue
+        gia.add(base)
+        out.append((base, k, uniq))
+    return out
+
+
+def _lettera(i: int) -> str:
+    """A … Z, poi AA, AB …"""
+    return chr(65 + i) if i < 26 else chr(64 + i // 26) + chr(65 + i % 26)
+
+
+def _fori_a_lettere(f: Foglio, gruppi: list, s: float, etichette: dict, prima: int) -> list:
+    """Una lettera accanto a ogni foro; ritorna le righe della tabella fori [lettera, quanti, testo]."""
+    righe = []
+    for j, (base, k, uniq, T) in enumerate(gruppi):
+        L = _lettera(prima + j)
+        r = k / 2 * s
+        nom = etichette.get(('nominale', k))
+        for u in uniq:
+            pu = T(u)
+            if nom:
+                rn = nom / 2 * s
+                f.line('quote', *[(pu[0] + rn * math.cos(math.radians(a)), pu[1] + rn * math.sin(math.radians(a)))
+                                  for a in range(100, 371, 10)])
+            f.text('quote', (pu[0] + r * 0.75 + 0.4, pu[1] + r * 0.75 + 0.4), L, 2.2)
+        righe.append([L, str(len(uniq)), base])
+    return righe
+
+
+def _tabella_fori(f: Foglio, righe: list, x0: float, y0: float, x1: float) -> float:
+    """La tabella fori sopra (x0, y0), in una o due colonne entro x1. Ritorna la y della cima."""
+    h = 5.0
+    larga = 84.0
+    due = len(righe) > 14 and (x1 - x0) >= 2 * larga + 4
+    meta = (len(righe) + 1) // 2 if due else len(righe)
+    pezzi = [righe[:meta], righe[meta:]] if due else [righe]
+    alto = (meta + 1) * h
+    col = [0, 10, 20, larga]
+    for i, pz in enumerate(pezzi):
+        if pz:
+            _tabella(f, x0 + i * (larga + 4), y0 + alto, col, [['Rif.', 'Q.tà', 'Foro']] + pz,
+                     'TABELLA FORI' if i == 0 else None, h)
+    return y0 + alto + 6
+
+
 def _fori(f: Foglio, v: dict, T, s, etichette: dict, gia: set):
     """Note dei fori: un richiamo per diametro (n× Ø...), con filettature/svasature/inserti dagli sketch."""
     gruppi: dict = {}
@@ -428,9 +492,26 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
         f.text('testo', (x, y), nome, 2.5)
     gia: set = set()
     et = etichette or {}
-    _fori(f, v['alto'], TT, s, et, gia)
-    _fori(f, v['fronte'], TF, s, et, gia)
-    _fori(f, v['sinistra'], TL, s, et, gia)
+    # tanti tipi di foro: una lettera su ogni foro e la tabella sopra il cartiglio (se lì non ci sono le viste)
+    prova: set = set()
+    tutti = [(b, k, u, T) for vista, T in ((v['alto'], TT), (v['fronte'], TF), (v['sinistra'], TL))
+             for b, k, u in _gruppi_fori(vista, et, prova)]
+    # il posto: sopra il cartiglio, fino sotto le viste (o fino in cima se le viste stanno tutte a sinistra)
+    viste_dx = xL + wL * s
+    sotto_viste = (oyF - 22) if viste_dx > cart[0] - 4 else area[3]
+    if oyT - gT < cart[3] + 8 and ox - gL < area[2] and viste_dx > cart[0] - 4:
+        sotto_viste = cart[3]                              # le viste scendono fino al cartiglio: niente posto
+    n_col = 2 if len(tutti) > 14 and area[2] - cart[0] >= 2 * 84 + 4 else 1
+    alto_tab = ((len(tutti) + n_col - 1) // n_col + 1) * 5.0 + 6
+    tabella_ok = len(tutti) > MAX_RICHIAMI and cart[3] + 8 + alto_tab <= sotto_viste
+    if tabella_ok:
+        righe = _fori_a_lettere(f, tutti, s, et, 0)
+        cima = _tabella_fori(f, righe, cart[0], cart[3] + 8, area[2])
+        cart = (cart[0], cart[1], cart[2], cima)         # l'isometrica non ci va sopra
+    else:
+        _fori(f, v['alto'], TT, s, et, gia)
+        _fori(f, v['fronte'], TF, s, et, gia)
+        _fori(f, v['sinistra'], TL, s, et, gia)
     # isometrica nello spazio libero più grande che resta: a destra delle viste o sopra, mai nel cartiglio
     vi = v['iso']
     wi, hi = vi['bbox'][2] - vi['bbox'][0], vi['bbox'][3] - vi['bbox'][1]

@@ -772,7 +772,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 Path(path).write_text('\n'.join(righe) + '\n', encoding='utf-8-sig')
                 return _ok(message=f'Tabella pieghe salvata: {len(data.bend_rows)} pieghe.', path=path)
             righe = ['Piega;Flangia;Su;Lunghezza esterna mm;Angolo °;Verso;Raggio interno mm;K;BA mm;BD mm;Larghezza mm']
-            for i, g in enumerate(data.flanges, 1):
+            for i, g in enumerate(data.in_ordine(), 1):
                 b = g.bend
                 righe.append(';'.join([str(i), g.fid, data.lato_di(g), n(g.length, 2), n(b.angle, 1),
                                        'su' if g.direction == 'up' else 'giù', n(b.r, 2), n(b.k), n(b.ba), n(b.bd), n(g.u1 - g.u0, 2)]))

@@ -178,6 +178,31 @@ class SheetData:
     tip_mode: str = 'long'
     free_edges: list = field(default_factory=list)     # bordi dove si può ancora piegare: per sceglierli col mouse
 
+    def in_ordine(self) -> list:
+        """Le flange nell'ordine delle loro linee di piega sullo sviluppo, da un capo all'altro (21/10: una catena di
+        pieghe usciva FL1, FL3, FL2… nell'ordine in cui erano state fatte). Se le linee non sono tutte parallele
+        (scatola con bordi sui quattro lati) resta l'ordine di costruzione."""
+        import math
+        pos = {}
+        for a, b, t in self.bend_lines:
+            fid = str(t).split(' ')[0]
+            pos.setdefault(fid, (a, b))
+        if getattr(self, 'fold_pos', None):           # pieghe su linea: già numerate da un bordo (PL1, PL2…)
+            return list(self.flanges)
+        if len(self.flanges) < 2 or any(g.fid not in pos for g in self.flanges):
+            return list(self.flanges)
+        (a0, b0) = pos[self.flanges[0].fid]
+        d = (b0[0] - a0[0], b0[1] - a0[1])
+        L = math.hypot(*d) or 1.0
+        d = (d[0] / L, d[1] / L)
+        for a, b in pos.values():
+            e = (b[0] - a[0], b[1] - a[1])
+            if abs(d[0] * e[1] - d[1] * e[0]) > 1e-6 * (math.hypot(*e) or 1.0):
+                return list(self.flanges)
+        n = (-d[1], d[0])
+        quota = lambda g: n[0] * (pos[g.fid][0][0] + pos[g.fid][1][0]) + n[1] * (pos[g.fid][0][1] + pos[g.fid][1][1])  # noqa: E731
+        return sorted(self.flanges, key=quota)
+
     def lato_di(self, g) -> str:
         """Dove sta la piega, in parole: per le pieghe su linea la quota della linea sullo sviluppo (dal bordo da
         cui partono i numeri PL1, PL2...), che è quella che serve alla piegatrice per il registro."""
@@ -189,7 +214,7 @@ class SheetData:
                 'bends': [{'flange': g.fid, 'edge': self.lato_di(g), 'parent': g.parent, 'length': g.length,
                            'line_at': (getattr(self, 'fold_pos', None) or {}).get(g.fid),
                            'direction': g.direction, 'position': g.position, 'width': g.u1 - g.u0,
-                           **g.bend.as_dict()} for g in self.flanges],
+                           **g.bend.as_dict()} for g in self.in_ordine()],
                 'flat_size': list(self.flat_size), 'flat_area': self.flat_area, 'warnings': self.warnings,
                 'outline': self.outline(), 'bend_lines': [[list(a), list(b), t] for a, b, t in self.bend_lines],
                 'bend_zones': self.bend_zones(), 'tip_contacts': [list(c) for c in self.tip_contacts],

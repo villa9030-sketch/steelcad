@@ -108,7 +108,7 @@ class DrawingsMixin:
             fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
         elif sheet is not None:
             pieg = [[str(i), g.fid, D.fmt(g.length), f'{D.fmt(g.bend.angle)}°', 'su' if g.direction == 'up' else 'giù',
-                     D.fmt(g.bend.r), D.fmt(round(g.bend.k, 3)), D.fmt(round(g.u1 - g.u0, 2))] for i, g in enumerate(sheet.flanges, 1)]
+                     D.fmt(g.bend.r), D.fmt(round(g.bend.k, 3)), D.fmt(round(g.u1 - g.u0, 2))] for i, g in enumerate(sheet.in_ordine(), 1)]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sviluppo'
             fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
