@@ -83,3 +83,26 @@ def test_canala_coclea_nella_tramoggia(tmp_path):
     assert abs(bb.max.Z - (250 + 150)) < 0.1 and 250 - 121 < bb.min.Z < 250 - 117       # sponde in su, fondo sotto
     assert not s.asm_interferences().get('interferences')
     assert s.save(str(tmp_path / 'tramoggia.steelcad-asm'))['ok']
+
+
+def test_fori_sul_profilo_a_colpi_anche_nello_sviluppo(tmp_path):
+    """21/10: sul profilo estruso non si poteva disegnare (facce senza nome). Ora ogni tratto ha le sue facce e il
+    foro torna nello sviluppo nel punto giusto: a distanza lungo la linea disegnata dall'inizio del profilo."""
+    import build123d as bd
+    s = Service()
+    assert s.new_project('zero', {'name': 'Canala'})['ok']
+    sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
+    _u(s, sid)
+    assert s.create_from_sketch(sid, 'profilo', {'lunghezza': 600, 'spessore': 3, 'colpi': 14, **DATI})['ok']
+    a0 = s.result.body.sheet.flat_area
+    sk = s.sketch_on_face('FM1/tratto1/dentro')['sketch']
+    assert s.sketch_add_circle(sk, [40, 200], 10)['ok']
+    r = s.create_from_sketch(sk, 'cut', {})
+    assert r['ok'], r.get('message')
+    sh = s.result.body.sheet
+    assert abs(a0 - sh.flat_area - math.pi * 100) < 1e-3 and len(sh.bend_rows) == 14
+    c3 = next(e.arc_center for e in bd.Compound(s.result.body.shape).edges() if e.geom_type == bd.GeomType.CIRCLE)
+    c2 = next(e.arc_center for e in sh.flat.edges() if e.geom_type == bd.GeomType.CIRCLE)
+    assert abs(c2.X - (150 - c3.Y)) < 1e-6 and abs(c2.Y - c3.Z) < 1e-6      # la sponda parte da y = 150
+    r = s.export_dxf(str(tmp_path / 'canala.dxf'))
+    assert r['ok'] and 'Controlli superati' in r['message']

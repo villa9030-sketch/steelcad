@@ -1492,6 +1492,15 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
         parti = nome.split('/')
         if not parti or parti[0] != data.feature:
             raise FeatureError('Il taglio di lamiera va disegnato su una faccia della lamiera.', feature=fid)
+        pannelli = getattr(data, 'pannelli', None) or {}
+        if nome in pannelli:
+            # profilo estruso in lamiera: il tratto ha la sua mappa pezzo → sviluppo
+            if fdef.get('mode') == 'add':
+                raise FeatureError('Su un profilo estruso in lamiera si tolgono fori e tagli; il materiale non si '
+                                   'aggiunge.', feature=fid)
+            src, dst, dentro = pannelli[nome]
+            lavori = [(f, dentro, f.moved(dst.location * src.location.inverse())) for f in prof.faces]
+            return _taglio_semplice(fdef, body, data, lavori, t, fid)
         piani = _face_planes(parti, data, fid)
         if fdef.get('mode') != 'add':
             # il contorno portato sullo sviluppo (stesse coordinate locali): così può anche uscire dalla faccia e
@@ -1519,6 +1528,23 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
         if piano.get('flat') if isinstance(piano, dict) else False:
             raise FeatureError('Il materiale si aggiunge disegnando su una faccia del pezzo, non sullo sviluppo.', feature=fid)
         return _add_tab(fdef, body, data, _fuori_dallo_sviluppo(lavori, ritorni, data), t)
+    return _taglio_semplice(fdef, body, data, lavori, t, fid)
+
+
+def _copia_dati(vecchio, nuovo):
+    """I dati della lamiera che non sono campi (tabella pieghe delle forme, mappe dei tratti…): un taglio li tiene."""
+    for k in ('bend_rows', 'shape_info', 'pannelli', 'fold_pos'):
+        if hasattr(vecchio, k):
+            setattr(nuovo, k, getattr(vecchio, k))
+    return nuovo
+
+
+def _taglio_semplice(fdef, body, data, lavori, t, fid):
+    """Il taglio attraverso lo spessore: lavori = [(contorno sul pezzo, verso dentro il materiale, contorno nello
+    sviluppo)]."""
+    import dataclasses
+
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     # 3D: attraverso lo spessore
     attrezzo = None
     for f3, dentro, _ in lavori:
@@ -1548,7 +1574,8 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
     if abs((data.flat.area - facce[0].area) * t - tolto) > 1e-6 * max(tolto, 1) + 1e-3:
         raise FeatureError('Il contorno prende anche una piega o un’altra parte del pezzo: sviluppo e pezzo '
                            'piegato non tornerebbero. Tienilo dentro un solo tratto piano.', feature=fid)
-    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area, flat_size=flat_size(facce[0], data.plane))
+    nuovo.sheet = _copia_dati(data, dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area,
+                                                        flat_size=flat_size(facce[0], data.plane)))
     return nuovo
 
 

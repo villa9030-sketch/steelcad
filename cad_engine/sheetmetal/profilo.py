@@ -167,8 +167,10 @@ def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
     except Exception as ex:  # noqa: BLE001
         raise FeatureError(f'La sezione del profilo non si chiude ({ex}): pieghe troppo strette per lo spessore?',
                            feature=fid) from None
+    verso_L = 1.0
     if solido.volume < 0:
         solido = bd.extrude(faccia, amount=-L, dir=plane.z_dir)
+        verso_L = -1.0
     # sviluppo: tratti dritti (dalla linea disegnata, meno gli arretramenti) + archi della fibra neutra
     con_dati = r_piega is not None and k_piega is not None
     rp = r_piega if r_piega is not None else 0.0
@@ -199,7 +201,18 @@ def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
         righe.append({'n': j + 1, 'angle': ang, 'length': L, 'correction': bd_ if con_dati else None,
                       'position': centro, 'direction': 'up' if phi > 0 else 'down'})
         linee.append(((centro, 0.0), (centro, L), f'P{j + 1} {fmt_mm(round(ang, 1))}° a {fmt_mm(round(centro, 1))}'))
-    info = {'pieghe': len(giri), 'colpi': n_archi, 'sviluppo': lungo, 'lunghezza': L,
+    # i tratti dritti (anche le facce tra un colpo e l'altro): da dove partono nello sviluppo. Un punto a distanza s
+    # dallo spigolo di partenza, sulla linea disegnata, nello sviluppo sta a x0 + s (x0 = inizio del dritto meno
+    # l'arretramento della piega prima). Servono per forare il pezzo piegato e ritrovare i fori nello sviluppo.
+    pannelli, x = [], 0.0
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        x0 = x - (arretra[i - 1] if i > 0 else 0.0)
+        u = ((b[0] - a[0]) / lati[i], (b[1] - a[1]) / lati[i])
+        nm = (-u[1] * lato, u[0] * lato)                                  # verso il materiale
+        pannelli.append({'a': a, 'b': b, 'a2': altro[i], 'b2': altro[i + 1], 'u': u, 'n': nm, 'x0': x0})
+        x += dritti[i] + (archi[i] if i < len(archi) else 0.0)
+    info = {'pieghe': len(giri), 'colpi': n_archi, 'sviluppo': lungo, 'lunghezza': L, 'pannelli': pannelli,
+            'verso_L': verso_L,
             'angolo_max': max((x['angle'] for x in righe), default=0.0),
             'correzione_totale': sum(x['correction'] or 0 for x in righe), 'avvisi': []}
     if not con_dati:

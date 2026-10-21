@@ -2183,6 +2183,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return {'ok': False, 'code': 'sketch', 'message': 'Prima chiudi il contorno: '
                     + (fr.message if fr else 'lo sketch non è costruibile.')}
         su = self._sheet_def(sk.plane.get('flat') or sk.plane['face'].split('/')[0])
+        if su is None and not sk.plane.get('flat'):          # una forma di lamiera (profilo a colpi…): taglio di lamiera
+            try:
+                f_ = self.doc.feature(sk.plane['face'].split('/')[0])
+                su = f_ if not isinstance(f_, Sketch) and f_.get('type') == 'sheet_shape' else None
+            except SteelCADError:
+                su = None
 
         def fn():
             nuovi = {}

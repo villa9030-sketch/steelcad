@@ -463,6 +463,7 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
         solido, flat, linee, righe, info = profilo(ss, prof.plane, L, t, r_piega, k_piega, colpi, passo,
                                                    bool(fdef.get('flip')), fid)
         nome = 'Profilo in lamiera'
+        piano_profilo = prof.plane
     elif kind == 'sezioni':
         from .poliedro import costruisci
         valuta = lambda e, what: evaluate(e, ctx.params, what=f'{what} di {fid}')  # noqa: E731
@@ -481,10 +482,48 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
                               'missing': []}, [], flat, bd.Plane.XY, linee, (max(xs) - min(xs), max(ys) - min(ys)),
                      flat.area, info['avvisi'])
     data.bend_rows = righe
+    pannelli = info.pop('pannelli', None)
+    verso_L = info.pop('verso_L', 1.0)
     data.shape_info = {'kind': kind, 'nome': nome, **info}
     ns = NamedShape(shape, {})
+    if kind == 'profilo' and pannelli:
+        ns.names, data.pannelli = _nomi_profilo(fid, shape, piano_profilo, pannelli, verso_L, t)
     ns.sheet = data
     return ns
+
+
+def _nomi_profilo(fid, shape, plane, pannelli, verso_L, t):
+    """Le facce del profilo estruso: «tratto N dentro/fuori» (la linea disegnata e l'altra faccia), «testa». Per ogni
+    faccia di un tratto la coppia di piani (sul pezzo, nello sviluppo) che porta un contorno disegnato lì nella sua
+    posizione sullo sviluppo, e il verso dentro il materiale."""
+    from ..topology.naming import _faces_of
+    nomi, mappa = {}, {}
+    d = plane.z_dir * verso_L
+    facce = [bd.Face(f) for f in _faces_of(shape)]
+    for i, pn in enumerate(pannelli, 1):
+        u3 = (plane.from_local_coords(pn['b']) - plane.from_local_coords(pn['a'])).normalized()
+        n3 = (plane.from_local_coords((pn['a'][0] + pn['n'][0], pn['a'][1] + pn['n'][1]))
+              - plane.from_local_coords(pn['a'])).normalized()
+        for lato, (p, q), dentro in (('dentro', (pn['a'], pn['b']), n3), ('fuori', (pn['a2'], pn['b2']), -n3)):
+            P, Q = plane.from_local_coords(p), plane.from_local_coords(q)
+            for f in facce:
+                c = f.center()
+                if abs(f.normal_at(c).dot(dentro)) < 1 - 1e-6 or abs((c - P).dot(dentro)) > 1e-5:
+                    continue
+                s = (c - P).dot(u3)
+                if -1e-6 <= s <= (Q - P).dot(u3) + 1e-6:
+                    nome = f'{fid}/tratto{i}/{lato}'
+                    nomi.setdefault(nome, []).append(f.wrapped)
+                    # sul pezzo: x lungo il tratto, y lungo l'estrusione; nello sviluppo: x lungo lo sviluppo, y uguale
+                    x0 = pn['x0'] + (P - plane.from_local_coords(pn['a'])).dot(u3)
+                    sorg = bd.Plane(origin=P, x_dir=u3, z_dir=u3.cross(d))
+                    dest = bd.Plane(origin=(x0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, 1))
+                    mappa[nome] = (sorg, dest, dentro)
+                    break
+    for f in facce:
+        if abs(abs(f.normal_at(f.center()).dot(d)) - 1) < 1e-9:
+            nomi.setdefault(f'{fid}/testa', []).append(f.wrapped)
+    return nomi, mappa
 
 
 def _sviluppo_facce(S: Facce, r_piega, k_piega, t):
