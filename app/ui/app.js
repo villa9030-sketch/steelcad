@@ -2570,7 +2570,8 @@ function drawSketch() {
   $('#sk-boss').hidden = !!v.on_sheet;
   document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => { b.disabled = !pronto; });
   $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn));
-  $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);   // bastano linee aperte   // da bordo a bordo: la chiudo io
+  $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);
+  $('#sk-make [data-make="profilo"]').disabled = !(v.lines.some(l => !l.construction) || v.arcs.some(a => !a.construction));   // bastano linee aperte   // da bordo a bordo: la chiudo io
   for (const q of ['#sk-louver', '#sk-dimple']) { $(q).hidden = !(v.on_sheet && v.on_face); $(q).disabled = !v.drawn; }
   $('#sk-fold').hidden = !(v.on_flat || (v.on_sheet && /\/(sopra|sotto)$/.test(v.on_face || '')));
   // sullo sviluppo si disegna quasi sempre per piegare: lì la piega è un pulsante grande, altrove sta in Altro
@@ -2588,7 +2589,7 @@ function drawSketch() {
   const perche = !v.drawn ? 'prima disegna qualcosa' : !pronto ? 'il contorno non è chiuso: torna sul primo punto' : '';
   document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';
-    b.title = b.disabled ? `Non disponibile: ${b.dataset.make === 'structure' ? 'disegna almeno una linea' : perche || 'serve un contorno chiuso'}` : b.dataset.title;
+    b.title = b.disabled ? `Non disponibile: ${['structure', 'profilo'].includes(b.dataset.make) ? 'disegna almeno una linea' : perche || 'serve un contorno chiuso'}` : b.dataset.title;
   });
   gruppiVuoti();
   ridisegna();
@@ -3533,6 +3534,29 @@ function makeDialog(kind) {
         const bump = !serie && $('#m-colpi').value.trim() ? { colpi: $('#m-colpi').value.trim(), raggio: $('#m-rg').value.trim() } : null;
         close();
         inCoda(async () => { const r = await call('sheet_fold', sid, ang, dir, flip, bump); if (await apply(r)) exitSketch(); });
+      };
+    });
+    return;
+  }
+  if (kind === 'profilo') {
+    // profilo estruso in lamiera: gli archi diventano colpi (bumping)
+    const sid = SK.sid, BD = S?.bend_default || {};
+    const archi = SK.v.arcs.filter(a => !a.construction && !a.ref).length;
+    modal(`<h3>Estrudi in lamiera</h3>
+      <p class="hint">Il profilo disegnato (aperto) diventa lamiera piegata: ogni spigolo è una piega${archi ? `, ogni arco (qui ${archi}) si fa a colpi (bumping)` : ''}. La linea disegnata è la faccia interna: lo spessore va dalla parte esterna.</p>
+      <div class="ff"><label>Lunghezza (di quanto estrudere)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
+        <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
+      ${archi ? `<div class="ff"><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm"></span></label><span></span></div>` : ''}
+      <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>
+        <label>K-factor<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
+      <label class="check"><input type="checkbox" id="pf-gira"> lo spessore va dall’altra parte (la linea è la faccia esterna)</label>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Estrudi in lamiera</button></div>`, close => {
+      $('#m-no').onclick = close;
+      $('#m-ok').onclick = () => {
+        const v = { lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(), colpi: $('#pf-colpi')?.value.trim() || '',
+          raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: $('#pf-gira').checked };
+        close();
+        inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'profilo', v))) exitSketch(); });
       };
     });
     return;

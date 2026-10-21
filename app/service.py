@@ -1708,6 +1708,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return self._change('Persiane' if kind == 'louver' else 'Imbutiture', fn)
         if isinstance(sk.plane, dict) and kind in ('cut', 'boss'):
             return self._from_face_sketch(sid, sk, kind, v)
+        if kind == 'profilo':
+            return self._profilo_da_sketch(sid, values or {})
         if kind == 'structure':
             return self._structure_from_sketch(sid, sk, v)
         fr = next((f for f in self.result.features if f.id == sid), None)
@@ -1729,6 +1731,42 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 self.doc.add_feature('extrude', self.doc.meta.get('name') or 'Piastra', sketch=sid,
                                      distance='sp', operation='new')
         return self._change('Crea lamiera' if kind == 'sheet' else 'Crea piastra', fn)
+
+    def _profilo_da_sketch(self, sid: str, valori: dict) -> dict:
+        """Profilo estruso in lamiera: il profilo disegnato (linee e archi, aperto) estruso di «lunghezza»; gli spigoli
+        sono pieghe, gli archi colpi (bumping). Spessore dalla parte convessa (la linea è la faccia interna), «gira»
+        lo mette dall'altra. Raggio e K: quelli scritti o quelli della piegatrice."""
+        try:
+            n = lambda k, cosa: _numero(valori[k], cosa) if str(valori.get(k, '')).strip() else None  # noqa: E731
+            L = n('lunghezza', 'la lunghezza')
+            if not L or L <= 0:
+                raise SteelCADError('Scrivi di quanto estrudere il profilo (la lunghezza del pezzo).', code='profilo')
+            sp = n('spessore', 'lo spessore') or 2
+            colpi, passo = n('colpi', 'i colpi per arco'), n('passo', 'il passo dei colpi')
+            d = self.bend_default()
+            raggio = n('raggio', 'il raggio') if n('raggio', 'il raggio') is not None else d.get('radius')
+            k = n('k', 'il K') if n('k', 'il K') is not None else d.get('k')
+        except SteelCADError as ex:
+            return _err(ex)
+        if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
+            return {'ok': False, 'code': 'usato', 'message': 'Questo sketch ha già un pezzo: modificalo da lì.'}
+
+        def fn():
+            nomi = {'lunghezza': L, 'sp': sp}
+            for kk, vv in nomi.items():
+                if kk not in self.doc.parameters:
+                    self.doc.set_parameter(kk, vv)
+            self.doc.add_feature('sheet_shape', 'Profilo in lamiera', kind='profilo', sketch=sid,
+                                 length='lunghezza' if self.doc.parameters.get('lunghezza') == L else L,
+                                 thickness='sp' if self.doc.parameters.get('sp') == sp else sp,
+                                 radius=raggio, k=k, hits=colpi, pitch=passo, flip=bool(valori.get('gira')))
+        r = self._change('Profilo estruso in lamiera', fn)
+        if r.get('ok') and self.result.body is not None:
+            info = getattr(self.result.body.sheet, 'shape_info', {}) or {}
+            r['message'] = (f'Profilo in lamiera: {info.get("pieghe", "?")} pieghe'
+                            + (f' (archi a {", ".join(str(c) for c in info.get("colpi") or [])} colpi)' if info.get('colpi') else '')
+                            + f', sviluppo {fmt_mm(round(info.get("sviluppo", 0), 1))} × {fmt_mm(round(L, 1))}.')
+        return r
 
     def sheet_tab(self, sid: str) -> dict:
         """Aggiungi materiale (linguetta): il contorno disegnato su una faccia piana della lamiera diventa lamiera

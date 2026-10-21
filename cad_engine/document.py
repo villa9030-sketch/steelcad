@@ -212,7 +212,7 @@ class Document:
                                 # le persiane si disegnano con linee aperte: per loro il contorno chiuso non serve,
                                 # e così gli scheletri delle strutture; uno sketch che nessuno usa ancora è un disegno
                                 # in corso (linee per una piega, una persiana…), non un errore
-                                if usi.get(fid, set()) - {'louver', 'structure'}:
+                                if usi.get(fid, set()) - {'louver', 'structure', 'profilo'}:
                                     raise
                                 prof = profile_mod.Profile(plane, [], [], aperto=ex_aperto.message)
                     except SteelCADError as ex:
@@ -296,7 +296,8 @@ class Document:
                 for sid in self._sketch_refs(x):
                     usi.setdefault(sid, set()).add('structure')
             if x.get('sketch'):
-                tipo = 'louver' if x.get('type') == 'sheet_form' and x.get('kind') == 'louver' else x.get('type')
+                tipo = 'louver' if x.get('type') == 'sheet_form' and x.get('kind') == 'louver' else (
+                    'profilo' if x.get('type') == 'sheet_shape' and x.get('kind') == 'profilo' else x.get('type'))
                 usi.setdefault(x['sketch'], set()).add(tipo)
         return usi
 

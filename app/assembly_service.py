@@ -548,10 +548,16 @@ class AssemblyMixin:
             P = R @ np.array(f['p'], dtype=float) + T
             N = R @ np.array(f['n'], dtype=float)
             N = N / np.linalg.norm(N)
-            a = np.array([1.0, 0, 0]) if abs(N[0]) < 0.9 else np.array([0, 1.0, 0])
-            x = a - N * (a @ N)
-            x = x / np.linalg.norm(x)
-            y = np.cross(N, x)
+            if abs(N[2]) < 0.9:
+                # faccia in piedi (una parete): nello sketch il «su» è il su vero
+                y = np.array([0, 0, 1.0]) - N * N[2]
+                y = y / np.linalg.norm(y)
+                x = np.cross(y, N)
+            else:
+                a = np.array([1.0, 0, 0]) if abs(N[0]) < 0.9 else np.array([0, 1.0, 0])
+                x = a - N * (a @ N)
+                x = x / np.linalg.norm(x)
+                y = np.cross(N, x)
             nome = (nome or '').strip() or 'Pezzo nuovo'
             cartella = Path(self.path).parent
             p = cartella / f'{nome}.steelcad'

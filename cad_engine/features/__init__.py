@@ -21,6 +21,6 @@ VALUE_FIELDS = {
     'fillet': ('radius',),
     'chamfer': ('distance',),
     'sheet': ('thickness', 'radius', 'k', 'bd90'),
-    'sheet_shape': ('thickness', 'radius', 'k', 'd1', 'd2', 'height', 'a', 'b', 'd', 'ex', 'ey', 'pitch'),
+    'sheet_shape': ('thickness', 'radius', 'k', 'd1', 'd2', 'height', 'a', 'b', 'd', 'ex', 'ey', 'pitch', 'length', 'hits'),
     'sheet_form': ('width', 'height', 'depth'),
 }

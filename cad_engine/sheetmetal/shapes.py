@@ -451,6 +451,18 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
         solido = _solido(S, t)
         flat, linee, righe, info = _sviluppo_facce(S, r_piega, k_piega, t)
         nome = 'Raccordo quadro-tondo'
+    elif kind == 'profilo':
+        # profilo disegnato (linee e archi) estruso in lamiera: gli archi a colpi (bumping)
+        from .profilo import costruisci as profilo
+        ss, prof = ctx.sketch(fdef)
+        L = v('length', 'la lunghezza')
+        if not L or L <= 0:
+            raise FeatureError('Scrivi di quanto estrudere il profilo (la lunghezza).', feature=fid)
+        colpi = fdef.get('hits')
+        colpi = v('hits', 'i colpi per arco') if colpi not in (None, '') else None
+        solido, flat, linee, righe, info = profilo(ss, prof.plane, L, t, r_piega, k_piega, colpi, passo,
+                                                   bool(fdef.get('flip')), fid)
+        nome = 'Profilo in lamiera'
     elif kind == 'sezioni':
         from .poliedro import costruisci
         valuta = lambda e, what: evaluate(e, ctx.params, what=f'{what} di {fid}')  # noqa: E731

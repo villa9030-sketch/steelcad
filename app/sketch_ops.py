@@ -47,8 +47,8 @@ def view(doc, sid: str, body=None) -> dict:
                 stato = ('Linee aperte: vanno bene per la piega su linea, le persiane o la lamiera a contorno. '
                          'Per tagliare o aggiungere materiale il contorno va chiuso.')
             else:
-                stato = ('Linee aperte: vanno bene per una struttura (Crea struttura). '
-                         'Per lamiera o piastra il contorno va chiuso.')
+                stato = ('Profilo aperto: «Estrudi in lamiera» lo fa diventare lamiera piegata (gli archi a colpi), '
+                         '«Crea struttura» lo fa in tubi. Per una lamiera piana o una piastra il contorno va chiuso.')
     g = lambda p: [(q := pl.from_local_coords(p)).X, q.Y, q.Z]  # noqa: E731
     out = {'id': sid, 'name': sk.name, 'plane': sk.plane, 'status': stato, 'ok': bool(fr and fr.ok), 'open': aperto,
            'origin': g((0, 0)), 'x_dir': [pl.x_dir.X, pl.x_dir.Y, pl.x_dir.Z], 'y_dir': [pl.y_dir.X, pl.y_dir.Y, pl.y_dir.Z],
