@@ -86,6 +86,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return _n(doc.meta.get('name') or 'Progetto', 'project', children=figli)
 
     def _set(self, doc: Document):
+        self._contesto = None                      # un progetto aperto da solo non ha pezzi attorno
         for f in doc.features:                     # file fatti prima: pieghe su linea in ordine lungo il pezzo
             if not isinstance(f, Sketch) and f.get('type') == 'sheet':
                 _rinumera_pieghe(f)
@@ -308,8 +309,36 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 testo = (f'punta di {e["ref"]}' if e['kind'] == 'tip' else sk.describe(e['ref']))
                 bordi.append({**e, 'feature': data.feature, 'id': f'{e["kind"]}:{e["ref"]}',
                               'label': f'{testo} ({fmt_mm(round(e["length"], 1))} mm)', 'thickness': data.thickness})
-        return {'version': self.scene_version, 'objects': objs, 'nodes': nodi, 'bend_edges': bordi,
-                'threads': self._filettature()}
+        return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
+                'bend_edges': bordi, 'threads': self._filettature()}
+
+    def _oggetti_contesto(self) -> list:
+        """Aperto dall'assieme: gli altri pezzi attorno, nelle coordinate di questo pezzo (si vedono, non si cliccano)."""
+        ctx = getattr(self, '_contesto', None)
+        if not ctx:
+            return []
+        import numpy as np
+
+        from cad_engine import assembly as A
+        Rp, Tp = np.array(ctx['R'], dtype=float), np.array(ctx['T'], dtype=float)
+        cache = self.__dict__.setdefault('_ctx_parti', {})
+        out = []
+        for k, (file, R, T) in enumerate(ctx['altri']):
+            if file == str(self.path):
+                continue                                 # il pezzo stesso (nuovo, ancora nell'elenco)
+            try:
+                chiave = (file, Path(file).stat().st_mtime)
+                if chiave not in cache:
+                    cache[chiave] = A.part_mesh(A.load_part(file))
+                m = cache[chiave]
+            except Exception:  # noqa: BLE001 - un pezzo vicino che non si legge: si va avanti senza
+                continue
+            M = Rp.T @ np.array(R, dtype=float)
+            t = Rp.T @ (np.array(T, dtype=float) - Tp)
+            mat = [M[0][0], M[0][1], M[0][2], t[0], M[1][0], M[1][1], M[1][2], t[1], M[2][0], M[2][1], M[2][2], t[2], 0, 0, 0, 1]
+            out.append({'id': f'contesto{k}', 'kind': 'context', 'name': Path(file).stem, 'matrix': [float(v) for v in mat],
+                        'positions': m['positions'], 'indices': m['indices'], 'faces': [], 'edges': m['edges']})
+        return out
 
     def _filettature(self) -> list:
         """I fori filettati da far vedere nel 3D: centro sulla faccia dello sketch, verso (dentro il pezzo), raggio

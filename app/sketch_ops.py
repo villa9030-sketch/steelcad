@@ -78,6 +78,8 @@ def view(doc, sid: str, body=None) -> dict:
         else:
             testo = 'su ' + testo
         out['where'] = testo
+    elif (sk.name or '').startswith('Contorno sul piano '):        # pezzo nuovo nato nell'assieme: dice su che faccia
+        out['where'] = sk.name[len('Contorno '):]
     else:
         out['where'] = {'XY': 'sul piano XY (dall’alto)', 'XZ': 'sul piano XZ (di fronte)',
                         'YZ': 'sul piano YZ (di lato)'}.get(sk.plane, 'sul piano')

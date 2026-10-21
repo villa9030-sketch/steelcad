@@ -384,6 +384,9 @@ class Api:
     def asm_open_part(self, iid):
         return self._call(self._svc.asm_open_part, iid)
 
+    def asm_new_part(self, iid, face_index, nome=''):
+        return self._call(self._svc.asm_new_part, iid, face_index, nome)
+
     def asm_back(self):
         return self._call(self._svc.asm_back)
 

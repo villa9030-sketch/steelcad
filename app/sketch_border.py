@@ -28,14 +28,14 @@ def add_nearby_edges(sk, body, face, plane, fino_a: float) -> int:
 
 
 def project_edges(sk, body, face, plane, fino_a: float | None = None, xray: bool = False, salta: str | None = None,
-                  spessore: float = 0.0) -> int:
+                  spessore: float = 0.0, entro: float | None = None) -> int:
     """Proietta sul piano dello sketch i bordi (linee, archi, cerchi) delle facce parallele.
     Normale: solo davanti alla faccia, entro ``fino_a``. ``xray`` ("vedi attraverso"): davanti e dietro a qualsiasi
     distanza, segnati ``xray`` per poterli togliere; si salta l'altra faccia della stessa parete (``salta`` = nome
     della parete, entro lo ``spessore``), che ripeterebbe il bordo."""
     n = plane.z_dir
-    io = face.wrapped
-    bb = face.bounding_box()
+    io = face.wrapped if face is not None else None
+    bb = face.bounding_box() if face is not None else None
     punti: dict = {}
 
     def pt(v):
@@ -55,13 +55,17 @@ def project_edges(sk, body, face, plane, fino_a: float | None = None, xray: bool
     gia = {frozenset((e['a'], e['b'])) for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref')}
     fatte = 0
     for f in _faces_of(body.shape):
-        if f.IsSame(io) or BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane:
+        if (io is not None and f.IsSame(io)) or BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane:
             continue
         bf = bd.Face(f)
         if abs(abs(bf.normal_at().dot(n)) - 1) > 1e-6:
             continue
         d = (bf.center() - plane.origin).dot(n)
-        if xray:
+        if entro is not None:
+            # pezzo nuovo nell'assieme: i bordi delle facce che stanno sul piano (sopra o sotto di poco)
+            if abs(d) > entro:
+                continue
+        elif xray:
             if salta and abs(d) <= spessore + TOL and any(x.startswith(salta + '/') for x in body.names_of(f)):
                 continue
         else:

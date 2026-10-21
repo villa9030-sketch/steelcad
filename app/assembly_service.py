@@ -6,6 +6,7 @@ pezzo si passa al pezzo e con "Torna all'assieme" si rientra (i pezzi cambiati s
 from __future__ import annotations
 
 import copy
+import re
 import time
 from pathlib import Path
 
@@ -508,27 +509,117 @@ class AssemblyMixin:
             i = self.asm.instance(iid)
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}
+        altri = [(j['file'], j['R'], j['T']) for j in self.asm.instances if j['id'] != iid]
+        return self._apri_nel_contesto(i['file'], i['R'], i['T'], altri)
+
+    def _apri_nel_contesto(self, file, R, T, altri) -> dict:
+        """Apre un pezzo dell'assieme per modificarlo, con gli altri pezzi attorno in trasparenza (il contesto)."""
         ritorno = (self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty)
         self.asm = None
-        r = self.open(i['file'])
+        r = self.open(file)
         if not r['ok']:
             self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty = ritorno
             return r
         self._asm_ritorno = ritorno
+        self._contesto = {'R': [list(map(float, q)) for q in R], 'T': [float(q) for q in T], 'altri': altri}
+        self.scene_version += 1
         r['state'] = self.state()
+        return r
+
+    @_in_assieme
+    def asm_new_part(self, iid: str, face_index, nome: str = '') -> dict:
+        """Pezzo nuovo disegnato nell'assieme (21/10, Stefano: «se devo collegare due pezzi con una lamiera»): lo sketch
+        sta sul piano della faccia cliccata, con in arancio i bordi di tutti i pezzi che stanno su quel piano (anche
+        quelli dell'altro pezzo, per agganciarsi). Il pezzo è un file suo nella cartella dell'assieme; tornando
+        all'assieme si salva e si monta da solo al suo posto."""
+        import build123d as bd
+        from types import SimpleNamespace
+
+        from app import sketch_border
+        from cad_engine import project_io, templates
+        try:
+            if self.path is None:
+                raise SteelCADError('Salva prima l’assieme: il pezzo nuovo va nella sua cartella.', code='salva')
+            f = self._asm_face(iid, face_index)
+            if f['kind'] != 'piana':
+                raise SteelCADError('Scegli una faccia piana: il pezzo nuovo si disegna sul suo piano.', code='faccia')
+            i = self.asm.instance(iid)
+            R, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+            P = R @ np.array(f['p'], dtype=float) + T
+            N = R @ np.array(f['n'], dtype=float)
+            N = N / np.linalg.norm(N)
+            a = np.array([1.0, 0, 0]) if abs(N[0]) < 0.9 else np.array([0, 1.0, 0])
+            x = a - N * (a @ N)
+            x = x / np.linalg.norm(x)
+            y = np.cross(N, x)
+            nome = (nome or '').strip() or 'Pezzo nuovo'
+            cartella = Path(self.path).parent
+            p = cartella / f'{nome}.steelcad'
+            k = 2
+            while p.exists():
+                p = cartella / f'{nome} {k}.steelcad'
+                k += 1
+            materiale = self.asm_parts[i['file']].doc.material if i['file'] in self.asm_parts else 'S235'
+            doc = templates.da_zero(p.stem, materiale)
+            sk = next(x for x in doc.features if hasattr(x, 'entities'))
+            dove = self.asm_parts[i['file']].doc.describe_face(f['name']) if f.get('name') and i['file'] in self.asm_parts else 'la faccia'
+            dove = re.sub(r' di "[^"]*"$', '', dove)                    # «la faccia finale di "Piastra"» → «la faccia finale»
+            dove = re.sub(r'^(la|il|lo|l’) ', '', dove)
+            sk.name = f'Contorno sul piano {"della" if dove.startswith("faccia") else "di"} {dove} di {i["name"]}'
+            piano = bd.Plane(origin=tuple(P), x_dir=tuple(x), z_dir=tuple(N))
+            bordi = 0
+            for j in self.asm.instances:
+                pp = self.asm_parts.get(j['file'])
+                if pp is None:
+                    continue
+                mondo = A.placed_shape(pp, j['R'], j['T'])
+                bordi += sketch_border.project_edges(sk, SimpleNamespace(shape=mondo.wrapped), None, piano, entro=0.5)
+            project_io.save(doc, p)
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message, 'code': ex.code}
+        Rn = np.column_stack([x, y, N])
+        altri = [(j['file'], j['R'], j['T']) for j in self.asm.instances]
+        r = self._apri_nel_contesto(str(p), Rn.tolist(), P.tolist(), altri)
+        if not r.get('ok'):
+            return r
+        self._asm_nuovo = {'file': str(p), 'R': Rn.tolist(), 'T': P.tolist(), 'nome': p.stem}
+        r['sketch'] = sk.id
+        r['message'] = (f'Pezzo nuovo «{p.stem}» sul piano della faccia: in arancio i bordi dei pezzi che ci stanno '
+                        f'({bordi}). Disegna, crea la lamiera, poi «← Assieme»: si monta da solo.')
         return r
 
     def asm_back(self) -> dict:
         rit = getattr(self, '_asm_ritorno', None)
         if not rit:
             return {'ok': False, 'message': 'Non c’è un assieme da cui sei arrivato.'}
+        nuovo = getattr(self, '_asm_nuovo', None)
+        if self.history.dirty and nuovo:
+            r = self.save()                              # il pezzo nuovo nato nell'assieme si salva da solo
+            if not r.get('ok'):
+                return r
         if self.history.dirty:
             return {'ok': False, 'code': 'non_salvato', 'message': 'Salva il pezzo prima di tornare all’assieme (l’assieme '
                     'legge il file salvato).'}
+        ha_corpo = self.result.body is not None or bool(self.result.structures)
         self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty = rit
         self._asm_ritorno = None
+        self._contesto = None
+        self._asm_nuovo = None
         self._asm_reload()
         self.scene_version += 1
+        if nuovo and not ha_corpo:
+            return _ok(state=self.state(), message=f'«{nuovo["nome"]}» è ancora vuoto: non l’ho messo nell’assieme '
+                       '(il file resta nella cartella).')
+        if nuovo:
+            def fn():
+                iid = self.asm.new_id('I', {i['id'] for i in self.asm.instances})
+                self.asm.instances.append({'id': iid, 'file': nuovo['file'], 'name': nuovo['nome'],
+                                           'R': nuovo['R'], 'T': nuovo['T']})
+                return {'select': iid}
+            r = self._asm_change(f'Pezzo nuovo {nuovo["nome"]}', fn)
+            if r.get('ok'):
+                r['message'] = f'«{nuovo["nome"]}» montato al suo posto nell’assieme.'
+            return r
         return _ok(state=self.state())
 
     # ------------------------------------------------------------------ stato, scena, selezione

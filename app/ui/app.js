@@ -82,10 +82,29 @@ function loop() {
 }
 
 const matOf = o => Array.isArray(o.mesh.material) ? o.mesh.material[0] : o.mesh.material;
+// i pezzi attorno quando un pezzo si apre (o nasce) dall'assieme: si vedono in trasparenza, non si cliccano
+const CTX_MAT = new THREE.MeshStandardMaterial({ color: 0x8FA3B8, metalness: 0.1, roughness: 0.7, transparent: true,
+  opacity: 0.22, depthWrite: false });
+const CTX_EDGE = new THREE.LineBasicMaterial({ color: 0x8FA3B8, transparent: true, opacity: 0.45 });
+let ctxGeo = [];
 function buildScene(sc) {
   for (const o of objs.values()) { o.mesh.geometry.dispose(); matOf(o).dispose(); o.lines.geometry.dispose(); }
+  for (const g of ctxGeo) g.dispose();
+  ctxGeo = [];
   model.clear(); objs.clear();
   for (const d of sc.objects) {
+    if (d.kind === 'context') {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3)); g.setIndex(d.indices); g.computeVertexNormals();
+      const seg = [];
+      for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
+      const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+      const mesh = new THREE.Mesh(g, CTX_MAT), lines = new THREE.LineSegments(lg, CTX_EDGE);
+      const pos = new THREE.Matrix4().set(...d.matrix);
+      for (const o of [mesh, lines]) { o.matrixAutoUpdate = false; o.matrix.copy(pos); o.updateMatrixWorld(true); o.raycast = () => {}; }
+      model.add(mesh, lines); ctxGeo.push(g, lg);
+      continue;
+    }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3));
     g.setIndex(d.indices);
@@ -1312,6 +1331,8 @@ function instancePanel(s) {
     <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
     <div class="row-btns"><button class="btn primary" id="a-open">Apri il pezzo</button></div>
+    ${s.face && s.face.kind === 'piana' ? `<div class="row-btns"><button class="btn primary" id="a-nuovo">Nuovo pezzo su questa faccia</button></div>
+      <p class="hint">Disegni sul piano di questa faccia, con i bordi dei pezzi che ci stanno: per una lamiera che li collega.</p>` : ''}
     ${s.mates.length ? `<p class="hint">Accoppiamenti: ${esc(s.mates.join(', '))}</p>` : '<p class="hint">Nessun accoppiamento: si sposta liberamente.</p>'}`;
 }
 function wireInstance(s) {
@@ -1321,6 +1342,19 @@ function wireInstance(s) {
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
   $('#a-open').onclick = () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', s.id))); };
+  if ($('#a-nuovo')) $('#a-nuovo').onclick = () => modal(`<h3>Nuovo pezzo su questa faccia</h3>
+      <p class="hint">Lo disegni sul piano della faccia, vedendo gli altri pezzi; tornando all’assieme si monta da solo.</p>
+      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="np-nome" value="Lamiera di collegamento"></label></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#np-nome').select();
+    const vai = () => {
+      const nome = $('#np-nome').value.trim(); close(); clearSelection(); primaVolta = true;
+      inCoda(async () => { const r = await call('asm_new_part', s.id, s.face.index, nome); if (await apply(r, r.message) && r.sketch) await enterSketch(r.sketch); });
+    };
+    $('#m-ok').onclick = vai;
+    $('#np-nome').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+  });
   if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
     $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
 }
