@@ -6,6 +6,7 @@ pezzo si passa al pezzo e con "Torna all'assieme" si rientra (i pezzi cambiati s
 from __future__ import annotations
 
 import copy
+import math
 import re
 import time
 from pathlib import Path
@@ -246,30 +247,94 @@ class AssemblyMixin:
             raise A.AssemblyError('Clicca una faccia del pezzo.')
         return {'inst': iid, **A.face_info(part, facce[int(face_index)])}
 
+    # cosa vuole ogni accoppiamento: le facce da cliccare (fermo, mobile) e il messaggio se non vanno
+    _SERVE = {
+        'faccia': ({'piana'}, {'piana'}, 'Faccia su faccia vuole due facce piane.'),
+        'distanza': ({'piana'}, {'piana'}, 'Distanza vuole due facce piane.'),
+        'asse': ({'cilindrica'}, {'cilindrica'}, 'Foro su foro vuole due fori (facce cilindriche).'),
+        'parallelo': ({'piana', 'cilindrica'}, {'piana', 'cilindrica'}, 'Parallele vuole facce piane o fori/tubi.'),
+        'perpendicolare': ({'piana', 'cilindrica'}, {'piana', 'cilindrica'},
+                           'Perpendicolari vuole facce piane o fori/tubi.'),
+        'angolo': ({'piana'}, {'piana'}, 'Angolo vuole due facce piane.'),
+        'tangente': ({'piana', 'cilindrica'}, {'piana', 'cilindrica'},
+                     'Tangente vuole un tubo (o un foro) e una faccia piana, o due tubi.'),
+        'centra': ({'piana'}, {'piana'}, 'In mezzo vuole facce piane: due del pezzo fermo, due di quello da centrare.'),
+        'blocca': (None, None, ''),
+    }
+
+    def _misura_mate(self, m: dict) -> float:
+        """Il valore che l'accoppiamento ha adesso, per partire da lì senza spostare niente: la distanza (mm) o
+        l'angolo (gradi). Tangente e in mezzo partono da 0 (appoggiato, centrato)."""
+        F = {}
+        for k in ('a', 'b', 'a2', 'b2'):
+            if m.get(k):
+                i = self.asm.instance(m[k]['inst'])
+                F[k] = A._nel_mondo(A._info(m[k], self.asm_parts, self.asm), np.array(i['R']), np.array(i['T']))
+        a, b = F['a'], F['b']
+        if m['type'] == 'distanza':
+            d = float(np.dot(a['n'], b['p'] - a['p']))
+            if np.dot(a['n'], b['n']) > 0:              # le facce guardano dalla stessa parte: allineate
+                m['flip'] = True
+            return d
+        if m['type'] == 'angolo':
+            c = -float(np.dot(a['n'], b['n']))
+            return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+        return 0.0
+
     @_in_assieme
-    def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False) -> dict:
-        """a: la faccia del pezzo che sta fermo, b: quella del pezzo che si muove. {'inst': id, 'face': indice}."""
+    def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False, a2=None, b2=None) -> dict:
+        """a: la faccia del pezzo che sta fermo, b: quella del pezzo che si muove. {'inst': id, 'face': indice}.
+        In mezzo vuole anche a2 (la faccia opposta del pezzo fermo) e b2 (l'opposta di quello da centrare).
+        offset: la distanza (mm) o l'angolo (gradi); None o vuoto = quello che c'è adesso (non si sposta niente)."""
         from app.service import _numero
         if kind not in A.MATE_TYPES:
             return {'ok': False, 'message': f'Accoppiamento "{kind}" sconosciuto.'}
 
         def fn():
-            distanza = _numero(offset or 0, 'la distanza')
             if a['inst'] == b['inst']:
                 raise A.AssemblyError('Le due facce sono dello stesso pezzo: scegline una su un altro pezzo.')
-            ra, rb = self._asm_face(a['inst'], a.get('face')), self._asm_face(b['inst'], b.get('face'))
-            serve = 'piana' if kind == 'faccia' else 'cilindrica'
-            for r in (ra, rb):
-                if r['kind'] != serve:
-                    raise A.AssemblyError('Faccia su faccia vuole due facce piane.' if kind == 'faccia'
-                                          else 'Foro su foro vuole due fori (facce cilindriche).')
+            serve_a, serve_b, msg = self._SERVE[kind]
+            refs = {'a': a, 'b': b}
+            if kind == 'centra':
+                if not a2 or not b2:
+                    raise A.AssemblyError(msg)
+                if a2['inst'] != a['inst'] or b2['inst'] != b['inst']:
+                    raise A.AssemblyError('In mezzo: le prime due facce sono di un pezzo, le altre due dell’altro.')
+                refs.update(a2=a2, b2=b2)
+            if kind == 'blocca':
+                rf = {'a': {'inst': a['inst']}, 'b': {'inst': b['inst']}}
+            else:
+                rf = {k: self._asm_face(v['inst'], v.get('face')) for k, v in refs.items()}
+                for k, r in rf.items():
+                    if r['kind'] not in (serve_a if k.startswith('a') else serve_b):
+                        raise A.AssemblyError(msg)
+                if kind == 'tangente' and rf['a']['kind'] == 'piana' and rf['b']['kind'] == 'piana':
+                    raise A.AssemblyError(msg)
+                if kind == 'centra':
+                    for x, y, chi in (('a', 'a2', 'del pezzo fermo'), ('b', 'b2', 'del pezzo da centrare')):
+                        if abs(abs(float(np.dot(rf[x]['n'], rf[y]['n']))) - 1) > 1e-6 or rf[x]['p'] == rf[y]['p']:
+                            raise A.AssemblyError(f'In mezzo: le due facce {chi} devono essere parallele e diverse '
+                                                  '(i due lati di un U, le due facce di una piastra).')
             terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
-            fermo, mobile = (rb, ra) if ra['inst'] != terra and rb['inst'] == terra else (ra, rb)
+            if rf['a']['inst'] != terra and rf['b']['inst'] == terra:      # il fermo va in a
+                rf = {'a': rf['b'], 'b': rf['a'], **({'a2': rf['b2'], 'b2': rf['a2']} if 'a2' in rf else {})}
             mid = self.asm.new_id('M', {m['id'] for m in self.asm.mates})
-            self.asm.mates.append({'id': mid, 'type': kind, 'a': fermo, 'b': mobile, 'offset': distanza,
-                                   'flip': bool(flip)})
+            m = {'id': mid, 'type': kind, **rf, 'offset': 0.0, 'flip': bool(flip)}
+            vuoto = offset is None or str(offset).strip() == ''
+            if kind == 'blocca':
+                ia, ib = self.asm.instance(rf['a']['inst']), self.asm.instance(rf['b']['inst'])
+                RA, TA = np.array(ia['R'], dtype=float), np.array(ia['T'], dtype=float)
+                m['rel_R'] = (RA.T @ np.array(ib['R'], dtype=float)).tolist()
+                m['rel_T'] = (RA.T @ (np.array(ib['T'], dtype=float) - TA)).tolist()
+            elif kind == 'angolo':
+                m['angle'] = round(self._misura_mate(m), 3) if vuoto else _numero(offset, 'l’angolo')
+                if not 0 <= m['angle'] <= 180:
+                    raise A.AssemblyError('L’angolo va da 0° a 180°.')
+            elif kind in ('faccia', 'distanza', 'tangente', 'centra'):
+                m['offset'] = round(self._misura_mate(m), 3) if vuoto else _numero(offset, 'la distanza')
+            self.asm.mates.append(m)
             return {'select': 'mate=' + mid}
-        return self._asm_change('Faccia su faccia' if kind == 'faccia' else 'Foro su foro', fn)
+        return self._asm_change(A.MATE_TYPES[kind].capitalize(), fn)
 
     @_in_assieme
     def asm_edit_mate(self, mid: str, fields: dict) -> dict:
@@ -281,6 +346,11 @@ class AssemblyMixin:
                 raise A.AssemblyError(f'Non c’è l’accoppiamento {mid}.')
             if 'offset' in fields and str(fields['offset']).strip() != '':
                 m['offset'] = _numero(fields['offset'], 'la distanza')
+            if 'angle' in fields and str(fields['angle']).strip() != '':
+                ang = _numero(fields['angle'], 'l’angolo')
+                if not 0 <= ang <= 180:
+                    raise A.AssemblyError('L’angolo va da 0° a 180°.')
+                m['angle'] = ang
             if 'flip' in fields:
                 m['flip'] = bool(fields['flip'])
             if 'off' in fields:
@@ -637,7 +707,9 @@ class AssemblyMixin:
             st = 'errore' if any(e['id'] == i['id'] for e in self.asm_errors) else ('fisso' if i.get('fixed') else None)
             figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': [], 'status': st})
         acc = [{'label': f'{m["id"]}: {A.MATE_TYPES[m["type"]]} — {nomi.get(m["a"]["inst"], "?")} / {nomi.get(m["b"]["inst"], "?")}'
-                + (f', distanza {fmt_mm(m.get("offset") or 0)}' if m['type'] == 'faccia' and m.get('offset') else '')
+                + (f', distanza {fmt_mm(m.get("offset") or 0)}' if m['type'] in ('faccia', 'distanza', 'tangente', 'centra')
+                   and m.get('offset') else '')
+                + (f', {fmt_mm(round(m.get("angle") or 0, 2))}°' if m['type'] == 'angolo' else '')
                 + (' (sospeso)' if m.get('off') else ''),
                 'kind': 'mate', 'ref': m['id'], 'children': [], 'status': None} for m in asm.mates]
         if acc:
@@ -690,6 +762,7 @@ class AssemblyMixin:
                     ['Scarto', '—' if err is None else f'{err:.4f}']]
             return _ok(selection={'kind': 'mate', 'id': mid, 'title': f'Accoppiamento {mid}', 'rows': rows,
                                   'def': {'type': m['type'], 'offset': m.get('offset') or 0, 'flip': bool(m.get('flip')),
+                                          'angle': m.get('angle') or 0,
                                           'off': bool(m.get('off'))}})
         i = self.asm.instance(obj_id)
         part = self.asm_parts.get(i['file'])

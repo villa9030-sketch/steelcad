@@ -1281,13 +1281,27 @@ document.addEventListener('click', ev => {
   showTab('sheet', true);
 });
 // ===================================================================== assiemi
-const ASM = { tool: null, first: null };
+const ASM = { tool: null, clic: [] };
+// ogni accoppiamento: il nome e cosa cliccare, nell'ordine (il pezzo fermo prima); misura = parte dal valore che c'è
+const MATE_UI = {
+  faccia: { nome: 'Faccia su faccia', clic: ['la faccia del pezzo che sta fermo', 'la faccia dell’altro pezzo'], val: 0 },
+  asse: { nome: 'Foro su foro', clic: ['il foro del pezzo che sta fermo', 'il foro dell’altro pezzo'], val: 0 },
+  distanza: { nome: 'Distanza', clic: ['una faccia del pezzo che sta fermo', 'la faccia dell’altro pezzo'], val: null },
+  angolo: { nome: 'Angolo', clic: ['una faccia del pezzo che sta fermo', 'una faccia dell’altro pezzo'], val: null },
+  tangente: { nome: 'Tangente', clic: ['la faccia (o il tubo) del pezzo che sta fermo', 'il tubo (o la faccia) dell’altro pezzo'], val: 0 },
+  parallelo: { nome: 'Parallele', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
+  perpendicolare: { nome: 'Perpendicolari', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
+  centra: { nome: 'In mezzo', clic: ['un lato del pezzo che sta fermo (es. un’ala dell’U)', 'il lato opposto dello stesso pezzo', 'una faccia del pezzo da centrare', 'la sua faccia opposta'], val: 0 },
+  blocca: { nome: 'Blocca', clic: ['il pezzo che sta fermo', 'il pezzo da bloccare'], val: 0 },
+};
+function asmHelp() {
+  const u = MATE_UI[ASM.tool], k = ASM.clic.length;
+  setHelp(`${u.nome}${u.clic.length > 2 ? ` (${k + 1} di ${u.clic.length})` : ''}: ${k ? 'ora ' : ''}clic su ${u.clic[k]} · Esc annulla`);
+}
 function asmTool(t) {
-  ASM.tool = t; ASM.first = null;
+  ASM.tool = t; ASM.clic = [];
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
-  if (t) setHelp(t === 'faccia' ? 'Faccia su faccia: clic sulla faccia del pezzo che sta fermo · Esc annulla'
-    : 'Foro su foro: clic sul foro del pezzo che sta fermo · Esc annulla');
-  else setHelp('');
+  if (t) asmHelp(); else setHelp('');
   if (!SK) $('#sk-foot').hidden = !t;                // il suggerimento in basso, anche fuori dal disegno
 }
 document.addEventListener('click', ev => {
@@ -1297,18 +1311,23 @@ document.addEventListener('click', ev => {
 function asmClick(ev) {
   const h = pick(ev);
   if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
-  if (!ASM.first) {
-    ASM.first = { inst: h.id, face: h.face };
-    sel = { id: h.id, face: h.face }; paint();
-    setHelp(`${ASM.tool === 'faccia' ? 'Faccia su faccia' : 'Foro su foro'}: ora clic sul${ASM.tool === 'faccia' ? 'la faccia' : ' foro'} dell’altro pezzo · Esc annulla`);
-    return;
-  }
-  if (h.id === ASM.first.inst) { toast('Scegli una faccia di un altro pezzo.', 'err'); return; }
-  const a = ASM.first, b = { inst: h.id, face: h.face }, tipo = ASM.tool;
+  const u = MATE_UI[ASM.tool], k = ASM.clic.length, c = { inst: h.id, face: h.face };
+  const daFermo = k < u.clic.length / 2;                // le prime metà dei clic sono sul pezzo fermo
+  if (k > 0 && daFermo && h.id !== ASM.clic[0].inst) { toast('Questa faccia va scelta sullo stesso pezzo di prima.', 'err'); return; }
+  if (!daFermo && h.id === ASM.clic[0].inst) { toast('Scegli una faccia di un altro pezzo.', 'err'); return; }
+  if (k > u.clic.length / 2 && h.id !== ASM.clic[u.clic.length / 2].inst) { toast('Questa faccia va scelta sullo stesso pezzo di prima.', 'err'); return; }
+  ASM.clic.push(c);
+  if (ASM.clic.length < u.clic.length) { sel = { id: h.id, face: h.face }; paint(); asmHelp(); return; }
+  const cc = ASM.clic, tipo = ASM.tool;
+  const [a, a2, b, b2] = cc.length === 4 ? cc : [cc[0], null, cc[1], null];
   asmTool(tipo);                                       // resta attivo per un altro accoppiamento
   inCoda(async () => {
-    const r = await call('asm_add_mate', tipo, a, b, 0, false);
-    if (await apply(r, 'Accoppiato.') && r.select) await select(r.select);
+    const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2);
+    if (await apply(r, 'Accoppiato.') && r.select) {
+      await select(r.select);
+      const campo = $('#m-off') || $('#m-ang');
+      if (campo && u.val === null) { campo.focus(); campo.select(); }
+    }
   });
 }
 function instancePanel(s) {
@@ -1358,19 +1377,27 @@ function wireInstance(s) {
   if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
     $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
 }
+// il campo del valore e il pulsante «gira» di ogni accoppiamento (niente = non serve)
+const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco', centra: 'Fuori centro' };
+const MATE_GIRA = { faccia: ['Allinea invece di affacciare', 'Affaccia invece di allineare'], distanza: ['Allinea invece di affacciare', 'Affaccia invece di allineare'],
+  asse: ['Gira dall’altra parte'], parallelo: ['Gira dall’altra parte'], angolo: ['Angolo dall’altra parte'], tangente: ['Dall’altra parte'] };
 function matePanel(s) {
-  const d = s.def;
+  const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
+  const gira = MATE_GIRA[d.type];
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.rows[0][1])}</div></div>
       <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
     <table class="grid">${s.rows.slice(1).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-    ${d.type === 'faccia' ? `<div class="ff" style="margin-top:10px"><label>Distanza<span class="inp"><input class="field" id="m-off" value="${esc(String(d.offset).replace('.', ','))}"><i>mm</i></span></label><span></span></div>` : ''}
-    <div class="row-btns"><button class="btn" id="m-flip">${d.type === 'faccia' ? 'Allinea invece di affacciare' : 'Gira dall’altra parte'}</button>
+    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>` : ''}
+    ${d.type === 'angolo' ? `<div class="ff" style="margin-top:10px"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
+      <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : ''}
+    <div class="row-btns">${gira ? `<button class="btn" id="m-flip">${gira[d.flip && gira[1] ? 1 : 0]}</button>` : ''}
       <button class="btn" id="m-sosp">${d.off ? 'Riattiva' : 'Sospendi'}</button></div>`;
 }
 function wireMate(s) {
   const fai = f => inCoda(async () => { if (await apply(await call('asm_edit_mate', s.id, f))) await refreshSel(); });
   if ($('#m-off')) { $('#m-off').onkeydown = ev => { if (ev.key === 'Enter') fai({ offset: $('#m-off').value.trim() }); }; $('#m-off').onchange = () => fai({ offset: $('#m-off').value.trim() }); }
-  $('#m-flip').onclick = () => fai({ flip: !s.def.flip });
+  if ($('#m-ang')) { $('#m-ang').onkeydown = ev => { if (ev.key === 'Enter') fai({ angle: $('#m-ang').value.trim() }); }; $('#m-ang').onchange = () => fai({ angle: $('#m-ang').value.trim() }); }
+  if ($('#m-flip')) $('#m-flip').onclick = () => fai({ flip: !s.def.flip });
   $('#m-sosp').onclick = () => fai({ off: !s.def.off });
   $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
 }

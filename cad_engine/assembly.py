@@ -6,11 +6,16 @@ cambia, l'assieme lo rilegge (dalla data del file).
 
 Accoppiamenti (come in officina):
 - **faccia su faccia**: due facce piane una contro l'altra (normali opposte), con una distanza;
-- **foro su foro** (coassiale): gli assi di due fori (o due facce cilindriche) sulla stessa linea.
+- **foro su foro** (coassiale): gli assi di due fori (o due facce cilindriche) sulla stessa linea;
+- **distanza**: due facce piane parallele a una distanza;
+- **parallele**, **perpendicolari**, **angolo**: solo l'orientamento di due facce (o assi);
+- **tangente**: un tubo appoggiato su una faccia, o due tubi uno contro l'altro;
+- **in mezzo**: due facce di un pezzo centrate tra due facce dell'altro (un piatto in un U);
+- **blocca**: il pezzo resta attaccato all'altro così com'è.
 
-Il risolutore muove ogni istanza (tranne la prima, che sta ferma) partendo da dov'è: prima la rotazione (le
-direzioni delle facce e degli assi), poi la traslazione con il minimo spostamento che rispetta tutti gli
-accoppiamenti. I gradi di libertà che restano liberi non si toccano: si spostano a mano.
+Il risolutore muove ogni istanza (tranne quella ferma) partendo da dov'è: un punto di partenza a formula (le
+direzioni delle facce e degli assi, poi la traslazione minima), poi i minimi quadrati su tutti gli accoppiamenti
+insieme, spostando il meno possibile. I gradi di libertà che restano liberi non si toccano: si spostano a mano.
 """
 from __future__ import annotations
 
@@ -26,7 +31,9 @@ from .errors import ProjectFileError, SteelCADError
 
 EXT = '.steelcad-asm'
 FORMAT_VERSION = 1
-MATE_TYPES = {'faccia': 'faccia su faccia', 'asse': 'foro su foro (coassiale)'}
+MATE_TYPES = {'faccia': 'faccia su faccia', 'asse': 'foro su foro (coassiale)', 'distanza': 'distanza',
+              'parallelo': 'parallele', 'perpendicolare': 'perpendicolari', 'angolo': 'angolo',
+              'tangente': 'tangente', 'centra': 'in mezzo', 'blocca': 'blocca'}
 
 
 class AssemblyError(SteelCADError):
@@ -326,81 +333,196 @@ def _world(ref, pose, parts, asm):
     return info, R @ np.array(info['p']) + T, R @ np.array(info['n'])
 
 
+def _info(ref, parts, asm) -> dict:
+    """La faccia di un riferimento nelle coordinate del suo pezzo: tipo, p, n (versore), r."""
+    part = parts[asm.instance(ref['inst'])['file']]
+    i = resolve_ref(part, ref)
+    n = np.array(i['n'], dtype=float)
+    return {'kind': i['kind'], 'p': np.array(i['p'], dtype=float), 'n': n / np.linalg.norm(n), 'r': float(i.get('r') or 0)}
+
+
+def _nel_mondo(info, R, T) -> dict:
+    return {**info, 'p': R @ info['p'] + T, 'n': R @ info['n']}
+
+
+def _perp(v, d):
+    return v - d * np.dot(v, d)
+
+
+PESO_DIR = 100.0                # un versore sbagliato «pesa» come 100 mm: angoli e distanze sulla stessa scala
+
+
+def residui(m, F: dict, pose_ab=None, peso=PESO_DIR) -> np.ndarray:
+    """Quanto l'accoppiamento m non è rispettato (tutti zero = rispettato). F: le facce nel mondo per chiave
+    ('a', 'b' e per In mezzo 'a2', 'b2'); pose_ab: le pose (R, T) dei pezzi a e b (per Blocca)."""
+    PESO_DIR = peso
+    t = m['type']
+    off = float(m.get('offset') or 0)
+    s = -1.0 if m.get('flip') else 1.0
+    if t == 'blocca':
+        (RA, TA), (RB, TB) = pose_ab
+        Rr, Tr = np.array(m['rel_R'], dtype=float), np.array(m['rel_T'], dtype=float)
+        return np.concatenate([(RB - RA @ Rr).ravel() * PESO_DIR, TB - (RA @ Tr + TA)])
+    A, B = F['a'], F['b']
+    nA, nB = A['n'], B['n']
+    if t in ('faccia', 'distanza'):
+        verso = nA if m.get('flip') else -nA
+        return np.concatenate([(nB - verso) * PESO_DIR, [np.dot(nA, B['p'] - A['p']) - off]])
+    if t == 'asse':
+        return np.concatenate([np.cross(nA, nB) * PESO_DIR, _perp(B['p'] - A['p'], nA)])
+    if t == 'parallelo':
+        return np.cross(nA, nB) * PESO_DIR
+    if t == 'perpendicolare':
+        return np.array([np.dot(nA, nB) * PESO_DIR])
+    if t == 'angolo':
+        # 0° = le facce una contro l'altra (come faccia su faccia), 90° = a squadra; «dall'altra parte» gira il verso
+        return np.array([(np.dot(nA, nB) + s * math.cos(math.radians(float(m.get('angle') or 0)))) * PESO_DIR])
+    if t == 'tangente':
+        if A['kind'] == 'piana' and B['kind'] == 'cilindrica':
+            return np.array([np.dot(nA, nB) * PESO_DIR, np.dot(nA, B['p'] - A['p']) - s * (B['r'] + off)])
+        if A['kind'] == 'cilindrica' and B['kind'] == 'piana':
+            return np.array([np.dot(nA, nB) * PESO_DIR, np.dot(nB, A['p'] - B['p']) - s * (A['r'] + off)])
+        d = np.linalg.norm(_perp(B['p'] - A['p'], nA))          # due tubi: fuori (somma dei raggi) o dentro (differenza)
+        voluto = (A['r'] + B['r'] if s > 0 else abs(A['r'] - B['r'])) + off
+        return np.concatenate([np.cross(nA, nB) * PESO_DIR, [d - voluto]])
+    if t == 'centra':
+        # le due facce di b a metà tra le due di a (un piatto in mezzo a un U, un tubo centrato su una piastra)
+        mezzo_a = (np.dot(nA, A['p']) + np.dot(nA, F['a2']['p'])) / 2
+        mezzo_b = (np.dot(nA, B['p']) + np.dot(nA, F['b2']['p'])) / 2
+        return np.concatenate([np.cross(nA, nB) * PESO_DIR, [mezzo_b - mezzo_a - off]])
+    raise AssemblyError(f'Accoppiamento «{t}» sconosciuto.')
+
+
+CHIAVI = ('a', 'b', 'a2', 'b2')
+
+
+def _rot_vec(w) -> np.ndarray:
+    ang = float(np.linalg.norm(w))
+    return np.eye(3) if ang < 1e-15 else _rot_axis(w / ang, ang)
+
+
 def _place(pose, parts, asm, iid, mie):
+    """Mette a posto l'istanza iid rispetto ai pezzi già a posto. Prima un punto di partenza a formula (direzioni
+    e distanze lungo le normali), poi i minimi quadrati sui 6 movimenti, spostando il meno possibile."""
+    from scipy.optimize import least_squares
     R0, T0 = pose[iid]
-    part = parts[asm.instance(iid)['file']]
-    # 1) rotazione: direzioni da far coincidere
+    dati = []                                   # (m, facce ferme nel mondo, facce mie nel pezzo)
+    for m, _fermo, _mio in mie:
+        if m['type'] == 'blocca':
+            dati.append((m, None, None))
+            continue
+        ferme, mie_f = {}, {}
+        for k in CHIAVI:
+            if not m.get(k):
+                continue
+            if m[k]['inst'] == iid:
+                mie_f[k] = _info(m[k], parts, asm)
+            else:
+                R, T = pose[m[k]['inst']]
+                ferme[k] = _nel_mondo(_info(m[k], parts, asm), R, T)
+        dati.append((m, ferme, mie_f))
+
+    def tutti(R, T):
+        out = []
+        for m, ferme, mie_f in dati:
+            if ferme is None:
+                pa = (R, T) if m['a']['inst'] == iid else pose[m['a']['inst']]
+                pb = (R, T) if m['b']['inst'] == iid else pose[m['b']['inst']]
+                out.append(residui(m, {}, (pa, pb)))
+            else:
+                out.append(residui(m, {**ferme, **{k: _nel_mondo(v, R, T) for k, v in mie_f.items()}}))
+        return np.concatenate(out) if out else np.zeros(0)
+
+    R, T = _partenza(R0, T0, dati, pose, iid)
+    if np.linalg.norm(tutti(R, T)) > 1e-9:
+        scala = np.array([0.01] * 3 + [10.0] * 3)
+
+        def f(x, reg):
+            r = tutti(_rot_vec(x[:3]) @ R, T + x[3:])
+            return np.concatenate([r, reg * np.concatenate([x[:3] * PESO_DIR, x[3:]])]) if reg else r
+        x = least_squares(f, np.zeros(6), args=(1e-3,), method='trf', x_scale=scala).x
+        if np.linalg.norm(f(x, 0)) > 1e-9:
+            x = least_squares(f, x, args=(0,), method='trf', x_scale=scala, xtol=1e-15, ftol=1e-15, gtol=1e-15).x
+        R, T = _rot_vec(x[:3]) @ R, T + x[3:]
+        U, _, Vt = np.linalg.svd(R)                  # una rotazione pulita
+        R = U @ Vt
+    return R, T
+
+
+def _partenza(R0, T0, dati, pose, iid):
+    """Il punto di partenza a formula: la rotazione dalle direzioni da far coincidere (faccia su faccia, foro su foro,
+    parallelo, in mezzo) e la traslazione minima per faccia su faccia, distanza e foro su foro."""
     src, dst, assi = [], [], []
-    for m, fermo, mio in mie:
-        _, pA, nA = _world(fermo, pose, parts, asm)
-        info = resolve_ref(part, mio)
-        nB = np.array(info['n'])
-        if m['type'] == 'faccia':
-            t = nA if m.get('flip') else -nA
+    for m, ferme, mie_f in dati:
+        if ferme is None:                            # Blocca: la posa è già scritta
+            Rr, Tr = np.array(m['rel_R'], dtype=float), np.array(m['rel_T'], dtype=float)
+            if m['b']['inst'] == iid:
+                RA, TA = pose[m['a']['inst']]
+                return RA @ Rr, RA @ Tr + TA
+            RB, TB = pose[m['b']['inst']]            # RB = RA Rr, TB = RA Tr + TA
+            RA = RB @ Rr.T
+            return RA, TB - RA @ Tr
+        kf, km = ('a', 'b') if 'a' in ferme else ('b', 'a')
+        nA, nB = ferme[kf]['n'], mie_f[km]['n']
+        t = m['type']
+        if t in ('faccia', 'distanza'):
+            dst.append(nA if m.get('flip') else -nA)
             src.append(nB)
-            dst.append(t)
-        else:
-            nBw = R0 @ nB
-            t = nA if np.dot(nBw, nA) >= 0 else -nA
-            if m.get('flip'):
-                t = -t
+        elif t in ('asse', 'parallelo', 'centra'):
+            v = nA if np.dot(R0 @ nB, nA) >= 0 else -nA
+            if m.get('flip') and t != 'centra':
+                v = -v
+            dst.append(v)
             src.append(nB)
-            dst.append(t)
-            assi.append((pA, nA, np.array(info['p'])))
-    M = np.array(dst)
-    rango = np.linalg.matrix_rank(M, tol=1e-6) if len(dst) else 0
+            if t == 'asse':
+                assi.append((ferme[kf]['p'], mie_f[km]['p']))
+    rango = np.linalg.matrix_rank(np.array(dst), tol=1e-6) if dst else 0
     if rango == 0:
         R = R0
     elif rango == 1:
         R = _rot_min(R0 @ src[0], dst[0]) @ R0
-        # attorno a quell'asse resta libera: due fori paralleli la fissano
-        if len(assi) >= 2:
+        if len(assi) >= 2:                           # attorno a quell'asse resta libera: due fori paralleli la fissano
             d = dst[0] / np.linalg.norm(dst[0])
-            (pA1, _, pB1), (pA2, _, pB2) = assi[0], assi[1]
-            va, vb = pA2 - pA1, R @ (pB2 - pB1)
-            va -= d * np.dot(va, d)
-            vb -= d * np.dot(vb, d)
+            (pA1, pB1), (pA2, pB2) = assi[0], assi[1]
+            va, vb = _perp(pA2 - pA1, d), _perp(R @ (pB2 - pB1), d)
             if np.linalg.norm(va) > 1e-6 and np.linalg.norm(vb) > 1e-6:
-                ang = math.atan2(np.dot(np.cross(vb, va), d), np.dot(vb, va))
-                R = _rot_axis(d, ang) @ R
+                R = _rot_axis(d, math.atan2(np.dot(np.cross(vb, va), d), np.dot(vb, va))) @ R
     else:
-        R = _kabsch([s / np.linalg.norm(s) for s in src], [t / np.linalg.norm(t) for t in dst])
-    # 2) traslazione: il minimo spostamento da dov'era che rispetta tutto
+        R = _kabsch(src, dst)
     righe, valori = [], []
-    for m, fermo, mio in mie:
-        _, pA, nA = _world(fermo, pose, parts, asm)
-        info = resolve_ref(part, mio)
-        pB = R @ np.array(info['p'])
-        if m['type'] == 'faccia':
-            n = nA / np.linalg.norm(nA)
-            righe.append(n)
-            valori.append(float(np.dot(n, pA) + float(m.get('offset') or 0) - np.dot(n, pB)))
-        else:
-            d = nA / np.linalg.norm(nA)
-            u = np.cross(d, [1, 0, 0]) if abs(d[0]) < 0.9 else np.cross(d, [0, 1, 0])
+    for m, ferme, mie_f in dati:
+        kf, km = ('a', 'b') if 'a' in ferme else ('b', 'a')
+        pA, nA = ferme[kf]['p'], ferme[kf]['n']
+        pB = R @ mie_f[km]['p']
+        if m['type'] in ('faccia', 'distanza'):
+            off = float(m.get('offset') or 0) * (-1 if kf == 'b' and m.get('flip') else 1)
+            righe.append(nA)
+            valori.append(float(np.dot(nA, pA) + off - np.dot(nA, pB)))
+        elif m['type'] == 'asse':
+            u = np.cross(nA, [1, 0, 0]) if abs(nA[0]) < 0.9 else np.cross(nA, [0, 1, 0])
             u /= np.linalg.norm(u)
-            v = np.cross(d, u)
-            for e in (u, v):
+            for e in (u, np.cross(nA, u)):
                 righe.append(e)
                 valori.append(float(np.dot(e, pA) - np.dot(e, pB)))
-    A = np.array(righe)
-    b = np.array(valori)
-    T = T0 + np.linalg.pinv(A) @ (b - A @ T0)
-    return R, T
+    if not righe:
+        return R, T0
+    M = np.array(righe)
+    return R, T0 + np.linalg.pinv(M) @ (np.array(valori) - M @ T0)
 
 
 def mate_error(m, pose, parts, asm) -> float | None:
     try:
-        _, pA, nA = _world(m['a'], pose, parts, asm)
-        _, pB, nB = _world(m['b'], pose, parts, asm)
+        if m['type'] == 'blocca':
+            return float(np.linalg.norm(residui(m, {}, (pose[m['a']['inst']], pose[m['b']['inst']]), peso=1)))
+        F = {}
+        for k in CHIAVI:
+            if m.get(k):
+                R, T = pose[m[k]['inst']]
+                F[k] = _nel_mondo(_info(m[k], parts, asm), R, T)
+        r = residui(m, F, peso=1)
     except (AssemblyError, KeyError):
         return None
-    nA, nB = nA / np.linalg.norm(nA), nB / np.linalg.norm(nB)
-    if m['type'] == 'faccia':
-        ang = abs(np.dot(nA, nB) - (1 if m.get('flip') else -1))
-        return float(ang + abs(np.dot(nA, pB - pA) - float(m.get('offset') or 0)))
-    v = pB - pA
-    return float(1 - abs(np.dot(nA, nB)) + np.linalg.norm(v - nA * np.dot(v, nA)))
+    return float(np.linalg.norm(r))
 
 
 # ------------------------------------------------------------------------------------------- distinta, interferenze
