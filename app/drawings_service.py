@@ -125,20 +125,25 @@ class DrawingsMixin:
                  for i in self.asm.instances if i['file'] in self.asm_parts]
         if not forme:
             raise SteelCADError('L’assieme è vuoto.')
-        distinta = [[str(k + 1), r['name'], str(r['qty']), r['material'], f'{D.fmt(r["thickness"])} mm' if r['thickness'] else '',
+        distinta = [[str(k + 1), (f'{r["acquisto"].get("descrizione") or r["name"]} (acquisto'
+                                   + (f', {r["acquisto"]["codice"]}' if r['acquisto'].get('codice') else '') + ')')
+                     if r.get('acquisto') else r['name'], str(r['qty']), '—' if r.get('acquisto') else r['material'],
+                     f'{D.fmt(r["thickness"])} mm' if r['thickness'] and not r.get('acquisto') else '',
                      D.fmt(round(r['mass_tot'], 3))] for k, r in enumerate(righe)]
         def fogli_di(part):         # lamiera: pezzo + sviluppo; struttura: viste + distinta di taglio
             res = part.result
             return 2 if getattr(res.body, 'sheet', None) or (res.body is None and res.structures) else 1
-        tot_pezzi = sum(fogli_di(self.asm_parts[r['file']]) for r in righe) if tutte else 0
+        tot_pezzi = sum(fogli_di(self.asm_parts[r['file']]) for r in righe if not r.get('acquisto')) if tutte else 0
         tot = 1 + tot_pezzi
         massa = sum(r['mass_tot'] for r in righe)
-        ca = {**campi, 'titolo': self.asm.name, 'materiale': ', '.join(sorted({r['material'] for r in righe})),
+        ca = {**campi, 'titolo': self.asm.name, 'materiale': ', '.join(sorted({r['material'] for r in righe if not r.get('acquisto')})),
               'spessore_massa': f'{D.fmt(round(massa, 3))} kg', 'data': D.oggi(), 'foglio': f'1/{tot}'}
         fogli = [D.tavola_assieme(forme, ca, distinta, formato)]
         if tutte:
             n = 2
             for k, r in enumerate(righe):
+                if r.get('acquisto'):
+                    continue                           # si compra: niente disegno
                 p = self.asm_parts[r['file']]
                 cp = {**campi, 'numero': f'{campi.get("numero") or self.asm.name}-{k + 1}'}
                 nuovi = self._fogli_pezzo(p.doc, p.result, cp, formato, n, tot)

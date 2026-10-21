@@ -1349,6 +1349,10 @@ function instancePanel(s) {
     <div class="sub">Ruota di 90°</div>
     <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
+    <label class="check"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}> Da acquistare (guide, viti, utensili…): in distinta, niente DXF</label>
+    ${s.acquisto ? `<div class="ff"><label style="grid-column:1/-1">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
+      <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
+      <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}
     <div class="row-btns"><button class="btn primary" id="a-open">Apri il pezzo</button></div>
     ${s.face && s.face.kind === 'piana' ? `<div class="row-btns"><button class="btn primary" id="a-nuovo">Nuovo pezzo su questa faccia</button></div>
       <p class="hint">Disegni sul piano di questa faccia, con i bordi dei pezzi che ci stanno: per una lamiera che li collega.</p>` : ''}
@@ -1359,6 +1363,9 @@ function wireInstance(s) {
   $('#a-move').onclick = () => fai('asm_move', s.id, $('#a-dx').value.trim(), $('#a-dy').value.trim(), $('#a-dz').value.trim());
   document.querySelectorAll('[data-rot]').forEach(b => { b.onclick = () => fai('asm_rotate', s.id, b.dataset.rot, 90); });
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
+  const acq = () => ({ descrizione: $('#a-acq-d')?.value || '', codice: $('#a-acq-c')?.value || '', fornitore: $('#a-acq-f')?.value || '' });
+  $('#a-acq').onchange = () => fai('asm_set_acquisto', s.id, $('#a-acq').checked ? acq() : null);
+  ['#a-acq-d', '#a-acq-c', '#a-acq-f'].forEach(id => { if ($(id)) $(id).onchange = () => fai('asm_set_acquisto', s.id, acq()); });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
   $('#a-open').onclick = () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', s.id))); };
   if ($('#a-nuovo')) $('#a-nuovo').onclick = () => modal(`<h3>Nuovo pezzo su questa faccia</h3>
@@ -2178,6 +2185,7 @@ const CMDS = [
   { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => { if (await apply(await call('save', true), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
+  { id: 'export_bom', label: 'Distinta materiali in Excel (con gli acquisti)…', run: () => inCoda(async () => apply(await call('export', 'bom'))) },
   { id: 'export_dxf', label: 'Esporta DXF di taglio…', run: () => inCoda(async () => apply(await call('export', 'dxf'))) },
   { id: 'undo', label: 'Annulla', keys: 'Ctrl+Z', run: () => S?.undo[0] && inCoda(async () => apply(await call('undo'))) },
   { id: 'redo', label: 'Ripeti', keys: 'Ctrl+Y', run: () => S?.redo[0] && inCoda(async () => apply(await call('redo'))) },
@@ -3661,7 +3669,8 @@ canvas.addEventListener('dblclick', ev => {
 let schedaPrima = 'lamiera';
 // Esporta: un pulsante solo con il menu; si vedono le voci che hanno senso per il pezzo aperto
 const VOCI_ESPORTA = [['drawings', 'Tavole PDF con cartiglio…'], ['export_dxf', 'DXF di taglio…'],
-  ['export_bendtable', 'Tabella pieghe (per la piegatrice)…'], ['export_step', 'STEP (modello 3D)…']];
+  ['export_bendtable', 'Tabella pieghe (per la piegatrice)…'], ['export_step', 'STEP (modello 3D)…'],
+  ['export_bom', 'Distinta materiali (Excel)…']];
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
   g.innerHTML = `<div class="rbtns"><div class="menu-item rmenu"><button class="rb rb-export" title="Esporta: tavole, DXF di taglio, tabella pieghe, STEP">
     <img src="icons/export.svg" alt=""><span>Esporta ▾</span></button><div class="drop">${VOCI_ESPORTA.map(([c, l]) =>
@@ -3675,6 +3684,7 @@ function motivoNo(cmd) {
     case 'export_dxf': return asm ? 'negli assiemi si esporta pezzo per pezzo' : lam || piastra ? null : 'serve una lamiera o una piastra';
     case 'export_bendtable': return lam && ((S.sheet.data.bends || []).length || (S.sheet.data.bend_rows || []).length) ? null : 'nessuna piega';
     case 'export_step': case 'drawings': return objs.size || asm ? null : 'il progetto è vuoto';
+    case 'export_bom': return asm ? null : 'la distinta materiali si fa da un assieme';
     case 'flange_help': case 'contour_help': case 'unfold': case 'flat_sketch': return lam ? null : 'prima serve una lamiera (Nuovo → Lamiera piegata)';
     case 'member_help': return nodes.length ? null : 'prima serve una struttura (Nuovo → Telaio, Scaffale…)';
     default: return null;

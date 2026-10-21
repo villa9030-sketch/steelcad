@@ -3,7 +3,7 @@
     python tools/vetrina_cassettiera.py [cartella]     (di default Documenti/SteelCAD/Cassettiera porta punte)
 
 La cassa (fondo + quattro bordi, sp. 1,5) con le asole per fissarla al muro; quattro cassetti a vaschetta su guide
-a sfere (guida fissa a C sulla cassa, guida mobile a C sul cassetto, una dentro l'altra), frontalino con la gola per
+a sfere commerciali (12,7 × 35, L 200: da acquistare, in distinta col codice), frontalino con la gola per
 le dita; in ogni cassetto una rastrelliera a incastro (due traversini e i separatori, cave a metà altezza, niente viti) che fa
 uno scomparto per misura, con le punte coricate dentro (Ø1–Ø13 a passo 0,5, maschi M3–M12). Tutto montato con gli accoppiamenti (faccia su faccia, distanza, in mezzo, foro su foro); i cassetti
 aperti a scalare. Poi interferenze, distinta, DXF, pieghe, tavole e STEP.
@@ -27,14 +27,17 @@ D = Path(os.path.expanduser('~')) / 'Documents' / 'SteelCAD' / 'Cassettiera port
 MAT = 'S235'
 R_P, K_P = 1, 0.21                        # piegatrice di Stefano
 # cassa
-W, H, P, SPC = 420, 240, 200, 1.5
+W, H, P, SPC = 420, 240, 220, 1.5
 PASSO = 58                                # un cassetto ogni 58 mm
 # guide a sfere: fissa C 35 × 6, mobile C 28 × 4 (dentro la fissa), lunghe 180, sp. 1,5
-GF_H, GF_P, GM_H, GM_P, G_L, SPG = 35, 5.8, 28, 4, 180, 1.5
-INGOMBRO_GUIDE = 7.5                      # dal fianco della cassa al fianco del cassetto (0,2 di gioco tra le guide)
+# guide a sfere da acquistare: telescopiche, estrazione totale, sp. 12,7, alte 35, lunghe 200 (disegnate come ingombro)
+G_H, G_SP, G_L = 35, 12.7, 200
+GUIDA = {'descrizione': 'Guida telescopica a sfere, estrazione totale, L 200 mm, H 35 mm, sp. 12,7 mm (2 per cassetto)',
+         'codice': '', 'fornitore': ''}
+INGOMBRO_GUIDE = G_SP + 0.3               # dal fianco della cassa al fianco del cassetto
 # cassetto
 CW = W - 2 * SPC - 2 * INGOMBRO_GUIDE     # 402
-CP, CH, SPK = 182, 42, 1.0
+CP, CH, SPK = 202, 42, 1.0
 FW, FH = W - 2 * SPC - 1, 54              # frontalino
 # rastrelliera a incastro nel cassetto: due traversini (davanti, dietro) e i separatori tra gli scomparti
 LI, PI = CW - 2 * SPK, CP - 2 * SPK       # dentro il cassetto: 400 × 180
@@ -122,14 +125,13 @@ def cassa():
     return salva(s, 'Cassa')
 
 
-def guida(nome, alto, fondo):
-    """Guida a C lunga G_L: base alto × G_L, due ali di «fondo» mm."""
-    s = nuovo(nome, G_L, alto, SPG)
+def guida():
+    """La guida a sfere (si compra): il suo ingombro, un C 200 × 35 × 12,7 con i fori delle viti."""
+    s = nuovo('Guida a sfere L200', G_L, G_H, 1.2)
     for e in ('L1', 'L3'):
-        piega(s, e, fondo, lambda a, b: b[2] > fondo - 0.1)
-    # i fori per le viti, come le guide vere
-    fori_nel_mondo(s, 'SM1/sopra', cerchi=[((x, alto / 2, 0), 4.5) for x in (20, G_L / 2, G_L - 20)])
-    return salva(s, nome)
+        piega(s, e, G_SP, lambda a, b: b[2] > G_SP - 0.1)
+    fori_nel_mondo(s, 'SM1/sopra', cerchi=[((x, G_H / 2, 0), 4.5) for x in (20, G_L / 2, G_L - 20)])
+    return salva(s, 'Guida a sfere L200')
 
 
 def vaschetta():
@@ -271,17 +273,12 @@ def assieme(f):
         mate('faccia', F.piana(c, -Y), F.piana(fr, Y, piu=False, filtro=lambda p, a: a > 5000))
         mate('centra', F.piana(c, -X), F.piana(fr, -X), 0, False, F.piana(c, X), F.piana(fr, X))
         mate('distanza', F.piana(c, -Z), F.piana(fr, -Z), 3, True)
-        # guide: la fissa sul fianco della cassa, la mobile sul cassetto, una dentro l'altra
+        # guide a sfere (commerciali) avvitate sui fianchi della cassa, il cassetto in mezzo
         for lato, fianco_cassa, verso in (('sx', sx, X), ('dx', dx, -X)):
-            gf = metti(f['guida fissa'], [('x', 90), ('z', 90)] + ([('z', 180)] if lato == 'dx' else []))
+            gf = metti(f['guida'], [('x', 90), ('z', 90)] + ([('z', 180)] if lato == 'dx' else []))
             mate('faccia', fianco_cassa, F.piana(gf, -verso, piu=True, filtro=lambda p, a: a > 3000))
-            mate('distanza', fondo, F.piana(gf, -Z), z + 5)
+            mate('distanza', fondo, F.piana(gf, -Z), z + 4)
             mate('distanza', davanti, F.piana(gf, -Y), -5, True)
-            gm = metti(f['guida mobile'], [('x', 90), ('z', 90)] + ([('z', 180)] if lato == 'sx' else []))
-            fianco_c = F.piana(c, -verso)
-            mate('faccia', fianco_c, F.piana(gm, verso, piu=True, filtro=lambda p, a: a > 3000))
-            mate('centra', F.piana(gf, Z), F.piana(gm, Z), 0, False, F.piana(gf, -Z), F.piana(gm, -Z))
-            mate('distanza', F.piana(c, -Y), F.piana(gm, -Y), -5, True)
         # rastrelliera: i due traversini sul fondo, a 7 mm dal davanti e dal dietro, in mezzo ai fianchi
         roba = CASSETTI[k]
         n = len(roba)
@@ -326,8 +323,7 @@ if __name__ == '__main__':
     D.mkdir(parents=True, exist_ok=True)
     f = {'cassa': cassa()}
     log('cassa fatta')
-    f['guida fissa'] = guida('Guida fissa', GF_H, GF_P)
-    f['guida mobile'] = guida('Guida mobile', GM_H, GM_P)
+    f['guida'] = guida()
     f['cassetto'] = vaschetta()
     f['frontalino'] = frontalino()
     log('guide, cassetto, frontalino')
@@ -339,14 +335,33 @@ if __name__ == '__main__':
             f[f'utensile {nome}'] = utensile(('Maschio ' if nome.startswith('M') else 'Punta ') + nome, d, L)
     log('rastrelliere e utensili')
     s = assieme(f)
+    # i pezzi da comprare: guide, punte, maschi (in distinta col codice, niente DXF)
+    fatti = set()
+    for i in list(s.asm.instances):
+        nome = Path(i['file']).stem
+        if i['file'] in fatti or not (nome.startswith(('Guida', 'Punta', 'Maschio'))):
+            continue
+        fatti.add(i['file'])
+        if nome.startswith('Guida'):
+            campi = GUIDA
+        elif nome.startswith('Punta'):
+            campi = {'descrizione': f'Punta elicoidale HSS DIN 338 {nome[6:]}', 'codice': '', 'fornitore': ''}
+        else:
+            m = nome[8:]
+            campi = {'descrizione': f'Maschio a macchina HSS {m} {"DIN 376" if m == "M12" else "DIN 371"}', 'codice': '', 'fornitore': ''}
+        ok(s.asm_set_acquisto(i['id'], campi), f'acquisto {nome}')
+    ok(s.save(str(D / 'Cassettiera porta punte.steelcad-asm')), 'salva assieme')
     log(f'avvisi: {s.asm.warnings}')
     inter = s.asm_interferences().get('interferences') or []
     log(f'interferenze: {[x.get("label") for x in inter]}')
     # per l'officina: i pezzi in lamiera (le punte e i maschi si comprano)
     officina = D / 'Per officina'
-    for k, nome in enumerate(['Cassa', 'Cassetto', 'Frontalino', 'Guida fissa', 'Guida mobile'] + ['Separatore'] + [f'Traversino {n} scomparti' for n in sorted({len(v) for v in CASSETTI.values()})]):
+    for k, nome in enumerate(['Cassa', 'Cassetto', 'Frontalino'] + ['Separatore'] + [f'Traversino {n} scomparti' for n in sorted({len(v) for v in CASSETTI.values()})]):
         x = Service()
         ok(x.open(str(D / f'{nome}.steelcad')), f'apri {nome}')
         ok(x.prepara(str(officina), ['laser', 'piegatrice', 'officina', 'step'], {'numero': f'CP-{k + 1:03d}'}), f'prepara {nome}')
     ok(s.export_step(str(officina / 'Cassettiera porta punte.step')), 'STEP assieme')
+    log(ok(s.asm_export_bom(str(officina / 'Cassettiera porta punte_distinta.xlsx')), 'distinta')['message'])
+    c = s.drawing_fields().get('fields', {})
+    ok(s.export_drawings(str(officina / 'Cassettiera porta punte_disegni.pdf'), {**c, 'numero': 'CP-000'}, False), 'tavola assieme')
     log(f"file per l'officina in {officina}")

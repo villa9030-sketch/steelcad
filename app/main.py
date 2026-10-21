@@ -384,6 +384,9 @@ class Api:
     def asm_open_part(self, iid):
         return self._call(self._svc.asm_open_part, iid)
 
+    def asm_set_acquisto(self, iid, campi):
+        return self._call(self._svc.asm_set_acquisto, iid, campi)
+
     def asm_new_part(self, iid, face_index, nome=''):
         return self._call(self._svc.asm_new_part, iid, face_index, nome)
 
@@ -436,14 +439,17 @@ class Api:
 
     def export(self, kind):
         ext = {'step': ('STEP (*.step;*.stp)', '.step'), 'dxf': ('DXF di taglio (*.dxf)', '.dxf'),
-               'bendtable': ('Tabella pieghe (*.csv)', '_pieghe.csv')}[kind]
-        if self._svc.asm is not None and kind != 'step':
+               'bendtable': ('Tabella pieghe (*.csv)', '_pieghe.csv'), 'bom': ('Excel (*.xlsx)', '_distinta.xlsx')}[kind]
+        if kind == 'bom' and self._svc.asm is None:
+            return {'ok': False, 'message': 'La distinta materiali si fa da un assieme.'}
+        if self._svc.asm is not None and kind not in ('step', 'bom'):
             return {'ok': False, 'message': 'Il DXF e la tabella pieghe si fanno per ogni pezzo: apri il pezzo dall’assieme.'}
         nome = ((self._svc.asm.name if self._svc.asm is not None else self._svc.doc.meta.get('name')) or 'pezzo') + ext[1]
         p = self._dialog(webview.SAVE_DIALOG, (ext[0],), nome)
         if not p:
             return {'ok': False, 'cancelled': True}
-        fn = {'step': self._svc.export_step, 'dxf': self._svc.export_dxf, 'bendtable': self._svc.export_bend_table}[kind]
+        fn = {'step': self._svc.export_step, 'dxf': self._svc.export_dxf, 'bendtable': self._svc.export_bend_table,
+              'bom': self._svc.asm_export_bom}[kind]
         return self._call(fn, p)
 
 

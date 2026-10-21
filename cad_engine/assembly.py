@@ -554,7 +554,8 @@ def bom(asm: Assembly, parts: dict) -> list:
             r = righe[i['file']] = {'file': i['file'], 'name': part.doc.meta.get('name') or part.path.stem, 'qty': 0,
                                     'material': part.doc.material, 'mass_kg': pr['mass_kg'],
                                     'thickness': sheet.thickness if sheet else None,
-                                    'flat': list(sheet.flat_size) if sheet else None}
+                                    'flat': list(sheet.flat_size) if sheet else None,
+                                    'acquisto': part.doc.meta.get('acquisto') or None}
         r['qty'] += 1
     out = list(righe.values())
     for r in out:
