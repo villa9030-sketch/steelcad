@@ -3,7 +3,7 @@
     python tools/vetrina_cassettiera.py [cartella]     (di default Documenti/SteelCAD/Cassettiera porta punte)
 
 La cassa (fondo + quattro bordi, sp. 1,5) con le asole per fissarla al muro; quattro cassetti a vaschetta su guide
-a sfere commerciali (12,7 × 35, L 200: da acquistare, in distinta col codice), frontalino con la gola per
+a sfere commerciali (Prmape 200, H 40, sp. 20: da acquistare, in distinta col codice), frontalino con la gola per
 le dita; in ogni cassetto una rastrelliera a incastro (due traversini e i separatori, cave a metà altezza, niente viti) che fa
 uno scomparto per misura, con le punte coricate dentro (Ø1–Ø13 a passo 0,5, maschi M3–M12). Tutto montato con gli accoppiamenti (faccia su faccia, distanza, in mezzo, foro su foro); i cassetti
 aperti a scalare. Poi interferenze, distinta, DXF, pieghe, tavole e STEP.
@@ -27,18 +27,19 @@ D = Path(os.path.expanduser('~')) / 'Documents' / 'SteelCAD' / 'Cassettiera port
 MAT = 'S235'
 R_P, K_P = 1, 0.21                        # piegatrice di Stefano
 # cassa
-W, H, P, SPC = 420, 240, 220, 1.5
-PASSO = 58                                # un cassetto ogni 58 mm
+W, H, P, SPC = 420, 260, 220, 1.5
+PASSO = 64                                # un cassetto ogni 64 mm
 # guide a sfere: fissa C 35 × 6, mobile C 28 × 4 (dentro la fissa), lunghe 180, sp. 1,5
 # guide a sfere da acquistare: telescopiche, estrazione totale, sp. 12,7, alte 35, lunghe 200 (disegnate come ingombro)
-G_H, G_SP, G_L = 35, 12.7, 200
-GUIDA = {'descrizione': 'Guida telescopica a sfere, estrazione totale, L 200 mm, H 35 mm, sp. 12,7 mm (2 per cassetto)',
-         'codice': '', 'fornitore': ''}
+G_H, G_SP, G_L = 40, 20, 200             # Prmape 200 mm, misurata da Stefano: alta 40, spessa 20
+GUIDA = {'descrizione': 'Guida per cassetti a sfere, estrazione totale 3 sezioni, L 200 H 40 sp. 20, portata 45 kg '
+                        '(conf. 4 pz = 2 coppie: servono 2 confezioni)',
+         'codice': 'Amazon B0GVCYMQ4K', 'fornitore': 'Prmape'}
 INGOMBRO_GUIDE = G_SP + 0.3               # dal fianco della cassa al fianco del cassetto
 # cassetto
 CW = W - 2 * SPC - 2 * INGOMBRO_GUIDE     # 402
-CP, CH, SPK = 202, 42, 1.0
-FW, FH = W - 2 * SPC - 1, 54              # frontalino
+CP, CH, SPK = 202, 46, 1.0
+FW, FH = W - 2 * SPC - 1, 60              # frontalino
 # rastrelliera a incastro nel cassetto: due traversini (davanti, dietro) e i separatori tra gli scomparti
 LI, PI = CW - 2 * SPK, CP - 2 * SPK       # dentro il cassetto: 400 × 180
 SPR, HR = 1.0, 25                         # lamierini sp. 1, alti 25
@@ -261,7 +262,7 @@ def assieme(f):
     davanti = F.piana(cassa, -Y)                             # il bordo davanti (le punte delle pieghe)
     log('cassa')
     for k in range(4):
-        z = 3 + k * PASSO
+        z = 4 + k * PASSO
         fuori = APERTO[k]
         # cassetto: altezza, in mezzo ai fianchi, quanto è tirato fuori
         c = metti(f['cassetto'])
@@ -277,7 +278,7 @@ def assieme(f):
         for lato, fianco_cassa, verso in (('sx', sx, X), ('dx', dx, -X)):
             gf = metti(f['guida'], [('x', 90), ('z', 90)] + ([('z', 180)] if lato == 'dx' else []))
             mate('faccia', fianco_cassa, F.piana(gf, -verso, piu=True, filtro=lambda p, a: a > 3000))
-            mate('distanza', fondo, F.piana(gf, -Z), z + 4)
+            mate('distanza', fondo, F.piana(gf, -Z), z + 3)
             mate('distanza', davanti, F.piana(gf, -Y), -5, True)
         # rastrelliera: i due traversini sul fondo, a 7 mm dal davanti e dal dietro, in mezzo ai fianchi
         roba = CASSETTI[k]
