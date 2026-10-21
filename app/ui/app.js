@@ -2,6 +2,9 @@
 // qui si disegna, si seleziona e si mandano le modifiche. Niente calcoli di CAD in JS.
 import * as THREE from 'three';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import { Line2 } from './vendor/lines/Line2.js';
+import { LineGeometry } from './vendor/lines/LineGeometry.js';
+import { LineMaterial } from './vendor/lines/LineMaterial.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -20,7 +23,7 @@ const ATTESA = {
   create_from_sketch: 'Costruisco il pezzo…', add_flange: 'Piego…', edit_flange: 'Piego…', add_edge_dress: 'Raccordo gli spigoli…',
   import_step: 'Spiego lo STEP…', import_step_dialog: 'Spiego lo STEP…', import_dxf: 'Leggo il DXF…', import_dxf_dialog: 'Leggo il DXF…',
   export: 'Esporto…', export_drawings_dialog: 'Preparo le tavole…', drawing_preview: 'Preparo le tavole…', prepara: 'Preparo i file…',
-  undo: 'Annullo…', redo: 'Rifaccio…', unfold: 'Spiego la lamiera…',
+  undo: 'Annullo…', redo: 'Rifaccio…', unfold: 'Spiego la lamiera…', fold_frames: 'Preparo l’animazione…',
 };
 let attesaN = 0, attesaTimer = null, attesaT0 = 0, attesaTick = null;
 function attesaInizio(name) {
@@ -353,12 +356,35 @@ function dressFine() {
     $('#dr-v').select();
   });
 }
+// piega sul bordo laterale di una parete: altezza, angolo, verso dentro/fuori. Nuova (dal bordo cliccato) o già fatta
+let ultimaBordo = { length: '20', angle: '90', direction: 'up' };
+function pannelloPiegaBordo(e, fatta = null) {
+  const [flange, end] = (fatta ? [fatta.flange, fatta.end] : e.ref.split('/'));
+  const feature = fatta ? fatta.feature : e.feature;
+  const d = fatta ? fatta.def : ultimaBordo;
+  $('#props').innerHTML = `<h3>${fatta ? 'Piega sul bordo' : 'Piega su questo bordo'}</h3>
+    <p class="hint" style="margin:6px 0">Verso dentro a 90°: la parete che pieghi dopo su quel lato sale e resta dentro (gioco 0,2 mm).</p>
+    ${flangeFields(d, VERSI_PUNTA, POS_UI)}
+    <div class="row-btns"><button class="btn primary" id="f-add">${fatta ? 'Cambia' : 'Aggiungi piega'}</button></div>
+    ${fatta ? '<div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button></div>' : ''}`;
+  $('#f-pos').closest('.seg-row').style.display = 'none';      // «Misura» qui non serve
+  const vai = () => {
+    const f = readFlange();
+    if (!fatta) ultimaBordo = f;
+    inCoda(async () => { const r = await call('set_ear', feature, flange, end, true, f); if (await apply(r) && r.select) await select(r.select); });
+  };
+  $('#f-add').onclick = vai;
+  ['#f-len', '#f-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  if (fatta) $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('set_ear', feature, flange, end, false))); };
+  else { $('#f-len').focus(); $('#f-len').select(); }
+}
 function selectEdge(e) {
   selTok++; selGen++;
   sel = { id: 'edge=' + e.id };
   hover = null;
   aggiornaLayout();
   paint(); renderTree(); paintNodes();
+  if (e.kind === 'side') { pannelloPiegaBordo(e); return; }
   const punta = e.kind === 'tip';
   const d = punta ? ultimaPunta : ultimaFlangia;
   $('#props').innerHTML = `<h3>Flangia su questo bordo</h3><table class="grid"><tr><td>Bordo</td><td>${esc(e.label)}</td></tr></table>
@@ -405,7 +431,7 @@ let premuto = null;
 canvas.addEventListener('pointerdown', ev => {
   premuto = { x: ev.clientX, y: ev.clientY };
   if (document.activeElement?.id === 'sk-cmd-in') document.activeElement.blur();
-  if (SK && SK.tool === 'select' && ev.button === 0 && !SK.pick) SK.box = { x: ev.clientX, y: ev.clientY };
+  if (SK && ev.button === 0 && ((SK.tool === 'select' && !SK.pick) || SK.pick?.stage === 'sel')) SK.box = { x: ev.clientX, y: ev.clientY };
 });
 window.addEventListener('pointermove', ev => {
   if (!SK?.box || !(ev.buttons & 1)) return;
@@ -447,7 +473,7 @@ window.addEventListener('pointerup', ev => {
       return scr(skToWorld([ctr[0] + r * Math.cos(t), ctr[1] + r * Math.sin(t)]));
     });
   };
-  if (!ev.shiftKey) SK.sel.clear();
+  if (!ev.shiftKey && SK.pick?.stage !== 'sel') SK.sel.clear();   // scegliendo per Copia/Sposta la finestra aggiunge
   for (const l of SK.v.lines) prendi(l.id, [scr(l.pa), scr(l.pb)]);
   for (const c of SK.v.circles) prendi(c.id, giro(c.center, c.r, 0, 2 * Math.PI, 32));
   // archi: i mezzi tondi delle asole e i raccordi (prima la finestra non li prendeva mai)
@@ -501,7 +527,7 @@ function goTo(dir, keepDir = false) {
   if (!objs.size) return;
   fitBox(new THREE.Box3().setFromObject(model), dir, keepDir);
 }
-function fitBox(box, dir, keepDir = false) {
+function fitBox(box, dir, keepDir = false, subito = false) {
   const c = box.getCenter(new THREE.Vector3());
   const rad = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
   const fov = THREE.MathUtils.degToRad(camera.fov);
@@ -520,7 +546,7 @@ function fitBox(box, dir, keepDir = false) {
   }
   const d = keepDir ? camera.position.clone().sub(controls.target).normalize() : dir.clone().normalize();
   const to = { pos: c.clone().add(d.multiplyScalar(dist)), target: c };
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || primaVolta) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || primaVolta || subito) {
     camera.position.copy(to.pos); controls.target.copy(to.target); controls.update(); ridisegna(); return;
   }
   anim = { t0: performance.now(), from: { pos: camera.position.clone(), target: controls.target.clone() }, to };
@@ -549,7 +575,9 @@ flatGroup.matrixAutoUpdate = false;
 scene.add(flatGroup, workGroup);
 let flatView = false;
 // un po' trasparenti: la griglia dello sketch si deve vedere attraverso
-const FLAT_FILL = new THREE.MeshBasicMaterial({ color: 0xB7C2CD, side: THREE.DoubleSide, transparent: true, opacity: 0.6, depthWrite: false });
+// pieno (21/10: trasparente, la griglia sotto ci si mischiava e faceva i quadretti); spinto un filo indietro, così le
+// linee del disegno che stanno sullo stesso piano restano sempre davanti
+const FLAT_FILL = new THREE.MeshBasicMaterial({ color: 0xB7C2CD, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 const WORK_FILL = new THREE.MeshBasicMaterial({ color: 0xB7C2CD, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false });
 const FLAT_EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
 const FLAT_BEND = new THREE.LineDashedMaterial({ color: 0xC0392B, dashSize: 6, gapSize: 4 });
@@ -619,6 +647,7 @@ function applyLook() {
   const piatto = SK ? !!SK.v.on_flat : flatView;
   flatGroup.visible = piatto && flatGroup.children.length > 0;
   if (threadGroup) threadGroup.visible = !piatto && !solo;
+  svasatureKo.visible = !piatto && !solo;
   workGroup.visible = !!(SK && SK.v.on_face);
   const fantasma = !SK ? 1 : solo ? (SK.ghost ? 0.15 : 0) : 0.18;
   model.visible = !piatto || (SK && SK.ghost) ? fantasma > 0 : false;
@@ -638,14 +667,46 @@ function applyLook() {
   $('#sk-ghost').classList.toggle('on', !!SK?.ghost);
   ridisegna();
 }
-function toggleFlat(on = !flatView) {
+// Spiega / Ripiega con l'animazione: il pezzo si apre sulle sue pieghe (passi calcolati dal motore), poi lo sviluppo
+async function animaPiega(apri) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const o = objs.get('body');
+  if (!o) return;
+  const r = await call('fold_frames', 5);
+  if (!r.ok || !r.frames?.length) return;
+  const g = new THREE.Group();
+  g.matrixAutoUpdate = false; g.matrix.copy(model.matrixWorld);
+  scene.add(g);
+  const passi = r.frames.map(f => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(f.positions, 3));
+    geo.setIndex(f.indices); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, o.mesh.material); m.visible = false; g.add(m); return m;
+  });
+  const vediModello = model.visible, vediSviluppo = flatGroup.visible;
+  model.visible = false; flatGroup.visible = false;
+  for (const m of apri ? passi : [...passi].reverse()) {
+    m.visible = true; ridisegna();
+    await new Promise(res => setTimeout(res, 110));
+    m.visible = false;
+  }
+  scene.remove(g); passi.forEach(m => m.geometry.dispose());
+  model.visible = vediModello; flatGroup.visible = vediSviluppo;
+}
+async function toggleFlat(on = !flatView, anima = false) {   // animazione spenta (21/10: troppo lenta, «era meglio prima»)
   if (SK) return;
   if (on && !S?.sheet?.data) { toast('Lo sviluppo c’è quando la lamiera è costruita: guarda la scheda Lamiera.', 'err'); return; }
+  if (on) { clearSelection(); if (anima) await animaPiega(true); }
+  else if (anima) {                                   // si ripiega guardandolo di sbieco, se no dall'alto non si vede salire
+    goTo(VISTE.view_iso);
+    await new Promise(res => setTimeout(res, 280));
+    flatView = false; applyLook();
+    await animaPiega(false);
+  }
   flatView = on;
-  if (on) { buildFlat(); clearSelection(); }
+  if (on) buildFlat();
   applyLook();
   if (on) fitBox(flatBox(), v3(S.sheet.data.plane.z).add(new THREE.Vector3(0, -0.0001, 0)));
-  else goTo(VISTE.view_iso);
 }
 function flatSketch() {
   if (SK) return;
@@ -877,6 +938,7 @@ async function caricaScena() {
   const prima = eraVuota ? 0 : raggio();
   buildScene(sc);
   buildThreads(sc.threads);
+  buildSvasatureKo(sc.svasature_ko);
   buildMarks(sc.marks);
   nodes = sc.nodes || [];
   bendEdges = sc.bend_edges || [];
@@ -1030,6 +1092,7 @@ async function select(id, face = null, ids = null, silenzioso = false) {
 }
 function clearSelection() {
   selTok++; selGen++;
+  togliAnteprimaForo();
   sel = null; paint(); renderTree(); paintNodes();
   $('#props').innerHTML = '';
   aggiornaLayout();
@@ -1112,6 +1175,7 @@ async function preparaDialog() {
 
 let profili = null;
 async function renderProps(s) {
+  togliAnteprimaForo();
   const tab = rows => `<table class="grid">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
   const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
@@ -1173,6 +1237,9 @@ async function renderProps(s) {
   } else if (s.kind === 'fold') {
     $('#props').innerHTML = foldPanel(s) + faceSketchButton(s);
     wireFold(s);
+    return;
+  } else if (s.kind === 'sidebend') {
+    pannelloPiegaBordo(null, s);
     return;
   } else if (s.kind === 'flange') {
     $('#props').innerHTML = flangePanel(s) + faceSketchButton(s);
@@ -1244,7 +1311,8 @@ const FILETTI_M = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12', 'M16'];
 function foroPanel(fo) {
   const h = fo.hole || {}, tipo = h.tipo || 'semplice', n = fo.uguali.length;
   const sv = `<div class="ff"><label>Ø svasatura<span class="inp"><input class="field" id="h-D" value="${esc(String(h.D ?? Math.round(fo.d * 2 * 10) / 10).replace('.', ','))}"><i>mm</i></span></label>
-    <label>Angolo<span class="inp"><input class="field" id="h-ang" value="${esc(String(h.angolo ?? 90))}"><i>°</i></span></label></div>`;
+    <label>Angolo della punta<span class="inp"><input class="field" id="h-ang" value="${esc(String(h.angolo ?? 90))}"><i>°</i></span></label></div>
+    <p class="hint" id="h-prof"></p>`;
   const fi = `<div class="ff"><label>Filettatura<select class="field" id="h-M">${FILETTI_M.map(m => `<option${(h.M || 'M6') === m ? ' selected' : ''}>${m}</option>`).join('')}</select></label><span></span></div>
     <p class="hint">Il foro diventa il preforo (M5 → Ø4,2) e la filettatura resta segnata sul pezzo.</p>`;
   const ins = `<div class="ff"><label>Codice inserto<input class="field" id="h-cod" value="${esc(h.codice || '')}"></label>
@@ -1257,13 +1325,66 @@ function foroPanel(fo) {
     ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} di questo disegno</label>` : ''}
     <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button></div></div>`;
 }
+// anteprima della svasatura sul pezzo mentre scrivi: il cono com'è, rosso se va più giù dello spessore (21/10)
+const anteprimaForo = new THREE.Group();
+scene.add(anteprimaForo);
+const SVA_OK = new THREE.MeshBasicMaterial({ color: 0xFFB000, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthTest: false });
+const SVA_NO = new THREE.MeshBasicMaterial({ color: 0xE5484D, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthTest: false });
+// le svasature impossibili: sul pezzo il loro cono in rosso (il foro è stato fatto dritto)
+const svasatureKo = new THREE.Group();
+model.add(svasatureKo);
+function buildSvasatureKo(lista) {
+  svasatureKo.traverse(x => x.geometry?.dispose()); svasatureKo.clear();
+  if (svasatureKo.parent !== model) model.add(svasatureKo);      // la scena nuova svuota il modello
+  for (const s of lista || []) {
+    const dentro = v3(s.n).normalize();
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(s.D / 2, s.d / 2, s.h, 48, 1, true), SVA_NO);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dentro.clone().negate());
+    m.position.copy(v3(s.c)).addScaledVector(dentro, s.h / 2);
+    m.renderOrder = 20;
+    svasatureKo.add(m);
+  }
+}
+function togliAnteprimaForo() { anteprimaForo.traverse(x => x.geometry?.dispose()); anteprimaForo.clear(); ridisegna(); }
+function mostraAnteprimaForo(fo, tipo) {
+  togliAnteprimaForo();
+  const testo = $('#h-prof');
+  if (tipo !== 'svasato' || !fo.centri) { if (testo) testo.textContent = ''; return; }
+  const D = parseFloat($('#h-D').value.replace(',', '.')), ang = parseFloat($('#h-ang').value.replace(',', '.'));
+  if (!(D > fo.d) || !(ang > 0 && ang < 180)) {
+    testo.textContent = !(D > fo.d) ? `Il Ø della svasatura deve essere più grande del foro (Ø${virgola(Math.round(fo.d * 100) / 100)}).` : 'Angolo tra 1 e 179°.';
+    testo.style.color = '#E5484D'; return;
+  }
+  const h = (D - fo.d) / 2 / Math.tan(ang * Math.PI / 360), t = fo.spessore;
+  const troppo = t != null && h > t + 1e-6;
+  testo.textContent = `Profonda ${virgola(Math.round(h * 100) / 100)} mm` + (t != null ? (troppo ? ` · più dello spessore (${virgola(t)}): riduci il Ø o apri l’angolo` : ` su ${virgola(t)} di spessore`) : '');
+  testo.style.color = troppo ? '#E5484D' : '';
+  const dentro = v3(fo.dentro).normalize();
+  const tutti = $('#h-tutti')?.checked ? fo.uguali : [fo.cerchio];
+  for (const k of tutti) {
+    const c = fo.centri[k];
+    if (!c) continue;
+    const g = new THREE.CylinderGeometry(D / 2, fo.d / 2, h, 48, 1, true);   // sopra (y+) il Ø grande, sulla faccia
+    const m = new THREE.Mesh(g, troppo ? SVA_NO : SVA_OK);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dentro.clone().negate());
+    m.position.copy(v3(c)).addScaledVector(dentro, h / 2);
+    m.renderOrder = 20;
+    anteprimaForo.add(m);
+  }
+  ridisegna();
+}
 function wireForo(fo) {
   let tipo = fo.hole?.tipo || 'semplice';
+  const vedi = () => mostraAnteprimaForo(fo, tipo);
   document.querySelectorAll('#h-tipo button').forEach(b => { b.onclick = () => {
     tipo = b.dataset.k;
     document.querySelectorAll('#h-tipo button').forEach(x => x.classList.toggle('on', x === b));
     $('#h-sva').hidden = tipo !== 'svasato'; $('#h-fil').hidden = tipo !== 'filettato'; $('#h-ins').hidden = tipo !== 'inserto';
+    vedi();
   }; });
+  ['#h-D', '#h-ang'].forEach(q => { $(q).oninput = vedi; });
+  if ($('#h-tutti')) $('#h-tutti').onchange = vedi;
+  vedi();
   $('#h-ok').onclick = () => {
     const spec = tipo === 'svasato' ? { tipo, D: $('#h-D').value.trim(), angolo: $('#h-ang').value.trim() }
       : tipo === 'filettato' ? { tipo, M: $('#h-M').value }
@@ -1483,6 +1604,7 @@ const MATE_UI = {
   blocca: { nome: 'Blocca', clic: ['il pezzo che sta fermo', 'il pezzo da bloccare'], val: 0 },
   spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
   spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
+  cono: { nome: 'Cono su cono', clic: ['la svasatura del foro', 'la testa conica della vite'], val: 0 },
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
@@ -2123,7 +2245,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
     { k: 'k', l: 'K-factor', v: virgola(BD.k), altro: conPiegatrice }];
   const RIF = { esterno: 'fuori tutto (finite)', interno: 'dentro', asse: 'in asse lamiera' };
   const MODELLI = {
-    lamiera: { titolo: 'Lamiera piegata', nota: 'Un rettangolo: le pieghe le aggiungi dopo, cliccando i bordi.', nome: 'Lamiera',
+    lamiera: { titolo: 'Lamiera', nota: 'Un rettangolo dello spessore che vuoi: se serve lo pieghi dopo, cliccando i bordi.', nome: 'Lamiera',
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 500, lettera: 'A' }, { k: 'profondita', l: 'Profondità', v: 300, lettera: 'B' },
         { k: 'spessore', l: 'Spessore', v: 2, lettera: 'C' }, ...piega] },
     piastra: { titolo: 'Piastra piana', nota: 'Piastra con un foro; gli altri fori li aggiungi dopo.', nome: 'Piastra',
@@ -2134,7 +2256,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
       campi: [{ k: 'L', l: 'Lunghezza', v: 2000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 1000, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 900, lettera: 'C' }, { k: 'profilo', l: 'Tubo del telaio', v: '40x40x3', prof: true },
         { k: 'gambe', l: 'Tubo delle gambe', v: '40x40x3', prof: true }] },
-    scaffale: { titolo: 'Scaffale', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Scaffale',
+    scaffale: { titolo: 'Scaffale o telaio', nota: 'Scaffali e telai per armadi. Misure in asse dei tubi: sotto vedi il fuori tutto. Tubi uguali? Scrivi lo stesso nei due campi.', nome: 'Scaffale',
       campi: [{ k: 'L', l: 'Larghezza', v: 1000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 400, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 1800, lettera: 'C' }, { k: 'ripiani', l: 'Quanti piani (a terra e in cima compresi)', v: 4, lettera: 'D' },
         { k: 'montanti', l: 'Tubo dei montanti', v: '30x30x2', prof: true }, { k: 'traversi', l: 'Tubo dei traversi', v: '40x20x2', prof: true }] },
@@ -2175,8 +2297,8 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
         { k: 'foglio', l: 'Foglio', v: '1500x3000', altro: true }, ...piega] },
     vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste.', nome: 'Struttura', campi: [] },
   };
-  const GRUPPI = [['Lamiera', ['lamiera', 'piastra', 'zero']], ['Forme', ['cono', 'tramoggia', 'tramoggia_cassone']],
-    ['Strutture', ['telaio', 'scaffale', 'armadio', 'cancello', 'disegno', 'vuoto']]];
+  const GRUPPI = [['Lamiera', ['lamiera', 'zero']], ['Forme', ['cono', 'tramoggia', 'tramoggia_cassone']],
+    ['Strutture', ['telaio', 'scaffale', 'cancello', 'disegno', 'vuoto']]];
   let kind = iniziale in MODELLI ? iniziale : 'lamiera';
   const numerico = c => !c.scelte && !c.prof && typeof c.v === 'number';
   const casella = c => {
@@ -2535,7 +2657,6 @@ const CMDS = [
   { id: 'new_zero', label: 'Nuovo da zero (disegna)…', run: () => newDialog('zero') },
   { id: 'new_frame', label: 'Nuovo telaio / tavolo…', run: () => newDialog('telaio') },
   { id: 'new_free', label: 'Nuova struttura libera…', run: () => newDialog('vuoto') },
-  { id: 'new_plate', label: 'Nuova piastra…', run: () => newDialog('piastra') },
   { id: 'flange_help', label: 'Flangia su un bordo', run: () => {
     if (!S?.sheet?.data) { toast('Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', 'err'); return; }
     if (flatView) toggleFlat(false);
@@ -2676,8 +2797,10 @@ const SK_SEL = new THREE.LineBasicMaterial({ color: 0xE09A00 });
 const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
 const SK_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF });
 const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5FBF, dashSize: 6, gapSize: 4 });
-const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE });
-const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5 });
+const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB000, dashSize: 5, gapSize: 3 });   // dove andrà la copia
+// la griglia non scrive la profondità e si disegna per prima: dove c'è il pezzo (pieno) non si vede
+const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE, depthWrite: false });
+const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5, depthWrite: false });
 const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', slot: 'Asola', arc3: 'Arco', polygon: 'Poligono', select: 'Seleziona',
   dim: 'Quota', trim: 'Accorcia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso' };
 const SK_CUT_FILL = new THREE.MeshBasicMaterial({ color: 0xD92D20, side: THREE.DoubleSide, depthTest: false });   // il pezzo che il Taglia toglie
@@ -2713,12 +2836,18 @@ function applyTheme(scuro) {
   if (!DEV) call('set_titlebar', getComputedStyle($('#top')).backgroundColor.replace(/rgb\((\d+), (\d+), (\d+)\)/, (_, r, g, b) => '#' + [r, g, b].map(x => (+x).toString(16).padStart(2, '0')).join('')));
   for (const [m, c] of COLORI_TEMA[scuro ? 'scuro' : 'chiaro']) m.color.setHex(c);
   try { localStorage.setItem('steelcad.tema', scuro ? 'scuro' : 'chiaro'); } catch { /* niente memoria: va bene lo stesso */ }
+  if (SK) drawSketch();                     // le linee spesse prendono il colore nuovo
   ridisegna();
 }
 const SK_REF = new THREE.LineBasicMaterial({ color: 0xC2410C });        // i bordi del pezzo
 const SK_TESTO = new THREE.LineBasicMaterial({ color: 0x7C3AED });      // testi da marcare
 const SK_XRAY = new THREE.LineDashedMaterial({ color: 0x38BDF8, dashSize: 2, gapSize: 1.5 });   // visto attraverso
 const SK_CONSTR_SEL = new THREE.LineDashedMaterial({ color: 0xE09A00, dashSize: 8, gapSize: 5 });
+let lineeSpesse = true;
+const SPESSORE = new Map();          // materiale sottile -> pixel
+const GROSSI = new Map();            // materiale sottile -> materiale spesso (stesso colore, aggiornato ogni volta)
+SPESSORE.set(SK_CONSTR, 1.8); SPESSORE.set(SK_CONSTR_SEL, 2.2); SPESSORE.set(SK_REF, 2.2); SPESSORE.set(SK_XRAY, 1.6);
+SPESSORE.set(SK_TESTO, 2); SPESSORE.set(SK_SEL, 3.2); SPESSORE.set(SK_HOV, 3.2);
 const AIUTI = {
   line: 'Clic sui punti · scrivi la lunghezza + Invio, oppure lunghezza<angolo (es. 100<30) · clic sul primo punto per chiudere · Esc finisce',
   rect: 'Clic su un angolo, poi sull’angolo opposto (o scrivi la misura + Invio)',
@@ -2776,7 +2905,7 @@ async function enterSketch(sid) {
   const faccia = SK.v.on_face ? buildWorkFace(SK.v.on_face) : null;
   const sviluppo = SK.v.on_flat && buildFlat();
   applyLook();
-  $('#sk-panel').hidden = false;
+  $('#sk-panel').hidden = true;                // «Stai disegnando…»: tolto (21/10, «solo un fastidio»)
   $('#props-panel').hidden = true;
   document.body.classList.add('sketching');
   $('#rtab-sketch').hidden = false; showRibbon('sketch');
@@ -2809,6 +2938,7 @@ function exitSketch() {
   $('#sk-panel').hidden = true;
   $('#props-panel').hidden = false;
   document.body.classList.remove('sketching');
+  document.body.classList.remove('disegno-attivo');
   $('#rtab-sketch').hidden = true; showRibbon(schedaPrima);
   resize();
   $('#sk-foot').hidden = true;
@@ -2820,7 +2950,7 @@ function exitSketch() {
   renderTree();
   buildDims();
 }
-function fitSketch() {
+function fitSketch(subito = false) {
   const pts = SK.v.points.filter(p => p.id !== 'O').map(p => v3(p.xyz));
   const box = new THREE.Box3();
   pts.forEach(p => box.expandByPoint(p));
@@ -2832,7 +2962,7 @@ function fitSketch() {
   if (box.isEmpty()) return;
   const zd = v3(SK.v.z_dir);
   if (Math.abs(zd.z) > 0.99) zd.add(new THREE.Vector3(0, -0.0001 * Math.sign(zd.z), 0));
-  fitBox(box, zd);
+  fitBox(box, zd, false, subito);
 }
 // Vedi attraverso: le parti dietro e davanti alla faccia, proiettate (ci si aggancia); il pezzo si vede in trasparenza
 function toggleXray() {
@@ -2850,19 +2980,49 @@ async function refreshSketch() {
   if (!r.ok) { exitSketch(); return; }
   const eraVuoto = SK.v.points.length <= 1 && !SK.v.circles.length;
   SK.v = r.sketch;
-  if (eraVuoto && (SK.v.points.length > 1 || SK.v.circles.length)) fitSketch();   // il primo disegno si inquadra da solo
+  // il primo disegno si inquadra da solo, di colpo: con lo scorrimento il clic dopo (l'inizio della forma seguente)
+  // cadeva a vista in movimento e andava perso o altrove (21/10, «il primo clic non viene preso»)
+  if (eraVuoto && (SK.v.points.length > 1 || SK.v.circles.length)) { fitSketch(true); SK.cursor = null; }
   for (const id of [...SK.sel]) if (!SK.v.lines.some(l => l.id === id) && !SK.v.circles.some(c => c.id === id) && !(SK.v.texts || []).some(t => t.id === id)) SK.sel.delete(id);
   drawSketch();
 }
 function setTool(t) {
   if (!SK) return;
   SK.tool = t; SK.pts = []; SK.buf = ''; SK.pick = null; SK.dimPick = []; SK.angs = {}; SK.cutPrev = null; SK.cutAt = null; SK.cutMsg = null;
+  // con un comando di disegno in mano i clic passano attraverso le caselle delle quote (prima la casella sotto al
+  // mouse si prendeva il clic e il punto «non veniva preso», 21/10); con Seleziona e Quota si cliccano
+  document.body.classList.toggle('disegno-attivo', !['select', 'dim'].includes(t));
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   $('#sk-help').textContent = AIUTI[t] + ' · destro sposta, rotella ingrandisce';
   drawRubber();
 }
 function setHelp(t) { $('#sk-help').textContent = t; }
 
+// le linee del disegno spesse (le linee normali di WebGL sono sempre di 1 pixel: sullo sfondo scuro si vedevano poco,
+// 21/10). Ogni linea diventa una Line2 con lo stesso colore e tratteggio; lo spessore in pixel per tipo di linea.
+function ingrossa(gruppo) {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (const ln of [...gruppo.children]) {
+    if (!ln.isLine || ln.isLine2) continue;
+    const m = ln.material;
+    let g = GROSSI.get(m);
+    if (!g) {
+      g = new LineMaterial({ linewidth: SPESSORE.get(m) ?? 2.6, dashed: !!m.isLineDashedMaterial, dashSize: m.dashSize ?? 3,
+        gapSize: m.gapSize ?? 1, depthTest: m.depthTest, transparent: m.transparent, opacity: m.opacity ?? 1 });
+      GROSSI.set(m, g);
+    }
+    g.color.copy(m.color);
+    g.resolution.set(w, h);
+    const p = ln.geometry.getAttribute('position'), xyz = [];
+    for (let i = 0; i < p.count; i++) xyz.push(p.getX(i), p.getY(i), p.getZ(i));
+    const geo = new LineGeometry(); geo.setPositions(xyz);
+    const l2 = new Line2(geo, g);
+    if (g.dashed) l2.computeLineDistances();
+    l2.renderOrder = ln.renderOrder;
+    gruppo.remove(ln); ln.geometry.dispose();
+    gruppo.add(l2);
+  }
+}
 function drawSketch() {
   for (const g of [skGroup, skGrid]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
   const v = SK.v;
@@ -2880,6 +3040,7 @@ function drawSketch() {
   skGrid.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([skToWorld([0, 0]), skToWorld([lim, 0])]), new THREE.LineBasicMaterial({ color: 0xC0392B })));
   skGrid.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([skToWorld([0, 0]), skToWorld([0, lim])]), new THREE.LineBasicMaterial({ color: 0x2E8B57 })));
   skGrid.position.copy(v3(v.z_dir).multiplyScalar(-0.05));
+  skGrid.children.forEach(c => { c.renderOrder = -1; c.material.depthWrite = false; });   // prima di tutto, sotto al pezzo
   for (const l of v.lines) {
     const mat = SK.sel.has(l.id) ? (l.construction && !l.ref ? SK_CONSTR_SEL : SK_SEL) : SK.hover === l.id ? SK_HOV
       : l.xray ? SK_XRAY : l.ref ? SK_REF : l.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(l.id) ? SK_SCIOLTA : SK_LINE;
@@ -2917,6 +3078,7 @@ function drawSketch() {
     if ((a.construction && !a.ref) || a.xray) al.computeLineDistances();
     skGroup.add(al);
   }
+  if (lineeSpesse) ingrossa(skGroup);
   const pg = new THREE.BufferGeometry().setFromPoints(v.points.map(p => v3(p.xyz)));
   skGroup.add(new THREE.Points(pg, SK_PTS));
   skGroup.position.copy(v3(v.z_dir).multiplyScalar(0.05));
@@ -2934,11 +3096,13 @@ function drawSketch() {
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
   $('#sk-status').textContent = testo;
-  // il riquadro dei suggerimenti: chiuso (una riga) se non lo apri tu; si apre da solo solo per un problema
+  // un problema nel disegno (contorno aperto, vincoli doppi…): una riga rossa in basso, solo quando c'è
   const problema = cls === 'bad' || testo.includes('⚠');
+  $('#sk-problema').hidden = !problema;
+  $('#sk-problema').textContent = problema ? testo.replace('✓ ', '') : '';
   $('#sk-panel').classList.toggle('chiuso', !skPanelAperto() && !problema);
   $('#sk-where-fr').textContent = $('#sk-panel').classList.contains('chiuso') ? '▸' : '▾';
-  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"])').forEach(b => { b.disabled = !SK.sel.size; });
+  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"]):not([data-act="copy"]):not([data-act="move"])').forEach(b => { b.disabled = !SK.sel.size; });
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);
   $('#sk-finish-box').hidden = !libero;
@@ -3106,6 +3270,19 @@ function drawSnap(c) {
   el.style.left = sp[0] + 'px'; el.style.top = sp[1] + 'px'; el.style.display = 'block';
 }
 
+function anteprimaCopia(ids, dx, dy, add) {
+  const dentro = new Set(ids), sp = p => { const q = skToLocal(v3(p)); return [q[0] + dx, q[1] + dy]; };
+  for (const l of SK.v.lines) if (dentro.has(l.id)) add([sp(l.pa), sp(l.pb)], SK_ANTEPRIMA);
+  for (const c of SK.v.circles) if (dentro.has(c.id)) {
+    const p = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; p.push([c.xc[0] + dx + c.r * Math.cos(a), c.xc[1] + dy + c.r * Math.sin(a)]); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const a of SK.v.arcs || []) if (dentro.has(a.id)) {
+    const p = []; for (let i = 0; i <= 48; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 48; p.push([a.xc[0] + dx + a.r * Math.cos(t), a.xc[1] + dy + a.r * Math.sin(t)]); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const t of SK.v.texts || []) if (dentro.has(t.id)) for (const s of t.strokes) add(s.map(sp), SK_ANTEPRIMA);
+}
 function drawRubber() {
   skRubber.traverse(x => x.geometry?.dispose());
   skRubber.clear();
@@ -3145,7 +3322,9 @@ function drawRubber() {
   let testo = '';
   if (SK.pick && SK.pick.base) {
     add([SK.pick.base.xy, c]);
-    testo = `${num(c[0] - SK.pick.base.xy[0], 2)} ; ${num(c[1] - SK.pick.base.xy[1], 2)}`;
+    const dx = c[0] - SK.pick.base.xy[0], dy = c[1] - SK.pick.base.xy[1];
+    testo = `${num(dx, 2)} ; ${num(dy, 2)}`;
+    if (SK.pick.what === 'copy' || SK.pick.what === 'move') anteprimaCopia(SK.pick.ids, dx, dy, add);
   } else if (SK.pick) {
     testo = '';
   } else if (SK.tool === 'line') {
@@ -3232,7 +3411,10 @@ function skMove(ev) {
     const h = skHit(ev);
     if (h !== SK.hover) { SK.hover = h; drawSketch(); }
   }
-  if (SK.tool === 'select') {
+  if ((SK.pick?.what === 'copy' || SK.pick?.what === 'move') && SK.pick.stage !== 'sel') {
+    SK.cursor = skCursor(ev); drawRubber(); return;
+  }
+  if (SK.tool === 'select' || SK.pick?.stage === 'sel') {
     const h = skHit(ev);
     if (h !== SK.hover) { SK.hover = h; drawSketch(); }
     SK.cursor = null; drawRubber();
@@ -3559,6 +3741,10 @@ function skKey(ev) {
   if ((/^[0-9.,]$/.test(k) || (SK.tool === 'line' && /^[<\-]$/.test(k)) || (SK.tool === 'rect' && SK.buf && /^[xX*]$/.test(k)))
       && SK.tool !== 'select' && SK.pts.length) { SK.buf += k; drawRubber(); return true; }
   if (k === 'Backspace' && SK.buf) { SK.buf = SK.buf.slice(0, -1); drawRubber(); return true; }
+  if (k === 'Enter' && SK.pick?.stage === 'sel') {
+    if (!SK.sel.size) { toast('Prima clicca quello da copiare.', 'err'); return true; }
+    skScegliPoiBase(SK.pick); return true;
+  }
   if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); return true; }
   if (k === 'Escape') {
     if (SK.buf) { SK.buf = ''; drawRubber(); return true; }
@@ -3745,8 +3931,26 @@ function costruzione() {
   drawSketch();
 }
 
+// Copia / Sposta come in AutoCAD (21/10): comando → scegli cosa (clic, doppio clic = contorno, finestra) → Invio →
+// punto di partenza con gli agganci → dove va, con l'anteprima attaccata al mouse. La copia resta attiva per altre
+// copie fino a Esc; lo spostamento finisce dopo il clic.
+const AIUTO_SCEGLI = { copy: 'Copia', move: 'Sposta' };
+function skScegliPoiBase(P) {
+  P.stage = 'base'; P.ids = [...SK.sel]; P.base = null;
+  setHelp(`${AIUTO_SCEGLI[P.what]}: clic sul punto di partenza (gli agganci si accendono) · Esc annulla`);
+  drawRubber();
+}
 function skAction(act) {
   if (act === 'offset') { startOffset(); return; }
+  if ((act === 'copy' || act === 'move')) {
+    SK.pts = []; SK.cursor = null;
+    if (SK.sel.size) { SK.pick = { what: act }; skScegliPoiBase(SK.pick); return; }
+    SK.pick = { what: act, stage: 'sel', ids: [], base: null };
+    setHelp(`${AIUTO_SCEGLI[act]}: clic su quello da copiare (doppio clic = il contorno intero, o una finestra) · Invio quando hai scelto · Esc annulla`
+      .replace('da copiare', act === 'move' ? 'da spostare' : 'da copiare'));
+    drawSketch();
+    return;
+  }
   const ids = [...SK.sel];
   if (!ids.length) { toast('Seleziona prima qualcosa (strumento Seleziona).', 'err'); return; }
   const sid = SK.sid;
@@ -3790,11 +3994,6 @@ function skAction(act) {
     return;
   }
   if (act === 'mirror') { SK.pick = { what: 'axis', ids }; setHelp('Specchia: clic sulla linea che fa da asse (va bene una di costruzione) · Esc annulla'); return; }
-  if (act === 'copy' || act === 'move') {
-    SK.pick = { what: act, ids, base: null };
-    setHelp(`${act === 'copy' ? 'Copia' : 'Sposta'}: clic sul punto di partenza, poi dove va (o scrivi la distanza + Invio) · Esc annulla`);
-    return;
-  }
   if (act === 'pattern') {
     modal(`<h3>Serie</h3><p class="hint">Colonne lungo X e righe lungo Y, originale compreso. I passi diventano parametri (px, py): li cambi dopo e la serie segue.</p>
       <div class="form"><label>Colonne<input class="field" id="p-c" value="3"></label><label>Passo X (mm)<input class="field" id="p-px" value="50"></label>
@@ -3820,9 +4019,18 @@ function skPickClick(ev) {
     inCoda(async () => { await apply(await call('sketch_mirror', SK.sid, P.ids, h)); });
     return;
   }
+  if (P.stage === 'sel') {
+    const h = skHit(ev);
+    if (h) { if (SK.sel.has(h)) SK.sel.delete(h); else SK.sel.add(h); drawSketch(); }
+    return;
+  }
   const c = SK.cursor || skCursor(ev);
   if (!c) return;
-  if (!P.base) { P.base = { xy: c.xy }; SK.pts = [P.base]; drawRubber(); return; }
+  if (!P.base) {
+    P.base = { xy: c.xy }; SK.pts = [P.base];
+    setHelp(`${AIUTO_SCEGLI[P.what] || 'Copia'}: clic dove va (vedi l’anteprima), o scrivi la distanza + Invio · ${P.what === 'copy' ? 'altre copie: altri clic · ' : ''}Esc finisce`);
+    drawRubber(); return;
+  }
   skPickDone(c.xy[0] - P.base.xy[0], c.xy[1] - P.base.xy[1]);
 }
 function skPickTyped(v) {
@@ -3837,8 +4045,13 @@ function skPickTyped(v) {
 }
 function skPickDone(dx, dy) {
   const P = SK.pick;
-  SK.pick = null; SK.pts = []; setTool('select');
   if (Math.hypot(dx, dy) < 1e-9) { toast('Partenza e arrivo coincidono.', 'err'); return; }
+  if (P.what === 'copy') {                          // come AutoCAD: si resta in Copia, stessa partenza, altre copie
+    SK.buf = '';
+    inCoda(async () => { await apply(await call('sketch_copy', SK.sid, P.ids, dx, dy)); drawRubber(); });
+    return;
+  }
+  SK.pick = null; SK.pts = []; setTool('select');
   inCoda(async () => { await apply(await call(P.what === 'copy' ? 'sketch_copy' : 'sketch_move', SK.sid, P.ids, dx, dy)); });
 }
 // --------------------------------------------------------------- quota a mano
@@ -4056,10 +4269,11 @@ function chainOf(h) {
   return presi;
 }
 canvas.addEventListener('dblclick', ev => {
-  if (!SK || SK.tool !== 'select' || SK.pick) return;
+  if (!SK || (SK.tool !== 'select' || SK.pick) && SK.pick?.stage !== 'sel') return;
   const h = skHit(ev);
   if (!h || !SK.v.lines.some(l => l.id === h)) return;
-  SK.sel = chainOf(h); drawSketch();
+  if (SK.pick?.stage === 'sel') { for (const x of chainOf(h)) SK.sel.add(x); } else SK.sel = chainOf(h);
+  drawSketch();
 });
 
 // ===================================================================== barra a schede (stile SolidCraft)
@@ -4082,7 +4296,7 @@ function motivoNo(cmd) {
     case 'export_bendtable': return lam && ((S.sheet.data.bends || []).length || (S.sheet.data.bend_rows || []).length) ? null : 'nessuna piega';
     case 'export_step': case 'drawings': return objs.size || asm ? null : 'il progetto è vuoto';
     case 'export_bom': return asm ? null : 'la distinta materiali si fa da un assieme';
-    case 'flange_help': case 'contour_help': case 'unfold': case 'flat_sketch': return lam ? null : 'prima serve una lamiera (Nuovo → Lamiera piegata)';
+    case 'flange_help': case 'contour_help': case 'unfold': case 'flat_sketch': return lam ? null : 'prima serve una lamiera (Nuovo → Lamiera)';
     case 'member_help': return nodes.length ? null : 'prima serve una struttura (Nuovo → Telaio, Scaffale…)';
     default: return null;
   }
@@ -4249,7 +4463,7 @@ async function start() {
   requestAnimationFrame(loop);
   introFine();
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
-    objs, select, camera, skScreen: xy => skScreen(xy), enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
+    objs, select, camera, skScreen: xy => skScreen(xy), lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo

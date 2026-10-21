@@ -146,6 +146,12 @@ class Api:
     def set_end_tab(self, fid, flid, end, on, gap=0):
         return self._call(self._svc.set_end_tab, fid, flid, end, on, gap)
 
+    def fold_frames(self, n=6):
+        return self._call(self._svc.fold_frames, n)
+
+    def set_ear(self, fid, flid, end, on, fields=None):
+        return self._call(self._svc.set_ear, fid, flid, end, on, fields)
+
     def set_corner(self, fid, flid, other, mode, gap=0):
         return self._call(self._svc.set_corner, fid, flid, other, mode, gap)
 

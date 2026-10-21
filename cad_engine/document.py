@@ -389,6 +389,8 @@ class Document:
         if len(parti) == 3 and (parti[2] in flangia or parti[2].startswith('foro')):
             cosa = flangia.get(parti[2]) or f'il {parti[2].replace("foro", "foro ")}'
             return f'{cosa} della flangia {parti[1]} di {nome_f}'
+        if len(parti) == 4 and parti[2] in ('u0', 'u1') and parti[3] in ('esterno', 'interno'):
+            return f'{flangia[parti[3]]} della piega sul bordo di {parti[1]} di {nome_f}'
         if len(parti) >= 2 and parti[1] in testi:
             return f'{testi[parti[1]]} di {nome_f}'
         return f'"{name}"'

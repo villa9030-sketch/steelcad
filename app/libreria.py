@@ -5,6 +5,8 @@ con la descrizione completa: in distinta va tra gli acquisti, niente DXF.
 Misure (mm), dai cataloghi delle norme:
 - vite TCEI ISO 4762: testa Ø dk, alta k, esagono incassato s;
 - vite TE ISO 4017: esagono s, testa alta k;
+- vite TSPEI ISO 10642 (testa svasata piana a 90°, esagono incassato): testa Ø dk, alta k, esagono s; la lunghezza
+  nominale comprende la testa;
 - dado esagonale ISO 4032: chiave s, alto m;
 - rondella piana ISO 7089: foro d1, esterno d2, spessore h;
 - rivetto a strappo (testa tonda): Ø, testa D × spessore;
@@ -17,6 +19,8 @@ from pathlib import Path
 
 TCEI = {'M3': (5.5, 3, 2.5), 'M4': (7, 4, 3), 'M5': (8.5, 5, 4), 'M6': (10, 6, 5), 'M8': (13, 8, 6), 'M10': (16, 10, 8),
         'M12': (18, 12, 10)}
+TSPEI = {'M3': (6.72, 1.86, 2), 'M4': (8.96, 2.48, 2.5), 'M5': (11.2, 3.1, 3), 'M6': (13.44, 3.72, 4),
+         'M8': (17.92, 4.96, 5), 'M10': (22.4, 6.2, 6), 'M12': (26.88, 7.44, 8)}
 TE = {'M5': (8, 3.5), 'M6': (10, 4), 'M8': (13, 5.3), 'M10': (16, 6.4), 'M12': (18, 7.5), 'M16': (24, 10)}
 DADO = {'M3': (5.5, 2.4), 'M4': (7, 3.2), 'M5': (8, 4.7), 'M6': (10, 5.2), 'M8': (13, 6.8), 'M10': (16, 8.4),
         'M12': (18, 10.8), 'M16': (24, 14.8)}
@@ -27,6 +31,8 @@ INSERTO = {'M4': (6, 9, 1.0, 3.3), 'M5': (7, 10, 1.0, 4.2), 'M6': (9, 12, 1.5, 5
 
 CATALOGO = {
     'vite_tcei': {'nome': 'Vite TCEI ISO 4762', 'misure': list(TCEI), 'lunghezze': [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 50, 60]},
+    'vite_tspei': {'nome': 'Vite a testa svasata TSPEI ISO 10642', 'misure': list(TSPEI),
+                   'lunghezze': [8, 10, 12, 16, 20, 25, 30, 35, 40, 50, 60]},
     'vite_te': {'nome': 'Vite TE ISO 4017', 'misure': list(TE), 'lunghezze': [10, 12, 16, 20, 25, 30, 35, 40, 50, 60, 80]},
     'dado': {'nome': 'Dado esagonale ISO 4032', 'misure': list(DADO), 'lunghezze': []},
     'rondella': {'nome': 'Rondella piana ISO 7089', 'misure': list(RONDELLA), 'lunghezze': []},
@@ -36,13 +42,14 @@ CATALOGO = {
 
 
 def nome_file(tipo: str, misura: str, L=None) -> str:
-    base = {'vite_tcei': f'TCEI {misura}x{L}', 'vite_te': f'TE {misura}x{L}', 'dado': f'Dado {misura}',
+    base = {'vite_tcei': f'TCEI {misura}x{L}', 'vite_tspei': f'TSPEI {misura}x{L}', 'vite_te': f'TE {misura}x{L}', 'dado': f'Dado {misura}',
             'rondella': f'Rondella {misura}', 'rivetto': f'Rivetto {misura}x{L}', 'inserto': f'Rivetto filettato {misura}'}
     return base[tipo]
 
 
 def descrizione(tipo: str, misura: str, L=None) -> str:
     return {'vite_tcei': f'Vite TCEI ISO 4762 {misura}x{L} cl. 8.8 zincata',
+            'vite_tspei': f'Vite TSPEI ISO 10642 {misura}x{L} cl. 10.9 zincata',
             'vite_te': f'Vite TE ISO 4017 {misura}x{L} cl. 8.8 zincata',
             'dado': f'Dado esagonale ISO 4032 {misura} cl. 8 zincato',
             'rondella': f'Rondella piana ISO 7089 {misura} zincata',
@@ -125,6 +132,12 @@ def crea(tipo: str, misura: str, L=None, cartella=None) -> Path:
         _gira(s, [(0, -L), (r * 0.8, -L), (r, -L + r * 0.2), (r, 0), (dk / 2, 0), (dk / 2, k - k * 0.08),
                   (dk / 2 - k * 0.08, k), (0, k)])
         _esagono(s, _faccia(s, (0, 1, 0)), k, sc, 'cut', k * 0.6)
+    elif tipo == 'vite_tspei':
+        # la faccia piana della testa a y = 0 (a filo della lamiera), il cono a 90° sotto, il gambo fino a -L
+        dk, k, sc = TSPEI[misura]
+        L = float(L)
+        _gira(s, [(0, -L), (r * 0.8, -L), (r, -L + r * 0.2), (r, -k), (dk / 2, 0), (0, 0)])
+        _esagono(s, _faccia(s, (0, 1, 0)), 0, sc, 'cut', k * 0.7)
     elif tipo == 'vite_te':
         sc, k = TE[misura]
         L = float(L)

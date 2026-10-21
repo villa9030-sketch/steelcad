@@ -195,7 +195,8 @@ def main():
 
             # 3) spiega
             pg.click('#ribbon [data-cmd="unfold"]')
-            time.sleep(0.5)
+            pg.wait_for_function('window.__steelcad.look.flat', timeout=20000)   # dopo l'animazione
+            time.sleep(0.3)
             look = pg.evaluate('window.__steelcad.look')
             ok(f'spiega: sviluppo a video {look}', look['flat'] and not look['model'])
             pg.screenshot(path=str(SHOTS / '4_spiega.png'))

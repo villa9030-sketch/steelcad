@@ -350,6 +350,7 @@ def build(fdef: dict, ctx) -> NamedShape:
             raise FeatureError(f'La flangia {g.fid} non ha più larghezza: le flange vicine se la mangiano tutta.',
                                feature=fid)
 
+    orecchie = _ear_setup(geos, t, tech, ctx, fid)
     contatti = _tip_flanges(fdef, flange_defs, geos, tech, t, ctx, fid)
 
     for g in geos:
@@ -385,12 +386,17 @@ def build(fdef: dict, ctx) -> NamedShape:
         if g.parent is None and g.off < -TOL:
             base = base - _box(g, g.u0 - g.ext[0] if g.ext[0] else g.u0 - 0.0,
                                g.u1 + g.ext[1] if g.ext[1] else g.u1, g.off, g.bend.ossb + t + 1, t)
+    for o in orecchie:              # scarico d'angolo sotto l'orecchia (nello sviluppo lì c'è l'orecchia)
+        g = o['g']
+        base = base - _box(g, *o['scarico'], g.off, g.bend.ossb + t + 1, t)
     _check_base_holes(face, prof, geos, pl, fid)
     parti = [base]
     for g in geos:
         parti.append(_flange_solid(g, t))
     for g, ua, ub in tabs:
         parti.append(_tab_solid(g, ua, ub, t))
+    for o in orecchie:
+        parti += _ear_solids(o, t)
     vol_attesa = sum(p.volume for p in parti)
     solido = parti[0]
     for p in parti[1:]:
@@ -399,7 +405,8 @@ def build(fdef: dict, ctx) -> NamedShape:
     solidi = solido.solids()
     if len(solidi) != 1:
         raise FeatureError(f'La lamiera {nome} non è venuta un pezzo unico: controlla le flange.', feature=fid)
-    if abs(solido.volume - vol_attesa) > 1e-6 * max(vol_attesa, 1) + 1e-3:
+    if abs(solido.volume - vol_attesa) > 1e-6 * max(vol_attesa, 1) + 1e-3 and not fdef.get('_animazione'):
+        # (nei passi dell'animazione Spiega/Ripiega le pareti mezze aperte possono toccarsi: lì va bene)
         raise FeatureError('Due flange si compenetrano in un angolo: aumenta la fessura d’angolo o accorciale.',
                            feature=fid)
     # alette che chiudono le testate di un profilo chiuso: servono le facce del pezzo già fatto (il vuoto)
@@ -414,6 +421,8 @@ def build(fdef: dict, ctx) -> NamedShape:
             parti.append(sol)
         for g, ua, ub in tabs:
             parti.append(_tab_solid(g, ua, ub, t))
+        for o in orecchie:
+            parti += _ear_solids(o, t)
         for a in alette:
             parti += [a['bend'], a['tab']]
         vol_attesa = sum(p.volume for p in parti)
@@ -430,6 +439,8 @@ def build(fdef: dict, ctx) -> NamedShape:
 
     # ----------------------------------------------------------------- sviluppo
     flat, linee = _flat(face, geos, pl, t, tabs)
+    if orecchie:
+        flat = _ear_flat(orecchie, flat, linee, t, pl, fid)
     for a in alette:                                    # nello sviluppo: l'aletta oltre la sua piega a 90°
         flat = flat - a['flat_cut']
         flat = flat + a['flat_bend']
@@ -475,6 +486,11 @@ def build(fdef: dict, ctx) -> NamedShape:
     data.fold_pos = fold_pos
     ns = NamedShape(shape, _names(shape, fid, geos, lati, prof, pl, t))
     ns.sheet = data
+    fori_base = _hole_specs_interni(ss, prof)
+    if fori_base:
+        ns = _countersinks(ns, ss, prof, None, t, fid, fori=[(c, spec, N) for c, spec in fori_base])
+    if orecchie:
+        _ear_names(ns, data, orecchie, fid, t)
     # pieghe su linea con la parte piegata non rettangolare: si toglie dallo sviluppo (e dal pezzo) quello che la
     # striscia della flangia ha in più rispetto al disegno
     for fo, parte in piegate:
@@ -750,6 +766,18 @@ def _free_edges(geos, lati, N, t) -> list:
         mid = ((q['ot'][0] + q['it'][0]) / 2, (q['ot'][1] + q['it'][1]) / 2)
         out.append({'kind': 'tip', 'ref': g.fid, 'a': v(g.p(g.u0, *mid)), 'b': v(g.p(g.u1, *mid)),
                     'length': g.u1 - g.u0})
+    # i due bordi laterali delle pareti piegate dalla base (a metà spessore, lungo il tratto dritto)
+    for g in geos:
+        if g.parent is not None:
+            continue
+        fatti = {e.get('end') for e in getattr(g, 'ear_defs', None) or []}
+        dvec, nrm = g.frame()
+        p0 = g.origin + g.n * (g.off + g.bend.ossb) + nrm * (t / 2)
+        q_a, q_b = g.bend.ossb, g.length - g.tip_cut
+        for end, u in (('u0', g.u0), ('u1', g.u1)):
+            if end not in fatti and q_b - q_a > TOL:
+                out.append({'kind': 'side', 'ref': f'{g.fid}/{end}', 'a': v(p0 + g.xf * u + dvec * q_a),
+                            'b': v(p0 + g.xf * u + dvec * q_b), 'length': q_b - q_a})
     return out
 
 
@@ -805,6 +833,7 @@ def _geo(fl, A3, B3, n3, N, tech, t, ctx, fid) -> FlangeGeo:
     g.gap = evaluate(fl.get('gap', 0), ctx.params, what=f'la fessura d’angolo della flangia {flid}')
     g.hole_defs = fl.get('holes') or []
     g.end_tab_defs = fl.get('end_tabs') or []
+    g.ear_defs = fl.get('ears') or []
     return g
 
 
@@ -1264,6 +1293,162 @@ def _end_tab_parts(geos, solido, t, tech, ctx, fid, pl_sk) -> list:
     return out
 
 
+# =============================================================================== pieghe sul bordo di una parete
+# Sul bordo laterale di una parete (una flangia piegata dalla base) un'altra piega: altezza, angolo, verso dentro o
+# fuori dal pezzo. A 90° verso dentro è la cassetta da rivettare: la piega sta oltre l'angolo del contorno, con la
+# faccia verso il pezzo a «gioco» dal piano del lato vicino, così la parete che si piega dopo su quel lato sale e
+# resta dentro. Nel progetto stanno in fl["ears"] = [{"end": "u0"|"u1", "length", "angle", "side": "in"|"out",
+# "height", "from", "gap"}].
+def _ear_setup(geos, t, tech, ctx, fid) -> list:
+    out = []
+    for g in geos:
+        for k, od in enumerate(getattr(g, 'ear_defs', None) or []):
+            dove = od.get('end')
+            if dove not in ('u0', 'u1'):
+                raise FeatureError(f'Piega {k + 1} sul bordo di {g.fid}: bordo sconosciuto.', feature=fid)
+            if g.parent is not None:
+                raise FeatureError(f'Sul bordo di {g.fid} per ora non si piega: si piega sul bordo delle pareti '
+                                   'piegate dalla base.', feature=fid)
+
+            def cosa(c, d):
+                v = od.get(c)
+                return None if v in (None, '') else evaluate(v, ctx.params, what=f'{d} della piega sul bordo di {g.fid}')
+            lung, alta, basso = cosa('length', 'l’altezza'), cosa('height', 'la lunghezza'), cosa('from', 'la distanza dal basso')
+            ang = cosa('angle', 'l’angolo')
+            ang = 90.0 if ang is None else ang
+            gioco = cosa('gap', 'il gioco')
+            gioco = 0.2 if gioco is None else gioco
+            if not 0 < ang < 180:
+                raise FeatureError('L’angolo della piega sul bordo va da 1 a 179°.', feature=fid)
+            r = g.bend.r
+            b = bend_values(ang, r, t, tech['method'], tech['k'], tech['bd90'], fid)
+            if lung is None or lung - b.ossb <= TOL:
+                raise FeatureError(f'La piega sul bordo di {g.fid} deve essere alta più di {fmt_mm(round(b.ossb, 2))} mm.',
+                                   feature=fid)
+            if gioco < 0:
+                raise FeatureError('Il gioco non può essere negativo.', feature=fid)
+            q_a, q_b = g.bend.ossb, g.length - g.tip_cut          # il tratto dritto della parete
+            s0 = q_a if basso is None else max(q_a, basso)
+            s1 = q_b if alta is None else s0 + alta
+            if s1 > q_b + TOL or s1 - s0 <= TOL:
+                raise FeatureError(f'La piega sul bordo di {g.fid} esce dalla parete: il tratto dritto va da '
+                                   f'{fmt_mm(round(q_a, 2))} a {fmt_mm(round(q_b, 2))} mm dal basso.', feature=fid)
+            sg = 1 if dove == 'u1' else -1
+            u_c = g.length_edge if dove == 'u1' else 0.0          # l'angolo del contorno
+            u_piega = u_c + sg * (gioco - r)                       # qui finisce la parete e parte la piega
+            if dove == 'u1':
+                g.u1 = min(g.u1, u_piega)
+                u_da = g.u1
+            else:
+                g.u0 = max(g.u0, u_piega)
+                u_da = g.u0
+            out.append({'g': g, 'end': dove, 'sg': sg, 'u_da': u_da, 'u_piega': u_piega, 's0': s0, 's1': s1,
+                        'lung': lung, 'r': r, 'bend': b, 'sigma': -1 if od.get('side') == 'out' else 1,
+                        'scarico': tuple(sorted((u_c + sg * 1.0, u_piega)))})
+    return out
+
+
+def _ear_geo(o, t):
+    """La geometria della piega sul bordo: centro della piega, direzioni, punti alla fine dell'arco."""
+    g, sg, r, sig = o['g'], o['sg'], o['r'], o['sigma']
+    dvec, nrm = g.frame()
+    p0 = g.origin + g.n * (g.off + g.bend.ossb)               # spigolo vivo esterno della parete, u = 0
+    fuori, nb = g.xf * sg, nrm * sig                           # oltre il bordo; verso cui si piega
+    th = math.radians(o['bend'].angle)
+    base = p0 + dvec * o['s0']
+    w_in = t if sig > 0 else 0.0                               # la faccia della parete dalla parte interna della piega
+    C = base + g.xf * o['u_piega'] + nrm * w_in + nb * r
+    dir_ = lambda f: -nb * math.cos(f) + fuori * math.sin(f)  # noqa: E731  dal centro verso la lamiera
+    T = nb * math.sin(th) + fuori * math.cos(th)               # dove va il tratto dritto della piega
+    return dvec, nrm, fuori, nb, th, base, C, dir_, T
+
+
+def _ear_solids(o, t) -> list:
+    g, r = o['g'], o['r']
+    dvec, nrm, fuori, nb, th, base, C, dir_, T = _ear_geo(o, t)
+    alto = o['s1'] - o['s0']
+    pezzi = []
+
+    def lastra(pts):
+        return bd.extrude(bd.Face(bd.Wire.make_polygon(pts, close=True)), amount=alto, dir=tuple(dvec))
+    if abs(o['u_piega'] - o['u_da']) > TOL:                   # la parete allungata fino alla piega
+        a, b_ = base + g.xf * o['u_da'], base + g.xf * o['u_piega']
+        pezzi.append(lastra([a, b_, b_ + nrm * t, a + nrm * t]))
+    R = r + t
+    Ao, Bo, Mo = C + dir_(0) * R, C + dir_(th) * R, C + dir_(th / 2) * R
+    Ai, Bi, Mi = C + dir_(0) * r, C + dir_(th) * r, C + dir_(th / 2) * r
+    lati = [bd.Edge.make_three_point_arc(Ao, Mo, Bo), bd.Edge.make_line(Bo, Bi)]
+    if r > TOL:
+        lati.append(bd.Edge.make_three_point_arc(Bi, Mi, Ai))
+    lati.append(bd.Edge.make_line(Ai if r > TOL else Bi, Ao))
+    pezzi.append(bd.extrude(bd.Face(bd.Wire(lati)), amount=alto, dir=tuple(dvec)))
+    dritto = o['lung'] - o['bend'].ossb
+    pezzi.append(lastra([Bi, Bo, Bo + T * dritto, Bi + T * dritto]))
+    return pezzi
+
+
+def _ear_flat(orecchie, flat, linee, t, pl, fid):
+    """Nello sviluppo: la parete allungata, la striscia della piega (BA) e la piega stesa, oltre il bordo."""
+    for o in orecchie:
+        g, sg, b = o['g'], o['sg'], o['bend']
+        src, dst = _flange_planes(g, t)
+        P = lambda u, q: dst.from_local_coords((u, q))  # noqa: E731
+        u_fine = o['u_piega'] + sg * (b.ba + o['lung'] - b.ossb)
+        a, b_ = sorted((o['u_da'], u_fine))
+        pezzo = _orienta(bd.Face(bd.Wire.make_polygon([P(a, o['s0']), P(b_, o['s0']), P(b_, o['s1']), P(a, o['s1'])],
+                                                      close=True)), pl)
+        lo, hi = o['scarico']
+        rett = _orienta(bd.Face(bd.Wire.make_polygon([g.fp(lo, g.off), g.fp(hi, g.off), g.fp(hi, g.off + g.bend.ossb + t + 1),
+                                                      g.fp(lo, g.off + g.bend.ossb + t + 1)], close=True)), pl)
+        tolto = flat - rett
+        tolto = tolto.faces() if not isinstance(tolto, bd.Face) else [tolto]
+        if len(tolto) == 1:
+            flat = tolto[0]
+        prima = flat.area
+        nuovo = flat.fuse(pezzo)
+        nuovo = nuovo.clean() if hasattr(nuovo, 'clean') else nuovo
+        facce = nuovo.faces() if not isinstance(nuovo, bd.Face) else [nuovo]
+        if len(facce) != 1 or abs(facce[0].area - prima - pezzo.area) > 1e-3:
+            raise FeatureError(f'Nello sviluppo la piega sul bordo di {g.fid} si sovrappone ad altro o resta staccata.',
+                               feature=fid)
+        flat = facce[0]
+        um = o['u_piega'] + sg * b.ba / 2
+        A, B = pl.to_local_coords(P(um, o['s0'])), pl.to_local_coords(P(um, o['s1']))
+        su = (o['sigma'] > 0) == (g.direction == 'up')         # dentro la parete = dalla stessa parte della sua piega
+        linee.append(((A.X, A.Y), (B.X, B.Y), f'{g.fid}/{o["end"]} {"SU" if su else "GIÙ"} {fmt_mm(b.angle)}° R{fmt_mm(o["r"])}'))
+    return flat
+
+
+def _ear_names(ns, data, orecchie, fid, t):
+    """Le facce piane delle pieghe sul bordo hanno un nome (ci si disegna sopra) e la loro mappa pezzo → sviluppo,
+    come i tratti dei profili: un foro disegnato lì va al suo posto nello sviluppo."""
+    from ..topology.naming import _faces_of
+    mappa = dict(getattr(data, 'pannelli', None) or {})
+    facce = [(f, bd.Face(f)) for f in _faces_of(ns.shape) if not ns.names_of(f)]
+    for o in orecchie:
+        g, sg, r, b = o['g'], o['sg'], o['r'], o['bend']
+        dvec, nrm, fuori, nb, th, base, C, dir_, T = _ear_geo(o, t)
+        _src, dst_w = _flange_planes(g, t)
+        orig = dst_w.from_local_coords((o['u_piega'] + sg * b.ba, 0))
+        dst = bd.Plane(origin=orig, x_dir=g.fx * sg, z_dir=(g.fx * sg).cross(dst_w.y_dir))
+        dritto = o['lung'] - b.ossb
+        # «esterno» continua la faccia esterna della parete: dalla parte esterna della piega se si piega verso dentro
+        p_est = C + dir_(th) * ((r + t) if o['sigma'] > 0 else r)
+        p_int = C + dir_(th) * (r if o['sigma'] > 0 else (r + t))
+        for lato, p, dentro in (('esterno', p_est, (p_int - p_est).normalized()), ('interno', p_int, (p_est - p_int).normalized())):
+            nome = f'{fid}/{g.fid}/{o["end"]}/{lato}'
+            for f, bf in facce:
+                c = bf.center()
+                if abs(abs(bf.normal_at(c).dot(dentro)) - 1) > 1e-6 or abs((c - p).dot(dentro)) > 1e-5:
+                    continue
+                x = (c - p).dot(T)
+                if not -1e-6 <= x <= dritto + 1e-6:
+                    continue
+                ns.names.setdefault(nome, []).append(f)
+            mappa[nome] = (bd.Plane(origin=p - dvec * o['s0'], x_dir=T, z_dir=T.cross(dvec)), dst, dentro)
+    data.pannelli = mappa
+
+
 def _flat(face, geos, pl, t, tabs=()):
     """Lo sviluppo sul piano dello sketch: base accorciata + strisce lunghe BA + tratto dritto."""
     def pf(g, u, s):            # punto sul piano dello sketch (z = 0), anche per le flange "giù" e sulle punte
@@ -1388,8 +1573,11 @@ def _names(shape, fid, geos, lati, prof, pl, t) -> dict:
                         nome = f'{fid}/lato/{lid}'
                         break
             elif tipo == GeomAbs_Cylinder and abs(abs(_axis(ad).dot(N)) - 1) < 1e-6:
+                L0 = ad.Cylinder().Axis().Location()
+                asse = bd.Vector(L0.X(), L0.Y(), L0.Z())
                 for src in prof.sources:
-                    if src.kind == 'circle' and (src.edge.arc_center - (c - N * (c - src.edge.arc_center).dot(N))).length < 1e-6:
+                    if src.kind == 'circle' and (src.edge.arc_center - (asse - N * (asse - src.edge.arc_center).dot(N))).length < 1e-6 \
+                            and abs(ad.Cylinder().Radius() - src.edge.radius) < 1e-6:
                         nome = f'{fid}/foro/{src.entity}'
                         break
         if nome is None and tipo == GeomAbs_Plane:
@@ -1508,7 +1696,8 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
                                    'aggiunge.', feature=fid)
             src, dst, dentro = pannelli[nome]
             lavori = [(f, dentro, f.moved(dst.location * src.location.inverse())) for f in prof.faces]
-            return _taglio_semplice(fdef, body, data, lavori, t, fid)
+            nuovo = _taglio_semplice(fdef, body, data, lavori, t, fid)
+            return _countersinks(nuovo, ss, prof, [(None, dentro, None)] * len(prof.faces), t, fid)
         piani = _face_planes(parti, data, fid)
         if fdef.get('mode') != 'add':
             # il contorno portato sullo sviluppo (stesse coordinate locali): così può anche uscire dalla faccia e
@@ -1921,22 +2110,48 @@ def _hole_specs(ss, prof) -> list:
     return out
 
 
-def _countersinks(ns, ss, prof, ritorni, t, fid):
+def _hole_specs_interni(ss, prof) -> list:
+    """I fori disegnati dentro un contorno (i buchi della faccia, come nel primo sketch della lamiera) che hanno un
+    tipo: [(cerchio, dati)]."""
+    out = []
+    for f in prof.faces:
+        for w in f.inner_wires():
+            es = w.edges()
+            if len(es) == 1 and es[0].geom_type == bd.GeomType.CIRCLE:
+                spec = ss.sketch.entities.get(prof.entity_of(es[0]) or '', {}).get('hole')
+                if spec:
+                    out.append((es[0], spec))
+    return out
+
+
+def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
     """Le svasature (fori per viti a testa piana): un cono coassiale al foro, che si apre sulla faccia dove si è
-    disegnato. Sono una lavorazione: lo sviluppo resta quello del foro dritto."""
+    disegnato. Sono una lavorazione: lo sviluppo resta quello del foro dritto. fori = [(cerchio, dati, verso dentro)]
+    se non vengono dai contorni del taglio (ritorni)."""
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
-    for i, cerchio, spec in _hole_specs(ss, prof):
+    if fori is None:
+        fori = [(cerchio, spec, ritorni[i][1]) for i, cerchio, spec in _hole_specs(ss, prof)]
+    for cerchio, spec, verso in fori:
         if spec.get('tipo') != 'svasato':
             continue
         d, D = 2 * cerchio.radius, float(spec.get('D', 0))
         ang = math.radians(float(spec.get('angolo', 90)))
+        # impossibile: il foro resta dritto, la svasatura si segna in rosso con l'avviso (21/10: prima bloccava tutto
+        # il pezzo e le lavorazioni dopo)
+        avviso = None
         if D <= d:
-            raise FeatureError(f'La svasatura (Ø{fmt_mm(D)}) deve essere più larga del foro (Ø{fmt_mm(d)}).', feature=fid)
+            avviso = f'Svasatura Ø{fmt_mm(D)} non fatta: deve essere più larga del foro (Ø{fmt_mm(d)}).'
+        elif (D - d) / 2 / math.tan(ang / 2) > t + 1e-6:
+            h = (D - d) / 2 / math.tan(ang / 2)
+            avviso = (f'Svasatura Ø{fmt_mm(D)} a {fmt_mm(math.degrees(ang))}° non fatta: sarebbe profonda {fmt_mm(round(h, 2))} mm '
+                      f'su {fmt_mm(t)} di spessore (in rosso sul pezzo). Riduci il Ø o apri l’angolo.')
+        if avviso:
+            if ns.sheet is not None:
+                import dataclasses
+                ns.sheet = dataclasses.replace(ns.sheet, warnings=list(ns.sheet.warnings or []) + [avviso])
+            continue
         h = (D - d) / 2 / math.tan(ang / 2)
-        if h > t + 1e-6:
-            raise FeatureError(f'La svasatura Ø{fmt_mm(D)} a {fmt_mm(math.degrees(ang))}° è profonda {fmt_mm(round(h, 2))} mm: più '
-                               f'dello spessore ({fmt_mm(t)}). Riduci il diametro della svasatura.', feature=fid)
-        asse = bd.Vector(*ritorni[i][1]).normalized()
+        asse = bd.Vector(*verso).normalized()
         c = cerchio.arc_center
         e = 0.05
         cono = bd.Solid.make_cone(D / 2 + e * math.tan(ang / 2), d / 2, h + e,

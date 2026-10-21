@@ -263,6 +263,7 @@ class AssemblyMixin:
         'spigolo': ({'spigolo'}, {'spigolo'}, 'Spigolo su spigolo vuole due spigoli dritti.'),
         'spigolo_faccia': ({'piana'}, {'spigolo'}, 'Spigolo su faccia: prima la faccia piana del pezzo fermo, poi lo '
                            'spigolo dritto dell’altro.'),
+        'cono': ({'conica'}, {'conica'}, 'Cono su cono vuole due facce coniche: la svasatura del foro e la testa della vite.'),
     }
 
     def _asm_edge(self, iid, punto):
@@ -358,6 +359,9 @@ class AssemblyMixin:
                         raise A.AssemblyError(msg)
                 if kind == 'tangente' and rf['a']['kind'] == 'piana' and rf['b']['kind'] == 'piana':
                     raise A.AssemblyError(msg)
+                if kind == 'cono' and abs(rf['a']['r'] - rf['b']['r']) > 0.5:
+                    raise A.AssemblyError(f'I due coni hanno angoli diversi ({2 * rf["a"]["r"]:.0f}° e {2 * rf["b"]["r"]:.0f}°): '
+                                          'la vite non si appoggerebbe. Rifai la svasatura con l’angolo della vite (90°).')
                 if kind == 'centra':
                     for x, y, chi in (('a', 'a2', 'del pezzo fermo'), ('b', 'b2', 'del pezzo da centrare')):
                         if abs(abs(float(np.dot(rf[x]['n'], rf[y]['n']))) - 1) > 1e-6 or rf[x]['p'] == rf[y]['p']:
@@ -658,6 +662,10 @@ class AssemblyMixin:
                 fr = self._asm_face(foro['inst'], foro['face'])
             except A.AssemblyError:
                 fr = None
+            seduta = self._siedi_nel_cono(foro, fr, nuovo) if tipo == 'vite_tspei' and fr else None
+            if seduta:
+                r, fr = seduta, None
+                msg += ' seduta nella svasatura (cono su cono)'
             if fr and fr['kind'] == 'cilindrica':
                 from cad_engine.topology.naming import _faces_of
                 part = self.asm_parts[self.asm.instance(nuovo)['file']]
@@ -670,6 +678,36 @@ class AssemblyMixin:
         r['message'] = msg + '.'
         r['select'] = nuovo
         return r
+
+    def _siedi_nel_cono(self, foro, fr, nuovo):
+        """La vite a testa svasata nel foro cliccato: la svasatura (il cono coassiale al foro, o il cono cliccato) con la
+        testa conica della vite. Il risultato dell'accoppiamento, o None se il foro non è svasato."""
+        from cad_engine.topology.naming import _faces_of
+        parte = self.asm_parts[self.asm.instance(foro['inst'])['file']]
+        facce = list(_faces_of(parte.shape))
+        k_sva = None
+        if fr['kind'] == 'conica':
+            k_sva = int(foro['face'])
+        elif fr['kind'] == 'cilindrica':
+            p, n = np.array(fr['p']), np.array(fr['n'])
+            for k, f in enumerate(facce):
+                inf = A.face_info(parte, f)
+                if inf['kind'] != 'conica':
+                    continue
+                v = np.array(inf['p']) - p
+                if abs(abs(np.dot(inf['n'], n)) - 1) < 1e-6 and np.linalg.norm(v - n * np.dot(v, n)) < 1e-3:
+                    k_sva = k
+                    break
+        if k_sva is None:
+            return None
+        vite = self.asm_parts[self.asm.instance(nuovo)['file']]
+        import build123d as bd
+        coni = [(bd.Face(f).area, k) for k, f in enumerate(_faces_of(vite.shape)) if A.face_info(vite, f)['kind'] == 'conica']
+        if not coni:
+            return None
+        k_testa = max(coni)[1]                       # la testa: il cono più grande (la punta smussata è un cono piccolo)
+        r = self.asm_add_mate('cono', {'inst': foro['inst'], 'face': k_sva}, {'inst': nuovo, 'face': k_testa})
+        return r if r.get('ok') else None
 
     @_in_assieme
     def asm_set_finitura(self, iid: str, campi: dict | None) -> dict:

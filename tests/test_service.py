@@ -869,13 +869,18 @@ def test_fori_svasati_filettati_e_per_inserti():
     assert len([f for f in bd.Shape.cast(s.result.body.shape).faces() if f.geom_type == bd.GeomType.CONE]) == 2
     voce = next(n['label'] for n in s.state()['tree']['children'][0]['children'] if n['label'].startswith('Taglio'))
     assert '2 × M6' in voce and 'svasati Ø8' in voce and 'XYZ-M4' in voce
-    # svasatura più profonda dello spessore: rifiutata con un messaggio chiaro
+    # svasatura più profonda dello spessore (21/10): il pezzo non si blocca, il foro si fa dritto, la svasatura resta
+    # in rosso con l'avviso
     sid2 = s.sketch_on_face('SM1/sopra')['sketch']
     assert s.sketch_add_circle(sid2, [180, 50], 2)['ok']
     c2 = [c['id'] for c in s.sketch_view(sid2)['sketch']['circles'] if not c['ref']]
-    assert s.sketch_hole_type(sid2, c2, {'tipo': 'svasato', 'D': 14, 'angolo': 90})['ok']
+    r = s.sketch_hole_type(sid2, c2, {'tipo': 'svasato', 'D': 14, 'angolo': 90})
+    assert not r['ok'] and 'profonda' in r['message']                  # Applica la rifiuta, col perché
+    s.doc.sketch(sid2).entities[c2[0]]['hole'] = {'tipo': 'svasato', 'D': 14, 'angolo': 90}   # come in un progetto vecchio
     r = s.create_from_sketch(sid2, 'cut', {})
-    assert not r['ok'] and 'spessore' in r['message']
+    assert r['ok'] and not s.state()['errors']
+    assert any('spessore' in w for w in s.state()['warnings'])
+    assert len(s.scene()['svasature_ko']) == 1
 
 
 def test_persiane_e_imbutiture():

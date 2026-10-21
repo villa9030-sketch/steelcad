@@ -243,7 +243,7 @@ def main():
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.length === 1")
             time.sleep(0.4)
             attesi = {
-                'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal', 'new_plate': 'modal',
+                'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal',
                 'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'modal',
                 'export_dxf': 'toast', 'export_bendtable': 'toast', 'export_step': 'toast', 'show_cut': 'cut', 'show_bom': 'bom',
             }
@@ -280,7 +280,8 @@ def main():
             ok('schermata del pezzo: comandi nella barra in alto, pannello a destra chiuso',
                pg.is_visible('#ribbon [data-azione="tipo_foro"]') and not pg.is_visible('#right'))
             pg.click('#ribbon [data-cmd="unfold"]')
-            time.sleep(0.5)
+            pg.wait_for_function('window.__steelcad.look.flat', timeout=20000)   # dopo l'animazione
+            time.sleep(0.3)
             ok('barra → Spiega: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
             pg.evaluate("window.__steelcad.runCmd('unfold')")
             time.sleep(0.4)

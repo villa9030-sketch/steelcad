@@ -172,6 +172,10 @@ def project_tree(doc, result) -> dict:
                             dove[fl['id']] = nome
                             testo = f'Piega {nome}, {_mm(fl.get("length"))} mm{_ang(ang)} {verso}'
                         part['children'].append(_n(testo, 'flange', f'{fid}/{fl["id"]}'))
+                        for e in fl.get('ears') or []:
+                            verso_e = 'verso fuori' if e.get('side') == 'out' else 'verso dentro'
+                            part['children'].append(_n(f'Piega {_mm(e.get("length"))} mm{_ang(e.get("angle", 90))} {verso_e}',
+                                                       'flange', f'{fid}/{fl["id"]}/{e.get("end")}'))
         root['children'].append(part)
     # le strutture, per gruppo e per misura
     for st in result.structures:

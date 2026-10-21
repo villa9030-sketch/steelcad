@@ -34,7 +34,7 @@ FORMAT_VERSION = 1
 MATE_TYPES = {'faccia': 'faccia su faccia', 'asse': 'foro su foro (coassiale)', 'distanza': 'distanza',
               'parallelo': 'parallele', 'perpendicolare': 'perpendicolari', 'angolo': 'angolo',
               'tangente': 'tangente', 'centra': 'in mezzo', 'blocca': 'blocca',
-              'spigolo': 'spigolo su spigolo', 'spigolo_faccia': 'spigolo su faccia'}
+              'spigolo': 'spigolo su spigolo', 'spigolo_faccia': 'spigolo su faccia', 'cono': 'cono su cono'}
 
 
 class AssemblyError(SteelCADError):
@@ -199,7 +199,7 @@ def face_info(part: Part, face) -> dict:
     """Cosa serve per un accoppiamento: piana (punto, normale) o cilindrica (punto sull'asse, direzione)."""
     import build123d as bd
     from OCP.BRepAdaptor import BRepAdaptor_Surface
-    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.GeomAbs import GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
     from OCP.TopAbs import TopAbs_REVERSED
     ad = BRepAdaptor_Surface(face)
     bf = bd.Face(face)
@@ -216,6 +216,15 @@ def face_info(part: Part, face) -> dict:
         q = o + d * np.dot(np.array([c.X, c.Y, c.Z]) - o, d)        # il punto dell'asse davanti al centro
         return {'kind': 'cilindrica', 'name': nome, 'p': q.tolist(), 'n': d.tolist(),
                 'r': ad.Cylinder().Radius(), 'reversed': face.Orientation() == TopAbs_REVERSED}
+    if ad.GetType() == GeomAbs_Cone:
+        cono = ad.Cone()
+        ap, d = cono.Apex(), cono.Axis().Direction()
+        apice = np.array([ap.X(), ap.Y(), ap.Z()])
+        d = np.array([d.X(), d.Y(), d.Z()])
+        if np.dot(np.array([c.X, c.Y, c.Z]) - apice, d) < 0:     # verso dove il cono si allarga (dove sta la faccia)
+            d = -d
+        return {'kind': 'conica', 'name': nome, 'p': apice.tolist(), 'n': d.tolist(),
+                'r': abs(math.degrees(cono.SemiAngle()))}
     return {'kind': 'altra', 'name': nome, 'p': [c.X, c.Y, c.Z], 'n': [0, 0, 1]}
 
 
@@ -266,7 +275,7 @@ def resolve_ref(part: Part, ref: dict) -> dict:
     from .topology.naming import _faces_of
     if ref.get('kind') == 'spigolo':
         return _resolve_edge(part, ref)
-    tipo = 'piana' if ref.get('kind') == 'piana' else 'cilindrica'
+    tipo = ref.get('kind') if ref.get('kind') in ('piana', 'conica') else 'cilindrica'
     cand = []
     nome = ref.get('name')
     tutte = list(_faces_of(part.shape))
@@ -279,7 +288,7 @@ def resolve_ref(part: Part, ref: dict) -> dict:
         info = face_info(part, f)
         if info['kind'] != tipo:
             continue
-        if tipo == 'cilindrica' and ref.get('r') and abs(info['r'] - ref['r']) > 1e-3:
+        if tipo in ('cilindrica', 'conica') and ref.get('r') and abs(info['r'] - ref['r']) > 1e-3:
             continue
         d = np.linalg.norm(np.array(info['p']) - p0)
         if tipo == 'cilindrica':                        # distanza dall'asse, non dal punto
@@ -432,6 +441,8 @@ def residui(m, F: dict, pose_ab=None, peso=PESO_DIR) -> np.ndarray:
         return np.concatenate([(nB - verso) * PESO_DIR, [np.dot(nA, B['p'] - A['p']) - off]])
     if t == 'asse':
         return np.concatenate([np.cross(nA, nB) * PESO_DIR, _perp(B['p'] - A['p'], nA)])
+    if t == 'cono':
+        return np.concatenate([(nB - nA) * PESO_DIR, B['p'] - A['p']])
     if t == 'parallelo':
         return np.cross(nA, nB) * PESO_DIR
     if t == 'perpendicolare':
@@ -537,6 +548,9 @@ def _partenza(R0, T0, dati, pose, iid):
         if t in ('faccia', 'distanza'):
             dst.append(nA if m.get('flip') else -nA)
             src.append(nB)
+        elif t == 'cono':
+            dst.append(nA)
+            src.append(nB)
         elif t in ('asse', 'parallelo', 'centra'):
             v = nA if np.dot(R0 @ nB, nA) >= 0 else -nA
             if m.get('flip') and t != 'centra':
@@ -567,6 +581,10 @@ def _partenza(R0, T0, dati, pose, iid):
             off = float(m.get('offset') or 0) * (-1 if kf == 'b' and m.get('flip') else 1)
             righe.append(nA)
             valori.append(float(np.dot(nA, pA) + off - np.dot(nA, pB)))
+        elif m['type'] == 'cono':
+            for e in np.eye(3):
+                righe.append(e)
+                valori.append(float(np.dot(e, pA) - np.dot(e, pB)))
         elif m['type'] == 'asse':
             u = np.cross(nA, [1, 0, 0]) if abs(nA[0]) < 0.9 else np.cross(nA, [0, 1, 0])
             u /= np.linalg.norm(u)

@@ -309,11 +309,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         if data is not None and data.free_edges and self._sheet_def(data.feature) is not None:   # coni e raccordi: niente
             sk = self.doc.sketch(self._sheet_def(data.feature)['sketch'])
             for e in data.free_edges:
-                testo = (f'punta di {e["ref"]}' if e['kind'] == 'tip' else sk.describe(e['ref']))
+                testo = (f'punta di {e["ref"]}' if e['kind'] == 'tip' else
+                         f'bordo di {e["ref"].split("/")[0]}' if e['kind'] == 'side' else sk.describe(e['ref']))
                 bordi.append({**e, 'feature': data.feature, 'id': f'{e["kind"]}:{e["ref"]}',
                               'label': f'{testo} ({fmt_mm(round(e["length"], 1))} mm)', 'thickness': data.thickness})
         return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
-                'bend_edges': bordi, 'threads': self._filettature(),
+                'bend_edges': bordi, 'threads': self._filettature(), 'svasature_ko': self._svasature_ko(),
                 'marks': [m['pezzo'] for m in (getattr(data, 'marks', None) or []) if m.get('pezzo')] if data is not None else []}
 
     def _oggetti_contesto(self) -> list:
@@ -342,6 +343,39 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             mat = [M[0][0], M[0][1], M[0][2], t[0], M[1][0], M[1][1], M[1][2], t[1], M[2][0], M[2][1], M[2][2], t[2], 0, 0, 0, 1]
             out.append({'id': f'contesto{k}', 'kind': 'context', 'name': Path(file).stem, 'matrix': [float(v) for v in mat],
                         'positions': m['positions'], 'indices': m['indices'], 'faces': [], 'edges': m['edges']})
+        return out
+
+    def _svasature_ko(self) -> list:
+        """Le svasature impossibili (più profonde dello spessore, o non più larghe del foro): il motore fa il foro dritto,
+        qui dove disegnarle in rosso."""
+        import math as _m
+        out = []
+        r = self.result
+        sp = getattr(getattr(r.body, 'sheet', None), 'thickness', None) if r.body is not None else None
+        if sp is None:
+            return out
+        for t in self.doc.features:
+            if isinstance(t, Sketch) or t.get('type') not in ('sheet_cut', 'sheet') or not t.get('sketch'):
+                continue
+            fatto = (self.doc._sketch_results or {}).get(t['sketch'])
+            if not fatto or fatto[1] is None:
+                continue
+            ss, pl = fatto[0], fatto[1].plane
+            sk = self.doc.sketch(t['sketch'])
+            for cid, (c, rr) in ss.circles.items():
+                h = sk.entities[cid].get('hole') or {}
+                if h.get('tipo') != 'svasato':
+                    continue
+                try:
+                    D, ang = float(h.get('D', 0)), _m.radians(float(h.get('angolo', 90)))
+                except (TypeError, ValueError):
+                    continue
+                prof = (D - 2 * rr) / 2 / _m.tan(ang / 2) if 0 < ang < _m.pi else 0
+                if D > 2 * rr and prof <= sp + 1e-6:
+                    continue
+                q, n = pl.from_local_coords(ss.points[c]), (pl.z_dir if t.get('type') == 'sheet' else -pl.z_dir)
+                out.append({'c': [q.X, q.Y, q.Z], 'n': [n.X, n.Y, n.Z], 'D': max(D, 2 * rr + 0.5), 'd': 2 * rr,
+                            'h': min(max(prof, 0.3), sp * 2)})
         return out
 
     def _filettature(self) -> list:
@@ -469,6 +503,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 return _ok(selection=self._node_selection(obj_id))
             if obj_id.startswith('struct='):
                 return _ok(selection=self._structure_selection(obj_id[7:]))
+            if obj_id.startswith('flange=') and obj_id.count('/') == 2:
+                return _ok(selection=self._side_selection(*obj_id[7:].split('/')))
             if obj_id.startswith('flange='):
                 fid_, flid_ = obj_id[7:].split('/')
                 if any(x['id'] == flid_ for x in (self._sheet_def(fid_) or {}).get('folds') or []):
@@ -602,6 +638,103 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 tabs.append({'end': end, 'gap': g})
             fl['end_tabs'] = tabs
         return self._edit_sheet(fid, f'{flid}: {"chiudi" if on else "apri"} la testata', fn)
+
+    def _side_selection(self, fid: str, flid: str, end: str) -> dict:
+        sm = self._sheet_def(fid)
+        fl = next(x for x in sm['flanges'] if x['id'] == flid)
+        e = next((x for x in fl.get('ears') or [] if x.get('end') == end), None)
+        if e is None:
+            raise SteelCADError('Questa piega non c’è più.', code='piega')
+        return {'kind': 'sidebend', 'feature': fid, 'flange': flid, 'end': end, 'title': 'Piega sul bordo', 'rows': [],
+                'def': {'length': e.get('length', 20), 'angle': e.get('angle', 90),
+                        'direction': 'down' if e.get('side') == 'out' else 'up'},
+                'highlight': self._face_indices(f'{fid}/{flid}/{end}') if self.result.body is not None else []}
+
+    def fold_frames(self, n: int = 6) -> dict:
+        """Per l'animazione Spiega/Ripiega: il pezzo con le pieghe aperte a metà strada (angoli × k/n, k = n-1 … 1),
+        dal piegato verso il piano. Solo la lamiera (le lavorazioni dopo non servono per vederla aprirsi). Coni e
+        raccordi: niente (l'interfaccia fa una dissolvenza)."""
+        import copy as _copy
+
+        from cad_engine.expressions import evaluate
+        from cad_engine.mesh import tessellate
+        data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+        sm = self._sheet_def(data.feature) if data is not None else None
+        if sm is None:
+            return _ok(frames=[])
+        chiave = (self.scene_version, n)
+        fatto = getattr(self, '_passi_piega', None)
+        if fatto and fatto[0] == chiave:             # stesso pezzo: Spiega e poi Ripiega usano gli stessi passi
+            return _ok(frames=fatto[1])
+        d = self.doc.to_dict()
+        k_sm = next(i for i, f in enumerate(d['features']) if f.get('id') == sm['id'])
+        d['features'] = d['features'][:k_sm + 1]
+        par = self.doc.resolved_parameters()
+
+        def angolo(v, base=90.0):
+            try:
+                return float(evaluate(v, par, what='l’angolo')) if v not in (None, '') else base
+            except Exception:  # noqa: BLE001
+                return None
+        frames = []
+        for k in range(n - 1, 0, -1):
+            dd = _copy.deepcopy(d)
+            f = dd['features'][-1]
+            f['_animazione'] = True
+            ok = True
+            for fl in (f.get('flanges') or []) + (f.get('folds') or []):
+                a = angolo(fl.get('angle'))
+                if a is None:
+                    ok = False
+                    break
+                fl['angle'] = max(1.0, a * k / n)
+                for e in fl.get('ears') or []:
+                    a2 = angolo(e.get('angle'))
+                    e['angle'] = max(1.0, (a2 or 90.0) * k / n)
+            if not ok:
+                return _ok(frames=[])
+            try:
+                doc2 = Document.from_dict(dd)
+                r = doc2.rebuild()
+            except Exception:  # noqa: BLE001
+                break
+            if r.body is None:
+                break
+            m = tessellate(r.body.shape)
+            frames.append({'positions': m['positions'], 'indices': m['indices']})
+        self._passi_piega = (chiave, frames)
+        return _ok(frames=frames)
+
+    def set_ear(self, fid: str, flid: str, end: str, on: bool, fields: dict | None = None) -> dict:
+        """Piega sul fianco della parete, a 90° verso l'interno (on=False la toglie): altezza, quanto è lunga lungo
+        il fianco (vuoto = tutto), distanza dal basso (vuota = dalla piega), gioco verso la parete vicina (0,2)."""
+        if end not in ('u0', 'u1'):
+            return {'ok': False, 'message': 'Fianco sconosciuto.'}
+        fields = fields or {}
+
+        def fn(sm):
+            fl = next(x for x in sm['flanges'] if x['id'] == flid)
+            if fl.get('parent'):
+                raise SteelCADError('Le pieghe sul fianco si fanno sulle pareti piegate dalla base.', code='fianco')
+            ears = [e for e in fl.get('ears') or [] if e.get('end') != end]
+            if on:
+                e = {'end': end}
+                for k in ('length', 'height', 'from', 'gap', 'angle'):
+                    v = str(fields.get(k, '')).strip()
+                    if v != '':
+                        e[k] = _number(v)
+                if fields.get('side') in ('in', 'out'):
+                    e['side'] = fields['side']
+                elif fields.get('direction') in ('up', 'down'):     # dal pannello delle pieghe: su = verso dentro
+                    e['side'] = 'in' if fields['direction'] == 'up' else 'out'
+                e.setdefault('length', 20)
+                e.setdefault('gap', 0.2)
+                ears.append(e)
+            fl['ears'] = ears
+        r = self._edit_sheet(fid, f'Piega sul bordo di {flid}' if on else f'Via la piega sul bordo di {flid}', fn)
+        if r.get('ok') and on:
+            r['select'] = f'flange={fid}/{flid}/{end}'
+        return r
 
     def _corners_of(self, sm, flid, data) -> list:
         """Le flange che hanno un angolo in comune con questa, e com'è chiuso l'angolo."""
@@ -1324,6 +1457,23 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 raise SteelCADError('Scegli uno o più cerchi (i fori).', code='foro')
             for e in cerchi:
                 self._applica_foro(sk, e, spec)
+            # una svasatura impossibile si rifiuta qui, col perché (il motore non la blocca più: farebbe il foro dritto)
+            sp = getattr(getattr(self.result.body, 'sheet', None), 'thickness', None) if self.result.body is not None else None
+            if spec and spec.get('tipo') == 'svasato' and sp:
+                import math as _m
+                D, ang = float(_number(spec.get('D'))), _m.radians(float(_number(spec.get('angolo', 90))))
+                try:
+                    raggi = self.doc.solved_sketch(sid).circles
+                except SteelCADError:
+                    raggi = {}
+                for e in cerchi:
+                    d = 2 * (raggi[e][1] if e in raggi else sk.entities[e].get('r', 0))
+                    if D <= d:
+                        raise SteelCADError(f'La svasatura (Ø{fmt_mm(D)}) deve essere più larga del foro (Ø{fmt_mm(d)}).', code='foro')
+                    h = (D - d) / 2 / _m.tan(ang / 2)
+                    if h > sp + 1e-6:
+                        raise SteelCADError(f'La svasatura Ø{fmt_mm(D)} a {fmt_mm(_m.degrees(ang))}° è profonda {fmt_mm(round(h, 2))} mm: '
+                                            f'più dello spessore ({fmt_mm(sp)}). Riduci il diametro della svasatura.', code='foro')
         testo = ('Foro semplice' if not spec else 'Foro filettato ' + str(spec.get('M', '')) if spec.get('tipo') == 'filettato'
                  else 'Foro per inserto ' + str(spec.get('codice', '')) if spec.get('tipo') == 'inserto'
                  else f'Foro svasato Ø{spec.get("D")}')
@@ -1380,7 +1530,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         o, d = cil.Axis().Location(), cil.Axis().Direction()
         prima = nome.split('/')[0] if nome else None
         tagli = [x for x in self.doc.features if not isinstance(x, Sketch) and x.get('sketch')
-                 and (x.get('type') == 'sheet_cut' or (x.get('type') == 'extrude' and x.get('operation') == 'cut'))]
+                 and (x.get('type') in ('sheet_cut', 'sheet') or (x.get('type') == 'extrude' and x.get('operation') == 'cut'))]
         tagli.sort(key=lambda x: x.get('id') != prima)              # prima il taglio che ha fatto questa faccia
         for t in tagli:
             sid = t['sketch']
@@ -1398,7 +1548,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 fuori = (v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - along ** 2) ** 0.5 if v[0] ** 2 + v[1] ** 2 + v[2] ** 2 > along ** 2 else 0.0
                 if fuori < 1e-3:
                     uguali = [k for k, (_, r2) in ss.circles.items() if abs(r2 - r) < 1e-6 and not sk.entities[k].get('construction')]
-                    return {'sketch': sid, 'cerchio': cid, 'd': 2 * r, 'hole': sk.entities[cid].get('hole'), 'uguali': uguali}
+                    # per l'anteprima della svasatura: dove sono i centri sulla faccia e da che parte è il materiale
+                    centri = {k: (lambda q: [q.X, q.Y, q.Z])(pl.from_local_coords(ss.points[ss.circles[k][0]])) for k in uguali}
+                    dentro = pl.z_dir if t.get('type') == 'sheet' else -pl.z_dir   # la base cresce dallo sketch verso z
+                    data = getattr(self.result.body, 'sheet', None)
+                    return {'sketch': sid, 'cerchio': cid, 'd': 2 * r, 'hole': sk.entities[cid].get('hole'), 'uguali': uguali,
+                            'centri': centri, 'dentro': [dentro.X, dentro.Y, dentro.Z],
+                            'spessore': data.thickness if data is not None else None}
         return None
 
     @staticmethod
