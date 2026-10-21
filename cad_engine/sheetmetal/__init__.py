@@ -178,6 +178,12 @@ class SheetData:
     tip_mode: str = 'long'
     free_edges: list = field(default_factory=list)     # bordi dove si può ancora piegare: per sceglierli col mouse
     marks: list = field(default_factory=list)          # marcature: [{'flat': [punti sullo sviluppo], 'pezzo': [punti 3D]}]
+    # campi veri (21/10): prima erano attributi aggiunti a mano e un dataclasses.replace (aggiungi materiale, un avviso)
+    # li perdeva: sulle facce delle pieghe sui bordi non si tagliava più
+    bend_rows: object = None                           # tabella pieghe delle forme (coni, raccordi…)
+    shape_info: object = None
+    pannelli: dict = field(default_factory=dict)       # faccia -> (piano sul pezzo, piano nello sviluppo, verso dentro)
+    fold_pos: dict = field(default_factory=dict)
 
     def in_ordine(self) -> list:
         """Le flange nell'ordine delle loro linee di piega sullo sviluppo, da un capo all'altro (21/10: una catena di
@@ -252,7 +258,14 @@ class SheetData:
         out = []
         for w in self.flat.wires():
             tratti = []
-            for e in w.edges():
+            es = w.edges()
+            if len(es) == 1 and es[0].geom_type == bd.GeomType.CIRCLE:
+                # un foro tondo: i punti a conto fatto nel piano (punto per punto costava un secondo con 400 fori)
+                c, r = self.plane.to_local_coords(es[0].arc_center), es[0].radius
+                out.append([round(v, 3) for k in range(24)
+                            for v in (c.X + r * math.cos(2 * math.pi * k / 24), c.Y + r * math.sin(2 * math.pi * k / 24))])
+                continue
+            for e in es:
                 n = 2 if e.geom_type == bd.GeomType.LINE else 24
                 tratti.append([(q.X, q.Y) for q in (self.plane.to_local_coords(p)
                                                     for p in e.positions([i / (n - 1) for i in range(n)]))])
@@ -736,8 +749,10 @@ def flat_size(flat, pl) -> tuple:
     """Ingombro (larghezza, altezza) dello sviluppo nel piano dello sketch, cerchi compresi."""
     if flat is None:
         return (0.0, 0.0)
-    bb = [pl.to_local_coords(v) for v in flat.vertices()]
-    for e in flat.edges():
+    # basta il contorno esterno: i buchi stanno dentro (400 fori costavano un terzo di secondo per niente)
+    giro = flat.outer_wire() if isinstance(flat, bd.Face) else flat
+    bb = [pl.to_local_coords(v) for v in giro.vertices()]
+    for e in giro.edges():
         if e.geom_type == bd.GeomType.CIRCLE:
             for p in (e.arc_center - e.radius * pl.x_dir, e.arc_center + e.radius * pl.x_dir,
                       e.arc_center - e.radius * pl.y_dir, e.arc_center + e.radius * pl.y_dir):
@@ -2168,15 +2183,16 @@ def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
     return ns
 
 
-def _in_striscia(x, g: FlangeGeo, data) -> bool:
+def _in_striscia(x, g: FlangeGeo, data, bb=None) -> bool:
     """Il pezzo (nello sviluppo) sta tutto, dove c'è lamiera, nel tratto dritto della flangia g?"""
     s1 = g.off + g.bend.ba
     s2 = s1 + g.lf
     # uscita rapida: gli spigoli dell'ingombro contengono il pezzo; se in (u, s) cadono tutti fuori dal tratto
     # dritto, nessun punto del pezzo ci sta e la risposta è no (qualunque punto nello sviluppo direbbe no)
-    bb = x.bounding_box()
-    us = [((q - g.F0).dot(g.fx), (q - g.F0).dot(g.fn)) for q in
-          (bd.Vector(cx, cy, cz) for cx in (bb.min.X, bb.max.X) for cy in (bb.min.Y, bb.max.Y) for cz in (bb.min.Z, bb.max.Z))]
+    bb = bb or x.bounding_box()
+    (ox, oy, oz), (ax, ay, az), (nx, ny, nz) = ((g.F0.X, g.F0.Y, g.F0.Z), (g.fx.X, g.fx.Y, g.fx.Z), (g.fn.X, g.fn.Y, g.fn.Z))
+    us = [((cx - ox) * ax + (cy - oy) * ay + (cz - oz) * az, (cx - ox) * nx + (cy - oy) * ny + (cz - oz) * nz)
+          for cx in (bb.min.X, bb.max.X) for cy in (bb.min.Y, bb.max.Y) for cz in (bb.min.Z, bb.max.Z)]
     if (max(u for u, _ in us) < g.u0 - TOL or min(u for u, _ in us) > g.u1 + TOL
             or max(v for _, v in us) < s1 - TOL or min(v for _, v in us) > s2 + TOL):
         return False
@@ -2201,10 +2217,26 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 
     from ..features.base import volume
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+    from OCP.gp import gp_Vec
     fid = fdef['id']
     attrezzi, atteso = [], 0.0
     strisce = [(g, _bend_rect(g)) for g in data.flanges]
     strisce = [(g, r, r.bounding_box()) for g, r in strisce]
+    # 21/10: 400 fori in un taglio costavano secondi a ogni modifica: ogni foro si intersecava con lo sviluppo
+    # intero (coi suoi 400 buchi). Se il foro sta dentro il contorno esterno e lontano dai buchi che ci sono già,
+    # l'intersezione è il foro stesso
+    esterno = bd.Face(data.flat.outer_wire())
+    buchi = [w.bounding_box() for w in data.flat.inner_wires()]
+
+    def sovrappone(b1, b2):
+        return not (b1.max.X < b2.min.X - TOL or b2.max.X < b1.min.X - TOL or b1.max.Y < b2.min.Y - TOL
+                    or b2.max.Y < b1.min.Y - TOL or b1.max.Z < b2.min.Z - TOL or b2.max.Z < b1.min.Z - TOL)
+
+    def tutto_dentro(x, bx):
+        if any(sovrappone(bx, b) for b in buchi):
+            return False
+        return all(esterno.is_inside(p) for e in x.edges() for p in e.positions([0, 0.25, 0.5, 0.75]))
     for i, f in enumerate(contorni):
         resto = [f]
         bf = f.bounding_box()
@@ -2221,13 +2253,14 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
                 atteso += dentro * t * (g.bend.r + t / 2) / (g.bend.ba / math.radians(g.bend.angle))
             resto = [y for z in resto for y in _facce(z - rett)]
         # solo dove c'è lamiera: la parte fuori dallo sviluppo, portata nel pezzo piegato, taglierebbe altro
-        resto = [y for x in resto for y in _facce(x & data.flat)]
+        resto = [y for x in resto for y in ([x] if tutto_dentro(x, x.bounding_box()) else _facce(x & data.flat))]
         for x in resto:
             dentro = x.area
             if ritorni:
                 # disegnato su una faccia: il pezzo torna sulla faccia da cui viene, a meno che stia tutto nel
                 # tratto dritto di un'altra flangia (è uscito dalla faccia e ha passato una piega)
-                altra = next((h for h in data.flanges if h is not ritorni[i][2] and _in_striscia(x, h, data)), None)
+                bx = x.bounding_box()
+                altra = next((h for h in data.flanges if h is not ritorni[i][2] and _in_striscia(x, h, data, bx)), None)
                 if altra is None:
                     f3, verso = x.moved(ritorni[i][0]), ritorni[i][1]
                 else:
@@ -2235,7 +2268,8 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
                     f3, verso = x.moved(src.location * dst.location.inverse()), altra.frame()[1]
             else:
                 f3, verso, _ = _from_flat(x, data, fid)
-            attrezzi.append(bd.extrude(f3, amount=t + 0.02, dir=tuple(verso)))   # dalla faccia: sopra può appoggiare altro
+            v = bd.Vector(verso).normalized() * (t + 0.02)               # dalla faccia: sopra può appoggiare altro
+            attrezzi.append(bd.Shape.cast(BRepPrimAPI_MakePrism(f3.wrapped, gp_Vec(v.X, v.Y, v.Z)).Shape()))
             atteso += dentro * t
     if not attrezzi:
         raise FeatureError('Il contorno disegnato è fuori dallo sviluppo: non toglie niente.', feature=fid)

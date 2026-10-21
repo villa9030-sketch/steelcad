@@ -146,6 +146,18 @@ class Api:
     def set_end_tab(self, fid, flid, end, on, gap=0):
         return self._call(self._svc.set_end_tab, fid, flid, end, on, gap)
 
+    def add_edge_flange(self, face, ea, eb, fields):
+        return self._call(self._svc.add_edge_flange, face, ea, eb, fields)
+
+    def edit_edge_flange(self, fid, fields):
+        return self._call(self._svc.edit_edge_flange, fid, fields)
+
+    def tree_menu(self, kind, ref):
+        return self._call(self._svc.tree_menu, kind, ref)
+
+    def tree_action(self, kind, ref, azione, valore=None):
+        return self._call(self._svc.tree_action, kind, ref, azione, valore)
+
     def fold_frames(self, n=6):
         return self._call(self._svc.fold_frames, n)
 

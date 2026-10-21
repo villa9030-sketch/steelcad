@@ -837,3 +837,13 @@ body.sketching.disegno-attivo #dims .dim:not(.edit) { pointer-events: none; }
 
 /* il problema del disegno, sotto l'aiuto (al posto del riquadro «Stai disegnando…», 21/10) */
 .sk-problema { margin-top: 4px; font-size: 12px; color: #FF8A80; font-weight: 600; }
+
+/* tasto destro sull'albero (21/10) */
+.menu-albero { position: fixed; z-index: 200; min-width: 200px; padding: 4px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); display: flex; flex-direction: column; }
+.menu-albero button { text-align: left; padding: 7px 10px; border: 0; background: none; color: var(--ink); font: inherit; font-size: 13px;
+  border-radius: 4px; cursor: pointer; }
+.menu-albero button:hover { background: var(--hover-bg, rgba(78, 161, 255, .15)); }
+.menu-albero button.danger { color: #FF6B6B; }
+#tree .node.spenta { opacity: .5; text-decoration: line-through; }
+.lista-dip { margin: 4px 0 8px 18px; font-size: 12px; }

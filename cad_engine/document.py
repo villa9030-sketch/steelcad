@@ -25,9 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'revolve': 'Rivoluzione', 'step_lamiera': 'Lamiera da STEP', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
-        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma'}
+        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma', 'sheet_edge_flange': 'Piega su un bordo'}
 
 
 @dataclass
@@ -192,7 +192,16 @@ class Document:
                 on_face = isinstance(f.plane, dict)
                 # chi usa lo sketch decide se un contorno aperto è un errore: entra nella chiave della cache,
                 # se no il risultato dipenderebbe da cosa c'era in memoria
-                h = _hash(f.to_dict(), self._used(f, params), body_hash if on_face else '', sorted(usi.get(fid, ())))
+                # su una faccia conta dove sta la faccia, non tutto il pezzo: cambiando un'altra parte lo sketch (coi
+                # suoi 400 fori) non si rifà da capo (21/10)
+                dove = ''
+                if on_face:
+                    try:
+                        pl_ = self._plane(f, body)
+                        dove = [round(v, 6) for q in (pl_.origin, pl_.x_dir, pl_.z_dir) for v in (q.X, q.Y, q.Z)]
+                    except SteelCADError:
+                        dove = body_hash
+                h = _hash(f.to_dict(), self._used(f, params), dove, sorted(usi.get(fid, ())))
                 sketch_hash[fid] = h
                 cached = self._cache.get(h)
                 if cached is not None:
@@ -248,6 +257,9 @@ class Document:
                 nuova_cache[h] = st_res
                 res.structures.append(st_res)
                 res.features.append(FeatureResult(fid, ftype, True, '', from_cache))
+                continue
+            if f.get('disattiva'):
+                res.features.append(FeatureResult(fid, ftype, True, 'Disattivata: non si fa (tasto destro → Attiva).'))
                 continue
             if blocked_by:
                 res.features.append(FeatureResult(fid, ftype, False,

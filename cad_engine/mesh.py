@@ -18,7 +18,9 @@ from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as T
 from .topology.naming import _edges_of, _faces_of
 
 
-def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angular: float = 0.25) -> dict:
+def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angular: float = 0.4) -> dict:
+    # angolo 0,4 rad (21/10): i fori piccoli a 16 lati invece di 25; quelli grandi li decide la freccia (0,15 mm).
+    # Con 400 fori il 3D si preparava in quasi 2 secondi
     BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
     pos: list[float] = []
     idx: list[int] = []
@@ -38,16 +40,21 @@ def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angula
             continue
         trsf = loc.Transformation()
         base = len(pos) // 3
-        for i in range(1, tri.NbNodes() + 1):
-            p = tri.Node(i).Transformed(trsf)
-            pos.extend((p.X(), p.Y(), p.Z()))
+        nodo, piazza = tri.Node, pos.extend
+        if loc.IsIdentity():                   # di solito: niente trasformazione punto per punto
+            for i in range(1, tri.NbNodes() + 1):
+                p = nodo(i)
+                piazza((p.X(), p.Y(), p.Z()))
+        else:
+            for i in range(1, tri.NbNodes() + 1):
+                p = nodo(i).Transformed(trsf)
+                piazza((p.X(), p.Y(), p.Z()))
         rev = f.Orientation() == TopAbs_REVERSED
         start = len(idx)
+        triangolo, metti, b0 = tri.Triangle, idx.extend, base - 1
         for i in range(1, tri.NbTriangles() + 1):
-            a, b, c = tri.Triangle(i).Get()
-            if rev:
-                b, c = c, b
-            idx.extend((base + a - 1, base + b - 1, base + c - 1))
+            a, b, c = triangolo(i).Get()
+            metti((b0 + a, b0 + c, b0 + b) if rev else (b0 + a, b0 + b, b0 + c))
         i_nome = con_nome.FindIndex(f)
         nome = nomi[i_nome - 1] if i_nome else None
         faces.append({'name': nome, 'index': k, 'start': start, 'count': len(idx) - start})

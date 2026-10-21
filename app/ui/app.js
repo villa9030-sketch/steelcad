@@ -359,11 +359,13 @@ function dressFine() {
 // piega sul bordo laterale di una parete: altezza, angolo, verso dentro/fuori. Nuova (dal bordo cliccato) o già fatta
 let ultimaBordo = { length: '20', angle: '90', direction: 'up' };
 function pannelloPiegaBordo(e, fatta = null) {
-  const [flange, end] = (fatta ? [fatta.flange, fatta.end] : e.ref.split('/'));
+  const libero = fatta ? fatta.kind === 'edgeflange' : e.kind === 'libero';
+  const [flange, end] = libero ? [null, null] : (fatta ? [fatta.flange, fatta.end] : e.ref.split('/'));
   const feature = fatta ? fatta.feature : e.feature;
   const d = fatta ? fatta.def : ultimaBordo;
   $('#props').innerHTML = `<h3>${fatta ? 'Piega sul bordo' : 'Piega su questo bordo'}</h3>
-    <p class="hint" style="margin:6px 0">Verso dentro a 90°: la parete che pieghi dopo su quel lato sale e resta dentro (gioco 0,2 mm).</p>
+    <p class="hint" style="margin:6px 0">${libero ? 'Altezza fuori tutto dallo spigolo esterno; la piega parte dal bordo.'
+      : 'Verso dentro a 90°: la parete che pieghi dopo su quel lato sale e resta dentro (gioco 0,2 mm).'}</p>
     ${flangeFields(d, VERSI_PUNTA, POS_UI)}
     <div class="row-btns"><button class="btn primary" id="f-add">${fatta ? 'Cambia' : 'Aggiungi piega'}</button></div>
     ${fatta ? '<div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button></div>' : ''}`;
@@ -371,11 +373,16 @@ function pannelloPiegaBordo(e, fatta = null) {
   const vai = () => {
     const f = readFlange();
     if (!fatta) ultimaBordo = f;
-    inCoda(async () => { const r = await call('set_ear', feature, flange, end, true, f); if (await apply(r) && r.select) await select(r.select); });
+    inCoda(async () => {
+      const r = libero ? (fatta ? await call('edit_edge_flange', feature, f) : await call('add_edge_flange', e.face, e.ea, e.eb, f))
+        : await call('set_ear', feature, flange, end, true, f);
+      if (await apply(r) && r.select) await select(r.select);
+    });
   };
   $('#f-add').onclick = vai;
   ['#f-len', '#f-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
-  if (fatta) $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('set_ear', feature, flange, end, false))); };
+  if (fatta) $('#f-del').onclick = () => (libero ? confermaElimina('sheet_edge_flange', feature, 'Piega sul bordo')
+    : confermaElimina('flange', `${feature}/${flange}/${end}`, 'Piega sul bordo'));
   else { $('#f-len').focus(); $('#f-len').select(); }
 }
 function selectEdge(e) {
@@ -384,7 +391,7 @@ function selectEdge(e) {
   hover = null;
   aggiornaLayout();
   paint(); renderTree(); paintNodes();
-  if (e.kind === 'side') { pannelloPiegaBordo(e); return; }
+  if (e.kind === 'side' || e.kind === 'libero') { pannelloPiegaBordo(e); return; }
   const punta = e.kind === 'tip';
   const d = punta ? ultimaPunta : ultimaFlangia;
   $('#props').innerHTML = `<h3>Flangia su questo bordo</h3><table class="grid"><tr><td>Bordo</td><td>${esc(e.label)}</td></tr></table>
@@ -952,7 +959,7 @@ async function caricaScena() {
   if (flatView || SK?.v.on_flat) { if (!buildFlat()) flatView = false; }
   if (SK?.v.on_face) buildWorkFace(SK.v.on_face);
   applyLook();
-  const esiste = id => objs.has(id) || nodes.some(n => n.id === id) || id.startsWith('flange=');
+  const esiste = id => objs.has(id) || nodes.some(n => n.id === id) || id.startsWith('flange=') || id.startsWith('pb=');
   if (sel?.id?.startsWith('edge=')) {
     const e = edgeSel();               // il bordo c'è ancora (libero)? se no la flangia l'ha preso
     if (e) selectEdge(e); else clearSelection();
@@ -1000,20 +1007,75 @@ function renderTree() {
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
     const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? ['struct=' + n.ref]
-      : n.kind === 'flange' ? ['flange=' + n.ref]
+      : n.kind === 'flange' ? ['flange=' + n.ref] : n.kind === 'sheet_edge_flange' ? ['pb=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
       : n.kind === 'instance' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref] : n.kind === 'assembly' ? ['assieme']
       : ['part', 'extrude', 'hole', 'fillet', 'chamfer', 'sheet'].includes(n.kind) ? ['body'] : null;
-    const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '',
+    const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '', n.status === 'disattivata' ? 'spenta' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
       ids && ids.length && ids.every(i => selIds.has(i)) && n.kind !== 'structure' && !(n.kind !== 'part' && ids[0] === 'body') ? 'sel' : ''];
     const st = n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
-    const data = ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '';
+    const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
     const figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
     return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${esc(n.label)}${st}</div>${figli}</li>`;
   };
   $('#tree').innerHTML = `<ul>${nodo(S.tree)}</ul>`;
 }
+// tasto destro su una voce dell'albero: modifica, rinomina, disattiva, elimina, perché è rossa (21/10)
+const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', disattiva: 'Disattiva (non farla, senza cancellarla)',
+  attiva: 'Attiva', elimina: 'Elimina…', perche: 'Perché è rossa?' };
+// Elimina con la conferma: cosa sparisce insieme (i disegni sopra, i tagli che li usano), poi tutto in un colpo
+async function confermaElimina(kind, ref, titolo, dip = null) {
+  if (dip === null) { const m = await call('tree_menu', kind, ref); dip = m.ok ? (m.dipendenti || []) : []; }
+  modal(`<h3>Elimina</h3><p>${esc(titolo)}</p>
+    ${dip.length ? `<p class="hint" style="color:var(--warn)">Spariscono anche ${dip.length === 1 ? 'questa voce, che la usa' : `queste ${dip.length} voci, che la usano`}:</p><ul class="lista-dip">${dip.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+    <p class="hint">Si può tornare indietro con Annulla (Ctrl+Z).</p>
+    <div class="acts"><button class="btn" id="m-no">No</button><button class="btn danger" id="m-ok">Elimina${dip.length ? ` (${dip.length + 1})` : ''}</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => { close(); clearSelection(); inCoda(async () => { const r2 = await call('tree_action', kind, ref, 'elimina'); await apply(r2, r2.message); }); };
+  });
+}
+function chiudiMenuAlbero() { document.getElementById('menu-albero')?.remove(); }
+$('#tree').addEventListener('contextmenu', ev => {
+  const n = ev.target.closest('.node[data-ref]');
+  if (!n || S?.mode === 'assembly') return;
+  ev.preventDefault();
+  chiudiMenuAlbero();
+  const kind = n.dataset.kind, ref = n.dataset.ref, titolo = n.title;
+  inCoda(async () => {
+    const m = await call('tree_menu', kind, ref);
+    if (!m.ok) { toast(m.message, 'err'); return; }
+    const box = document.createElement('div');
+    box.id = 'menu-albero'; box.className = 'menu-albero';
+    box.innerHTML = m.voci.map(v => `<button data-v="${v}"${v === 'elimina' ? ' class="danger"' : ''}>${VOCI_MENU[v]}</button>`).join('');
+    document.body.appendChild(box);
+    const r = box.getBoundingClientRect();
+    box.style.left = Math.min(ev.clientX, innerWidth - r.width - 8) + 'px';
+    box.style.top = Math.min(ev.clientY, innerHeight - r.height - 8) + 'px';
+    box.onclick = e => {
+      const v = e.target.closest('button')?.dataset.v;
+      if (!v) return;
+      chiudiMenuAlbero();
+      if (v === 'modifica') { if (m.sketch) enterSketch(m.sketch); else if (m.seleziona) select(m.seleziona); return; }
+      if (v === 'perche') { toast(m.errore, 'err'); return; }
+      if (v === 'rinomina') {
+        modal(`<h3>Rinomina</h3><div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="rn-n" value="${esc(m.nome || '')}" placeholder="${esc(titolo)}"></label></div>
+          <p class="hint">Vuoto = il nome che dà il programma.</p>
+          <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Rinomina</button></div>`, close => {
+          $('#m-no').onclick = close;
+          $('#m-ok').onclick = () => { const nome = $('#rn-n').value; close(); inCoda(async () => apply(await call('tree_action', kind, ref, 'rinomina', nome))); };
+          $('#rn-n').focus(); $('#rn-n').select();
+          $('#modal-box').onkeydown = e2 => { if (e2.key === 'Enter') $('#m-ok').click(); if (e2.key === 'Escape') close(); };
+        });
+        return;
+      }
+      if (v === 'elimina') { confermaElimina(kind, ref, titolo, m.dipendenti || []); return; }
+      inCoda(async () => apply(await call('tree_action', kind, ref, v)));   // disattiva / attiva
+    };
+  });
+});
+document.addEventListener('pointerdown', ev => { if (!ev.target.closest('#menu-albero')) chiudiMenuAlbero(); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') chiudiMenuAlbero(); });
 function membersOf(stId) { return [...objs.keys()].filter(k => k.startsWith(stId + '/')); }
 $('#tree').addEventListener('click', ev => {
   const n = ev.target.closest('.node.clickable');
@@ -1238,8 +1300,9 @@ async function renderProps(s) {
     $('#props').innerHTML = foldPanel(s) + faceSketchButton(s);
     wireFold(s);
     return;
-  } else if (s.kind === 'sidebend') {
+  } else if (s.kind === 'sidebend' || s.kind === 'edgeflange') {
     pannelloPiegaBordo(null, s);
+    if (s.face) $('#props').insertAdjacentHTML('beforeend', faceSketchButton(s));   // e ci si disegna sopra
     return;
   } else if (s.kind === 'flange') {
     $('#props').innerHTML = flangePanel(s) + faceSketchButton(s);
@@ -1407,6 +1470,11 @@ document.addEventListener('click', ev => {
 });
 
 function deleteSelected() {
+  if (sel?.id?.startsWith('flange=') && sel.id.split('/').length === 3 || sel?.id?.startsWith('pb=')) {
+    const kind = sel.id.startsWith('pb=') ? 'sheet_edge_flange' : 'flange', ref = sel.id.startsWith('pb=') ? sel.id.slice(3) : sel.id.slice(7);
+    confermaElimina(kind, ref, 'Piega sul bordo');
+    return;
+  }
   if (sel?.id?.startsWith('flange=')) {
     const [fid, flid] = sel.id.slice(7).split('/');
     clearSelection();

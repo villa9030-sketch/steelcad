@@ -308,14 +308,87 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         bordi = []
         if data is not None and data.free_edges and self._sheet_def(data.feature) is not None:   # coni e raccordi: niente
             sk = self.doc.sketch(self._sheet_def(data.feature)['sketch'])
+            bordi_noti = []
             for e in data.free_edges:
+                bordi_noti.append(e)
                 testo = (f'punta di {e["ref"]}' if e['kind'] == 'tip' else
                          f'bordo di {e["ref"].split("/")[0]}' if e['kind'] == 'side' else sk.describe(e['ref']))
                 bordi.append({**e, 'feature': data.feature, 'id': f'{e["kind"]}:{e["ref"]}',
                               'label': f'{testo} ({fmt_mm(round(e["length"], 1))} mm)', 'thickness': data.thickness})
+            for e in self._bordi_liberi(r.body, data, bordi_noti):
+                bordi.append({**e, 'feature': data.feature, 'thickness': data.thickness,
+                              'label': f'bordo ({fmt_mm(round(e["length"], 1))} mm)'})
         return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
                 'bend_edges': bordi, 'threads': self._filettature(), 'svasature_ko': self._svasature_ko(),
                 'marks': [m['pezzo'] for m in (getattr(data, 'marks', None) or []) if m.get('pezzo')] if data is not None else []}
+
+    def _bordi_liberi(self, body, data, noti) -> list:
+        """Gli altri bordi dritti liberi delle facce piane (materiale aggiunto, pieghe sui bordi…): dove si può
+        piegare. Quelli che sono già bordi di base, punte o fianchi di parete restano a loro."""
+        import build123d as bd
+        import numpy as np
+        from cad_engine.sheetmetal.edge_flange import fuori_dalla_vicina, mappa_spigoli
+        t = data.thickness
+        mappa = mappa_spigoli(body.shape)
+        facce = [n for n in body.names if n.endswith('/esterno') or n.endswith('/sopra')]
+        noti_seg = [(np.array(e['a'], dtype=float), np.array(e['b'], dtype=float)) for e in noti]
+
+        def gia(p, q):
+            m, d = (p + q) / 2, (q - p) / (np.linalg.norm(q - p) or 1)
+            for a, b in noti_seg:
+                u = (b - a) / (np.linalg.norm(b - a) or 1)
+                if abs(abs(np.dot(u, d)) - 1) > 1e-4:
+                    continue
+                v = m - a
+                if np.linalg.norm(v - u * np.dot(v, u)) < 1.5 * t and -t <= np.dot(v, u) <= np.linalg.norm(b - a) + t:
+                    return True
+            return False
+        out, visti = [], set()
+        for nome in facce:
+            for f in body.names[nome]:
+                F = bd.Face(f)
+                if F.geom_type != bd.GeomType.PLANE:
+                    continue
+                n = F.normal_at()
+                for e in F.outer_wire().edges():
+                    if e.geom_type != bd.GeomType.LINE or e.length < 5:
+                        continue
+                    a, b = e.position_at(0), e.position_at(1)
+                    if fuori_dalla_vicina(F, e, mappa, n) is None:
+                        continue
+                    pa = np.array([a.X, a.Y, a.Z]) - np.array([n.X, n.Y, n.Z]) * t / 2
+                    pb = np.array([b.X, b.Y, b.Z]) - np.array([n.X, n.Y, n.Z]) * t / 2
+                    if gia(pa, pb):
+                        continue
+                    chiave = tuple(np.round((pa + pb) / 2, 2))
+                    if chiave in visti:
+                        continue
+                    visti.add(chiave)
+                    out.append({'kind': 'libero', 'ref': nome, 'id': f'libero:{nome}:{chiave}', 'face': nome,
+                                'ea': [a.X, a.Y, a.Z], 'eb': [b.X, b.Y, b.Z],
+                                'a': pa.tolist(), 'b': pb.tolist(), 'length': e.length})
+        return out
+
+    def add_edge_flange(self, face: str, ea: list, eb: list, fields: dict) -> dict:
+        """Piega sul bordo libero (ea, eb sulla faccia face): altezza, angolo, verso dentro/fuori."""
+        nuovo = {}
+
+        def fn():
+            v = _edge_flange_fields(fields)
+            v.setdefault('length', 20)
+            nuovo['id'] = self.doc.add_feature('sheet_edge_flange', '', face=face, a=list(ea), b=list(eb), **v)
+        r = self._change('Piega su un bordo', fn)
+        if r.get('ok'):
+            r['select'] = f'pb={nuovo["id"]}'
+        return r
+
+    def edit_edge_flange(self, fid: str, fields: dict) -> dict:
+        def fn():
+            self.doc.feature(fid).update(_edge_flange_fields(fields))
+        r = self._change(f'Cambia la piega {fid}', fn)
+        if r.get('ok'):
+            r['select'] = f'pb={fid}'
+        return r
 
     def _oggetti_contesto(self) -> list:
         """Aperto dall'assieme: gli altri pezzi attorno, nelle coordinate di questo pezzo (si vedono, non si cliccano)."""
@@ -474,6 +547,20 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     nome = dati['face']['name'] or ''
                     parti = nome.split('/')
                     sm = self._sheet_def(parti[0]) if parti else None
+                    # la faccia di una piega sul bordo (di una parete o di un bordo libero): il pannello di quella piega
+                    if sm is not None and len(parti) == 4 and parti[2] in ('u0', 'u1'):
+                        fs = self._side_selection(parti[0], parti[1], parti[2])
+                        fs['face'] = dati['face']
+                        return _ok(selection=fs)
+                    if parti and parti[0].startswith('PB') and len(parti) >= 2:
+                        try:
+                            pb = self.doc.feature(parti[0])
+                        except SteelCADError:
+                            pb = None
+                        if pb is not None and not isinstance(pb, Sketch) and pb.get('type') == 'sheet_edge_flange':
+                            fs = self.select('pb=' + parti[0])['selection']
+                            fs['face'] = dati['face']
+                            return _ok(selection=fs)
                     if sm is not None and len(parti) == 3 and parti[1] == 'lato':
                         dati['flange_form'] = {'feature': parti[0], 'edge': parti[2],
                                                'label': self.doc.sketch(sm['sketch']).describe(parti[2])}
@@ -503,6 +590,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 return _ok(selection=self._node_selection(obj_id))
             if obj_id.startswith('struct='):
                 return _ok(selection=self._structure_selection(obj_id[7:]))
+            if obj_id.startswith('pb='):
+                f_ = self.doc.feature(obj_id[3:])
+                return _ok(selection={'kind': 'edgeflange', 'feature': f_['id'], 'title': 'Piega sul bordo', 'rows': [],
+                                      'def': {'length': f_.get('length', 20), 'angle': f_.get('angle', 90),
+                                              'direction': 'down' if f_.get('side') == 'out' else 'up'},
+                                      'highlight': self._face_indices(f_['id']) if self.result.body is not None else []})
             if obj_id.startswith('flange=') and obj_id.count('/') == 2:
                 return _ok(selection=self._side_selection(*obj_id[7:].split('/')))
             if obj_id.startswith('flange='):
@@ -649,6 +742,140 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 'def': {'length': e.get('length', 20), 'angle': e.get('angle', 90),
                         'direction': 'down' if e.get('side') == 'out' else 'up'},
                 'highlight': self._face_indices(f'{fid}/{flid}/{end}') if self.result.body is not None else []}
+
+    # ================================================================ tasto destro sull'albero
+    def _dipendenti_piega(self, ref: str) -> list:
+        """Chi sparisce togliendo una piega (ref = 'SM1/FL1' o 'SM1/FL1/u0'): i disegni sulle sue facce (e sulle flange
+        piegate sulla sua punta) e chi li usa."""
+        parti = ref.split('/')
+        sm = self._sheet_def(parti[0]) or {}
+        if len(parti) == 3:
+            prefissi = [ref + '/']
+        else:
+            via = {parti[1]}
+            while True:
+                altre = {x['id'] for x in sm.get('flanges') or [] if x.get('parent') in via} - via
+                if not altre:
+                    break
+                via |= altre
+            prefissi = [f'{parti[0]}/{x}/' for x in via]
+        sopra = [Document._fid(f) for f in self.doc.features if isinstance(f, Sketch) and isinstance(f.plane, dict)
+                 and any(str(f.plane.get('face', '')).startswith(px) for px in prefissi)]
+        tutti = []
+        for x in sopra:
+            for y in [x] + self._dipendenti(x):
+                if y not in tutti:
+                    tutti.append(y)
+        return [Document._fid(f) for f in self.doc.features if Document._fid(f) in tutti]
+
+    def _dipendenti(self, fid: str) -> list:
+        """Le lavorazioni che sparirebbero togliendo fid (chi la usa, e chi usa quelle), nell'ordine del progetto."""
+        via, cambia = {fid}, True
+        while cambia:
+            cambia = False
+            for f in self.doc.features:
+                x = Document._fid(f)
+                if x not in via and Document._deps(f) & via:
+                    via.add(x)
+                    cambia = True
+        return [Document._fid(f) for f in self.doc.features if Document._fid(f) in via and Document._fid(f) != fid]
+
+    def _etichetta(self, fid: str) -> str:
+        f = self.doc.feature(fid)
+        if isinstance(f, Sketch):
+            return f.name if (f.name or '').startswith('Sketch') else f'Sketch «{f.name or fid}»'
+        from cad_engine.tree import _feature_label
+        fr = next((x for x in self.result.features if x.id == fid), None)
+        return f.get('etichetta') or _feature_label(self.doc, f, fr)
+
+    def tree_menu(self, kind: str, ref: str) -> dict:
+        """Cosa si può fare su una voce dell'albero: modifica, rinomina, disattiva, elimina, perché è rossa."""
+        try:
+            if kind == 'flange':
+                return _ok(voci=['modifica', 'elimina'], nome=None, errore=None, seleziona='flange=' + ref, sketch=None,
+                           dipendenti=[self._etichetta(x) for x in self._dipendenti_piega(ref)])
+            f = self.doc.feature(ref)
+            fr = next((x for x in self.result.features if x.id == ref), None)
+            sketch = ref if isinstance(f, Sketch) else f.get('sketch')
+            pb = not isinstance(f, Sketch) and f.get('type') == 'sheet_edge_flange'
+            voci = ['modifica'] if sketch or pb else []
+            voci += ['rinomina']
+            if not isinstance(f, Sketch) and f.get('type') != 'sheet':
+                voci.append('attiva' if f.get('disattiva') else 'disattiva')
+            voci.append('elimina')
+            errore = fr.message if fr is not None and not fr.ok else None
+            if errore:
+                voci.append('perche')
+            nome = (f.name if isinstance(f, Sketch) else f.get('etichetta')) or ''
+            return _ok(voci=voci, nome=nome, errore=errore, sketch=sketch, seleziona=('pb=' + ref) if pb else None,
+                       dipendenti=[self._etichetta(x) for x in self._dipendenti(ref)])
+        except SteelCADError as ex:
+            return _err(ex)
+
+    def tree_action(self, kind: str, ref: str, azione: str, valore=None) -> dict:
+        if kind == 'flange':
+            parti = ref.split('/')
+            if azione != 'elimina':
+                return {'ok': False, 'message': 'Azione sconosciuta.'}
+            via = self._dipendenti_piega(ref)
+            if not via:
+                return self.set_ear(parti[0], parti[1], parti[2], False) if len(parti) == 3 else self.delete_flange(parti[0], parti[1])
+            if any(x['id'] == parti[1] for x in (self._sheet_def(parti[0]) or {}).get('folds') or []):
+                return {'ok': False, 'message': 'Su questa piega ci sono disegni: eliminali prima (tasto destro).'}
+
+            def fn():                                   # prima i disegni sopra, poi la piega
+                for x in reversed(via):
+                    self.doc.features = [g for g in self.doc.features if Document._fid(g) != x]
+                sm = self._sheet_def(parti[0])
+                if len(parti) == 3:
+                    fl = next(x for x in sm['flanges'] if x['id'] == parti[1])
+                    fl['ears'] = [e for e in fl.get('ears') or [] if e.get('end') != parti[2]]
+                else:
+                    tolte = {parti[1]}
+                    while True:
+                        altre = {x['id'] for x in sm['flanges'] if x.get('parent') in tolte} - tolte
+                        if not altre:
+                            break
+                        tolte |= altre
+                    sm['flanges'] = [x for x in sm['flanges'] if x['id'] not in tolte]
+                    sm['corners'] = [c for c in sm.get('corners') or [] if not {c.get('over'), c.get('under')} & tolte]
+            r = self._change(f'Elimina la piega {ref}', fn)
+            if r.get('ok'):
+                r['message'] = f'Eliminata la piega e {len(via)} voci che stavano sopra.'
+            return r
+        try:
+            f = self.doc.feature(ref)
+        except SteelCADError as ex:
+            return _err(ex)
+        if azione == 'rinomina':
+            nome = str(valore or '').strip()
+
+            def fn():
+                if isinstance(f, Sketch):
+                    f.name = nome or None
+                elif nome:
+                    f['etichetta'] = nome
+                else:
+                    f.pop('etichetta', None)
+            return self._change(f'Rinomina {ref}', fn)
+        if azione in ('disattiva', 'attiva'):
+            def fn():
+                if azione == 'disattiva':
+                    f['disattiva'] = True
+                else:
+                    f.pop('disattiva', None)
+            return self._change(f'{"Disattiva" if azione == "disattiva" else "Attiva"} {ref}', fn, keep_broken=True)
+        if azione == 'elimina':
+            via = self._dipendenti(ref) + [ref]
+
+            def fn():
+                for x in reversed(via):                     # prima chi dipende, poi lei
+                    self.doc.features = [g for g in self.doc.features if Document._fid(g) != x]
+            r = self._change(f'Elimina {ref}', fn)
+            if r.get('ok') and len(via) > 1:
+                r['message'] = f'Eliminate {len(via)} voci (con quelle che dipendevano da questa).'
+            return r
+        return {'ok': False, 'message': 'Azione sconosciuta.'}
 
     def fold_frames(self, n: int = 6) -> dict:
         """Per l'animazione Spiega/Ripiega: il pezzo con le pieghe aperte a metà strada (angoli × k/n, k = n-1 … 1),
@@ -3195,6 +3422,16 @@ def _write_recent(lista: list) -> None:
 def _add_recent(path) -> None:
     p = str(Path(path).resolve())
     _write_recent([p] + [x for x in _read_recent() if x != p])
+
+
+def _edge_flange_fields(fields: dict) -> dict:
+    out = {}
+    for k in ('length', 'angle'):
+        if k in fields and str(fields[k]).strip() != '':
+            out[k] = _number(fields[k])
+    if fields.get('direction') in ('up', 'down'):                 # dal pannello delle pieghe: su = verso dentro
+        out['side'] = 'in' if fields['direction'] == 'up' else 'out'
+    return out
 
 
 def _flange_fields(fields: dict) -> dict:

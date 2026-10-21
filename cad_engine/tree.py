@@ -54,6 +54,10 @@ def _feature_label(doc, f, fr) -> str:
             return f'{nome or "Rivoluzione"}: {giro}{op}'
         if t == 'fillet':
             return f'{nome or "Raccordo"} R{f.get("radius")}'
+        if t == 'sheet_edge_flange':
+            a = f.get('angle', 90)
+            ang = '' if a in (None, '', 90, 90.0) else f' a {a}°'
+            return f'Piega {f.get("length")} mm{ang} {"verso fuori" if f.get("side") == "out" else "verso dentro"}'
         if t == 'chamfer':
             return f'{nome or "Smusso"} {f.get("distance")} mm'
         if t == 'sheet':
@@ -130,8 +134,8 @@ def project_tree(doc, result) -> dict:
                         part['children'][-1]['status'] = 'errore' if not fr.ok else st
                 continue
             if f in solid_feats:
-                part['children'].append(_n(_feature_label(doc, f, fr), f['type'], fid,
-                                           status=None if fr and fr.ok else 'errore'))
+                part['children'].append(_n(f.get('etichetta') or _feature_label(doc, f, fr), f['type'], fid,
+                                           status='disattivata' if f.get('disattiva') else (None if fr and fr.ok else 'errore')))
                 if f['type'] == 'sheet':
                     sk = doc.sketch(f['sketch']) if f.get('sketch') else None
                     # in parole di officina: "Piega davanti, 40 mm in su", "Orlo sulla piega davanti, 10 mm"
