@@ -29,7 +29,7 @@ class SketchStatus:
     @property
     def ok_for_features(self) -> bool:
         """Si può costruire geometria? Sì se risolto (anche se non del tutto vincolato)."""
-        return self.state in (FULLY, UNDER)
+        return self.state in (FULLY, UNDER, REDUNDANT)
 
     def to_dict(self) -> dict:
         return {'state': self.state, 'dof': self.dof, 'message': self.message,

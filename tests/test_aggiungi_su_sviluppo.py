@@ -48,3 +48,16 @@ def test_linguetta_su_una_flangia_dallo_sviluppo():
     assert r['ok'], r.get('message')
     assert s.result.body.sheet.flat_area == pytest.approx(a0 + 40 * 20, abs=1e-3)
     assert len(bd.Shape.cast(s.result.body.shape).solids()) == 1
+
+
+def test_piu_alette_aperte_attaccate_al_bordo():
+    """Il caso di Stefano: alette disegnate a U (tre lati) attaccate al bordo, più d'una nello stesso disegno."""
+    s = _base()
+    sid = s.sketch_on_flat('SM1')['sketch']
+    for x in (20, 200):
+        assert s.sketch_add_polyline(sid, [[x, 200], [x, 220], [x + 60, 220], [x + 60, 200]], False)['ok']
+    a0 = s.result.body.sheet.flat_area
+    r = s.sheet_tab(sid)
+    assert r['ok'], r.get('message')
+    assert s.result.body.sheet.flat_area == pytest.approx(a0 + 2 * 60 * 20, abs=1e-3)
+    assert len(bd.Shape.cast(s.result.body.shape).solids()) == 1

@@ -1720,6 +1720,13 @@ function cursoreMovimento(slider, box, mid, campo) {
   };
   if (box) box.onchange = () => { slider.value = box.value.replace(',', '.'); slider.onchange({ target: slider }); };
 }
+// il riquadro «Stai disegnando…» aperto o chiuso: si ricorda (solo su questo PC)
+function skPanelAperto() { try { return localStorage.getItem('steelcad.skPanel') === 'aperto'; } catch { return false; } }
+$('#sk-where-box').addEventListener('click', () => {
+  const aperto = $('#sk-panel').classList.toggle('chiuso') === false;
+  try { localStorage.setItem('steelcad.skPanel', aperto ? 'aperto' : 'chiuso'); } catch { /* niente memoria: va bene lo stesso */ }
+  $('#sk-where-fr').textContent = aperto ? '▾' : '▸';
+});
 // ===================================================================== tavole
 async function drawingsDialog() {
   const r = await call('drawing_fields');
@@ -2927,6 +2934,10 @@ function drawSketch() {
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
   $('#sk-status').textContent = testo;
+  // il riquadro dei suggerimenti: chiuso (una riga) se non lo apri tu; si apre da solo solo per un problema
+  const problema = cls === 'bad' || testo.includes('⚠');
+  $('#sk-panel').classList.toggle('chiuso', !skPanelAperto() && !problema);
+  $('#sk-where-fr').textContent = $('#sk-panel').classList.contains('chiuso') ? '▸' : '▾';
   document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"])').forEach(b => { b.disabled = !SK.sel.size; });
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);

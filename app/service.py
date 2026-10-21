@@ -1804,15 +1804,38 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             ss = self.doc.solved_sketch(sid)
             P = ss.points
             linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('construction')]
-            chiudi = None
+            # due linee uguali sugli stessi punti (rimaste da prove): ne basta una
+            visti, uniche = set(), []
+            for k in linee:
+                chiave = frozenset((sk.entities[k]['a'], sk.entities[k]['b']))
+                if chiave not in visti:
+                    visti.add(chiave)
+                    uniche.append(k)
+            linee = uniche
+            chiudi = []
             if linee and not any(e['kind'] in ('circle', 'arc') and not e.get('construction') for e in sk.entities.values()):
                 from app.sketch_edit import _chain
-                try:
-                    ordine, _, chiusa = _chain(sk, linee)
-                except SteelCADError:
-                    ordine, chiusa = None, True
-                if ordine and not chiusa:
-                    a, b = ordine[0], ordine[-1]
+                # più alette nello stesso disegno: ogni gruppo di linee attaccate si chiude per conto suo
+                gruppi, di = [], {}
+                for k in linee:
+                    e = sk.entities[k]
+                    g = {k} | {x for p in (e['a'], e['b']) for x in di.get(p, set())}
+                    for x in list(g):
+                        for gg in [y for y in gruppi if x in y]:
+                            g |= gg
+                            gruppi.remove(gg)
+                    gruppi.append(g)
+                    for x in g:
+                        for p in (sk.entities[x]['a'], sk.entities[x]['b']):
+                            di.setdefault(p, set()).add(x)
+                for g in gruppi:
+                    try:
+                        ordine, _, chiusa = _chain(sk, sorted(g))
+                    except SteelCADError:
+                        ordine, chiusa = None, True
+                    if not ordine or chiusa:
+                        continue
+                    a, b, fatto = ordine[0], ordine[-1], False
                     for k, e in sk.entities.items():
                         if e['kind'] != 'line' or not e.get('ref'):
                             continue
@@ -1820,17 +1843,22 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                         L = _m.dist(A, B) or 1
                         sul = lambda q: abs((B[0] - A[0]) * (q[1] - A[1]) - (B[1] - A[1]) * (q[0] - A[0])) / L < 1e-4  # noqa: E731
                         if sul(P[a]) and sul(P[b]):
-                            chiudi = (a, b)
+                            chiudi.append((a, b))
+                            fatto = True
                             break
-                    if chiudi is None:
-                        raise SteelCADError('Il contorno è aperto: chiudilo, oppure fallo partire e finire sullo stesso bordo '
+                    if not fatto:
+                        raise SteelCADError('Un contorno è aperto: chiudilo, oppure fallo partire e finire sullo stesso bordo '
                                             'della faccia (la linea arancio), e lo chiudo io lungo quel bordo.', code='linguetta')
         except SteelCADError as ex:
             return _err(ex)
 
         def fn():
-            if chiudi:
-                lid = sk.line(*chiudi)
+            for k in [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('construction') and k not in linee]:
+                del sk.entities[k]                      # i doppioni (e i loro vincoli)
+                for c in [c for c, v in sk.constraints.items() if k in v['refs']]:
+                    del sk.constraints[c]
+            for a, b in chiudi:
+                lid = sk.line(a, b)
                 sk.entities[lid]['label'] = f'lato {lid}'
             self.doc.add_feature('sheet_cut', 'Linguetta', sketch=sid, mode='add')
         r = self._change('Aggiungi materiale (linguetta)', fn)

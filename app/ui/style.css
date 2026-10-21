@@ -824,3 +824,10 @@ body.in-attesa, body.in-attesa canvas { cursor: progress !important; }
 /* quota di riferimento: misura, non comanda (21/10) */
 .dim.rif { color: var(--ink-3); border-style: dashed; }
 body.dark .dim.rif { color: #9AA4AE; border-color: #4A5560; }
+
+/* «Stai disegnando…»: si chiude in una riga (21/10, Stefano: «deve essere collassabile o sparire») */
+#sk-panel .sk-where { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
+#sk-panel .sk-where b { color: var(--ink-3); font-weight: 400; font-size: 11px; }
+#sk-panel.chiuso .sk-corpo { display: none; }
+#sk-panel.chiuso .sk-where { margin: 0; font-size: 12px; font-weight: 500; color: var(--ink-2); }
+#sk-panel.chiuso { padding-top: 5px; padding-bottom: 5px; }
