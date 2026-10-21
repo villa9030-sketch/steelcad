@@ -288,6 +288,27 @@ class AssemblyMixin:
             raise A.AssemblyError('Clicca proprio sullo spigolo.')
         return {'inst': iid, **A.edge_info(part, migliore[1])}
 
+    def _movimenti(self, iid: str) -> list:
+        """Distanze e angoli che muovono questo pezzo: col cursore nel suo pannello (un cassetto si apre e si chiude
+        cliccando il cassetto, senza cercare l'accoppiamento nell'albero). In avanti/indietro prima di su/giù."""
+        out = []
+        for m in self.asm.mates:
+            if m.get('off') or m['type'] not in ('distanza', 'angolo') or m['b']['inst'] != iid:
+                continue
+            try:
+                ia = self.asm.instance(m['a']['inst'])
+                n = np.array(ia['R']) @ A._info(m['a'], self.asm_parts, self.asm)['n']
+            except (A.AssemblyError, KeyError):
+                continue
+            if m['type'] == 'angolo':
+                nome, val, campo = 'Gira', float(m.get('angle') or 0), 'angle'
+            else:
+                nome = 'Su / giù' if abs(n[2]) > 0.9 else 'Apri / chiudi'
+                val, campo = float(m.get('offset') or 0), 'offset'
+            out.append({'id': m['id'], 'nome': nome, 'campo': campo, 'valore': val})
+        out.sort(key=lambda x: x['nome'] != 'Apri / chiudi')
+        return out
+
     def _misura_mate(self, m: dict) -> float:
         """Il valore che l'accoppiamento ha adesso, per partire da lì senza spostare niente: la distanza (mm) o
         l'angolo (gradi). Tangente e in mezzo partono da 0 (appoggiato, centrato)."""
@@ -922,7 +943,13 @@ class AssemblyMixin:
         avvisi = list(getattr(asm, 'warnings', []) or [])
         for f, p in self.asm_parts.items():
             avvisi += [f'{Path(f).stem}: {e}' for e in p.errors]
+        # la forma della scena: se non cambia (si è mosso solo qualcosa) l'interfaccia sposta i pezzi che ha già,
+        # senza rifarsi mandare tutta la scena (2-3 MB per una cassettiera: era lento riaprire un cassetto)
+        forma = '|'.join(f'{i["id"]}:{i["file"]}:{getattr(self.asm_parts.get(i["file"]), "mtime", 0)}' for i in asm.instances)
+        pose = {i['id']: [i['R'][0][0], i['R'][0][1], i['R'][0][2], i['T'][0], i['R'][1][0], i['R'][1][1], i['R'][1][2], i['T'][1],
+                          i['R'][2][0], i['R'][2][1], i['R'][2][2], i['T'][2], 0, 0, 0, 1] for i in asm.instances}
         return {'mode': 'assembly', 'name': asm.name, 'path': str(self.path) if self.path else None,
+                'geo': forma, 'poses': pose,
                 'dirty': self.asm_dirty, 'undo': [x[0] for x in self.asm_undo[-1:]], 'redo': [x[0] for x in self.asm_redo[-1:]],
                 'tree': tree, 'parameters': [], 'errors': self.asm_errors, 'warnings': avvisi,
                 'bom': bom, 'bom_kg': totale, 'cutlist': {'rows': [], 'totals': [], 'pieces': 0, 'kg': 0},
@@ -978,7 +1005,8 @@ class AssemblyMixin:
         sel = {'kind': 'instance', 'id': obj_id, 'title': i['name'], 'rows': rows, 'fixed': bool(i.get('fixed')),
                'acquisto': (part.doc.meta.get('acquisto') if part is not None else None),
                'finitura': (part.doc.meta.get('finitura') if part is not None else None),
-               'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])]}
+               'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])],
+               'movimenti': self._movimenti(obj_id)}
         if face_index is not None and part is not None:
             try:
                 f = self._asm_face(obj_id, face_index)

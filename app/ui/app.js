@@ -9,10 +9,53 @@ const DEV = new URLSearchParams(location.search).has('dev');
 const num = (v, d = 1) => (v ?? 0).toLocaleString('it-IT', { maximumFractionDigits: d, minimumFractionDigits: 0 });
 const kg = v => (v ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// cosa dire mentre si aspetta (le chiamate che non sono qui: «Sto lavorando…»)
+const ATTESA = {
+  scene: 'Preparo il 3D…', open_path: 'Apro il progetto…', open_project_dialog: 'Apro il progetto…', save: 'Salvo…',
+  asm_edit_mate: 'Ricalcolo l’assieme…', asm_trascina_mate: 'Sposto i pezzi…', asm_add_mate: 'Accoppio i pezzi…',
+  asm_delete_mate: 'Ricalcolo l’assieme…', asm_move: 'Ricalcolo l’assieme…', asm_rotate: 'Ricalcolo l’assieme…',
+  asm_insert: 'Inserisco il pezzo…', asm_insert_dialog: 'Inserisco il pezzo…', asm_insert_libreria: 'Preparo la viteria…',
+  asm_interferences: 'Controllo le interferenze…', asm_open_part: 'Apro il pezzo…', asm_back: 'Torno all’assieme…',
+  asm_set_finitura: 'Cambio la finitura…', asm_set_acquisto: 'Aggiorno la distinta…', asm_new_part: 'Preparo il pezzo nuovo…',
+  create_from_sketch: 'Costruisco il pezzo…', add_flange: 'Piego…', edit_flange: 'Piego…', add_edge_dress: 'Raccordo gli spigoli…',
+  import_step: 'Spiego lo STEP…', import_step_dialog: 'Spiego lo STEP…', import_dxf: 'Leggo il DXF…', import_dxf_dialog: 'Leggo il DXF…',
+  export: 'Esporto…', export_drawings_dialog: 'Preparo le tavole…', drawing_preview: 'Preparo le tavole…', prepara: 'Preparo i file…',
+  undo: 'Annullo…', redo: 'Rifaccio…', unfold: 'Spiego la lamiera…',
+};
+let attesaN = 0, attesaTimer = null, attesaT0 = 0, attesaTick = null;
+function attesaInizio(name) {
+  attesaN++;
+  if (attesaN > 1) return;
+  attesaT0 = performance.now();
+  clearTimeout(attesaTimer);
+  attesaTimer = setTimeout(() => {                 // solo se dura più di un attimo: niente lampeggi
+    const box = document.getElementById('attesa');
+    if (!box || attesaN === 0) return;
+    document.getElementById('att-cosa').textContent = ATTESA[name] || 'Sto lavorando…';
+    box.hidden = false; document.body.classList.add('in-attesa');
+    attesaTick = setInterval(() => {
+      const s = (performance.now() - attesaT0) / 1000;
+      document.getElementById('att-tempo').textContent = s >= 2 ? `${Math.floor(s)} s` : '';
+    }, 250);
+  }, 250);
+}
+function attesaFine() {
+  attesaN = Math.max(0, attesaN - 1);
+  if (attesaN) return;
+  clearTimeout(attesaTimer); clearInterval(attesaTick);
+  const box = document.getElementById('attesa');
+  if (box) { box.hidden = true; document.getElementById('att-tempo').textContent = ''; }
+  document.body.classList.remove('in-attesa');
+}
 async function call(name, ...args) {
-  if (!DEV) return window.pywebview.api[name](...args);
-  const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
-  return r.json();
+  attesaInizio(name);
+  try {
+    if (!DEV) return await window.pywebview.api[name](...args);
+    const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    return await r.json();
+  } finally {
+    attesaFine();
+  }
 }
 
 // le chiamate al motore vanno una alla volta, nell'ordine in cui le fai
@@ -790,7 +833,10 @@ async function apply(res, okMsg) {
   if (res.state) {
     S = res.state;
     renderPanels();
-    if (S.scene_version !== sceneVersion) await loadScene();
+    if (S.scene_version !== sceneVersion && S.mode === 'assembly' && S.geo && S.geo === geoCaricata && S.poses) {
+      spostaPezzi(S.poses);                         // si è mosso solo qualcosa: niente scena intera
+      sceneVersion = S.scene_version;
+    } else if (S.scene_version !== sceneVersion) await loadScene();
     else buildDims();
     if (SK) await refreshSketch();
   }
@@ -798,8 +844,29 @@ async function apply(res, okMsg) {
   return true;
 }
 
+let geoCaricata = null;
+function spostaPezzi(pose) {                        // le copie dell'assieme al loro posto nuovo, senza ridisegnarle
+  for (const [id, m] of Object.entries(pose || {})) {
+    const o = objs.get(id);
+    if (!o) continue;
+    o.pos = new THREE.Matrix4().set(...m);
+    o.data.matrix = m;
+    for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(o.pos); x.updateMatrixWorld(true); }
+  }
+  if (ESPLOSO > 0) esplodi(ESPLOSO); else paint();
+}
 async function loadScene() {
+  attesaInizio('scene');
+  try { await caricaScena(); } finally { attesaFine(); }
+}
+async function caricaScena() {
   const sc = await call('scene');
+  if ((sc.objects || []).length > 30) {             // tanti pezzi: l'attesa si vede subito, poi si costruisce
+    document.getElementById('att-cosa').textContent = 'Preparo il 3D…';
+    document.getElementById('attesa').hidden = false; document.body.classList.add('in-attesa');
+    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+  }
+  geoCaricata = S?.mode === 'assembly' ? S.geo : null;
   sceneVersion = sc.version;
   const eraVuota = objs.size === 0;
   const raggio = () => new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere()).radius;
@@ -1525,8 +1592,7 @@ function asmClick(ev) {
     const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2);
     if (await apply(r, 'Accoppiato.') && r.select) {
       await select(r.select);
-      const campo = $('#m-off') || $('#m-ang');
-      if (campo && u.val === null) { campo.focus(); campo.select(); }
+      if (u.val === null) setTimeout(() => { const c = $('#m-off') || $('#m-ang'); if (c) { c.focus(); c.select(); } }, 60);   // a pannello pronto
     }
   });
 }
@@ -1543,6 +1609,12 @@ function instancePanel(s) {
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
       <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
     ${tab}${faccia}${incastri}
+    ${(s.movimenti || []).map((m, k) => {
+      const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
+      return `<div class="sub">${esc(m.nome)}</div>
+        <div class="ff"><label>${m.campo === 'angle' ? 'Angolo' : 'Quanto'}<span class="inp"><input class="field" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span></label><span></span></div>
+        <input type="range" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" style="width:100%" title="Trascina: il pezzo si muove">`;
+    }).join('')}
     <div class="sub">Sposta (mm)</div>
     <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
     <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div>
@@ -1566,6 +1638,7 @@ function wireInstance(s) {
   $('#a-move').onclick = () => fai('asm_move', s.id, $('#a-dx').value.trim(), $('#a-dy').value.trim(), $('#a-dz').value.trim());
   document.querySelectorAll('[data-rot]').forEach(b => { b.onclick = () => fai('asm_rotate', s.id, b.dataset.rot, 90); });
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
+  (s.movimenti || []).forEach((m, k) => cursoreMovimento($('#mv-s' + k), $('#mv-v' + k), m.id, m.campo));
   const acq = () => ({ descrizione: $('#a-acq-d')?.value || '', codice: $('#a-acq-c')?.value || '', fornitore: $('#a-acq-f')?.value || '' });
   $('#a-acq').onchange = () => fai('asm_set_acquisto', s.id, $('#a-acq').checked ? acq() : null);
   if ($('#a-fin')) {
@@ -1616,35 +1689,32 @@ function wireMate(s) {
   if ($('#m-off')) { $('#m-off').onkeydown = ev => { if (ev.key === 'Enter') fai({ offset: $('#m-off').value.trim() }); }; $('#m-off').onchange = () => fai({ offset: $('#m-off').value.trim() }); }
   if ($('#m-ang')) { $('#m-ang').onkeydown = ev => { if (ev.key === 'Enter') fai({ angle: $('#m-ang').value.trim() }); }; $('#m-ang').onchange = () => fai({ angle: $('#m-ang').value.trim() }); }
   if ($('#m-flip')) $('#m-flip').onclick = () => fai({ flip: !s.def.flip });
-  if ($('#m-slide')) {                              // trascinando: si spostano i pezzi già disegnati (una chiamata alla volta)
-    const campo = s.def.type === 'angolo' ? 'angle' : 'offset', box = $('#m-off') || $('#m-ang');
-    let inVolo = false, ultimo = null;
-    const manda = async () => {
-      if (inVolo || ultimo === null) return;
-      inVolo = true; const val = ultimo; ultimo = null;
-      const r = await call('asm_trascina_mate', s.id, campo, String(val), false);
-      if (r.ok) {
-        for (const [id, m] of Object.entries(r.pose || {})) {
-          const o = objs.get(id);
-          if (!o) continue;
-          o.pos = new THREE.Matrix4().set(...m);
-          o.data.matrix = m;
-          for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(o.pos); x.updateMatrixWorld(true); }
-        }
-        if (ESPLOSO > 0) esplodi(ESPLOSO); else paint();
-      }
-      inVolo = false;
-      if (ultimo !== null) manda();
-    };
-    $('#m-slide').oninput = ev => { ultimo = ev.target.value; if (box) box.value = String(ultimo).replace('.', ','); manda(); };
-    $('#m-slide').onchange = ev => {                // lasciato: si registra (annulla torna a prima)
-      const val = ev.target.value;
-      const fine = async () => { while (inVolo) await new Promise(r => setTimeout(r, 30)); const r = await call('asm_trascina_mate', s.id, campo, String(val), true); if (await apply(r)) await refreshSel(); };
-      inCoda(fine);
-    };
-  }
+  if ($('#m-slide')) cursoreMovimento($('#m-slide'), $('#m-off') || $('#m-ang'), s.id, s.def.type === 'angolo' ? 'angle' : 'offset');
   $('#m-sosp').onclick = () => fai({ off: !s.def.off });
   $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
+}
+// il cursore che muove un pezzo: mentre lo trascini si spostano i pezzi già disegnati (una chiamata alla volta);
+// lasciato, la modifica si registra una volta (annulla torna a prima)
+function cursoreMovimento(slider, box, mid, campo) {
+  let inVolo = false, ultimo = null;
+  const manda = async () => {
+    if (inVolo || ultimo === null) return;
+    inVolo = true; const val = ultimo; ultimo = null;
+    const r = await call('asm_trascina_mate', mid, campo, String(val), false);
+    if (r.ok) spostaPezzi(r.pose);
+    inVolo = false;
+    if (ultimo !== null) manda();
+  };
+  slider.oninput = ev => { ultimo = ev.target.value; if (box) box.value = String(ultimo).replace('.', ','); manda(); };
+  slider.onchange = ev => {
+    const val = ev.target.value;
+    inCoda(async () => {
+      while (inVolo) await new Promise(r => setTimeout(r, 30));
+      const r = await call('asm_trascina_mate', mid, campo, String(val), true);
+      if (await apply(r)) await refreshSel();
+    });
+  };
+  if (box) box.onchange = () => { slider.value = box.value.replace(',', '.'); slider.onchange({ target: slider }); };
 }
 // ===================================================================== tavole
 async function drawingsDialog() {

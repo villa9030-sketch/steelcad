@@ -84,14 +84,21 @@ try:
         clic('I1', [0, 0, 1])
         ok('… poi quella dell’altro pezzo', 'altro pezzo' in pg.inner_text('#sk-help'))
         clic('I2', [0, 0, 1])
-        pg.wait_for_selector('#m-off', timeout=15000)
+        pg.wait_for_selector('#m-off', timeout=15000); time.sleep(0.5)
         ok('il pannello si apre con la distanza che c’è (55) già selezionata',
            pg.input_value('#m-off').startswith('55') and pg.evaluate("document.activeElement.id") == 'm-off')
         pg.keyboard.type('40'); pg.keyboard.press('Enter')
         pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children[0].label.includes('distanza 40')", timeout=15000)
         pg.keyboard.press('Escape'); time.sleep(0.6)
+        # il pezzo cliccato: nel suo pannello il cursore del movimento (come aprire un cassetto)
+        pg.evaluate("(id) => window.__steelcad.select(id)", 'I2'); pg.wait_for_selector('#mv-s0', timeout=10000); time.sleep(0.3)
+        z0 = pg.evaluate("window.__steelcad.objs.get('I2').data.matrix[11]")
+        pg.evaluate("() => { const s = document.querySelector('#mv-s0'); s.value = 70; s.dispatchEvent(new Event('input')); s.dispatchEvent(new Event('change')); }")
+        pg.wait_for_function(f"Math.abs(window.__steelcad.objs.get('I2').data.matrix[11] - {z0}) > 1", timeout=15000)
+        ok('clic sul pezzo: il cursore nel suo pannello lo muove', True)
+        pg.keyboard.press('Escape'); time.sleep(0.6)
         m = [x for x in pg.evaluate("window.__steelcad.state.tree.children") if x['label'] == 'Accoppiamenti'][0]['children']
-        ok(f'distanza 40 scritta: {m[0]["label"]}', 'distanza 40' in m[0]['label'])
+        ok(f'distanza scritta e poi mossa col cursore: {m[0]["label"]}', 'distanza 70' in m[0]['label'])
         pg.screenshot(path=str(SHOTS / '2_distanza.png'))
         pg.click('#tree .node:has-text("M1")'); pg.wait_for_selector('#m-del'); pg.click('#m-del'); time.sleep(0.8)
 
