@@ -1403,6 +1403,36 @@ document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-asm-tool]');
   if (b) asmTool(ASM.tool === b.dataset.asmTool ? null : b.dataset.asmTool);
 });
+async function viteriaDialog() {
+  if (S?.mode !== 'assembly') { toast('La viteria si mette negli assiemi.', 'err'); return; }
+  const r = await call('libreria_catalogo');
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  const cat = r.catalogo, foro = sel?.id && sel.face != null && objs.get(sel.id)?.data.kind === 'instance' ? { inst: sel.id, face: sel.face } : null;
+  const opz = (lst, v) => lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('');
+  const ultimo = viteriaDialog.ultimo || { tipo: 'vite_tcei', misura: 'M6', L: 20 };
+  modal(`<h3>Viteria</h3>
+    <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
+    <div class="form"><label style="grid-column:1/-1">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
+      <label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div>
+    ${foro ? '<label class="check"><input type="checkbox" id="vt-f" checked> nel foro che hai cliccato</label>' : '<p class="hint">Per metterla in un foro: clicca prima il foro, poi «Viteria».</p>'}
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Inserisci</button></div>`, close => {
+    const rifai = () => {
+      const c = cat[$('#vt-t').value];
+      $('#vt-m').innerHTML = opz(c.misure, c.misure.includes(ultimo.misura) ? ultimo.misura : c.misure[Math.floor(c.misure.length / 2)]);
+      $('#vt-l').innerHTML = opz(c.lunghezze, c.lunghezze.includes(+ultimo.L) ? ultimo.L : c.lunghezze[Math.floor(c.lunghezze.length / 3)]);
+      $('#vt-lw').hidden = !c.lunghezze.length;
+    };
+    $('#vt-t').onchange = rifai; rifai();
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const tipo = $('#vt-t').value, misura = $('#vt-m').value, L = cat[tipo].lunghezze.length ? +$('#vt-l').value : null;
+      viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L };
+      const dove = $('#vt-f')?.checked ? foro : null;
+      close();
+      inCoda(async () => { const r2 = await call('asm_insert_libreria', tipo, misura, L, dove); if (await apply(r2, r2.message) && r2.select) await select(r2.select); });
+    };
+  });
+}
 function pickInstEdge(ev) {                          // lo spigolo di una copia dell'assieme sotto il mouse (punto nel mondo)
   const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
   const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height]; };
@@ -2312,6 +2342,7 @@ const CMDS = [
   { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => { if (await apply(await call('save', true), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
+  { id: 'asm_viteria', label: 'Viteria: viti, dadi, rondelle, rivetti (norme ISO)…', run: () => inCoda(viteriaDialog) },
   { id: 'export_bom', label: 'Distinta materiali in Excel (con gli acquisti)…', run: () => inCoda(async () => apply(await call('export', 'bom'))) },
   { id: 'export_dxf', label: 'Esporta DXF di taglio…', run: () => inCoda(async () => apply(await call('export', 'dxf'))) },
   { id: 'undo', label: 'Annulla', keys: 'Ctrl+Z', run: () => S?.undo[0] && inCoda(async () => apply(await call('undo'))) },

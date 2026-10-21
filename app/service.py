@@ -2304,6 +2304,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                     sk.entities[lid]['label'] = f'lato {lid}'
             if kind == 'cut' and su is not None:
                 self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid)
+            elif kind == 'cut' and v.get('distance'):           # tasca di quella profondità (non passante)
+                self.doc.add_feature('extrude', 'Tasca', sketch=sid, operation='cut', distance=v['distance'], reverse=True)
             elif kind == 'cut':
                 self.doc.add_feature('extrude', 'Taglio', sketch=sid, operation='cut', through_all=True, reverse=True)
             else:

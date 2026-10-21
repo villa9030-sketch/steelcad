@@ -390,6 +390,12 @@ class Api:
     def asm_open_part(self, iid):
         return self._call(self._svc.asm_open_part, iid)
 
+    def libreria_catalogo(self):
+        return self._call(self._svc.libreria_catalogo)
+
+    def asm_insert_libreria(self, tipo, misura, lunghezza=None, foro=None):
+        return self._call(self._svc.asm_insert_libreria, tipo, misura, lunghezza, foro)
+
     def asm_set_acquisto(self, iid, campi):
         return self._call(self._svc.asm_set_acquisto, iid, campi)
 

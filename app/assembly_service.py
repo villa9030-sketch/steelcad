@@ -585,6 +585,42 @@ class AssemblyMixin:
                 meglio = (d, inf)
         return {'inst': iid, **meglio[1]} if meglio else None
 
+    def libreria_catalogo(self) -> dict:
+        from app import libreria
+        return {'ok': True, 'catalogo': libreria.CATALOGO}
+
+    @_in_assieme
+    def asm_insert_libreria(self, tipo: str, misura: str, lunghezza=None, foro: dict | None = None) -> dict:
+        """Un pezzo della libreria (viti, dadi, rondelle, rivetti) nell'assieme. Se foro è un foro cliccato, ci va
+        dentro (foro su foro: l'asse; la posizione lungo il foro si sistema con «Faccia su faccia»)."""
+        from app import libreria
+        try:
+            f = libreria.crea(tipo, misura, lunghezza or None)
+        except ValueError as ex:
+            return {'ok': False, 'message': str(ex)}
+        r = self.asm_insert(str(f))
+        if not r.get('ok'):
+            return r
+        nuovo = self.asm.instances[-1]['id']
+        msg = f'{libreria.descrizione(tipo, misura, lunghezza or None)}: inserita'
+        if foro and foro.get('inst') and foro.get('face') is not None:
+            try:
+                fr = self._asm_face(foro['inst'], foro['face'])
+            except A.AssemblyError:
+                fr = None
+            if fr and fr['kind'] == 'cilindrica':
+                from cad_engine.topology.naming import _faces_of
+                part = self.asm_parts[self.asm.instance(nuovo)['file']]
+                cil = [k for k, ff in enumerate(_faces_of(part.shape)) if A.face_info(part, ff)['kind'] == 'cilindrica']
+                if cil:
+                    r2 = self.asm_add_mate('asse', {'inst': foro['inst'], 'face': foro['face']}, {'inst': nuovo, 'face': cil[0]})
+                    if r2.get('ok'):
+                        r = r2
+                        msg += ' nel foro (per l’altezza: «Faccia su faccia» sotto la testa)'
+        r['message'] = msg + '.'
+        r['select'] = nuovo
+        return r
+
     @_in_assieme
     def asm_set_acquisto(self, iid: str, campi: dict | None) -> dict:
         """Il pezzo di questa copia è da comprare (guide, viti, punte…): descrizione, codice, fornitore. Si scrive nel
