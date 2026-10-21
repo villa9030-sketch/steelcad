@@ -778,7 +778,10 @@ function editDim(el, d) {
     if (ev.key === 'Enter') {
       fatto = true;
       const v = inp.value;
-      inCoda(async () => { if (!await apply(await call('set_dimension', d.sketch, d.dim, v))) buildDims(); });
+      inCoda(async () => {
+        if (!await apply(await call('set_dimension', d.sketch, d.dim, v))) { buildDims(); return; }
+        if (SK && SK.v.points.some(q => { const p = v3(q.xyz).project(camera); return Math.abs(p.x) > 0.95 || Math.abs(p.y) > 0.95; })) fitSketch();
+      });
     }
   });
   inp.addEventListener('blur', chiudi);
@@ -3553,7 +3556,8 @@ function skKey(ev) {
     if (SK.tool === 'line' && SK.pts.length >= 2) { skFinish(false); return true; }
     if (SK.pts.length) { SK.pts = []; drawRubber(); return true; }
     if (SK.sel.size) { SK.sel.clear(); drawSketch(); return true; }
-    if (SK.tool === 'trim' || SK.tool === 'extend') { setTool('select'); return true; }
+    // come negli altri CAD: il primo Esc spegne lo strumento (quota, linea, cerchio…), il secondo esce dallo sketch
+    if (SK.tool && SK.tool !== 'select') { setTool('select'); return true; }
     exitSketch(); return true;
   }
   if (k === 'Delete' && SK.sel.size) {
