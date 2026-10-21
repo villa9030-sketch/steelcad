@@ -13,6 +13,8 @@ import datetime
 import math
 from dataclasses import dataclass, field
 
+import build123d as bd
+
 FORMATI = {'A4': (297.0, 210.0), 'A3': (420.0, 297.0), 'A2': (594.0, 420.0)}
 SCALE = [10, 5, 2, 1, 1 / 2, 1 / 2.5, 1 / 5, 1 / 10, 1 / 20, 1 / 25, 1 / 50, 1 / 100]
 LAYER = {'contorno': (7, 0.5), 'nascoste': (8, 0.25), 'tangenti': (8, 0.18), 'piega': (1, 0.25), 'quote': (5, 0.18),
@@ -608,6 +610,10 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
         else:
             m = ((A[0] + B[0]) / 2, (A[1] + B[1]) / 2)
             f.text('piega', (m[0] + 1, m[1] + 1), testo, 2.2 if len(data.bend_lines) < 20 else 1.6)
+    for m in getattr(data, 'marks', None) or []:      # marcature laser: i tratti delle lettere
+        pts = [tuple(data.plane.to_local_coords(bd.Vector(*q)))[:2] for q in m['flat']]
+        if len(pts) > 1:
+            f.line('testo', *[T(q) for q in pts])
     quota(f, T((x0, y0)), T((x1, y0)), -8, x1 - x0)
     quota(f, T((x0, y0)), T((x0, y1)), 8, y1 - y0)
     didascalia = ('SVILUPPO visto dal lato dello sketch · pieghe in rosso, numerate: angoli in tabella' if forma else

@@ -177,6 +177,7 @@ class SheetData:
     tip_contacts: list = field(default_factory=list)   # bordi sulle punte che si incontrano negli angoli
     tip_mode: str = 'long'
     free_edges: list = field(default_factory=list)     # bordi dove si può ancora piegare: per sceglierli col mouse
+    marks: list = field(default_factory=list)          # marcature: [{'flat': [punti sullo sviluppo], 'pezzo': [punti 3D]}]
 
     def in_ordine(self) -> list:
         """Le flange nell'ordine delle loro linee di piega sullo sviluppo, da un capo all'altro (21/10: una catena di
@@ -1476,6 +1477,8 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
         raise FeatureError('Il taglio di lamiera va disegnato su una faccia di una lamiera (e prima di altre '
                            'lavorazioni non di lamiera).', feature=fid)
     ss, prof = ctx.sketch(fdef)
+    if fdef.get('mode') == 'mark':
+        return _marca(fdef, body, data, ss, prof, fid)
     if not prof.faces:
         raise FeatureError(f'Lo sketch "{ss.sketch.label()}" non ha contorni chiusi da tagliare.', feature=fid)
     piano = ss.sketch.plane
@@ -1529,6 +1532,63 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
             raise FeatureError('Il materiale si aggiunge disegnando su una faccia del pezzo, non sullo sviluppo.', feature=fid)
         return _add_tab(fdef, body, data, _fuori_dallo_sviluppo(lavori, ritorni, data), t)
     return _taglio_semplice(fdef, body, data, lavori, t, fid)
+
+
+def _marca(fdef, body, data, ss, prof, fid):
+    """I testi dello sketch come marcatura: i tratti sul pezzo (per vederli) e sullo sviluppo (layer MARK)."""
+    import copy
+    import dataclasses
+
+    from ..sketch import testo as testo_mod
+    sk = ss.sketch
+    piano = sk.plane
+    pl = prof.plane
+    tratti = []
+    for e in sk.entities.values():
+        if e['kind'] == 'text' and e['center'] in ss.points:
+            x, y = ss.points[e['center']]
+            tratti += testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0))
+    if not tratti:
+        raise FeatureError('Nello sketch non c’è nessun testo da marcare.', feature=fid)
+    tre_d = [[pl.from_local_coords(q) for q in t] for t in tratti]
+    if piano.get('flat'):
+        segni = [{'flat': [tuple(p) for p in t], 'pezzo': None} for t in tre_d]
+    else:
+        nome = piano.get('face', '')
+        parti = nome.split('/')
+        pannelli = getattr(data, 'pannelli', None) or {}
+        if nome in pannelli:
+            src, dst = pannelli[nome][0], pannelli[nome][1]
+        else:
+            src, dst, _dentro, _g = _face_planes(parti, data, fid)
+        segni = []
+        for t in tre_d:
+            fl = [dst.from_local_coords(src.to_local_coords(p)) for p in t]
+            segni.append({'flat': [tuple(q) for q in fl], 'pezzo': [tuple(p + pl.z_dir * 0.05) for p in t]})   # appena sopra la faccia
+    # i segni devono stare sulla lamiera: fuori (o sopra un foro) il laser marcherebbe il vuoto
+    fuori = 0
+    for sg in segni:
+        for q in sg['flat']:
+            if not data.flat.is_inside(bd.Vector(*q), tolerance=0.05):
+                fuori += 1
+                break
+    if fuori:
+        raise FeatureError(f'Il testo esce dalla lamiera o passa sopra un foro ({fuori} tratti fuori): spostalo '
+                           'dentro la faccia.', feature=fid)
+    if not piano.get('flat'):
+        # il laser marca dal lato di sopra dello sviluppo: un testo sulla faccia che nello sviluppo sta sotto (la
+        # faccia esterna di una flangia piegata in su…) lì esce specchiato
+        o = pl.from_local_coords((0, 0))
+        m = lambda q: dst.from_local_coords(src.to_local_coords(q))  # noqa: E731
+        u, v = m(pl.from_local_coords((1, 0))) - m(o), m(pl.from_local_coords((0, 1))) - m(o)
+        if u.cross(v).dot(data.plane.z_dir) < 0:
+            avviso = (f'La marcatura di {fid} sta sulla faccia che nello sviluppo è sotto: il laser la farebbe '
+                      'specchiata. Mettila sull’altra faccia (dentro/sopra) o marca il pezzo girato.')
+            data = dataclasses.replace(data, warnings=list(data.warnings) + [avviso])
+    nuovo = copy.copy(body)
+    nuovo.names = dict(body.names)
+    nuovo.sheet = _copia_dati(body.sheet, dataclasses.replace(data, marks=list(data.marks) + segni))
+    return nuovo
 
 
 def _copia_dati(vecchio, nuovo):

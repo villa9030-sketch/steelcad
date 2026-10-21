@@ -310,7 +310,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 bordi.append({**e, 'feature': data.feature, 'id': f'{e["kind"]}:{e["ref"]}',
                               'label': f'{testo} ({fmt_mm(round(e["length"], 1))} mm)', 'thickness': data.thickness})
         return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
-                'bend_edges': bordi, 'threads': self._filettature()}
+                'bend_edges': bordi, 'threads': self._filettature(),
+                'marks': [m['pezzo'] for m in (getattr(data, 'marks', None) or []) if m.get('pezzo')] if data is not None else []}
 
     def _oggetti_contesto(self) -> list:
         """Aperto dall'assieme: gli altri pezzi attorno, nelle coordinate di questo pezzo (si vedono, non si cliccano)."""
@@ -972,6 +973,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return _err(ex)
         return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
                                    lambda: sketch_ops.add_circle(self.doc, sid, center, r, construction))
+
+    def sketch_add_text(self, sid: str, pos, testo: str, h, angolo=0) -> dict:
+        """Un testo da marcare col laser (numeri, codici, sigle): poi «Marca col laser»."""
+        try:
+            pos, h = _punto(pos, 'la posizione'), _numero(h, 'l’altezza')
+            angolo = _numero(angolo or 0, 'l’angolo')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Testo «{str(testo)[:20]}»', lambda: sketch_ops.add_text(self.doc, sid, pos, testo, h, angolo))
 
     def sketch_add_slot(self, sid: str, c1, c2, r, construction: bool = False) -> dict:
         try:
@@ -1706,6 +1716,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 self.doc.add_feature('sheet_form', 'Persiane' if kind == 'louver' else 'Imbutiture', sketch=sid, kind=kind,
                                      **{c: v[c] for c in campi})
             return self._change('Persiane' if kind == 'louver' else 'Imbutiture', fn)
+        if kind == 'mark':
+            return self._marcatura(sid, sk)
         if isinstance(sk.plane, dict) and kind in ('cut', 'boss'):
             return self._from_face_sketch(sid, sk, kind, v)
         if kind == 'profilo':
@@ -2163,6 +2175,26 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 sk_def['id'] = f'K{j}'
                 st.setdefault('skeletons', []).append(sk_def)
         return self._change('Crea struttura dallo sketch', fn)
+
+    def _marcatura(self, sid, sk) -> dict:
+        """I testi dello sketch marcati col laser: sul layer di marcatura dello sviluppo, nella posizione giusta."""
+        if not any(e['kind'] == 'text' for e in sk.entities.values()):
+            return {'ok': False, 'code': 'testo', 'message': 'Nello sketch non c’è nessun testo: usa «Testo» e clicca '
+                                                              'dove va.'}
+        if not isinstance(sk.plane, dict):
+            return {'ok': False, 'code': 'testo', 'message': 'La marcatura si disegna su una faccia della lamiera o '
+                                                              'sullo sviluppo.'}
+        if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
+            return {'ok': False, 'code': 'testo', 'message': 'Questo sketch è già usato da un’altra lavorazione: per '
+                                                              'i testi fanne uno nuovo sulla stessa faccia.'}
+
+        def fn():
+            self.doc.add_feature('sheet_cut', 'Marcatura', sketch=sid, mode='mark')
+        r = self._change('Marca col laser', fn)
+        if r.get('ok'):
+            n = sum(1 for e in sk.entities.values() if e['kind'] == 'text')
+            r['message'] = f'Marcatura: {n} {"testo" if n == 1 else "testi"} sul layer MARK dello sviluppo.'
+        return r
 
     def _from_face_sketch(self, sid, sk, kind, v) -> dict:
         chiudi = None

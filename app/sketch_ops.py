@@ -55,7 +55,7 @@ def view(doc, sid: str, body=None) -> dict:
            'z_dir': [pl.z_dir.X, pl.z_dir.Y, pl.z_dir.Z],
            'points': [{'id': k, 'xy': list(v), 'xyz': g(v)} for k, v in pts.items()
                       if not sk.entities.get(k, {}).get('construction') or sk.entities.get(k, {}).get('ref')],
-           'lines': [], 'circles': [], 'arcs': [],
+           'lines': [], 'circles': [], 'arcs': [], 'texts': [],
            'used_by': [f['id'] for f in doc.features if not hasattr(f, 'entities') and f.get('sketch') == sid],
            'on_face': sk.plane.get('face') if isinstance(sk.plane, dict) else None,
            'on_flat': sk.plane.get('flat') if isinstance(sk.plane, dict) else None}
@@ -66,7 +66,19 @@ def view(doc, sid: str, body=None) -> dict:
         n = len(out['sciolte'])
         out['status'] = (f'{n} linea sciolta' if n == 1 else f'{n} linee sciolte') + ' (in rosso) non chiude nessun contorno: ' \
             + 'non conta per il taglio. Se non serve, selezionala ed Elimina.'
-    out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc') and not e.get('ref'))
+    out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref'))
+    from cad_engine.sketch import testo as testo_mod
+    for k, e in sk.entities.items():
+        if e['kind'] != 'text' or e['center'] not in pts:
+            continue
+        x, y = pts[e['center']]
+        tr = testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0))
+        out['texts'].append({'id': k, 'text': e['text'], 'h': e['h'], 'angle': e.get('angle', 0), 'xy': [x, y],
+                             'anchor_id': e['center'], 'strokes': [[g(q) for q in t] for t in tr],
+                             'w': testo_mod.larghezza(e['text'], e['h'])})
+    if out['texts'] and isinstance(sk.plane, dict) and not out['profiles']:
+        out['status'] = (f'{len(out["texts"])} testo' if len(out['texts']) == 1 else f'{len(out["texts"])} testi') + \
+            ': «Marca col laser» li mette sul layer di marcatura del DXF (si vedono anche sul pezzo).'
     if out['on_flat']:
         out['where'] = 'sullo sviluppo della lamiera'
     elif out['on_face']:
@@ -381,6 +393,16 @@ def add_circle(doc, sid: str, center, r: float, construction: bool = False) -> s
     if nuovo:
         _position(sk, pid, xy)
     return cid
+
+
+def add_text(doc, sid: str, pos, testo: str, h: float, angolo: float = 0.0) -> str:
+    """Un testo da marcare col laser, col punto in basso a sinistra in pos."""
+    sk = doc.sketch(sid)
+    pid, xy, nuovo = _point_ref(sk, pos)
+    tid = sk.text(pid, testo, float(h), float(angolo or 0))
+    if nuovo:
+        _position(sk, pid, xy)
+    return tid
 
 
 def add_slot(doc, sid: str, c1, c2, r: float, construction: bool = False) -> dict:

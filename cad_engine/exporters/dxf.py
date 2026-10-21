@@ -116,7 +116,15 @@ def export_flat_pattern(sheet, path) -> dict:
             ang -= 180
         msp.add_text(testo, height=h, rotation=ang, dxfattribs={'layer': 'BEND'}).set_placement(
             (m[0], m[1] + h * 0.4), align=ezdxf.enums.TextEntityAlignment.BOTTOM_CENTER)
-    return _finish(doc, path, avvisi, sheet.thickness, {'bend_lines': len(sheet.bend_lines)})
+    segni = getattr(sheet, 'marks', None) or []
+    for m in segni:                                   # marcature: tratti aperti sul layer MARK
+        pts = [tuple(sheet.plane.to_local_coords(bd.Vector(*p)))[:2] for p in m['flat']]
+        if len(pts) > 1:
+            msp.add_lwpolyline(pts, dxfattribs={'layer': 'MARK'})
+    extra = {'bend_lines': len(sheet.bend_lines)}
+    if segni:
+        extra['marks'] = len(segni)
+    return _finish(doc, path, avvisi, sheet.thickness, extra)
 
 
 def _write_face(msp, ref, plane) -> list:

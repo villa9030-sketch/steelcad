@@ -514,6 +514,14 @@ let dimEls = [];
 // preforo, il filetto si fa col maschio.
 const HIDE_MAT = new THREE.MeshBasicMaterial({ visible: false });
 let threadGroup = null;
+let markGroup = null;
+const MARK_MAT = new THREE.LineBasicMaterial({ color: 0x5B21B6 });
+function buildMarks(list) {                         // marcature laser: i tratti sopra la faccia
+  if (markGroup) { markGroup.traverse(o => o.geometry?.dispose()); model.remove(markGroup); }
+  markGroup = new THREE.Group();
+  for (const s of list || []) markGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(s.map(q => new THREE.Vector3(...q))), MARK_MAT));
+  model.add(markGroup);
+}
 function buildThreads(list) {
   if (threadGroup) { threadGroup.traverse(o => { o.geometry?.dispose(); }); model.remove(threadGroup); }
   threadGroup = new THREE.Group();
@@ -692,6 +700,7 @@ async function loadScene() {
   const prima = eraVuota ? 0 : raggio();
   buildScene(sc);
   buildThreads(sc.threads);
+  buildMarks(sc.marks);
   nodes = sc.nodes || [];
   bendEdges = sc.bend_edges || [];
   hoverEdge = null;
@@ -2381,6 +2390,7 @@ function applyTheme(scuro) {
   ridisegna();
 }
 const SK_REF = new THREE.LineBasicMaterial({ color: 0xC2410C });        // i bordi del pezzo
+const SK_TESTO = new THREE.LineBasicMaterial({ color: 0x7C3AED });      // testi da marcare
 const SK_XRAY = new THREE.LineDashedMaterial({ color: 0x38BDF8, dashSize: 2, gapSize: 1.5 });   // visto attraverso
 const SK_CONSTR_SEL = new THREE.LineDashedMaterial({ color: 0xE09A00, dashSize: 8, gapSize: 5 });
 const AIUTI = {
@@ -2396,6 +2406,7 @@ const AIUTI = {
   dim: 'Clic su una linea (lunghezza) o un cerchio (diametro) · oppure su due punti, o un punto e una linea (distanza)',
   trim: 'Accorcia: passa sul pezzo di linea da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
   extend: 'Allunga: passa vicino all’estremità di una linea (l’allungamento tratteggiato) e clicca · Esc finisce',
+  text: 'Testo: clic dove comincia (in basso a sinistra), poi scrivi il testo e l’altezza · per marcarlo col laser: «Marca col laser»',
 };
 
 const v3 = a => new THREE.Vector3(...a);
@@ -2514,7 +2525,7 @@ async function refreshSketch() {
   const eraVuoto = SK.v.points.length <= 1 && !SK.v.circles.length;
   SK.v = r.sketch;
   if (eraVuoto && (SK.v.points.length > 1 || SK.v.circles.length)) fitSketch();   // il primo disegno si inquadra da solo
-  for (const id of [...SK.sel]) if (!SK.v.lines.some(l => l.id === id) && !SK.v.circles.some(c => c.id === id)) SK.sel.delete(id);
+  for (const id of [...SK.sel]) if (!SK.v.lines.some(l => l.id === id) && !SK.v.circles.some(c => c.id === id) && !(SK.v.texts || []).some(t => t.id === id)) SK.sel.delete(id);
   drawSketch();
 }
 function setTool(t) {
@@ -2549,6 +2560,10 @@ function drawSketch() {
     const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat);
     if ((l.construction && !l.ref) || l.xray) ln.computeLineDistances();
     skGroup.add(ln);
+  }
+  for (const t of v.texts || []) {                  // testi da marcare: i tratti delle lettere
+    const mat = SK.sel.has(t.id) ? SK_SEL : SK.hover === t.id ? SK_HOV : SK_TESTO;
+    for (const s of t.strokes) skGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(s.map(q => v3(q))), mat));
   }
   for (const c of v.circles) {
     const pts = [];
@@ -2604,7 +2619,9 @@ function drawSketch() {
   $('#sk-face').hidden = !suPezzo;
   $('#sk-boss').hidden = !!v.on_sheet;
   document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => { b.disabled = !pronto; });
-  $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn));
+  $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn - (v.texts || []).length));
+  $('#sk-mark').disabled = !(v.texts || []).length;
+  $('#sk-mark').classList.toggle('primary', !!(v.texts || []).length && !v.profiles);
   $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);
   $('#sk-make [data-make="profilo"]').disabled = !(v.lines.some(l => !l.construction) || v.arcs.some(a => !a.construction));   // bastano linee aperte   // da bordo a bordo: la chiudo io
   for (const q of ['#sk-louver', '#sk-dimple']) { $(q).hidden = !(v.on_sheet && v.on_face); $(q).disabled = !v.drawn; }
@@ -2855,6 +2872,12 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
     const d = Math.abs(Math.hypot(m[0] - ctr[0], m[1] - ctr[1]) - Math.hypot(e[0] - ctr[0], e[1] - ctr[1]));
     if (d < 7 && (!best || d < best.d)) best = { id: c.id, d };
   }
+  for (const t of SK.v.texts || []) {
+    for (const s of t.strokes) for (let i = 1; i < s.length; i++) {
+      const d = segDist(m, proj(s[i - 1]), proj(s[i]));
+      if (d < 6 && (!best || d < best.d)) best = { id: t.id, d };
+    }
+  }
   const xy = skPick(ev);
   for (const a of SK.v.arcs || []) {            // vicino all'arco e dentro il suo angolo
     if (!xy) break;
@@ -3064,6 +3087,27 @@ function skPlace(c) {
       const r = slotR(c.xy);
       if (r > 0) addSlot(r);
     }
+  } else if (SK.tool === 'text') {
+    const sid = SK.sid;
+    const ultimo = SK.lastText || { text: '', h: 5, angle: 0 };
+    modal(`<h3>Testo da marcare</h3>
+      <p class="hint">Va sul layer di marcatura del DXF (MARK): il laser lo segna in una passata, lettere a tratto singolo.</p>
+      <div class="form"><label style="grid-column:1/-1">Testo<input class="field" id="tx-t" value="${esc(ultimo.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
+        <label>Altezza<span class="inp"><input class="field" id="tx-h" value="${esc(String(ultimo.h).replace('.', ','))}"><i>mm</i></span></label>
+        <label>Angolo<span class="inp"><input class="field" id="tx-a" value="${esc(String(ultimo.angle).replace('.', ','))}"><i>°</i></span></label></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti il testo</button></div>`, close => {
+      $('#m-no').onclick = close;
+      const vai = () => {
+        const t = $('#tx-t').value, h = $('#tx-h').value.trim(), a = $('#tx-a').value.trim() || '0';
+        if (!t.trim()) { toast('Scrivi il testo.', 'err'); return; }
+        SK.lastText = { text: t, h, angle: a };
+        close();
+        inCoda(async () => { await apply(await call('sketch_add_text', sid, ptArg(p), t, h, a)); });
+      };
+      $('#m-ok').onclick = vai;
+      $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+      $('#tx-t').focus();
+    });
   } else if (SK.tool === 'circle') {
     if (!SK.pts.length) { SK.pts.push(p); }
     else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; const r = Math.hypot(c.xy[0] - a.xy[0], c.xy[1] - a.xy[1]); if (r > 0) inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), r, k)); }); }
@@ -3537,6 +3581,11 @@ function makeDialog(kind) {
   if (kind === 'contour') {
     const sid = SK.sid;
     inCoda(async () => { if (await apply(await call('contour_flange', sid))) exitSketch(); });
+    return;
+  }
+  if (kind === 'mark') {
+    const sid = SK.sid;
+    inCoda(async () => { const r = await call('create_from_sketch', sid, 'mark', {}); if (await apply(r, r.message)) exitSketch(); });
     return;
   }
   if (kind === 'cut') {

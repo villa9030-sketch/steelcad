@@ -69,6 +69,12 @@ def _feature_label(doc, f, fr) -> str:
         if t == 'sheet_cut':
             if f.get('mode') == 'add':
                 return f'{nome or "Linguetta"}: materiale aggiunto nel piano della faccia'
+            if f.get('mode') == 'mark':
+                try:
+                    testi = [e['text'] for e in doc.sketch(f['sketch']).entities.values() if e['kind'] == 'text']
+                except Exception:  # noqa: BLE001
+                    testi = []
+                return f'{nome or "Marcatura"} laser: ' + (', '.join(f'«{t}»' for t in testi[:3]) or 'testi') +                     (' …' if len(testi) > 3 else '')
             extra = []
             try:
                 sk = doc.sketch(f['sketch'])

@@ -70,7 +70,7 @@ class Sketch:
         e = self.entities.get(eid, {})
         if e.get('label'):
             return e['label']
-        nomi = {'point': 'punto', 'line': 'linea', 'circle': 'cerchio', 'arc': 'arco'}
+        nomi = {'point': 'punto', 'line': 'linea', 'circle': 'cerchio', 'arc': 'arco', 'text': 'testo'}
         if eid == ORIGIN:
             return "l'origine"
         return f"{nomi.get(e.get('kind'), 'elemento')} {eid}"
@@ -126,6 +126,17 @@ class Sketch:
         cid = self._new_id('C', self.entities)
         self.entities[cid] = {'kind': 'circle', 'center': self._pt(center), 'r': float(r), 'construction': construction}
         return cid
+
+    def text(self, anchor, testo: str, h: float, angolo: float = 0.0) -> str:
+        """Un testo da marcare: il punto in basso a sinistra (anchor), il testo, l'altezza delle maiuscole, l'angolo."""
+        if not str(testo).strip():
+            raise SketchError('Scrivi il testo da marcare.')
+        if h <= 0:
+            raise SketchError('L’altezza del testo deve essere maggiore di zero.')
+        tid = self._new_id('T', self.entities)
+        self.entities[tid] = {'kind': 'text', 'center': self._pt(anchor), 'text': str(testo), 'h': float(h),
+                              'angle': float(angolo)}
+        return tid
 
     def arc(self, center, start, end, *, construction: bool = False) -> str:
         """Arco in senso antiorario da start a end."""
