@@ -333,12 +333,26 @@ def _world(ref, pose, parts, asm):
     return info, R @ np.array(info['p']) + T, R @ np.array(info['n'])
 
 
+# le facce ritrovate, per pezzo e riferimento: ritrovarle scorre tutte le facce del pezzo, e un assieme con tanti
+# accoppiamenti le chiedeva migliaia di volte a ogni ricalcolo (il pezzo resta nel valore: il suo id non si ricicla)
+_INFO_CACHE: dict = {}
+
+
 def _info(ref, parts, asm) -> dict:
     """La faccia di un riferimento nelle coordinate del suo pezzo: tipo, p, n (versore), r."""
     part = parts[asm.instance(ref['inst'])['file']]
+    chiave = (id(part), ref.get('name'), ref.get('kind'), tuple(round(float(x), 9) for x in ref['p']),
+              round(float(ref.get('r') or 0), 9))
+    trovato = _INFO_CACHE.get(chiave)
+    if trovato is not None and trovato[0] is part:
+        return trovato[1]
     i = resolve_ref(part, ref)
     n = np.array(i['n'], dtype=float)
-    return {'kind': i['kind'], 'p': np.array(i['p'], dtype=float), 'n': n / np.linalg.norm(n), 'r': float(i.get('r') or 0)}
+    out = {'kind': i['kind'], 'p': np.array(i['p'], dtype=float), 'n': n / np.linalg.norm(n), 'r': float(i.get('r') or 0)}
+    if len(_INFO_CACHE) > 50000:
+        _INFO_CACHE.clear()
+    _INFO_CACHE[chiave] = (part, out)
+    return out
 
 
 def _nel_mondo(info, R, T) -> dict:

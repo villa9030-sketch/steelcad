@@ -21,7 +21,7 @@ def _tondo(cart, d=40, L=200):
     assert s.new_project('zero', {'name': 'Tondo'})['ok']
     sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
     assert s.sketch_add_circle(sid, [0, 0], d / 2)['ok']
-    r = s.create_from_sketch(sid, 'plate', {'spessore': L})
+    r = s.create_from_sketch(sid, 'plate', {'thickness': L})
     assert r['ok'], r.get('message')
     f = cart / 'Tondo.steelcad'
     assert s.save(str(f))['ok']

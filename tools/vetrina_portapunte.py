@@ -136,7 +136,7 @@ def fianco(nome):
             ok(s.sketch_fillet(sid, q['id'], 8), 'raccordo')
     # presa per le dita: un'asola nella parte alta dietro
     ok(s.sketch_add_slot(sid, [prof - 45, alto - 14], [prof - 15, alto - 14], 7), 'asola presa')
-    ok(s.create_from_sketch(sid, 'sheet', {'spessore': SP}), 'crea lamiera')
+    ok(s.create_from_sketch(sid, 'sheet', {'thickness': SP}), 'crea lamiera')
     f = D / f'{nome}.steelcad'
     ok(s.save(str(f)), 'salva fianco')
     return s, f
