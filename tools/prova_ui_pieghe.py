@@ -153,7 +153,7 @@ def main():
             time.sleep(0.3)
             ok('G mostra il pezzo in trasparenza', pg.evaluate('window.__steelcad.look.model'))
             pg.screenshot(path=str(SHOTS / '3_faccia_con_pezzo.png'))
-            pg.keyboard.press('Escape')
+            pg.keyboard.press('Escape'); time.sleep(0.2); pg.keyboard.press('Escape')   # 1° spegne lo strumento, 2° esce
             pg.wait_for_function('!window.__steelcad.sketch')
             ok('fuori dallo sketch il pezzo torna', pg.evaluate('window.__steelcad.look.model'))
             pg.wait_for_function("!document.querySelector('#tree').innerText.includes('Sketch: la faccia')", timeout=5000)
