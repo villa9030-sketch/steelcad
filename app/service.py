@@ -511,14 +511,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
     def _sheet_state(self):
         sm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet'), None)
         if sm is None:
-            fm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet_shape'), None)
+            fm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') in ('sheet_shape', 'step_lamiera')), None)
             if fm is None:
                 return None
             data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
             return {'feature': fm['id'], 'shape': True, 'methods': {'k': METODI['k']}, 'flanges': 0, 'after': [],
                     'def': {k: fm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')} | {'method': 'k'},
                     'data': data.summary() if data is not None else None,
-                    'missing': [m for m, k in (('raggio interno', 'radius'), ('K-factor', 'k')) if fm.get(k) in (None, '')]}
+                    'missing': [] if fm.get('type') == 'step_lamiera' else      # raggio e spessore dallo STEP, K scritto
+                    [m for m, k in (('raggio interno', 'radius'), ('K-factor', 'k')) if fm.get(k) in (None, '')]}
         out = {'feature': sm['id'], 'def': {k: sm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')},
                'methods': METODI, 'data': None, 'flanges': len(sm.get('flanges') or []),
                'after': [f['id'] for f in self.doc.features[self.doc.features.index(sm) + 1:]
@@ -2178,6 +2179,40 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 st.setdefault('skeletons', []).append(sk_def)
         return self._change('Crea struttura dallo sketch', fn)
 
+    def import_step(self, path: str, k=None) -> dict:
+        """Uno STEP di lamiera piegata del cliente: diventa un pezzo con lo sviluppo (K della piegatrice, o quello
+        scritto). Lo STEP si salva dentro il progetto: il file può poi spostarsi."""
+        import base64
+        import zlib
+
+        from cad_engine.document import Document
+        p = Path(path)
+        try:
+            dati = p.read_bytes()
+        except OSError as ex:
+            return {'ok': False, 'message': f'Lo STEP non si legge: {ex}'}
+        kk = k if k not in (None, '') else self.bend_default().get('k') or 0.33
+        try:
+            kk = _numero(kk, 'il K')
+        except SteelCADError as ex:
+            return _err(ex)
+        doc = Document(p.stem, 'S235')
+        doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk,
+                        dati=base64.b64encode(zlib.compress(dati, 9)).decode('ascii'))
+        prova = doc.rebuild()
+        fr = next((f for f in prova.features if f.id == 'IM1'), None)
+        if fr is None or not fr.ok:
+            return {'ok': False, 'code': 'step', 'message': fr.message if fr else 'Lo STEP non si apre.'}
+        self._set(doc)
+        self.path = None
+        self.blank = False
+        self.asm = None
+        self._asm_ritorno = None
+        data = self.result.body.sheet
+        return _ok(state=self.state(), message=f'{p.name}: lamiera sp. {fmt_mm(round(data.thickness, 2))}, {len(data.bend_rows)} pieghe, '
+                           f'sviluppo {fmt_mm(round(data.flat_size[0], 1))} × {fmt_mm(round(data.flat_size[1], 1))} '
+                           f'(K {fmt_mm(kk)}).' + (' ' + ' '.join(data.warnings) if data.warnings else ''))
+
     def _rivoluzione(self, sid, sk, v) -> dict:
         """Il contorno chiuso fatto girare attorno alla linea di costruzione: nuovo pezzo, o aggiunto/tolto."""
         if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
@@ -2280,7 +2315,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         if su is None and not sk.plane.get('flat'):          # una forma di lamiera (profilo a colpi…): taglio di lamiera
             try:
                 f_ = self.doc.feature(sk.plane['face'].split('/')[0])
-                su = f_ if not isinstance(f_, Sketch) and f_.get('type') == 'sheet_shape' else None
+                su = f_ if not isinstance(f_, Sketch) and f_.get('type') in ('sheet_shape', 'step_lamiera') else None
             except SteelCADError:
                 su = None
 

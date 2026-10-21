@@ -1403,6 +1403,25 @@ document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-asm-tool]');
   if (b) asmTool(ASM.tool === b.dataset.asmTool ? null : b.dataset.asmTool);
 });
+// STEP del cliente → lamiera con lo sviluppo (K della piegatrice, si può cambiare)
+function stepDialog() {
+  const k = S?.bend_default?.k ?? 0.33;
+  modal(`<h3>Apri STEP di una lamiera</h3>
+    <p class="hint">Riconosco spessore e pieghe e spiego il pezzo: lo sviluppo con il K che usi tu (non quello del cliente). Se il pezzo non è una lamiera piegata (angolare, assieme, forme speciali) te lo dico invece di darti uno sviluppo sbagliato.</p>
+    <div class="form"><label>K-factor<input class="field" id="st-k" value="${esc(String(k).replace('.', ','))}"></label><span></span></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Scegli il file STEP…</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const kk = $('#st-k').value.trim(); close();
+      inCoda(async () => {
+        const r = await call('import_step_dialog', kk);
+        if (r.cancelled) return;
+        primaVolta = true; clearSelection();
+        if (await apply(r, r.message)) hideHome();
+      });
+    };
+  });
+}
 async function viteriaDialog() {
   if (S?.mode !== 'assembly') { toast('La viteria si mette negli assiemi.', 'err'); return; }
   const r = await call('libreria_catalogo');
@@ -2279,7 +2298,8 @@ async function showHome(info) {
   $('#home').querySelectorAll('.home-cat').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
   scegli(null);
   $('#home').querySelectorAll('[data-new]').forEach(b => {
-    b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'importa' ? inCoda(importDialog) : newDialog(b.dataset.new, true));
+    b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'importa' ? inCoda(importDialog)
+      : b.dataset.new === 'step' ? stepDialog() : newDialog(b.dataset.new, true));
   });
   $('#home').querySelectorAll('[data-altro="importa"]').forEach(b => { b.onclick = () => inCoda(importDialog); });
   $('#home-open').onclick = () => inCoda(() => openProject());
@@ -2339,6 +2359,7 @@ const CMDS = [
   { id: 'asm_back', label: 'Torna all’assieme', run: () => inCoda(async () => { primaVolta = true; clearSelection(); await apply(await call('asm_back')); }) },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
+  { id: 'import_step', label: 'Apri STEP di una lamiera (fa lo sviluppo)…', run: () => stepDialog() },
   { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => { if (await apply(await call('save', true), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
@@ -3913,12 +3934,14 @@ function motivoNo(cmd) {
 // servono non si vedono; su coni e raccordi niente comandi della lamiera piegata
 function aggiornaComandi() {
   const forma = !!S?.sheet?.shape;
+  // profili a colpi e lamiere da STEP hanno le facce dei tratti: ci si disegna sopra (fori, tagli, marcature)
+  const conFacce = ['profilo', 'step'].includes(S?.sheet?.data?.shape_info?.kind);
   document.querySelectorAll('#ribbon .rb[data-cmd]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';
     const no = motivoNo(b.dataset.cmd);
     b.disabled = !!no;
     b.title = no ? `${b.dataset.title} · Non disponibile: ${no}` : b.dataset.title;
-    if (b.hasAttribute('data-no-shape')) b.hidden = forma;
+    if (b.hasAttribute('data-no-shape')) b.hidden = forma && !(conFacce && b.dataset.cmd === 'face_help');
   });
   document.querySelectorAll('#ribbon .rb[data-serve="lam"]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';

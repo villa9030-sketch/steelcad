@@ -321,6 +321,15 @@ class Api:
             return {'ok': False, 'cancelled': True}
         return self._call(self._svc.import_dxf, p)
 
+    def import_step_dialog(self, k=None):
+        p = self._dialog(webview.OPEN_DIALOG, ('STEP (*.step;*.stp)',))
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.import_step, p, k)
+
+    def import_step(self, path, k=None):
+        return self._call(self._svc.import_step, path, k)
+
     def import_dxf(self, path):
         return self._call(self._svc.import_dxf, path)
 
