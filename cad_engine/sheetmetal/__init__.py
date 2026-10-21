@@ -1489,7 +1489,12 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
             raise FeatureError('Questo sketch sta sullo sviluppo di un’altra lamiera.', feature=fid)
         if fdef.get('mode') != 'add':
             return _cut_from_flat(fdef, body, data, prof.faces, t)
-        lavori = [_from_flat(f, data, fid) for f in prof.faces]
+        # materiale aggiunto sullo sviluppo: va col tratto piano a cui si attacca (la base o una flangia)
+        lavori, ritorni = [], []
+        for f in prof.faces:
+            lav, loc = _from_flat(f, data, fid, ritorno=True)
+            lavori.append(lav)
+            ritorni.append(loc)
     else:
         nome = piano.get('face', '') if isinstance(piano, dict) else ''
         parti = nome.split('/')
@@ -1528,8 +1533,6 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
             ritorni.append(src.location * dst.location.inverse())
 
     if fdef.get('mode') == 'add':
-        if piano.get('flat') if isinstance(piano, dict) else False:
-            raise FeatureError('Il materiale si aggiunge disegnando su una faccia del pezzo, non sullo sviluppo.', feature=fid)
         return _add_tab(fdef, body, data, _fuori_dallo_sviluppo(lavori, ritorni, data), t)
     return _taglio_semplice(fdef, body, data, lavori, t, fid)
 
@@ -2054,7 +2057,7 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     return nuovo
 
 
-def _from_flat(f, data, fid):
+def _from_flat(f, data, fid, ritorno=False):
     """Un contorno disegnato sullo sviluppo: in quale tratto piano cade (la base o una flangia) e dove va
     nel pezzo piegato. Un contorno che tocca una piega, o che passa da un tratto all'altro, è rifiutato."""
     t, N = data.thickness, data.plane.z_dir
@@ -2085,7 +2088,10 @@ def _from_flat(f, data, fid):
     if possibili is None:
         raise FeatureError('Il contorno disegnato è fuori dallo sviluppo: non toglie niente.', feature=fid)
     if None in possibili:
-        return f, N, f                          # lo sviluppo sta sul piano della faccia di sotto della base
+        out = (f, N, f)                         # lo sviluppo sta sul piano della faccia di sotto della base
+        return (out, bd.Location()) if ritorno else out
     g = next(x for x in data.flanges if x.fid == sorted(possibili)[0])
     src, dst = _flange_planes(g, t)
-    return f.moved(src.location * dst.location.inverse()), g.frame()[1], f
+    loc = src.location * dst.location.inverse()
+    out = (f.moved(loc), g.frame()[1], f)
+    return (out, loc) if ritorno else out

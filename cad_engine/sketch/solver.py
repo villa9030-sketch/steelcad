@@ -69,6 +69,20 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
         chiave = None
     if chiave is not None and chiave in _MEMORIA:
         return dataclasses.replace(_MEMORIA[chiave], sketch=sk)
+    rif = {k: c for k, c in sk.constraints.items() if c.get('driven')}
+    if rif:                                     # le quote di riferimento: si risolve senza, poi si misurano
+        senza = dataclasses.replace(sk, constraints={k: c for k, c in sk.constraints.items() if k not in rif})
+        out = solve(senza, params)
+        valori = dict(out.values)
+        for k, c in rif.items():
+            try:
+                valori[k] = misura(out, c)
+            except (KeyError, ZeroDivisionError):
+                valori[k] = c['value'] if isinstance(c['value'], (int, float)) else 0.0
+        out = dataclasses.replace(out, sketch=sk, values=valori)
+        if chiave is not None:
+            _MEMORIA[chiave] = out
+        return out
     out = _solve_a_blocchi(sk, params) if len(sk.constraints) > _SOGLIA_BLOCCHI else None
     if out is None:
         out = _solve(sk, params)
@@ -77,6 +91,33 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
             _MEMORIA.pop(next(iter(_MEMORIA)))
         _MEMORIA[chiave] = out
     return out
+
+
+def misura(ss: 'SolvedSketch', c: dict) -> float:
+    """La misura che una quota leggerebbe sul disegno risolto (per le quote di riferimento)."""
+    t, refs, P = c['type'], c['refs'], ss.points
+    if t == 'length':
+        a, b = ss.lines[refs[0]]
+        return math.dist(P[a], P[b])
+    if t in ('diameter', 'radius'):
+        r = ss.circles[refs[0]][1] if refs[0] in ss.circles else ss.arcs[refs[0]][3]
+        return 2 * r if t == 'diameter' else r
+    if t == 'distance':
+        return math.dist(P[refs[0]], P[refs[1]])
+    if t == 'hdistance':
+        return P[refs[1]][0] - P[refs[0]][0]
+    if t == 'vdistance':
+        return P[refs[1]][1] - P[refs[0]][1]
+    if t == 'pldistance':
+        (ax, ay), (bx, by) = (P[x] for x in ss.lines[refs[1]])
+        px, py = P[refs[0]]
+        return abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / math.hypot(bx - ax, by - ay)
+    if t == 'angle':
+        (a1, b1), (a2, b2) = (tuple(P[x] for x in ss.lines[r]) for r in refs[:2])
+        u = math.atan2(b1[1] - a1[1], b1[0] - a1[0]) - math.atan2(b2[1] - a2[1], b2[0] - a2[0])
+        g = abs(math.degrees(u)) % 180
+        return min(g, 180 - g) if c.get('value', 0) <= 90 else max(g, 180 - g)
+    raise KeyError(t)
 
 
 # ============================================================================ a blocchi

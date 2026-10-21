@@ -217,7 +217,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             for did, c in f.constraints.items():
                 if c['type'] not in ('length', 'distance', 'diameter', 'radius', 'hdistance', 'vdistance', 'pldistance'):
                     continue
-                if _guida_secondaria(f, c):
+                if not c.get('driven') and _guida_secondaria(f, c):
                     continue                    # delle linee di costruzione si mostra solo la distanza che conta
                 # offset e serie: la stessa misura su tanti tratti/copie si mostra una volta sola
                 expr = c['value']
@@ -271,14 +271,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                         continue                        # quota zero: niente da mostrare
                 ga, gb = pl.from_local_coords(pa), pl.from_local_coords(pb)
                 v = ss.values.get(did)
-                out.append({'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'],
+                rif = bool(c.get('driven'))
+                out.append({'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'], 'driven': rif,
                             'local': not isinstance(f.plane, str),
                             'param': param,
                             # le distanze orizzontali/verticali "all'indietro" si leggono senza il meno: il verso
                             # lo dice la quota stessa
                             'value': v, 'shown': abs(v) if v is not None and c['type'] in ('hdistance', 'vdistance') else v,
-                            'label': ({'diameter': 'Ø', 'radius': 'R'}.get(c['type'], ''))
-                            + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0)),
+                            'label': ('(' if rif else '') + ({'diameter': 'Ø', 'radius': 'R'}.get(c['type'], ''))
+                            + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0)) + (')' if rif else ''),
                             'a': [ga.X, ga.Y, ga.Z], 'b': [gb.X, gb.Y, gb.Z]})
         return out
 
@@ -1486,6 +1487,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             r['dim'] = info.get('did')
             if info.get('tolta'):
                 r['message'] = f'Tolta {info["tolta"]}: ora comanda la tua. Scrivi la misura e Invio.'
+            if info.get('guidata'):
+                r['guidata'] = True
+                r['message'] = ('Questa misura la decide già il pezzo: la quota resta di riferimento, tra parentesi. '
+                                'Per cambiarla cambia la misura del pezzo (fuori dallo sketch, clic sulla sua quota).')
         return r
 
     def sketch_delete(self, sid: str, eids: list) -> dict:
@@ -1792,8 +1797,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         import math as _m
         try:
             sk = self.doc.sketch(sid)
-            if not isinstance(sk.plane, dict) or not (sk.plane.get('face') or '').startswith(tuple(
-                    f['id'] + '/' for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet')):
+            lamiere = [f['id'] for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet']
+            if not isinstance(sk.plane, dict) or not (sk.plane.get('flat') in lamiere or (sk.plane.get('face') or '').startswith(
+                    tuple(x + '/' for x in lamiere))):
                 raise SteelCADError('La linguetta si disegna su una faccia di una lamiera.', code='linguetta')
             ss = self.doc.solved_sketch(sid)
             P = ss.points
@@ -2371,6 +2377,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         v = _number(value)
         if d and d['type'] in ('hdistance', 'vdistance') and (d['value'] or 0) < 0 and isinstance(v, (int, float)) and v > 0:
             v = -v                              # mostrata senza il meno: si tiene il verso di prima
+        if d and d.get('driven'):
+            if isinstance(v, (int, float)) and abs(abs(v) - abs(d['value'] or 0)) < 1e-6:
+                return {'ok': True, 'state': self.state()}
+            return _err(SteelCADError('Questa è una quota di riferimento (tra parentesi): la misura la decide il pezzo. '
+                                      'Per cambiarla esci dallo sketch e clicca la quota sul pezzo, oppure cancellala.',
+                                      code='quota'))
         if d and d['param']:
             return self.set_parameter(d['param'], v)
         return self._change(f'Quota {value}', lambda: self.doc.sketch(sketch_id).set_value(dim_id, v))

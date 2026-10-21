@@ -741,10 +741,11 @@ function buildDims() {
       dimLines.add(new THREE.LineSegments(g, DIM_MAT));
     }
     const el = document.createElement('div');
-    el.className = 'dim' + (d.type === 'diameter' || d.type === 'radius' ? ' dia' : '');
+    el.className = 'dim' + (d.type === 'diameter' || d.type === 'radius' ? ' dia' : '') + (d.driven ? ' rif' : '');
     el.innerHTML = (d.param ? `<span class="p">${esc(d.param)}</span>` : '') + esc(d.label);
-    el.title = d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla` : 'Clicca per cambiare la quota';
-    el.addEventListener('click', ev => { ev.stopPropagation(); editDim(el, d); });
+    el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
+      : d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla` : 'Clicca per cambiare la quota';
+    el.addEventListener('click', ev => { ev.stopPropagation(); if (d.driven) toast(el.title); else editDim(el, d); });
     dimsBox.appendChild(el);
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
     dimEls.push({ el, d, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
@@ -2951,7 +2952,7 @@ function drawSketch() {
   $('#sk-face [data-make="cut"]').classList.toggle('primary', !v.on_flat);
   $('#sk-fold').disabled = !v.drawn;
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
-  $('#sk-tab').hidden = !(v.on_sheet && v.on_face);
+  $('#sk-tab').hidden = !((v.on_sheet && v.on_face) || v.on_flat);
   $('#sk-tab').disabled = !v.drawn;
   $('#sk-contour').disabled = !v.drawn || !v.lines.some(l => !l.construction);
   $('.sk-legend .l-ref').parentElement.hidden = !suPezzo;
@@ -3838,7 +3839,7 @@ function skDimClick(ev) {
   // come in ogni CAD: dopo il clic si scrive subito la misura (anche se la quota c'era già)
   const quota = (kind, refs) => inCoda(async () => {
     const r = await call('sketch_dimension', sid, kind, refs);
-    if (!await apply(r) || !r.dim) return;
+    if (!await apply(r) || !r.dim || r.guidata) return;
     const x = dimEls.find(e => e.d.sketch === sid && e.d.dim === r.dim);
     if (x) { x.el.style.display = ''; editDim(x.el, x.d); }
   });

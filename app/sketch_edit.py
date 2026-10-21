@@ -503,7 +503,7 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
         suoi = set(c['refs']) | set(_points_of(sk, [r for r in c['refs'] if r in sk.entities and r != ORIGIN]))
         return len((suoi - {ORIGIN}) & miei)
     candidati = [cid for cid, c in sk.constraints.items() if cid != did and c['type'] in DIMENSIONS
-                 and isinstance(c.get('value'), (int, float))]
+                 and isinstance(c.get('value'), (int, float)) and not c.get('driven')]
     candidati.sort(key=lambda cid: (-tocca(sk.constraints[cid]), -int(''.join(ch for ch in cid if ch.isdigit()) or 0)))
     for cid in candidati:
         vecchio = sk.constraints.pop(cid)
@@ -512,8 +512,11 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
             info['tolta'] = _descr(sk, cid, vecchio)
             return did
         sk.constraints[cid] = vecchio
-    del sk.constraints[did]
-    raise SketchError('Questa misura è già decisa da altri vincoli (non quote): toglili o cambiali prima.')
+    # nessuna quota da togliere: la decide il pezzo (i bordi arancio) o i vincoli. Come in ogni CAD la quota si
+    # mette lo stesso, di riferimento: mostra la misura tra parentesi, non comanda
+    sk.constraints[did]['driven'] = True
+    info['guidata'] = True
+    return did
 
 
 def _descr(sk, cid, c):

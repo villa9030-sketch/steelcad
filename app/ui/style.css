@@ -820,3 +820,7 @@ body.in-attesa, body.in-attesa canvas { cursor: progress !important; }
 @keyframes att-scorri { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
 @keyframes att-gira { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #attesa .att-barra i, #attesa .att-giro { animation-duration: 3s; } }
+
+/* quota di riferimento: misura, non comanda (21/10) */
+.dim.rif { color: var(--ink-3); border-style: dashed; }
+body.dark .dim.rif { color: #9AA4AE; border-color: #4A5560; }
