@@ -3,6 +3,7 @@ from .. import sheetmetal
 from ..sheetmetal import shapes
 from ..sheetmetal import forms
 from ..sheetmetal import edge_flange
+from ..sheetmetal import taglio_testa
 from ..importers import step_lamiera
 
 BUILDERS = {
@@ -16,6 +17,7 @@ BUILDERS = {
     'sheet_cut': sheetmetal.build_cut,
     'sheet_form': forms.build_form,
     'sheet_edge_flange': edge_flange.build_edge_flange,
+    'sheet_miter': taglio_testa.build_end_miter,
     'step_lamiera': step_lamiera.build,
 }
 
@@ -30,5 +32,6 @@ VALUE_FIELDS = {
     'sheet_shape': ('thickness', 'radius', 'k', 'd1', 'd2', 'height', 'a', 'b', 'd', 'ex', 'ey', 'pitch', 'length', 'hits'),
     'sheet_form': ('width', 'height', 'depth'),
     'sheet_edge_flange': ('length', 'angle'),
+    'sheet_miter': ('angle', 'gap'),
     'step_lamiera': ('k',),
 }

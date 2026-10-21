@@ -264,6 +264,7 @@ class AssemblyMixin:
         'spigolo_faccia': ({'piana'}, {'spigolo'}, 'Spigolo su faccia: prima la faccia piana del pezzo fermo, poi lo '
                            'spigolo dritto dell’altro.'),
         'cono': ({'conica'}, {'conica'}, 'Cono su cono vuole due facce coniche: la svasatura del foro e la testa della vite.'),
+        'testa': ({'piana'}, {'piana'}, 'Testa a testa vuole le due facce piane dei tagli di testa (a 45°), una per pezzo.'),
     }
 
     def _asm_edge(self, iid, punto):
@@ -382,11 +383,29 @@ class AssemblyMixin:
                 m['angle'] = round(self._misura_mate(m), 3) if vuoto else _numero(offset, 'l’angolo')
                 if not 0 <= m['angle'] <= 180:
                     raise A.AssemblyError('L’angolo va da 0° a 180°.')
+            elif kind == 'testa':
+                m['offset'] = self._gioco_teste(rf['a']['inst'], rf['b']['inst']) if vuoto else _numero(offset, 'il gioco')
+                if m['offset'] < 0:
+                    raise A.AssemblyError('Il gioco non può essere negativo.')
             elif kind in ('faccia', 'distanza', 'tangente', 'centra', 'spigolo_faccia'):
                 m['offset'] = round(self._misura_mate(m), 3) if vuoto else _numero(offset, 'la distanza')
             self.asm.mates.append(m)
             return {'select': 'mate=' + mid}
         return self._asm_change(A.MATE_TYPES[kind].capitalize(), fn)
+
+    def _gioco_teste(self, ia: str, ib: str) -> float:
+        """Testa a testa senza gioco scritto: quello dei tagli di testa dei due pezzi (metà ciascuno)."""
+        tot = 0.0
+        for iid in (ia, ib):
+            part = self.asm_parts.get(self.asm.instance(iid)['file'])
+            tagli = [f for f in getattr(part.doc, 'features', []) if isinstance(f, dict) and f.get('type') == 'sheet_miter'
+                     and not f.get('disattiva')] if part is not None else []
+            if tagli:
+                try:
+                    tot += float(tagli[-1].get('gap') or 0) / 2
+                except (TypeError, ValueError):
+                    pass
+        return round(tot, 6)
 
     @_in_assieme
     def asm_edit_mate(self, mid: str, fields: dict) -> dict:

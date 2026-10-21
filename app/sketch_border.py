@@ -164,6 +164,23 @@ class _Vista:
                          if not (e['kind'] == 'line' and not e.get('construction')) or k in tieni}
 
 
+class _Uniti:
+    """Lo sketch con i punti che stanno nello stesso posto (risolto) uniti in uno: due tratti agganciati a punti
+    diversi sovrapposti (uno sulla guida, uno dalla quota) sono collegati (21/10: la spezzata a 45° sullo sviluppo
+    risultava spezzata in due)."""
+    def __init__(self, sk, points):
+        canon, primo = {}, {}
+        for pid in sorted(points, key=lambda p: (not sk.entities.get(p, {}).get('ref'), p)):   # vince il punto del bordo
+            x, y = points[pid]
+            k = (round(x, 5), round(y, 5))
+            canon[pid] = primo.setdefault(k, pid)
+        self.entities = {}
+        for k, e in sk.entities.items():
+            if e['kind'] == 'line':
+                e = {**e, 'a': canon.get(e['a'], e['a']), 'b': canon.get(e['b'], e['b'])}
+            self.entities[k] = e
+
+
 def _gruppi(sk, linee) -> list:
     """Le linee disegnate divise in spezzate collegate (punti in comune)."""
     padre = {l: l for l in linee}
@@ -195,6 +212,16 @@ def border_closure(sk, points, oltre: float | None = None) -> list | None:
     linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('construction')]
     if not linee or any(e['kind'] == 'arc' and not e.get('construction') for e in sk.entities.values()):
         return None
+    sk = _Uniti(sk, points)
+    # due linee uguali (lo stesso tratto disegnato due volte) contano una
+    visti, uniche = set(), []
+    for k in linee:
+        e = sk.entities[k]
+        chiave = frozenset((e['a'], e['b']))
+        if e['a'] != e['b'] and chiave not in visti:
+            visti.add(chiave)
+            uniche.append(k)
+    linee = uniche
     gruppi = _gruppi(sk, linee)
     if len(gruppi) == 1:
         return _una(sk, points, oltre, linee)
@@ -222,7 +249,9 @@ def _una(sk, points, oltre, linee) -> list | None:
     if chiusa:
         return None
     # il contorno della faccia: le linee arancio "bordo del pezzo", in giri chiusi
-    bordi = [(e['a'], e['b']) for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref') and not e.get('proj')]
+    # (le guide delle pieghe sullo sviluppo sono arancio ma non sono il bordo)
+    bordi = [(e['a'], e['b']) for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref') and not e.get('proj')
+             and not e.get('linea_piega')]
     archi = {frozenset((e['start'], e['end'])): k for k, e in sk.entities.items()
              if e['kind'] == 'arc' and e.get('ref') and not e.get('proj')}
     vicini: dict = {}

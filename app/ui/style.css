@@ -847,3 +847,8 @@ body.sketching.disegno-attivo #dims .dim:not(.edit) { pointer-events: none; }
 .menu-albero button.danger { color: #FF6B6B; }
 #tree .node.spenta { opacity: .5; text-decoration: line-through; }
 .lista-dip { margin: 4px 0 8px 18px; font-size: 12px; }
+
+/* ingombro totale del pezzo: quote color ambra, solo da leggere */
+.dim.ing { color: #8A5A00; border-color: #D9B36A; cursor: help; }
+body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
+.dim.ing::before { content: '⤢ '; font-weight: 400; opacity: .7; }

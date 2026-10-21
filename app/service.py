@@ -382,6 +382,29 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             r['select'] = f'pb={nuovo["id"]}'
         return r
 
+    def add_end_miter(self, fields: dict) -> dict:
+        """Taglio di testa inclinato su tutto il profilo (a 45° per i cassoni a cornice): un piano unico per tutte le
+        facce e le pieghe, che passa per lo spigolo esterno della testa."""
+        if self.result.body is None or getattr(self.result.body, 'sheet', None) is None:
+            return {'ok': False, 'message': 'Il taglio di testa si fa su una lamiera piegata.'}
+        nuovo = {}
+
+        def fn():
+            v = {'angle': 45, 'gap': 0, 'end': 'entrambe', 'side': 'fuori', **_end_miter_fields(fields)}
+            nuovo['id'] = self.doc.add_feature('sheet_miter', '', **v)
+        r = self._change('Taglio di testa', fn)
+        if r.get('ok'):
+            r['select'] = f'tt={nuovo["id"]}'
+        return r
+
+    def edit_end_miter(self, fid: str, fields: dict) -> dict:
+        def fn():
+            self.doc.feature(fid).update(_end_miter_fields(fields))
+        r = self._change(f'Cambia il taglio di testa {fid}', fn)
+        if r.get('ok'):
+            r['select'] = f'tt={fid}'
+        return r
+
     def edit_edge_flange(self, fid: str, fields: dict) -> dict:
         def fn():
             self.doc.feature(fid).update(_edge_flange_fields(fields))
@@ -590,6 +613,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 return _ok(selection=self._node_selection(obj_id))
             if obj_id.startswith('struct='):
                 return _ok(selection=self._structure_selection(obj_id[7:]))
+            if obj_id.startswith('tt='):
+                f_ = self.doc.feature(obj_id[3:])
+                righe = []
+                sd = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+                if sd is not None:
+                    righe.append(['Sviluppo', ' × '.join(fmt_mm(round(v, 1)) for v in sd.flat_size) + ' mm'])
+                return _ok(selection={'kind': 'endmiter', 'feature': f_['id'], 'title': 'Taglio di testa', 'rows': righe,
+                                      'def': {'angle': f_.get('angle', 45), 'gap': f_.get('gap', 0),
+                                              'end': f_.get('end', 'entrambe'), 'side': f_.get('side', 'fuori')}})
             if obj_id.startswith('pb='):
                 f_ = self.doc.feature(obj_id[3:])
                 return _ok(selection={'kind': 'edgeflange', 'feature': f_['id'], 'title': 'Piega sul bordo', 'rows': [],
@@ -798,7 +830,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             fr = next((x for x in self.result.features if x.id == ref), None)
             sketch = ref if isinstance(f, Sketch) else f.get('sketch')
             pb = not isinstance(f, Sketch) and f.get('type') == 'sheet_edge_flange'
-            voci = ['modifica'] if sketch or pb else []
+            tt = not isinstance(f, Sketch) and f.get('type') == 'sheet_miter'
+            voci = ['modifica'] if sketch or pb or tt else []
             voci += ['rinomina']
             if not isinstance(f, Sketch) and f.get('type') != 'sheet':
                 voci.append('attiva' if f.get('disattiva') else 'disattiva')
@@ -807,7 +840,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             if errore:
                 voci.append('perche')
             nome = (f.name if isinstance(f, Sketch) else f.get('etichetta')) or ''
-            return _ok(voci=voci, nome=nome, errore=errore, sketch=sketch, seleziona=('pb=' + ref) if pb else None,
+            return _ok(voci=voci, nome=nome, errore=errore, sketch=sketch,
+                       seleziona=('pb=' + ref) if pb else ('tt=' + ref) if tt else None,
                        dipendenti=[self._etichetta(x) for x in self._dipendenti(ref)])
         except SteelCADError as ex:
             return _err(ex)
@@ -1306,7 +1340,22 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
 
     def _sketch_change(self, label, fn):
         # mentre si disegna lo sketch può restare aperto: la modifica si tiene comunque
-        r = self._change(label, fn, keep_broken=True)
+        cambiate = []
+
+        def con_rimedio():
+            fn()
+            # quote che litigano per un arrotondamento: la più recente diventa di riferimento (non blocca lo sketch)
+            from app.sketch_edit import quasi_uguali_di_riferimento
+            for f in self.doc.features:
+                if isinstance(f, Sketch):
+                    try:
+                        cambiate.extend(quasi_uguali_di_riferimento(self.doc, f))
+                    except SteelCADError:
+                        pass
+        r = self._change(label, con_rimedio, keep_broken=True)
+        if r.get('ok') and cambiate:
+            r['message'] = ('Quota di riferimento: ' + ', '.join(cambiate) + ' (la misura era già decisa dal disegno, '
+                            'diversa solo per un arrotondamento).')
         return r
 
     def sketch_add_polyline(self, sid: str, pts: list, closed: bool, construction: bool = False,
@@ -1833,7 +1882,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return self._sketch_change(f'Allunga {eid}', lambda: sketch_trim.extend(self.doc, sid, eid, click))
 
     def sketch_mirror(self, sid: str, eids: list, axis: str) -> dict:
-        return self._sketch_change(f'Specchia su {axis}', lambda: sketch_edit.mirror(self.doc, sid, eids, axis))
+        return self._sketch_change('Specchia' + (f' su {axis}' if isinstance(axis, str) else ''), lambda: sketch_edit.mirror(self.doc, sid, eids, axis))
 
     def sketch_copy(self, sid: str, eids: list, dx, dy) -> dict:
         try:
@@ -2053,6 +2102,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             sk = self.doc.add_sketch({'flat': data.feature}, 'Sketch: sullo sviluppo')
             nuovo['id'] = sk.id
             sketch_ops.add_reference_edges(sk, data.flat, data.plane)
+            sketch_ops.add_bend_references(sk, data)
         r = self._change('Sketch sullo sviluppo', fn)
         if r['ok']:
             r['sketch'] = nuovo['id']
@@ -2220,7 +2270,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                         continue
                     a, b, fatto = ordine[0], ordine[-1], False
                     for k, e in sk.entities.items():
-                        if e['kind'] != 'line' or not e.get('ref'):
+                        if e['kind'] != 'line' or not e.get('ref') or e.get('linea_piega'):
                             continue
                         A, B = P[e['a']], P[e['b']]
                         L = _m.dist(A, B) or 1
@@ -3422,6 +3472,30 @@ def _write_recent(lista: list) -> None:
 def _add_recent(path) -> None:
     p = str(Path(path).resolve())
     _write_recent([p] + [x for x in _read_recent() if x != p])
+
+
+def _end_miter_fields(fields: dict) -> dict:
+    from cad_engine.sheetmetal.taglio_testa import ESTREMI, VERSI
+    out = {}
+    if 'angle' in fields and str(fields['angle']).strip() != '':
+        a = _number(fields['angle'])
+        if isinstance(a, (int, float)) and not 0 < a < 80:
+            raise SteelCADError('L’angolo del taglio di testa va tra 0 e 80° (45° per gli angoli a cornice).', code='campo')
+        out['angle'] = a
+    if 'gap' in fields:
+        g = _number(fields['gap']) if str(fields['gap']).strip() != '' else 0
+        if isinstance(g, (int, float)) and g < 0:
+            raise SteelCADError('Il gioco di saldatura non può essere negativo.', code='campo')
+        out['gap'] = g
+    if 'end' in fields:
+        if fields['end'] not in ESTREMI:
+            raise SteelCADError('Scegli la testa: inizio, fine o tutte e due.', code='campo')
+        out['end'] = fields['end']
+    if 'side' in fields:
+        if fields['side'] not in VERSI:
+            raise SteelCADError('Verso sconosciuto.', code='campo')
+        out['side'] = fields['side']
+    return out
 
 
 def _edge_flange_fields(fields: dict) -> dict:

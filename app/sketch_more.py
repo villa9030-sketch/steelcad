@@ -242,7 +242,7 @@ def is_part_corner(sk, pid) -> bool:
     e = sk.entities.get(pid)
     if not e or e['kind'] != 'point' or not e.get('ref'):
         return False
-    linee = [k for k, x in sk.entities.items() if x['kind'] == 'line' and pid in (x['a'], x['b'])]
+    linee = [k for k, x in sk.entities.items() if x['kind'] == 'line' and pid in (x['a'], x['b']) and not x.get('linea_piega')]
     archi = [k for k, x in sk.entities.items() if x['kind'] in ('arc', 'circle') and pid in (x.get('start'), x.get('end'), x.get('center'))]
     if len(linee) != 2 or not all(sk.entities[k].get('ref') for k in linee) or archi:
         return False

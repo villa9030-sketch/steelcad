@@ -590,9 +590,15 @@ def _result(sk, s, pid, lid, cid_, aid, status, values, solved: bool) -> SolvedS
 
 
 def _check_degenerate(ss: SolvedSketch) -> None:
+    sk = ss.sketch
     for k, (a, b) in ss.lines.items():
         (x1, y1), (x2, y2) = ss.points[a], ss.points[b]
         if math.hypot(x2 - x1, y2 - y1) < TOL:
+            # un tratto tra due punti che stanno nello stesso posto, senza quote sue (21/10: «collegare» due punti
+            # sovrapposti): non blocca lo sketch, nel contorno non conta. Lo schiacciano le quote: allora sì
+            if a != b and not any(k in c['refs'] and c['type'] not in ('horizontal', 'vertical')
+                                  for c in sk.constraints.values()):
+                continue
             raise SketchError(f'Con queste quote {ss.sketch.describe(k)} ha lunghezza zero.', code='sketch_degenere')
     for k, (_, r) in ss.circles.items():
         if r < TOL:

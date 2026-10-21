@@ -135,13 +135,17 @@ class DrawingsMixin:
             res = part.result
             return 2 if getattr(res.body, 'sheet', None) or (res.body is None and res.structures) else 1
         tot_pezzi = sum(fogli_di(self.asm_parts[r['file']]) for r in righe if not r.get('acquisto')) if tutte else 0
-        tot = 1 + tot_pezzi
+        esploso = len(forme) > 1                       # la vista esplosa: come si monta
+        tot = 1 + int(esploso) + tot_pezzi
         massa = sum(r['mass_tot'] for r in righe)
         ca = {**campi, 'titolo': self.asm.name, 'materiale': ', '.join(sorted({r['material'] for r in righe if not r.get('acquisto')})),
               'spessore_massa': f'{D.fmt(round(massa, 3))} kg', 'data': D.oggi(), 'foglio': f'1/{tot}'}
         fogli = [D.tavola_assieme(forme, ca, distinta, formato)]
+        if esploso:
+            ce = {**ca, 'titolo': f'{self.asm.name} — esploso', 'foglio': f'2/{tot}'}
+            fogli.append(D.tavola_esploso(forme, ce, distinta, self._ordine_montaggio(pos), formato))
         if tutte:
-            n = 2
+            n = 2 + int(esploso)
             for k, r in enumerate(righe):
                 if r.get('acquisto'):
                     continue                           # si compra: niente disegno
@@ -151,6 +155,38 @@ class DrawingsMixin:
                 n += len(nuovi)
                 fogli += nuovi
         return fogli
+
+    def _ordine_montaggio(self, pos: dict) -> list:
+        """L'ordine di montaggio dagli accoppiamenti: prima il pezzo fermo, poi i pezzi attaccati a quelli già messi
+        (come li mette a posto il calcolo), ognuno con a chi e come si attacca."""
+        from cad_engine import assembly as A
+        ist = {i['id']: i for i in self.asm.instances}
+        nome = lambda iid: f'pos. {pos.get(ist[iid]["file"], "?")} {ist[iid].get("name") or iid}'  # noqa: E731
+        mates = [m for m in self.asm.mates if not m.get('off')]
+        terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
+        fatti, out = [terra], [f'1. {nome(terra)}: è la base, sta ferma']
+        while True:
+            nuovo = None
+            for i in self.asm.instances:
+                if i['id'] in fatti:
+                    continue
+                con = [m for m in mates if {m['a']['inst'], m['b']['inst']} & {i['id']} and
+                       ({m['a']['inst'], m['b']['inst']} - {i['id']}) <= set(fatti)]
+                if con:
+                    nuovo = (i['id'], con)
+                    break
+            if nuovo is None:
+                break
+            iid, con = nuovo
+            fatti.append(iid)
+            altri = sorted({m['a']['inst'] if m['b']['inst'] == iid else m['b']['inst'] for m in con})
+            tipi = sorted({A.MATE_TYPES.get(m['type'], m['type']) for m in con})
+            out.append(f'{len(fatti)}. {nome(iid)} su {", ".join(nome(x) for x in altri)}: {", ".join(tipi)}')
+        for i in self.asm.instances:
+            if i['id'] not in fatti:
+                out.append(f'{len(out) + 1}. {nome(i["id"])}: al suo posto (senza accoppiamenti)')
+                fatti.append(i['id'])
+        return out
 
     def drawing_preview(self, campi: dict | None = None, tutte: bool = False) -> dict:
         try:

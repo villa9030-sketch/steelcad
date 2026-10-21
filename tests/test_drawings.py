@@ -49,11 +49,14 @@ def test_tavole_dell_assieme(tmp_path):
     assert a.asm_insert(str(tmp_path / 'staffa.steelcad'))['ok'] and a.asm_insert(str(tmp_path / 'staffa.steelcad'))['ok']
     campi = a.drawing_fields()['fields']
     p = a.drawing_preview(campi, False)
-    assert p['ok'] and len(p['sheets']) == 1 and 'DISTINTA' in p['sheets'][0]['svg']
+    # l'assieme e la vista esplosa (22/10: «per far capire come si monta»)
+    assert p['ok'] and len(p['sheets']) == 2 and 'DISTINTA' in p['sheets'][0]['svg']
+    esp = p['sheets'][1]['svg']
+    assert 'VISTA ESPLOSA' in esp and 'ORDINE DI MONTAGGIO' in esp and 'è la base' in esp
     p = a.drawing_preview(campi, True)
-    assert [x['title'] for x in p['sheets']] == ['Due staffe', 'Staffa', 'Staffa — sviluppo']
+    assert [x['title'] for x in p['sheets']] == ['Due staffe', 'Due staffe — esploso', 'Staffa', 'Staffa — sviluppo']
     assert a.export_drawings(str(tmp_path / 'a.pdf'), campi, True)['ok']
-    assert (tmp_path / 'a.pdf').read_bytes().count(b'/Type /Page ') == 3
+    assert (tmp_path / 'a.pdf').read_bytes().count(b'/Type /Page ') == 4
 
 
 def test_formati_e_scale():
@@ -72,3 +75,22 @@ def test_tabella_pieghe_con_piega_su_linea():
     p = s.drawing_preview()
     sviluppo = p['sheets'][1]['svg']
     assert 'PL1' in sviluppo and 'Flangia' in sviluppo and 'Correz.' not in sviluppo
+
+
+def test_sviluppo_numeri_e_quote_delle_pieghe():
+    """22/10: lo sviluppo con ogni linea di piega numerata come in tabella e le quote progressive dal bordo."""
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'Vassoio', 'larghezza': 600, 'profondita': 300, 'spessore': 2, 'raggio': 1, 'k': 0.4})['ok']
+    assert s.add_flange('SM1', 'L1', {'length': '30'})['ok']
+    assert s.add_flange('SM1', 'L3', {'length': '40'})['ok']
+    sd = s.result.body.sheet
+    f = D.tavola_sviluppo(sd, {'titolo': 'V'}, [[str(i), g.fid, D.fmt(g.length), '90°', 'su', '1', '0,4', '600']
+                                               for i, g in enumerate(sd.in_ordine(), 1)])
+    testi = [t[2] for t in f.testi]
+    assert 'TABELLA PIEGHE' in testi and 'Quota' in testi
+    y0 = min(p[1] for pl in sd.outline() for p in zip(pl[::2], pl[1::2]))
+    attese = sorted(D.fmt(a[1] - y0) for a, b, _ in sd.bend_lines)
+    for q in attese:
+        assert q in testi and any(t.endswith(' ' + q) for t in testi)        # sul disegno e in tabella (↑ …)
+    assert sum(1 for c in f.cerchi if c[0] == 'piega') == len(sd.bend_lines)   # un cerchio col numero per linea
+    assert not any(t.startswith('FL') and 'SU' in t for t in testi)            # niente scritte lunghe sulle linee

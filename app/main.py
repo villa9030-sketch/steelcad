@@ -149,6 +149,12 @@ class Api:
     def add_edge_flange(self, face, ea, eb, fields):
         return self._call(self._svc.add_edge_flange, face, ea, eb, fields)
 
+    def add_end_miter(self, fields):
+        return self._call(self._svc.add_end_miter, fields)
+
+    def edit_end_miter(self, fid, fields):
+        return self._call(self._svc.edit_end_miter, fid, fields)
+
     def edit_edge_flange(self, fid, fields):
         return self._call(self._svc.edit_edge_flange, fid, fields)
 

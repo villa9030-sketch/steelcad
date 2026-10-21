@@ -1720,7 +1720,8 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
             sul_piano, ritorni = [], []
             for f in prof.faces:
                 src, dst, dentro, g = _pick_flange(f, piani, parti, data)
-                sul_piano.append(_orienta(f.moved(dst.location * src.location.inverse()), data.plane))
+                sul_piano.append(_attraverso_la_piega(_orienta(f.moved(dst.location * src.location.inverse()), data.plane),
+                                                      data))
                 ritorni.append((src.location * dst.location.inverse(), dentro, g))
             nuovo = _cut_from_flat(fdef, body, data, sul_piano, t, ritorni)
             return _countersinks(nuovo, ss, prof, ritorni, t, fid)
@@ -2042,6 +2043,60 @@ def _facce(x) -> list:
         return []
     fs = x.faces() if hasattr(x, 'faces') else [x]
     return [f for f in fs if f.area > 1e-6]
+
+
+def _attraverso_la_piega(f, data):
+    """Un taglio disegnato su una faccia che arriva proprio al bordo di una piega (dove la faccia finisce e comincia
+    la curva), dove dall'altra parte della piega la lamiera è già stata tagliata, continua attraverso tutta la piega:
+    se no resta una striscia di piega appesa che non si può tagliare (21/10, il cassone: scasso sulla flangia e
+    sull'orlo, rimaneva la curva tra i due). Si lavora nello sviluppo: il lato del contorno sul bordo della striscia
+    si allunga di tutta la striscia."""
+    giunte = []
+    for g in data.flanges:
+        s0, s1 = g.off, g.off + g.bend.ba
+        if g.bend.ba < TOL:
+            continue
+        vs = [v for e in f.edges() for v in (e.position_at(0), e.position_at(1))]
+        ss = [(v - g.F0).dot(g.fn) for v in vs]
+        for e in f.edges():
+            if e.geom_type != bd.GeomType.LINE:
+                continue
+            a, b = e.position_at(0), e.position_at(1)
+            sa, sb = (a - g.F0).dot(g.fn), (b - g.F0).dot(g.fn)
+            if abs(sa - s0) < 0.01 and abs(sb - s0) < 0.01 and max(ss) <= s0 + 0.01:
+                s_da, s_a = s0, s1                          # il contorno sta prima della striscia
+            elif abs(sa - s1) < 0.01 and abs(sb - s1) < 0.01 and min(ss) >= s1 - 0.01:
+                s_da, s_a = s1, s0                          # il contorno sta dopo
+            else:
+                continue
+            ua, ub = sorted(((a - g.F0).dot(g.fx), (b - g.F0).dot(g.fx)))
+            ua, ub = max(ua, g.u0), min(ub, g.u1)
+            if ub - ua < 0.05:
+                continue
+            # solo dove dall'altra parte della piega la lamiera non c'è più (già tagliata): lì la striscia curva
+            # resterebbe appesa da sola. Dove c'è, la piega resta (si sta solo accorciando la faccia fino alla piega)
+            oltre = s_a + (0.05 if s_a > s_da else -0.05)
+            n = max(2, math.ceil((ub - ua) / 0.5))
+            vuoti = [not data.flat.is_inside(g.fp(ua + (ub - ua) * (i + 0.5) / n, oltre)) for i in range(n)]
+            i = 0
+            while i < n:
+                if not vuoti[i]:
+                    i += 1
+                    continue
+                j = i
+                while j < n and vuoti[j]:
+                    j += 1
+                u1, u2 = ua + (ub - ua) * i / n, ua + (ub - ua) * j / n
+                giunte.append(_orienta(bd.Face(bd.Wire.make_polygon([g.fp(u1, s_da), g.fp(u2, s_da), g.fp(u2, s_a),
+                                                                     g.fp(u1, s_a)], close=True)), data.plane))
+                i = j
+    if not giunte:
+        return f
+    try:
+        unito = _facce(f.fuse(*giunte).clean())
+    except Exception:  # noqa: BLE001 - se l'unione non riesce resta il taglio com'era disegnato
+        return f
+    return _orienta(unito[0], data.plane) if len(unito) == 1 else f
 
 
 def _bend_rect(g: FlangeGeo):

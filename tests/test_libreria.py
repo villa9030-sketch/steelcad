@@ -106,3 +106,47 @@ def test_vite_svasata_seduta_nel_cono(tmp_path, monkeypatch):
 def bd_area(f):
     import build123d as bd
     return bd.Face(f).area
+
+
+def test_viti_svasate_su_un_pezzo_non_ancora_accoppiato(tmp_path, monkeypatch):
+    """22/10, il cassone: viti TSPEI nelle svasature di un rinforzo non ancora accoppiato al resto. Le viti restavano
+    ferme («aspetta: nessuno dei due è fisso»), e con foro su foro + cono su cono la seconda veniva capovolta."""
+    from cad_engine.topology.naming import _faces_of
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path))
+    base = Service()
+    base.new_project('lamiera', {'name': 'Base', 'larghezza': 300, 'profondita': 200, 'spessore': 3})
+    assert base.save(str(tmp_path / 'Base.steelcad'))['ok']
+    s = Service()
+    s.new_project('lamiera', {'name': 'Rinforzo', 'larghezza': 160, 'profondita': 60, 'spessore': 6})
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    s.sketch_add_circle(sid, [40, 30], 4.5)
+    s.sketch_add_circle(sid, [120, 30], 4.5)
+    cc = [k for k, e in s.doc.sketch(sid).entities.items() if e['kind'] == 'circle' and not e.get('ref')]
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    assert s.sketch_hole_type(sid, cc, {'tipo': 'svasato', 'D': '17.92', 'angolo': '90'})['ok']
+    assert s.save(str(tmp_path / 'Rinforzo.steelcad'))['ok']
+    a = Service()
+    assert a.new_assembly('A')['ok']
+    assert a.asm_insert(str(tmp_path / 'Base.steelcad'))['ok'] and a.asm_insert(str(tmp_path / 'Rinforzo.steelcad'))['ok']
+    assert a.asm_move('I2', 37, -400, 55)['ok'] and a.asm_rotate('I2', 'x', 90)['ok']        # da qualche parte, girato
+    part = a.asm_parts[a.asm.instance('I2')['file']]
+    fori = [k for k, ff in enumerate(_faces_of(part.shape)) if A.face_info(part, ff)['kind'] == 'cilindrica']
+    monkeypatch.setattr(libreria, 'crea', (lambda orig: lambda *x, **k: orig(*x[:3], tmp_path / 'Libreria'))(libreria.crea))
+    for k in fori:
+        r = a.asm_insert_libreria('vite_tspei', 'M8', 20, {'inst': 'I2', 'face': k})
+        assert r['ok'], r
+    # in più, a mano, foro su foro col foro come primo (come M19 nel cassone)
+    for vite, k in zip(['I3', 'I4'], fori):
+        vp = a.asm_parts[a.asm.instance(vite)['file']]
+        kv = next(j for j, ff in enumerate(_faces_of(vp.shape)) if A.face_info(vp, ff)['kind'] == 'cilindrica')
+        assert a.asm_add_mate('asse', {'inst': 'I2', 'face': k}, {'inst': vite, 'face': kv})['ok']
+    pose = {i['id']: (np.array(i['R']), np.array(i['T'])) for i in a.asm.instances}
+    err = {m['id']: A.mate_error(m, pose, a.asm_parts, a.asm) for m in a.asm.mates}
+    assert all(e is not None and e < 1e-6 for e in err.values()), err
+    assert any('non è accoppiato al resto' in w for w in a.state()['warnings'])
+    # le viti con la testa dalla parte della svasatura: l'asse della vite come la normale della faccia di sopra
+    R2 = pose['I2'][0]
+    for vite in ('I3', 'I4'):
+        Rv = pose[vite][0]
+        assert float(np.dot(Rv @ np.array([0, 1.0, 0]), R2 @ np.array([0, 0, 1.0]))) > 0.999 or \
+            float(np.dot(Rv @ np.array([0, 0, 1.0]), R2 @ np.array([0, 0, 1.0]))) > 0.999

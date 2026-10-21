@@ -577,7 +577,7 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     return f
 
 
-def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> Foglio:
+def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> Foglio:
     """Lo sviluppo quotato, con le linee di piega e la tabella pieghe (sopra il cartiglio, righe più basse se sono
     tante); lo sviluppo nella zona libera più grande, senza toccare tabella e cartiglio."""
     f = Foglio(formato, campi.get('titolo', ''))
@@ -778,6 +778,83 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     return f
 
 
+def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, formato: str = 'A3', quanto: float = 0.8) -> Foglio:
+    """Vista esplosa per far capire come si monta (22/10): ogni pezzo allontanato dal centro dell'assieme, i
+    palloncini con la posizione della distinta, le linee di montaggio tratteggiate (da dove è disegnato a dove va)
+    e l'ordine di montaggio scritto. forme: [(posizione, forma al suo posto)]; montaggio: righe di testo."""
+    import build123d as bd
+    import numpy as np
+    f = Foglio(formato, campi.get('titolo', ''))
+    centri = [np.array(tuple(sh.center())) for _, sh in forme]
+    C = sum(centri) / len(centri)
+    tutto_bb = bd.Compound(children=[sh for _, sh in forme]).bounding_box()
+    grande = max(tutto_bb.size.X, tutto_bb.size.Y, tutto_bb.size.Z)
+    spost, in_fila = [], {}
+    for (_, sh), c in zip(forme, centri):
+        dd = (c - C) * quanto
+        if np.linalg.norm(dd) < 0.2 * grande:
+            # vicino al centro (un fondo, un rinforzo dentro la cornice): esce lungo il suo spessore, dalla parte in
+            # cui sta (o sotto); più pezzi dalla stessa parte si mettono in fila, non uno sopra l'altro
+            bb = sh.bounding_box()
+            ax = int(np.argmin([bb.size.X, bb.size.Y, bb.size.Z]))
+            verso = np.sign((c - C)[ax]) or -1.0
+            k = in_fila.get((ax, verso), 0)
+            in_fila[(ax, verso)] = k + 1
+            dd = np.zeros(3)
+            dd[ax] = verso * grande * (0.55 + 0.35 * k)
+        spost.append(dd)
+    esplose = [sh.moved(bd.Location(bd.Vector(*map(float, d)))) for (_, sh), d in zip(forme, spost)]
+    vI = proietta(bd.Compound(children=esplose).wrapped, 'iso')
+    area, cart = _cornice(f, {**campi, 'scala': 'fuori scala'})
+    h_riga = 5.0 if len(distinta) <= 12 else max(3.4, 60 / (len(distinta) + 1))
+    col = [0, 10, 62, 74, 98, 118, 140]
+    intest = ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Peso kg']
+    alto_dist = h_riga * (len(distinta) + 1) + 6
+    # l'ordine di montaggio a sinistra in basso, la distinta sopra il cartiglio, l'esploso in tutto il resto
+    righe_m = montaggio[:18]
+    alto_m = 5 + 4.2 * len(righe_m) if righe_m else 0
+    yi0 = max(cart[3] + 10 + alto_dist, area[1] + alto_m + 6)
+    xi0, xi1, yi1 = area[0] + 6, area[2] - 6, area[3] - 10
+    wi, hi = vI['bbox'][2] - vI['bbox'][0], vI['bbox'][3] - vI['bbox'][1]
+    si = min((xi1 - xi0 - 40) / max(wi, 1e-6), (yi1 - yi0 - 30) / max(hi, 1e-6))
+    oxi, oyi = xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - hi * si) / 2
+    TI, _, _ = _metti_vista(f, {**vI, 'nascosti': []}, si, oxi, oyi, quote_su=False)
+    d = np.array(VISTE['iso'][0], dtype=float)
+    d /= np.linalg.norm(d)
+    upd = _up_iso(VISTE['iso'][0])
+    up = np.array([upd.X(), upd.Y(), upd.Z()])
+    xd = np.cross(up, d)
+    P2 = lambda p3: TI((float(np.dot(p3, xd)), float(np.dot(p3, up))))  # noqa: E731
+    # linee di montaggio: dal centro del pezzo esploso a dove va montato
+    for (num, sh), c, dd in zip(forme, centri, spost):
+        if np.linalg.norm(dd) > 1e-6:
+            f.line('nascoste', P2(c + dd), P2(c))
+    palloncini, fatti = [], set()
+    cx = oxi + wi * si / 2
+    for (num, sh), c, dd in zip(forme, centri, spost):
+        if num in fatti:
+            continue
+        fatti.add(num)
+        p = P2(c + dd)
+        verso = 1 if p[0] >= cx else -1
+        q = (p[0] + verso * 16, p[1] + 12)
+        while any(math.dist(q, b) < 10 for b in palloncini):
+            q = (q[0] + verso * 4, q[1] + 9)
+        palloncini.append(q)
+        f.line('quote', p, q)
+        f.cerchi.append(('quote', q, 4.2))
+        f.text('quote', (q[0], q[1] - 1.3), str(num), 3.4, 'c')
+        f.cerchi.append(('quote', p, 0.7))
+    f.text('testo', (xi0, yi1 + 3), 'VISTA ESPLOSA (fuori scala) · le linee tratteggiate vanno da ogni pezzo a dove si monta', 2.8)
+    _tabella(f, cart[0], cart[3] + 10 + h_riga * (len(distinta) + 1), col, [intest] + distinta, 'DISTINTA', h=h_riga)
+    if righe_m:
+        y = area[1] + alto_m
+        f.text('testo', (area[0] + 4, y), 'ORDINE DI MONTAGGIO', 2.8)
+        for k, r in enumerate(righe_m):
+            f.text('testo', (area[0] + 4, y - 5 - 4.2 * k), _taglia(r, cart[0] - area[0] - 12, 2.4), 2.4)
+    return f
+
+
 # ------------------------------------------------------------------------------------------ uscite
 def to_dxf(fogli: list, path):
     """Un DXF per foglio (più fogli: uno di fianco all'altro nello stesso file, distanziati)."""
@@ -922,3 +999,7 @@ def to_svg(f: Foglio) -> str:
 
 def oggi() -> str:
     return datetime.date.today().strftime('%d/%m/%Y')
+
+
+# la tavola dello sviluppo per l'officina sta nel suo modulo (in fondo: usa le funzioni di qui)
+from .drawings_sviluppo import tavola_sviluppo  # noqa: E402,F401

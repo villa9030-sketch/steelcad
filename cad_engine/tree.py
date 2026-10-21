@@ -54,6 +54,11 @@ def _feature_label(doc, f, fr) -> str:
             return f'{nome or "Rivoluzione"}: {giro}{op}'
         if t == 'fillet':
             return f'{nome or "Raccordo"} R{f.get("radius")}'
+        if t == 'sheet_miter':
+            teste = {'fine': 'alla fine', 'inizio': 'all’inizio'}.get(f.get('end'), 'alle due teste')
+            gioco = f.get('gap')
+            return (f'{nome or "Taglio di testa"} a {f.get("angle", 45)}° {teste}'
+                    + (f', gioco {gioco}' if gioco not in (None, '', 0, 0.0) else ''))
         if t == 'sheet_edge_flange':
             a = f.get('angle', 90)
             ang = '' if a in (None, '', 90, 90.0) else f' a {a}°'

@@ -278,8 +278,29 @@ def _circle_offset(sk, src, new, par, fuori: bool):
 
 # --------------------------------------------------------------------------- specchia
 def mirror(doc, sid, eids, axis):
+    """Specchia la selezione (una copia, l'originale resta) su un asse: una linea dello sketch, oppure due punti
+    [p1, p2] (id, [x, y] o agganci come {'mid': linea}): allora l'asse diventa una linea di costruzione."""
+    from .sketch_ops import _point_ref
     sk = doc.sketch(sid)
     _check(sk, eids)
+    if isinstance(axis, (list, tuple)):
+        if len(axis) != 2:
+            raise SketchError('L’asse dello specchio sono due punti.')
+        ids = []
+        for p in axis:
+            if isinstance(p, str):
+                if p not in sk.entities or sk.entities[p]['kind'] != 'point':
+                    raise SketchError(f'Nello sketch non c’è il punto {p}.')
+                ids.append(p)
+                continue
+            pid, _pos, nuovo = _point_ref(sk, p)
+            if nuovo and not isinstance(p, dict):
+                sk.constrain('fix', pid)                 # un punto qualsiasi dell'asse: resta dov'è
+            ids.append(pid)
+        (x1, y1), (x2, y2) = _xy(sk, ids[0]), _xy(sk, ids[1])
+        if math.hypot(x2 - x1, y2 - y1) < 1e-6:
+            raise SketchError('I due punti dell’asse coincidono: clicca due punti diversi.')
+        axis = sk.line(ids[0], ids[1], construction=True, label='asse dello specchio')
     if axis not in sk.entities or sk.entities[axis]['kind'] != 'line':
         raise SketchError('Per specchiare scegli una linea come asse (va bene anche di costruzione).')
     eids = [e for e in eids if e != axis]
@@ -323,6 +344,11 @@ def mirror(doc, sid, eids, axis):
             c = sk.circle(mappa[ent['center']], ent['r'], construction=bool(ent.get('construction')) and not ent.get('ref') and not ent.get('xray'))
             sk.constrain('equal', c, e)
             nuove.append(c)
+        elif ent['kind'] == 'arc':
+            # nello specchio il verso si gira: l'inizio dell'arco nuovo è lo specchio della fine
+            a = sk.arc(mappa[ent['center']], mappa[ent['end']], mappa[ent['start']],
+                       construction=bool(ent.get('construction')) and not ent.get('ref') and not ent.get('xray'))
+            nuove.append(a)
     return nuove
 
 
@@ -517,6 +543,44 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
     sk.constraints[did]['driven'] = True
     info['guidata'] = True
     return did
+
+
+QUASI = 0.01          # mm (o gradi): sotto questo scarto due quote che decidono la stessa misura non litigano
+
+
+def quasi_uguali_di_riferimento(doc, sk) -> list[str]:
+    """Due quote che decidono la stessa misura con valori diversi di un niente (arrotondamenti: 1119,267919 contro
+    1119,268251) mettono lo sketch in conflitto e lo bloccano (21/10, il cassone). La più recente delle quote in
+    conflitto diventa di riferimento, se così il conflitto sparisce e la misura vera è a meno di QUASI dalla sua.
+    Ritorna le descrizioni delle quote cambiate."""
+    from cad_engine.sketch.solver import misura
+    par = doc.resolved_parameters()
+    st = solve(sk, par).status
+    fatte = []
+    for _ in range(8):
+        if not st.conflicting:
+            break
+        cand = [c for c in st.conflicting if c in sk.constraints and sk.constraints[c]['type'] in DIMENSIONS
+                and isinstance(sk.constraints[c].get('value'), (int, float)) and not sk.constraints[c].get('driven')]
+        cand.sort(key=lambda cid: -int(''.join(ch for ch in cid if ch.isdigit()) or 0))
+        trovata = False
+        for cid in cand:
+            c = sk.constraints[cid]
+            c['driven'] = True
+            ss = solve(sk, par)
+            if len(ss.status.conflicting) < len(st.conflicting) and ss.status.state != 'non risolto':
+                try:
+                    scarto = abs(abs(misura(ss, c)) - abs(c['value']))
+                except (KeyError, ZeroDivisionError, TypeError):
+                    scarto = math.inf
+                if scarto <= QUASI:
+                    fatte.append(sk.describe_constraint(cid))
+                    st, trovata = ss.status, True
+                    break
+            del c['driven']
+        if not trovata:
+            break
+    return fatte
 
 
 def _descr(sk, cid, c):

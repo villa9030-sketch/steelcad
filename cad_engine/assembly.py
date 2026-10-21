@@ -34,7 +34,8 @@ FORMAT_VERSION = 1
 MATE_TYPES = {'faccia': 'faccia su faccia', 'asse': 'foro su foro (coassiale)', 'distanza': 'distanza',
               'parallelo': 'parallele', 'perpendicolare': 'perpendicolari', 'angolo': 'angolo',
               'tangente': 'tangente', 'centra': 'in mezzo', 'blocca': 'blocca',
-              'spigolo': 'spigolo su spigolo', 'spigolo_faccia': 'spigolo su faccia', 'cono': 'cono su cono'}
+              'spigolo': 'spigolo su spigolo', 'spigolo_faccia': 'spigolo su faccia', 'cono': 'cono su cono',
+              'testa': 'testa a testa (angolo a cornice)'}
 
 
 class AssemblyError(SteelCADError):
@@ -341,33 +342,57 @@ def solve(asm: Assembly, parts: dict) -> dict:
     terra = {i['id'] for i in asm.instances if i.get('fixed')} or {asm.instances[0]['id']}
     fatti = set(terra)
     mates = [m for m in asm.mates if not m.get('off')]
-    for _giro in range(len(asm.instances) + 1):
-        avanti = False
-        for ist in asm.instances:
-            iid = ist['id']
-            if iid in fatti:
-                continue
-            mie = []
-            for m in mates:
-                if m['b']['inst'] == iid and m['a']['inst'] in fatti:
-                    mie.append((m, m['a'], m['b']))
-                elif m['a']['inst'] == iid and m['b']['inst'] in fatti:
-                    mie.append((m, m['b'], m['a']))
-            if not mie:
-                continue
-            try:
-                pose[iid] = _place(pose, parts, asm, iid, mie)
-            except AssemblyError as ex:
-                asm.warnings.append(str(ex.message))
-            fatti.add(iid)
-            avanti = True
-        if not avanti:
+    nomi = {i['id']: i.get('name') or i['id'] for i in asm.instances}
+
+    def metti():
+        for _giro in range(len(asm.instances) + 1):
+            avanti = False
+            for ist in asm.instances:
+                iid = ist['id']
+                if iid in fatti:
+                    continue
+                mie = []
+                for m in mates:
+                    if m['b']['inst'] == iid and m['a']['inst'] in fatti:
+                        mie.append((m, m['a'], m['b']))
+                    elif m['a']['inst'] == iid and m['b']['inst'] in fatti:
+                        mie.append((m, m['b'], m['a']))
+                if not mie:
+                    continue
+                try:
+                    pose[iid] = _place(pose, parts, asm, iid, mie)
+                except AssemblyError as ex:
+                    asm.warnings.append(str(ex.message))
+                fatti.add(iid)
+                avanti = True
+            if not avanti:
+                break
+    metti()
+    # gruppi di pezzi accoppiati tra loro ma non al resto (22/10: le viti nelle svasature di un rinforzo non ancora
+    # accoppiato al cassone): si mettono a posto lo stesso, attorno al pezzo che ha più accoppiamenti, che resta dove
+    # sta. Prima le viti restavano ferme e l'accoppiamento «aspettava» senza che si capisse perché
+    liberi = []
+    while True:
+        conta = {}
+        for m in mates:
+            a, b = m['a']['inst'], m['b']['inst']
+            if a not in fatti and b not in fatti and a != b:
+                conta[a] = conta.get(a, 0) + 1
+                conta[b] = conta.get(b, 0) + 1
+        if not conta:
             break
+        ordine = {i['id']: k for k, i in enumerate(asm.instances)}
+        radice = max(conta, key=lambda x: (conta[x], -ordine.get(x, 0)))
+        fatti.add(radice)
+        liberi.append(radice)
+        metti()
+    for r in liberi:
+        asm.warnings.append(f'«{nomi.get(r, r)}» non è accoppiato al resto dell’assieme: sta dove l’hai messo, e i pezzi '
+                            'accoppiati a lui (viti…) gli si mettono attorno. Accoppialo al resto per portarlo al suo posto.')
     for ist in asm.instances:
         R, T = pose[ist['id']]
         ist['R'], ist['T'] = R.tolist(), T.tolist()
     # controllo: quanto sono rispettati
-    nomi = {i['id']: i.get('name') or i['id'] for i in asm.instances}
     for m in mates:
         if m['a']['inst'] not in fatti and m['b']['inst'] not in fatti:
             # nessuno dei due è fisso né agganciato a un pezzo fisso: non c'è da dove partire (20/10: diceva «in
@@ -458,6 +483,11 @@ def residui(m, F: dict, pose_ab=None, peso=PESO_DIR) -> np.ndarray:
         d = np.linalg.norm(_perp(B['p'] - A['p'], nA))          # due tubi: fuori (somma dei raggi) o dentro (differenza)
         voluto = (A['r'] + B['r'] if s > 0 else abs(A['r'] - B['r'])) + off
         return np.concatenate([np.cross(nA, nB) * PESO_DIR, [d - voluto]])
+    if t == 'testa':
+        # angolo a cornice (21/10, il cassone): le due facce dei tagli di testa una davanti all'altra, centrate, a
+        # distanza del gioco. Le due teste tagliate uguali sono una lo specchio dell'altra: i loro centri si
+        # guardano lungo la normale. Fissa tutto tranne il giro attorno alla normale (lo fissa la seconda testa)
+        return np.concatenate([(nB + nA) * PESO_DIR, B['p'] - A['p'] - off * nA])
     if t == 'spigolo':
         # sulla stessa linea: direzioni parallele, e il punto di b sulla retta di a
         return np.concatenate([np.cross(nA, nB) * PESO_DIR, _perp(B['p'] - A['p'], nA)])
@@ -533,6 +563,14 @@ def _partenza(R0, T0, dati, pose, iid):
     """Il punto di partenza a formula: la rotazione dalle direzioni da far coincidere (faccia su faccia, foro su foro,
     parallelo, in mezzo) e la traslazione minima per faccia su faccia, distanza e foro su foro."""
     src, dst, assi = [], [], []
+    # i versi decisi senza dubbi (cono su cono: la testa della vite nella svasatura) valgono anche per gli assi
+    # paralleli dello stesso pezzo: foro su foro accetta i due versi, e partendo da quello sbagliato la vite
+    # restava capovolta (22/10, il cassone: seconda vite TSPEI)
+    certi = []
+    for m, ferme, mie_f in dati:
+        if ferme is not None and m['type'] == 'cono':
+            kf, km = ('a', 'b') if 'a' in ferme else ('b', 'a')
+            certi.append((mie_f[km]['n'], ferme[kf]['n']))
     for m, ferme, mie_f in dati:
         if ferme is None:                            # Blocca: la posa è già scritta
             Rr, Tr = np.array(m['rel_R'], dtype=float), np.array(m['rel_T'], dtype=float)
@@ -545,14 +583,18 @@ def _partenza(R0, T0, dati, pose, iid):
         kf, km = ('a', 'b') if 'a' in ferme else ('b', 'a')
         nA, nB = ferme[kf]['n'], mie_f[km]['n']
         t = m['type']
-        if t in ('faccia', 'distanza'):
-            dst.append(nA if m.get('flip') else -nA)
+        if t in ('faccia', 'distanza', 'testa'):
+            dst.append(nA if m.get('flip') and t != 'testa' else -nA)
             src.append(nB)
         elif t == 'cono':
             dst.append(nA)
             src.append(nB)
         elif t in ('asse', 'parallelo', 'centra'):
             v = nA if np.dot(R0 @ nB, nA) >= 0 else -nA
+            for s_c, d_c in certi:
+                if abs(np.dot(nB, s_c)) > 0.999 and abs(np.dot(nA, d_c)) > 0.999:
+                    v = d_c * float(np.sign(np.dot(nB, s_c)))
+                    break
             if m.get('flip') and t != 'centra':
                 v = -v
             dst.append(v)
@@ -585,6 +627,11 @@ def _partenza(R0, T0, dati, pose, iid):
             for e in np.eye(3):
                 righe.append(e)
                 valori.append(float(np.dot(e, pA) - np.dot(e, pB)))
+        elif m['type'] == 'testa':
+            meta = pA + float(m.get('offset') or 0) * nA            # il centro dell'altra testa, davanti a questa
+            for e in np.eye(3):
+                righe.append(e)
+                valori.append(float(np.dot(e, meta) - np.dot(e, pB)))
         elif m['type'] == 'asse':
             u = np.cross(nA, [1, 0, 0]) if abs(nA[0]) < 0.9 else np.cross(nA, [0, 1, 0])
             u /= np.linalg.norm(u)

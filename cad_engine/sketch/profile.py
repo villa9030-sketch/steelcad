@@ -73,6 +73,8 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
     for eid, (a, b) in ss.lines.items():
         if sk.entities[eid].get('construction'):
             continue
+        if math.dist(ss.points[a], ss.points[b]) < 1e-6:
+            continue                 # un tratto lungo zero tra due punti sovrapposti: nel contorno non conta
         e = bd.Edge.make_line(g(a), g(b))
         open_edges.append((eid, e, ss.points[a], ss.points[b]))
     for eid, (c, a, b, r) in ss.arcs.items():
@@ -130,14 +132,26 @@ def _loops(sk, open_edges) -> tuple[list, list]:
 
     adj: dict[int, list[int]] = {}
     ends = []
-    for i, (_, _, a, b) in enumerate(open_edges):
+    tolto = [False] * len(open_edges)
+    doppie = set()
+    nodo3 = {}                                   # il punto vero di ogni nodo: il primo che ci arriva
+    for i, (eid, e, a, b) in enumerate(open_edges):
         na, nb = node(a), node(b)
         ends.append((na, nb))
+        nodo3.setdefault(na, e.start_point())
+        nodo3.setdefault(nb, e.end_point())
+        # la stessa linea disegnata due volte (21/10: il bordo chiuso a mano e poi di nuovo) conta una: se no in
+        # quei punti «si incontrano 3 linee»
+        chiave = frozenset((na, nb))
+        if na == nb or (sk.entities.get(eid, {}).get('kind') == 'line' and chiave in doppie):
+            tolto[i] = True
+            continue
+        if sk.entities.get(eid, {}).get('kind') == 'line':
+            doppie.add(chiave)
         adj.setdefault(na, []).append(i)
         adj.setdefault(nb, []).append(i)
     # si tolgono le estremità libere una dopo l'altra: resta solo quello che fa parte di un giro chiuso
     sciolte = []
-    tolto = [False] * len(open_edges)
     coda = [n for n, lst in adj.items() if len(lst) == 1]
     while coda:
         n = coda.pop()
@@ -173,15 +187,30 @@ def _loops(sk, open_edges) -> tuple[list, list]:
             chain.append(nxt)
             a, b = ends[nxt]
             cur_node = b if a == cur_node else a
-        loops.append(bd.Wire([open_edges[i][1] for i in chain]))
+        loops.append(bd.Wire([_ai_nodi(open_edges[i], ends[i], nodo3, sk) for i in chain]))
     return loops, sciolte
+
+
+def _ai_nodi(oe, ends, nodo3, sk):
+    """Il tratto con gli estremi esattamente nei nodi: due punti agganciati in modi diversi (uno sulla guida, uno
+    dalla quota) possono stare a qualche decimillesimo; uniti nel nodo, ma il filo va chiuso davvero."""
+    eid, e, *_ = oe
+    A, B = nodo3[ends[0]], nodo3[ends[1]]
+    if sk.entities.get(eid, {}).get('kind') != 'line' or ((e.start_point() - A).length < 1e-9
+                                                           and (e.end_point() - B).length < 1e-9):
+        return e
+    return bd.Edge.make_line(A, B)
 
 
 def _faces(loops: list, plane: bd.Plane) -> list:
     """Annidamento pari/dispari: livello 0 contorno, 1 foro, 2 isola dentro il foro…"""
     info = []
     for w in loops:
-        f = bd.Face(w)
+        try:
+            f = bd.Face(w)
+        except ValueError:
+            raise SketchError('Un contorno dello sketch non si chiude esattamente (due estremità vicine ma non '
+                              'unite): unisci i punti con «coincidente».', code='profilo_aperto') from None
         if f.area < TOL:
             raise SketchError('Un contorno dello sketch ha area zero.', code='profilo_degenere')
         info.append((w, f))

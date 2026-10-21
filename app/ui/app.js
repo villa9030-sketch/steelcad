@@ -102,6 +102,7 @@ scene.add(model, overlay, dimLines);
 const objs = new Map();
 const EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
 const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x1F3A5F });
+const ING_MAT = new THREE.LineDashedMaterial({ color: 0x8A6A1F, dashSize: 6, gapSize: 4 });
 const C_HOVER = new THREE.Color(0x4EA1FF), C_SEL = new THREE.Color(0xFFB000);
 
 let daRidisegnare = true;
@@ -818,8 +819,37 @@ function buildDims() {
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
     dimEls.push({ el, d, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
   }
+  if (!SK) quoteIngombro();
   placeDims();
   ridisegna();
+}
+// l'ingombro totale del pezzo (o dell'assieme): tre quote sugli spigoli della scatola che lo contiene, lungo X, Y e Z
+function quoteIngombro() {
+  const box = new THREE.Box3();
+  model.updateMatrixWorld(true);
+  model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
+  if (box.isEmpty()) return;
+  const mn = box.min, mx = box.max, sz = box.getSize(new THREE.Vector3());
+  const off = Math.max(30, box.getBoundingSphere(new THREE.Sphere()).radius * 0.16);
+  const lati = [
+    // misura, da, a, verso cui si sposta la quota
+    [sz.x, new THREE.Vector3(mn.x, mn.y, mn.z), new THREE.Vector3(mx.x, mn.y, mn.z), new THREE.Vector3(0, -1, 0), 'larghezza (X)'],
+    [sz.y, new THREE.Vector3(mx.x, mn.y, mn.z), new THREE.Vector3(mx.x, mx.y, mn.z), new THREE.Vector3(1, 0, 0), 'profondità (Y)'],
+    [sz.z, new THREE.Vector3(mn.x, mn.y, mn.z), new THREE.Vector3(mn.x, mn.y, mx.z), new THREE.Vector3(-1, -1, 0).normalize(), 'altezza (Z)'],
+  ];
+  for (const [mis, a, b, dir, nome] of lati) {
+    if (mis < 0.05) continue;
+    const pa = a.clone().addScaledVector(dir, off), pb = b.clone().addScaledVector(dir, off);
+    const g = new THREE.BufferGeometry().setFromPoints([a, a.clone().addScaledVector(dir, off * 1.1), b, b.clone().addScaledVector(dir, off * 1.1), pa, pb]);
+    dimLines.add(new THREE.LineSegments(g, ING_MAT).computeLineDistances());
+    const el = document.createElement('div');
+    el.className = 'dim ing';
+    el.textContent = num(Math.round(mis * 10) / 10);
+    el.title = `Ingombro totale, ${nome}: ${num(Math.round(mis * 10) / 10)} mm`;
+    el.addEventListener('click', ev => { ev.stopPropagation(); toast(el.title); });
+    dimsBox.appendChild(el);
+    dimEls.push({ el, d: null, at: pa.clone().add(pb).multiplyScalar(0.5) });
+  }
 }
 function placeDims() {
   const w = view.clientWidth, h = view.clientHeight;
@@ -1007,7 +1037,7 @@ function renderTree() {
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
     const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? ['struct=' + n.ref]
-      : n.kind === 'flange' ? ['flange=' + n.ref] : n.kind === 'sheet_edge_flange' ? ['pb=' + n.ref]
+      : n.kind === 'flange' ? ['flange=' + n.ref] : n.kind === 'sheet_edge_flange' ? ['pb=' + n.ref] : n.kind === 'sheet_miter' ? ['tt=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
       : n.kind === 'instance' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref] : n.kind === 'assembly' ? ['assieme']
       : ['part', 'extrude', 'hole', 'fillet', 'chamfer', 'sheet'].includes(n.kind) ? ['body'] : null;
@@ -1168,6 +1198,37 @@ async function disegnaSopra(aiuto) {
   const r = await call('sketch_on_face', f.name);
   if (await apply(r)) { await enterSketch(r.sketch); if (aiuto) toast(aiuto); }
 }
+// taglio di testa inclinato (a 45° per i cassoni a cornice): i campi, nella finestra nuova e nel pannello
+function campiTesta(d, cls = 'form') {
+  const opt = (v, l, cur) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`;
+  return `<div class="${cls}">
+    <label>Angolo<span class="inp"><input class="field" id="tt-ang" value="${esc(String(d.angle).replace('.', ','))}"><i>°</i></span></label>
+    <label>Gioco di saldatura (totale)<span class="inp"><input class="field" id="tt-gap" value="${esc(String(d.gap).replace('.', ','))}"><i>mm</i></span></label>
+    <label>Teste<select class="field" id="tt-end">${opt('entrambe', 'tutte e due', d.end)}${opt('inizio', 'solo all’inizio', d.end)}${opt('fine', 'solo alla fine', d.end)}</select></label>
+    <label>Lato che resta lungo<select class="field" id="tt-side">${opt('fuori', 'il fondo (le pieghe vanno dentro)', d.side)}${opt('dentro', 'il lato delle pieghe', d.side)}</select></label></div>
+    <p class="hint">Un piano unico taglia tutte le facce e le pieghe: passa per lo spigolo esterno della testa, così due pezzi tagliati uguali combaciano nell’angolo. Il gioco è il totale tra i due pezzi: ognuno si accorcia della metà.</p>`;
+}
+const leggiTesta = () => ({ angle: $('#tt-ang').value.trim(), gap: $('#tt-gap').value.trim(), end: $('#tt-end').value, side: $('#tt-side').value });
+function tagliaTesta() {
+  if (!S?.sheet?.data) { toast('Il taglio di testa si fa su una lamiera piegata: prima fai le pieghe.', 'err'); return; }
+  modal(`<h3>Taglio di testa a 45°</h3>${campiTesta({ angle: 45, gap: 0, end: 'entrambe', side: 'fuori' })}
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Taglia</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => { const v = leggiTesta(); close(); inCoda(async () => { const r = await call('add_end_miter', v); if (await apply(r) && r.select) await select(r.select); }); };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+    $('#tt-gap').focus(); $('#tt-gap').select();
+  });
+}
+function pannelloTesta(s) {
+  $('#props').innerHTML = `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.feature)}</div></div>
+      <button class="ibtn danger" id="tt-del" title="Elimina il taglio"><img src="icons/delete.svg" alt=""></button></div>
+    ${s.rows.length ? `<table class="grid">${s.rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>` : ''}
+    ${campiTesta(s.def, 'ff')}<div class="row-btns"><button class="btn primary" id="tt-ok">Applica</button></div>`;
+  const vai = () => inCoda(async () => { const r = await call('edit_end_miter', s.feature, leggiTesta()); if (await apply(r) && r.select) await select(r.select); });
+  $('#tt-ok').onclick = vai;
+  ['#tt-ang', '#tt-gap'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  $('#tt-del').onclick = () => confermaElimina('sheet_miter', s.feature, 'Taglio di testa');
+}
 function azione(id) {
   const t = (m, k) => toast(m, k || '');
   const sel1 = async q => { await select(q); };
@@ -1183,6 +1244,7 @@ function azione(id) {
     case 'sviluppo': runCmd('unfold'); return;
     case 'piega_linea': runCmd('flat_sketch'); return;
     case 'profilo': runCmd('contour_help'); return;
+    case 'testa': tagliaTesta(); return;
     case 'orlo': t('Clicca la piega da ripiegare: nel suo pannello apri «Piega sulla punta» e scegli 180°.'); return;
     case 'angoli': t('Clicca una delle due pieghe che si incontrano: nel pannello trovi gli angoli.'); return;
     case 'parametri': { const d = $('#params-box'); if (d) { d.open = true; d.scrollIntoView({ block: 'nearest' }); } t('Le misure collegate sono a sinistra, sotto «Misure».'); return; }
@@ -1299,6 +1361,9 @@ async function renderProps(s) {
   } else if (s.kind === 'fold') {
     $('#props').innerHTML = foldPanel(s) + faceSketchButton(s);
     wireFold(s);
+    return;
+  } else if (s.kind === 'endmiter') {
+    pannelloTesta(s);
     return;
   } else if (s.kind === 'sidebend' || s.kind === 'edgeflange') {
     pannelloPiegaBordo(null, s);
@@ -1673,6 +1738,7 @@ const MATE_UI = {
   spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
   spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
   cono: { nome: 'Cono su cono', clic: ['la svasatura del foro', 'la testa conica della vite'], val: 0 },
+  testa: { nome: 'Testa a testa', clic: ['la faccia a 45° del pezzo che sta fermo', 'la faccia a 45° dell’altro pezzo (la stessa parete)'], val: null },
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
@@ -1861,7 +1927,7 @@ function wireInstance(s) {
     $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
 }
 // il campo del valore e il pulsante «gira» di ogni accoppiamento (niente = non serve)
-const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco', centra: 'Fuori centro' };
+const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco', centra: 'Fuori centro', testa: 'Gioco di saldatura' };
 const MATE_GIRA = { faccia: ['Allinea invece di affacciare', 'Affaccia invece di allineare'], distanza: ['Allinea invece di affacciare', 'Affaccia invece di allineare'],
   asse: ['Gira dall’altra parte'], parallelo: ['Gira dall’altra parte'], angolo: ['Angolo dall’altra parte'], tangente: ['Dall’altra parte'] };
 function matePanel(s) {
@@ -2909,7 +2975,10 @@ function applyTheme(scuro) {
 }
 const SK_REF = new THREE.LineBasicMaterial({ color: 0xC2410C });        // i bordi del pezzo
 const SK_TESTO = new THREE.LineBasicMaterial({ color: 0x7C3AED });      // testi da marcare
-const SK_XRAY = new THREE.LineDashedMaterial({ color: 0x38BDF8, dashSize: 2, gapSize: 1.5 });   // visto attraverso
+const SK_XRAY = new THREE.LineDashedMaterial({ color: 0x38BDF8, dashSize: 2, gapSize: 1.5 });
+// sullo sviluppo: la linea di piega e i bordi della sua striscia, guide arancio tratteggiate (ci si aggancia e si quota)
+const SK_PIEGA = new THREE.LineDashedMaterial({ color: 0xC0392B, dashSize: 6, gapSize: 3 });
+const SK_PIEGA_BORDO = new THREE.LineDashedMaterial({ color: 0xC2410C, dashSize: 2, gapSize: 2 });   // visto attraverso
 const SK_CONSTR_SEL = new THREE.LineDashedMaterial({ color: 0xE09A00, dashSize: 8, gapSize: 5 });
 let lineeSpesse = true;
 const SPESSORE = new Map();          // materiale sottile -> pixel
@@ -3111,9 +3180,9 @@ function drawSketch() {
   skGrid.children.forEach(c => { c.renderOrder = -1; c.material.depthWrite = false; });   // prima di tutto, sotto al pezzo
   for (const l of v.lines) {
     const mat = SK.sel.has(l.id) ? (l.construction && !l.ref ? SK_CONSTR_SEL : SK_SEL) : SK.hover === l.id ? SK_HOV
-      : l.xray ? SK_XRAY : l.ref ? SK_REF : l.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(l.id) ? SK_SCIOLTA : SK_LINE;
+      : l.xray ? SK_XRAY : l.piega ? (l.piega === 'centro' ? SK_PIEGA : SK_PIEGA_BORDO) : l.ref ? SK_REF : l.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(l.id) ? SK_SCIOLTA : SK_LINE;
     const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat);
-    if ((l.construction && !l.ref) || l.xray) ln.computeLineDistances();
+    if ((l.construction && !l.ref) || l.xray || l.piega) ln.computeLineDistances();
     skGroup.add(ln);
   }
   for (const t of v.texts || []) {                  // testi da marcare: i tratti delle lettere
@@ -3170,7 +3239,7 @@ function drawSketch() {
   $('#sk-problema').textContent = problema ? testo.replace('✓ ', '') : '';
   $('#sk-panel').classList.toggle('chiuso', !skPanelAperto() && !problema);
   $('#sk-where-fr').textContent = $('#sk-panel').classList.contains('chiuso') ? '▸' : '▾';
-  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"]):not([data-act="copy"]):not([data-act="move"])').forEach(b => { b.disabled = !SK.sel.size; });
+  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"]):not([data-act="copy"]):not([data-act="move"]):not([data-act="mirror"])').forEach(b => { b.disabled = !SK.sel.size; });
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);
   $('#sk-finish-box').hidden = !libero;
@@ -3351,6 +3420,28 @@ function anteprimaCopia(ids, dx, dy, add) {
   }
   for (const t of SK.v.texts || []) if (dentro.has(t.id)) for (const s of t.strokes) add(s.map(sp), SK_ANTEPRIMA);
 }
+// lo specchio della selezione sull'asse A-B (coordinate dello sketch), per l'anteprima
+function anteprimaSpecchio(ids, A, B, add) {
+  const L = Math.hypot(B[0] - A[0], B[1] - A[1]), ux = (B[0] - A[0]) / L, uy = (B[1] - A[1]) / L;
+  const rf = q => { const t = (q[0] - A[0]) * ux + (q[1] - A[1]) * uy, fx = A[0] + ux * t, fy = A[1] + uy * t; return [2 * fx - q[0], 2 * fy - q[1]]; };
+  const loc = p => skToLocal(v3(p));
+  const dentro = new Set(ids);
+  for (const l of SK.v.lines) if (dentro.has(l.id)) add([rf(loc(l.pa)), rf(loc(l.pb))], SK_ANTEPRIMA);
+  for (const c of SK.v.circles) if (dentro.has(c.id)) {
+    const p = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; p.push(rf([c.xc[0] + c.r * Math.cos(a), c.xc[1] + c.r * Math.sin(a)])); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const a of SK.v.arcs || []) if (dentro.has(a.id)) {
+    const p = []; for (let i = 0; i <= 48; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 48; p.push(rf([a.xc[0] + a.r * Math.cos(t), a.xc[1] + a.r * Math.sin(t)])); }
+    add(p, SK_ANTEPRIMA);
+  }
+}
+// specchia, primo clic: se il cursore sta «sulla linea» (non su un punto, una metà, un incrocio) la linea è l'asse
+function asseSotto(c, ev) {
+  if (c && (c.id || (c.ref && !c.ref.on))) return null;
+  const h = skHit(ev);
+  return h && SK.v.lines.some(l => l.id === h) ? h : null;
+}
 function drawRubber() {
   skRubber.traverse(x => x.geometry?.dispose());
   skRubber.clear();
@@ -3388,7 +3479,16 @@ function drawRubber() {
   drawSnap(SK.cursor);
   for (const [da, a] of SK.cursor.guide || []) add([da, a], SK_TRACK);
   let testo = '';
-  if (SK.pick && SK.pick.base) {
+  if (SK.pick?.what === 'mirror' && SK.pick.stage !== 'sel') {
+    let A = null, B = null;
+    if (SK.pick.base) { A = SK.pick.base.xy; B = c; add([A, B], SK_TRACK); }
+    else if (SK.hover) { const l = SK.v.lines.find(x => x.id === SK.hover); if (l) { A = l.xa; B = l.xb; } }
+    if (A && B && Math.hypot(B[0] - A[0], B[1] - A[1]) > 1e-6) {
+      anteprimaSpecchio(SK.pick.ids, A, B, add);
+      const ang = ((Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI) + 360) % 180;
+      testo = SK.pick.base ? `asse ${num(ang, 1)}°` : 'asse: questa linea';
+    }
+  } else if (SK.pick && SK.pick.base) {
     add([SK.pick.base.xy, c]);
     const dx = c[0] - SK.pick.base.xy[0], dy = c[1] - SK.pick.base.xy[1];
     testo = `${num(dx, 2)} ; ${num(dy, 2)}`;
@@ -3479,8 +3579,13 @@ function skMove(ev) {
     const h = skHit(ev);
     if (h !== SK.hover) { SK.hover = h; drawSketch(); }
   }
-  if ((SK.pick?.what === 'copy' || SK.pick?.what === 'move') && SK.pick.stage !== 'sel') {
-    SK.cursor = skCursor(ev); drawRubber(); return;
+  if ((SK.pick?.what === 'copy' || SK.pick?.what === 'move' || SK.pick?.what === 'mirror') && SK.pick.stage !== 'sel') {
+    SK.cursor = skCursor(ev);
+    if (SK.pick.what === 'mirror' && !SK.pick.base) {            // sopra una linea: sarà l'asse
+      const h = asseSotto(SK.cursor, ev);
+      if (h !== SK.hover) { SK.hover = h; drawSketch(); }
+    }
+    drawRubber(); return;
   }
   if (SK.tool === 'select' || SK.pick?.stage === 'sel') {
     const h = skHit(ev);
@@ -3810,7 +3915,7 @@ function skKey(ev) {
       && SK.tool !== 'select' && SK.pts.length) { SK.buf += k; drawRubber(); return true; }
   if (k === 'Backspace' && SK.buf) { SK.buf = SK.buf.slice(0, -1); drawRubber(); return true; }
   if (k === 'Enter' && SK.pick?.stage === 'sel') {
-    if (!SK.sel.size) { toast('Prima clicca quello da copiare.', 'err'); return true; }
+    if (!SK.sel.size) { toast(SK.pick.what === 'mirror' ? 'Prima clicca quello da specchiare.' : 'Prima clicca quello da copiare.', 'err'); return true; }
     skScegliPoiBase(SK.pick); return true;
   }
   if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); return true; }
@@ -3837,7 +3942,7 @@ function skKey(ev) {
   if (k.toLowerCase() === 'g' && (SK.v.on_face || SK.v.on_flat)) { SK.ghost = !SK.ghost; applyLook(); return true; }
   if (k.toLowerCase() === 'v' && SK.v.on_face) { toggleXray(); return true; }
   if (k.toLowerCase() === 'o') { startOffset(); return true; }
-  if (k.toLowerCase() === 'm' && SK.sel.size) { skAction('mirror'); return true; }
+  if (k.toLowerCase() === 'm') { skAction('mirror'); return true; }
   if (['f', '0', '1', '3', '7', 'q'].includes(k.toLowerCase())) return false;
   return true;          // nient'altro deve scappare alla vista 3D mentre si disegna
 }
@@ -4002,20 +4107,24 @@ function costruzione() {
 // Copia / Sposta come in AutoCAD (21/10): comando → scegli cosa (clic, doppio clic = contorno, finestra) → Invio →
 // punto di partenza con gli agganci → dove va, con l'anteprima attaccata al mouse. La copia resta attiva per altre
 // copie fino a Esc; lo spostamento finisce dopo il clic.
-const AIUTO_SCEGLI = { copy: 'Copia', move: 'Sposta' };
+const AIUTO_SCEGLI = { copy: 'Copia', move: 'Sposta', mirror: 'Specchia' };
 function skScegliPoiBase(P) {
   P.stage = 'base'; P.ids = [...SK.sel]; P.base = null;
+  if (P.what === 'mirror') {
+    setHelp('Specchia: clicca una linea che fa da asse, oppure due punti dell’asse (la metà di un bordo si aggancia) · Esc annulla');
+    drawRubber(); return;
+  }
   setHelp(`${AIUTO_SCEGLI[P.what]}: clic sul punto di partenza (gli agganci si accendono) · Esc annulla`);
   drawRubber();
 }
 function skAction(act) {
   if (act === 'offset') { startOffset(); return; }
-  if ((act === 'copy' || act === 'move')) {
+  if ((act === 'copy' || act === 'move' || act === 'mirror')) {
     SK.pts = []; SK.cursor = null;
     if (SK.sel.size) { SK.pick = { what: act }; skScegliPoiBase(SK.pick); return; }
     SK.pick = { what: act, stage: 'sel', ids: [], base: null };
     setHelp(`${AIUTO_SCEGLI[act]}: clic su quello da copiare (doppio clic = il contorno intero, o una finestra) · Invio quando hai scelto · Esc annulla`
-      .replace('da copiare', act === 'move' ? 'da spostare' : 'da copiare'));
+      .replace('da copiare', act === 'move' ? 'da spostare' : act === 'mirror' ? 'da specchiare' : 'da copiare'));
     drawSketch();
     return;
   }
@@ -4061,7 +4170,6 @@ function skAction(act) {
     });
     return;
   }
-  if (act === 'mirror') { SK.pick = { what: 'axis', ids }; setHelp('Specchia: clic sulla linea che fa da asse (va bene una di costruzione) · Esc annulla'); return; }
   if (act === 'pattern') {
     modal(`<h3>Serie</h3><p class="hint">Colonne lungo X e righe lungo Y, originale compreso. I passi diventano parametri (px, py): li cambi dopo e la serie segue.</p>
       <div class="form"><label>Colonne<input class="field" id="p-c" value="3"></label><label>Passo X (mm)<input class="field" id="p-px" value="50"></label>
@@ -4080,11 +4188,24 @@ function skPickClick(ev) {
   if (P.what === 'offset') { offsetClick(ev); return; }
   if (P.what === 'corner') { SK.pick = null; SK.sel.clear(); cornerClick(ev); return; }
   if (P.what === 'corner2') { cornerClick(ev); return; }
-  if (P.what === 'axis') {
-    const h = skHit(ev);
-    if (!h || !SK.v.lines.some(l => l.id === h)) { toast('Clicca una linea: sarà l’asse dello specchio.', 'err'); return; }
-    SK.pick = null; setTool('select');
-    inCoda(async () => { await apply(await call('sketch_mirror', SK.sid, P.ids, h)); });
+  if (P.what === 'mirror' && P.stage !== 'sel') {
+    const c = SK.cursor || skCursor(ev);
+    const fine = asse => {
+      SK.pick = null; SK.pts = []; SK.hover = null; setTool('select');
+      inCoda(async () => { await apply(await call('sketch_mirror', SK.sid, P.ids, asse)); });
+    };
+    if (!P.base) {
+      const h = asseSotto(c, ev);
+      if (h) { fine(h); return; }                                // clic su una linea: è l'asse
+      if (!c) return;
+      P.base = { xy: c.xy, arg: ptArg({ id: c.id, xy: c.xy, ref: c.ref }) };
+      SK.pts = [P.base];
+      setHelp('Specchia: secondo punto dell’asse (vedi l’anteprima) · Esc annulla');
+      drawRubber(); return;
+    }
+    if (!c) return;
+    if (Math.hypot(c.xy[0] - P.base.xy[0], c.xy[1] - P.base.xy[1]) < 1e-6) { toast('Il secondo punto dell’asse coincide col primo.', 'err'); return; }
+    fine([P.base.arg, ptArg({ id: c.id, xy: c.xy, ref: c.ref })]);
     return;
   }
   if (P.stage === 'sel') {
@@ -4103,6 +4224,7 @@ function skPickClick(ev) {
 }
 function skPickTyped(v) {
   const P = SK.pick;
+  if (P.what === 'mirror') { toast('Lo specchio vuole l’asse: clicca una linea o due punti.', 'err'); return; }
   if (!P.base) { toast('Prima clicca il punto di partenza.', 'err'); return; }
   const c = SK.cursor?.xy || [P.base.xy[0] + 1, P.base.xy[1]];
   let dx = c[0] - P.base.xy[0], dy = c[1] - P.base.xy[1];
@@ -4132,7 +4254,7 @@ function skDimClick(ev) {
   const quota = (kind, refs) => inCoda(async () => {
     const r = await call('sketch_dimension', sid, kind, refs);
     if (!await apply(r) || !r.dim || r.guidata) return;
-    const x = dimEls.find(e => e.d.sketch === sid && e.d.dim === r.dim);
+    const x = dimEls.find(e => e.d && e.d.sketch === sid && e.d.dim === r.dim);
     if (x) { x.el.style.display = ''; editDim(x.el, x.d); }
   });
   if (!SK.dimPick.length) {
@@ -4451,7 +4573,7 @@ function ribbonForProject() {
   schedaPrima = t; showRibbon(t);
 }
 // ---------------------------------------------------------------- storia delle operazioni (timeline)
-const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'joint', sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', extrude: 'extrude', revolve: 'refold', hole: 'hole', fillet: 'fillet',
+const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'joint', sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', sheet_miter: 'cut', extrude: 'extrude', revolve: 'refold', hole: 'hole', fillet: 'fillet',
   chamfer: 'chamfer', structure: 'joint', members: 'line', part: 'box', group: 'list', project: 'box' };
 const iconImg = k => `<img src="icons/${ICONA_TIPO[k] || 'box'}.svg" alt="">`;
 // (la barra "Storia" in basso è stata tolta: ripeteva l'albero, senza tornare indietro a un passo)
@@ -4531,7 +4653,7 @@ async function start() {
   requestAnimationFrame(loop);
   introFine();
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
-    objs, select, camera, skScreen: xy => skScreen(xy), lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
+    objs, select, camera, controls, skScreen: xy => skScreen(xy), lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo

@@ -107,7 +107,7 @@ def view(doc, sid: str, body=None) -> dict:
     for k, e in sk.entities.items():
         if e['kind'] == 'line':
             out['lines'].append({'id': k, 'a': e['a'], 'b': e['b'], 'label': sk.describe(k),
-                                 'construction': bool(e.get('construction')), 'ref': bool(e.get('ref')), 'xray': bool(e.get('xray')),
+                                 'construction': bool(e.get('construction')), 'ref': bool(e.get('ref')), 'xray': bool(e.get('xray')), 'piega': e.get('linea_piega'),
                                  'pa': g(pts[e['a']]), 'pb': g(pts[e['b']]),
                                  'xa': list(pts[e['a']]), 'xb': list(pts[e['b']])})
         elif e['kind'] == 'arc':
@@ -210,10 +210,66 @@ def add_reference_edges(sk, face, plane, body_shape=None) -> list[str]:
     return fatte
 
 
+def add_bend_references(sk, data) -> list[str]:
+    """Sullo sviluppo: le linee di piega e i due bordi di ogni striscia di piega come linee arancio fisse (tratteggiate),
+    come i bordi del pezzo: ci si aggancia, ci si quota, le linee disegnate si accorciano lì (21/10: per tagliare a
+    45° attraverso le pieghe bisogna sapere dove comincia e finisce ognuna). Non tagliano niente: sono guide."""
+    punti: dict = {}
+    for pid, e in sk.entities.items():
+        if e['kind'] == 'point' and e.get('ref'):
+            punti.setdefault((round(e['x'], 4), round(e['y'], 4)), pid)
+
+    def pt(x, y):
+        k = (round(x, 4), round(y, 4))
+        if k not in punti:
+            pid = sk.point(x, y, construction=True)
+            sk.entities[pid]['ref'] = True
+            sk.constrain('fix', pid)
+            punti[k] = pid
+        return punti[k]
+
+    def tratti(a, b):
+        """La linea solo dove c'è lamiera (dopo uno scasso la piega non c'è più): i tratti dentro lo sviluppo."""
+        try:
+            e = bd.Edge.make_line(data.plane.from_local_coords(tuple(a)), data.plane.from_local_coords(tuple(b)))
+            dentro = e.intersect(data.flat)
+            pezzi = [x for x in (dentro.edges() if dentro is not None else []) if x.length > 0.05]
+        except Exception:  # noqa: BLE001 - se l'intersezione non riesce, la linea intera
+            return [(a, b)]
+        out = []
+        for x in pezzi:
+            q0, q1 = data.plane.to_local_coords(x.start_point()), data.plane.to_local_coords(x.end_point())
+            out.append(((q0.X, q0.Y), (q1.X, q1.Y)))
+        return out
+
+    def linea(a, b, label, tipo):
+        ids = []
+        for p, q in tratti(a, b):
+            if math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6:
+                continue
+            lid = sk.line(pt(*p), pt(*q), construction=True, label=label)
+            sk.entities[lid]['ref'] = True
+            sk.entities[lid]['linea_piega'] = tipo
+            ids.append(lid)
+        return ids
+
+    fatte = []
+    for a, b, testo in data.bend_lines:
+        nome = str(testo).split(' ')[0] if testo else ''
+        fatte += linea(a, b, f'linea di piega {nome}'.strip(), 'centro')
+    for z in data.bend_zones():
+        if math.hypot(z[3][0] - z[0][0], z[3][1] - z[0][1]) < 0.05:
+            continue                                     # piega senza striscia (BA nullo): basta la linea
+        fatte += linea(z[0], z[1], 'inizio della piega', 'bordo')
+        fatte += linea(z[3], z[2], 'fine della piega', 'bordo')
+    return fatte
+
+
 def refresh_reference_edges(sk, face, plane, body_shape=None) -> list[str]:
     """Rifà i bordi arancio dalla faccia vera (se ne mancano pezzi): via le linee/archi/cerchi del bordo, i
     punti restano (il disegno ci è attaccato) e si riusano."""
-    via = [k for k, e in sk.entities.items() if e['kind'] in ('line', 'arc', 'circle') and e.get('ref') and not e.get('proj')]
+    via = [k for k, e in sk.entities.items() if e['kind'] in ('line', 'arc', 'circle') and e.get('ref') and not e.get('proj')
+           and not e.get('linea_piega')]
     for k in via:
         del sk.entities[k]
     for k, c in list(sk.constraints.items()):
@@ -308,6 +364,21 @@ def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = Fa
     if len(pts) < 2:
         raise SketchError('Servono almeno due punti.')
     refs = [_point_ref(sk, p) for p in pts]
+    # due punti diversi già nello stesso posto (risolto: uno agganciato a una guida, uno dalle quote): il tratto
+    # sarebbe lungo zero e bloccherebbe lo sketch. Sono già collegati: il tratto non si fa (21/10, il cassone)
+    try:
+        risolti = solve(sk, doc.resolved_parameters()).points
+    except SketchError:
+        risolti = {}
+    dove = lambda r: risolti.get(r[0], r[1])  # noqa: E731
+    tolti = [i for i in range(len(refs) - 1) if refs[i][0] != refs[i + 1][0] and not refs[i][2] and not refs[i + 1][2]
+             and math.dist(dove(refs[i]), dove(refs[i + 1])) < 1e-4]
+    for i in reversed(tolti):
+        del refs[i + 1]
+        if angles and i < len(angles):
+            angles = list(angles[:i]) + list(angles[i + 1:])
+    if len(refs) < 2:
+        return []
     for i in range(len(refs) - 1):
         if math.dist(refs[i][1], refs[i + 1][1]) < 1e-6:
             raise SketchError('Due punti consecutivi coincidono: un tratto lungo zero non si può fare.')

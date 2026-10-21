@@ -25,9 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB', 'sheet_miter': 'TT'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'revolve': 'Rivoluzione', 'step_lamiera': 'Lamiera da STEP', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
-        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma', 'sheet_edge_flange': 'Piega su un bordo'}
+        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma', 'sheet_edge_flange': 'Piega su un bordo', 'sheet_miter': 'Taglio di testa'}
 
 
 @dataclass
