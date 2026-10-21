@@ -405,6 +405,9 @@ class Api:
     def asm_insert_libreria(self, tipo, misura, lunghezza=None, foro=None):
         return self._call(self._svc.asm_insert_libreria, tipo, misura, lunghezza, foro)
 
+    def asm_set_finitura(self, iid, campi):
+        return self._call(self._svc.asm_set_finitura, iid, campi)
+
     def asm_set_acquisto(self, iid, campi):
         return self._call(self._svc.asm_set_acquisto, iid, campi)
 

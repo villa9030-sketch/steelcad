@@ -291,7 +291,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             m = tessellate(r.body.shape, r.body.names)
             for f in m['faces']:
                 f['label'] = self.doc.describe_face(f['name']) if f['name'] else 'faccia'
-            objs.append({'id': 'body', 'kind': 'body', 'name': self.doc.meta.get('name'), **m})
+            from cad_engine import finiture
+            objs.append({'id': 'body', 'kind': 'body', 'name': self.doc.meta.get('name'), **m,
+                         'look': finiture.colore(self.doc.meta.get('finitura'))})
         for st in r.structures:
             for mem in st.members:
                 m = tessellate(mem.solid.wrapped)

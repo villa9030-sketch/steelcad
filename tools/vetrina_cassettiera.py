@@ -389,6 +389,22 @@ if __name__ == '__main__':
             m = nome[8:]
             campi = {'descrizione': f'Maschio a macchina HSS {m} {"DIN 376" if m == "M12" else "DIN 371"}', 'codice': '', 'fornitore': ''}
         ok(s.asm_set_acquisto(i['id'], campi), f'acquisto {nome}')
+    # le finiture: cassa e frontalini antracite, cassetti grigio luce, rastrelliere e guide zincate, utensili acciaio
+    fatti = set()
+    for i in list(s.asm.instances):
+        nome = Path(i['file']).stem
+        if i['file'] in fatti:
+            continue
+        fatti.add(i['file'])
+        if nome == 'Cassa' or nome.startswith('Frontalino'):
+            fin = {'tipo': 'verniciato', 'ral': '7016'}
+        elif nome == 'Cassetto':
+            fin = {'tipo': 'verniciato', 'ral': '7035'}
+        elif nome.startswith(('Separatore', 'Traversino', 'Guida')):
+            fin = {'tipo': 'zincato'}
+        else:
+            fin = {'tipo': 'inox'}
+        ok(s.asm_set_finitura(i['id'], fin), f'finitura {nome}')
     ok(s.save(str(D / 'Cassettiera porta punte.steelcad-asm')), 'salva assieme')
     log(f'avvisi: {s.asm.warnings}')
     inter = s.asm_interferences().get('interferences') or []

@@ -109,8 +109,8 @@ function buildScene(sc) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3));
     g.setIndex(d.indices);
     g.computeVertexNormals();
-    const base = new THREE.Color(d.kind === 'body' ? 0xB7BFC8 : 0xA8B1BA);
-    const mat = new THREE.MeshStandardMaterial({ color: base.clone(), metalness: 0.15, roughness: 0.55,
+    const base = new THREE.Color(d.look?.color || (d.kind === 'body' ? 0xB7BFC8 : 0xA8B1BA));
+    const mat = new THREE.MeshStandardMaterial({ color: base.clone(), metalness: d.look?.metal ?? 0.15, roughness: d.look?.rough ?? 0.55,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const mesh = new THREE.Mesh(g, mat);
     mesh.userData.id = d.id;
@@ -120,8 +120,16 @@ function buildScene(sc) {
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
     const lines = new THREE.LineSegments(lg, EDGE);
-    if (pos) for (const o of [mesh, lines]) { o.matrixAutoUpdate = false; o.matrix.copy(pos); o.updateMatrixWorld(true); }
-    model.add(mesh, lines);
+    const extra = [];
+    if (d.marks?.length) {                            // marcature laser: chiare sui pezzi scuri, scure sui chiari
+      const sm = [];
+      for (const e of d.marks) for (let i = 0; i + 5 < e.length; i += 3) sm.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
+      const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(sm, 3));
+      const hsl = base.getHSL({});
+      extra.push(new THREE.LineSegments(mg, new THREE.LineBasicMaterial({ color: hsl.l < 0.45 ? 0xE5E7EB : 0x1F2937 })));
+    }
+    if (pos) for (const o of [mesh, lines, ...extra]) { o.matrixAutoUpdate = false; o.matrix.copy(pos); o.updateMatrixWorld(true); }
+    model.add(mesh, lines, ...extra);
     objs.set(d.id, { data: d, mesh, lines, base, pos });
   }
   paint();
@@ -1525,6 +1533,9 @@ function instancePanel(s) {
     <div class="sub">Ruota di 90°</div>
     <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
+    ${s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
+      <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`}
     <label class="check"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}> Da acquistare (guide, viti, utensili…): in distinta, niente DXF</label>
     ${s.acquisto ? `<div class="ff"><label style="grid-column:1/-1">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
       <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
@@ -1541,6 +1552,12 @@ function wireInstance(s) {
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
   const acq = () => ({ descrizione: $('#a-acq-d')?.value || '', codice: $('#a-acq-c')?.value || '', fornitore: $('#a-acq-f')?.value || '' });
   $('#a-acq').onchange = () => fai('asm_set_acquisto', s.id, $('#a-acq').checked ? acq() : null);
+  if ($('#a-fin')) {
+    const fin = () => ({ tipo: $('#a-fin').value, ral: $('#a-ral').value.trim() });
+    $('#a-fin').onchange = () => { $('#a-ral-w').hidden = $('#a-fin').value !== 'verniciato';
+      if ($('#a-fin').value !== 'verniciato' || $('#a-ral').value.trim()) fai('asm_set_finitura', s.id, fin()); else $('#a-ral').focus(); };
+    $('#a-ral').onchange = () => fai('asm_set_finitura', s.id, fin());
+  }
   ['#a-acq-d', '#a-acq-c', '#a-acq-f'].forEach(id => { if ($(id)) $(id).onchange = () => fai('asm_set_acquisto', s.id, acq()); });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
   $('#a-open').onclick = () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', s.id))); };

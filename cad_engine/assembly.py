@@ -606,7 +606,8 @@ def bom(asm: Assembly, parts: dict) -> list:
                                     'material': part.doc.material, 'mass_kg': pr['mass_kg'],
                                     'thickness': sheet.thickness if sheet else None,
                                     'flat': list(sheet.flat_size) if sheet else None,
-                                    'acquisto': part.doc.meta.get('acquisto') or None}
+                                    'acquisto': part.doc.meta.get('acquisto') or None,
+                                    'finitura': part.doc.meta.get('finitura') or None}
         r['qty'] += 1
     out = list(righe.values())
     for r in out:

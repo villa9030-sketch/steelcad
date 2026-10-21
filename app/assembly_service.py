@@ -622,6 +622,33 @@ class AssemblyMixin:
         return r
 
     @_in_assieme
+    def asm_set_finitura(self, iid: str, campi: dict | None) -> dict:
+        """La finitura del pezzo (grezzo, zincato, inox, verniciato RAL): si scrive nel file del pezzo, vale per tutte
+        le copie; colora il pezzo nel 3D e va in distinta."""
+        from cad_engine import finiture, project_io
+        i = self.asm.instance(iid)
+        tipo = (campi or {}).get('tipo') or 'grezzo'
+        if tipo not in finiture.TIPI:
+            return {'ok': False, 'message': f'Finitura «{tipo}» sconosciuta.'}
+        ral = str((campi or {}).get('ral') or '').replace('RAL', '').strip()
+        if tipo == 'verniciato' and not ral:
+            return {'ok': False, 'message': 'Scrivi il colore RAL (es. 7035).'}
+        try:
+            doc = project_io.load(i['file'])
+            if tipo == 'grezzo':
+                doc.meta.pop('finitura', None)
+            else:
+                doc.meta['finitura'] = {'tipo': tipo, **({'ral': ral} if tipo == 'verniciato' else {})}
+            project_io.save(doc, i['file'])
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message, 'code': ex.code}
+        self._asm_reload()
+        r = self._asm_change('Finitura', lambda: {'select': iid})
+        if r.get('ok'):
+            r['message'] = f'«{Path(i["file"]).stem}»: {finiture.testo(doc.meta.get("finitura"))}.'
+        return r
+
+    @_in_assieme
     def asm_set_acquisto(self, iid: str, campi: dict | None) -> dict:
         """Il pezzo di questa copia è da comprare (guide, viti, punte…): descrizione, codice, fornitore. Si scrive nel
         file del pezzo (vale per tutte le copie e per tutti gli assiemi). None = torna un pezzo da fare."""
@@ -648,6 +675,7 @@ class AssemblyMixin:
 
     def _righe_distinta(self) -> list:
         """La distinta per l'Excel: una riga per pezzo, con quello che serve a chi produce e a chi compra."""
+        from cad_engine import finiture
         out = []
         for k, r in enumerate(A.bom(self.asm, self.asm_parts), 1):
             acq = r.get('acquisto')
@@ -655,7 +683,8 @@ class AssemblyMixin:
                         'descrizione': (acq or {}).get('descrizione') or r['name'], 'codice': (acq or {}).get('codice', ''),
                         'fornitore': (acq or {}).get('fornitore', ''), 'qty': r['qty'], 'file': Path(r['file']).name,
                         'materiale': '' if acq else r['material'], 'spessore': None if acq else r['thickness'],
-                        'sviluppo': None if acq or not r['flat'] else r['flat'], 'kg': r['mass_kg'], 'kg_tot': r['mass_tot']})
+                        'sviluppo': None if acq or not r['flat'] else r['flat'], 'kg': r['mass_kg'], 'kg_tot': r['mass_tot'],
+                        'finitura': '' if acq else finiture.testo(r.get('finitura'))})
         return out
 
     @_in_assieme
@@ -665,12 +694,12 @@ class AssemblyMixin:
         try:
             righe = self._righe_distinta()
             tutto = [['Pos.', 'Tipo', 'Descrizione', 'Codice', 'Fornitore', 'Q.tà', 'Materiale', 'Spessore mm',
-                      'Sviluppo mm', 'Peso cad. kg', 'Peso tot. kg', 'File']]
+                      'Sviluppo mm', 'Finitura', 'Peso cad. kg', 'Peso tot. kg', 'File']]
             for r in righe:
                 tutto.append([r['pos'], r['tipo'], r['descrizione'], r['codice'], r['fornitore'], r['qty'], r['materiale'],
                               r['spessore'], ' × '.join(fmt_mm(round(v, 1)) for v in r['sviluppo']) if r['sviluppo'] else '',
-                              r['kg'], r['kg_tot'], r['file']])
-            tutto += [[], ['', '', 'Totale', '', '', sum(r['qty'] for r in righe), '', None, '', None,
+                              r['finitura'], r['kg'], r['kg_tot'], r['file']])
+            tutto += [[], ['', '', 'Totale', '', '', sum(r['qty'] for r in righe), '', None, '', '', None,
                            sum(r['kg_tot'] for r in righe)]]
             acq = [r for r in righe if r['tipo'] == 'Acquisto']
             ordine = [['Pos.', 'Descrizione', 'Codice', 'Fornitore', 'Q.tà', 'Ordinato', 'Note']]
@@ -686,7 +715,7 @@ class AssemblyMixin:
             lamiera = [['Materiale', 'Spessore mm', 'Pezzi', 'Sviluppi m² (ingombro)', 'Peso kg', 'Pezzi']]
             lamiera += [[m, t, g['pezzi'], g['m2'], g['kg'], ', '.join(g['nomi'])]
                         for (m, t), g in sorted(gruppi.items(), key=lambda x: (str(x[0][0]), x[0][1] or 0))]
-            xlsx.scrivi(path, [('Distinta', tutto, [6, 12, 46, 18, 18, 7, 12, 12, 16, 13, 13, 34], [0]),
+            xlsx.scrivi(path, [('Distinta', tutto, [6, 12, 46, 18, 18, 7, 12, 12, 16, 26, 13, 13, 34], [0]),
                                ('Da acquistare', ordine, [6, 50, 20, 22, 7, 11, 30], [0]),
                                ('Lamiera da tagliare', lamiera, [12, 13, 8, 22, 11, 80], [0])])
         except Exception as ex:  # noqa: BLE001
@@ -887,8 +916,10 @@ class AssemblyMixin:
             # le marcature laser del pezzo: tratti come gli spigoli, si muovono con lui
             dati = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
             segni = [[c for q in sg['pezzo'] for c in q] for sg in (getattr(dati, 'marks', None) or []) if sg.get('pezzo')]
+            from cad_engine import finiture
             objs.append({'id': i['id'], 'kind': 'instance', 'name': i['name'], 'matrix': mat,
-                         'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges'] + segni})
+                         'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges'],
+                         'marks': segni, 'look': finiture.colore(part.doc.meta.get('finitura'))})
         return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
 
     def _asm_select(self, obj_id: str, face_index=None) -> dict:
@@ -917,6 +948,7 @@ class AssemblyMixin:
                      ['Ingombro', ' × '.join(fmt_mm(round(v, 1)) for v in pr['bbox_mm']['size']) + ' mm']]
         sel = {'kind': 'instance', 'id': obj_id, 'title': i['name'], 'rows': rows, 'fixed': bool(i.get('fixed')),
                'acquisto': (part.doc.meta.get('acquisto') if part is not None else None),
+               'finitura': (part.doc.meta.get('finitura') if part is not None else None),
                'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])]}
         if face_index is not None and part is not None:
             try:

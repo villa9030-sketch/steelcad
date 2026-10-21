@@ -34,3 +34,18 @@ def test_acquisto_in_distinta_e_excel(tmp_path):
         assert 'Guida a sfere L200' in ordine and 'GS200' in ordine and 'Rossi' in ordine and 'Base' not in ordine
     assert s.asm_set_acquisto('I2', None)['ok']
     assert not any(x['acquisto'] for x in s._asm_state()['bom'])
+
+
+def test_finitura_colore_e_distinta(tmp_path):
+    a = _piastra(tmp_path, 'Base')
+    s = Service()
+    assert s.new_assembly('Prova')['ok'] and s.asm_insert(str(a))['ok']
+    assert s.save(str(tmp_path / 'p.steelcad-asm'))['ok']
+    assert not s.asm_set_finitura('I1', {'tipo': 'verniciato'})['ok']           # manca il RAL
+    r = s.asm_set_finitura('I1', {'tipo': 'verniciato', 'ral': '7035'})
+    assert r['ok'] and 'RAL 7035' in r['message']
+    o = next(o for o in s.scene()['objects'] if o['id'] == 'I1')
+    assert o['look']['color'] == '#CBD0CC'
+    assert s._righe_distinta()[0]['finitura'].startswith('Verniciato RAL 7035')
+    assert s.asm_set_finitura('I1', {'tipo': 'zincato'})['ok']
+    assert s._righe_distinta()[0]['finitura'] == 'Zincato'
