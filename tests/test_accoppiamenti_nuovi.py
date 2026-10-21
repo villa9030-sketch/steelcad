@@ -185,3 +185,18 @@ def test_spigolo_su_spigolo_e_su_faccia(tmp_path):
     i2 = s2.asm.instance('I2')
     for q in ([0, 0, 0], [100, 0, 0]):
         assert abs((np.array(i2['R']) @ np.array(q) + np.array(i2['T']))[2] - 10) < 1e-6
+
+
+def test_trascina_distanza_e_annulla_torna_a_prima(tmp_path):
+    a, b = _piastra(tmp_path, 'A', 300, 200, 10), _piastra(tmp_path, 'B', 100, 100, 5)
+    s = _assieme(tmp_path, a, b)
+    assert s.asm_move('I2', 50, 20, 70)['ok']
+    assert s.asm_add_mate('distanza', _faccia(s, 'I1', Z), _faccia(s, 'I2', -Z), 30)['ok']
+    mid = s.asm.mates[-1]['id']
+    for v in (40, 55, 70):
+        r = s.asm_trascina_mate(mid, 'offset', v)
+        assert r['ok'] and abs(r['pose']['I2'][11] - (10 + v)) < 1e-6           # Z del piatto segue il cursore
+    assert s.asm_trascina_mate(mid, 'offset', 70, True)['ok']
+    assert abs(_bb(s, 'I2').min.Z - 80) < 1e-6
+    assert s.undo()['ok']
+    assert abs(next(m for m in s.asm.mates if m['id'] == mid)['offset'] - 30) < 1e-9   # annulla: si torna a 30

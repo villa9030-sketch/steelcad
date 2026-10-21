@@ -140,6 +140,14 @@ try:
         ok('spigolo su spigolo fatto col mouse, senza avvisi', not st['warnings'])
         pg.keyboard.press('Escape'); time.sleep(0.5); pg.mouse.move(5, 895)
         pg.screenshot(path=str(SHOTS / '5_spigolo.png'))
+        # vista esplosa: i pezzi si allontanano e tornano
+        prima = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.mesh.matrix.elements[12]).join()")
+        pg.click('#ribbon [data-cmd="asm_esploso"]'); time.sleep(0.8)
+        aperta = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.mesh.matrix.elements[12]).join()")
+        pg.mouse.move(5, 895); pg.screenshot(path=str(SHOTS / '6_esploso.png'))
+        pg.click('#ribbon [data-cmd="asm_esploso"]'); time.sleep(0.8)
+        chiusa = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.mesh.matrix.elements[12]).join()")
+        ok('Esploso: i pezzi si allontanano e tornano al loro posto', aperta != prima and chiusa == prima)
         ok('nessun errore in pagina', not errori)
         if errori:
             print(errori)

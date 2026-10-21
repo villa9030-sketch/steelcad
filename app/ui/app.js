@@ -130,11 +130,27 @@ function buildScene(sc) {
     }
     if (pos) for (const o of [mesh, lines, ...extra]) { o.matrixAutoUpdate = false; o.matrix.copy(pos); o.updateMatrixWorld(true); }
     model.add(mesh, lines, ...extra);
-    objs.set(d.id, { data: d, mesh, lines, base, pos });
+    objs.set(d.id, { data: d, mesh, lines, base, pos, extra });
   }
+  if (ESPLOSO > 0) esplodi(ESPLOSO);
   paint();
 }
 
+// ---- vista esplosa: ogni pezzo spostato dal centro dell'assieme in proporzione (solo a video, l'assieme non cambia)
+let ESPLOSO = 0;
+function esplodi(f) {
+  ESPLOSO = f;
+  const ist = [...objs.values()].filter(o => o.data.kind === 'instance' && o.pos);
+  if (!ist.length) return;
+  const centri = ist.map(o => { o.mesh.geometry.computeBoundingBox(); return o.mesh.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(o.pos); });
+  const C = centri.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / centri.length);
+  ist.forEach((o, i) => {
+    const d = centri[i].clone().sub(C).multiplyScalar(f);
+    const M = new THREE.Matrix4().makeTranslation(d.x, d.y, d.z).multiply(o.pos);
+    for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(M); x.updateMatrixWorld(true); }
+  });
+  paint();
+}
 function faceOverlay(o, faceIndex, color) {
   const f = o.data.faces.find(x => x.index === faceIndex);
   if (!f) return;
@@ -1587,8 +1603,10 @@ function matePanel(s) {
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.rows[0][1])}</div></div>
       <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
     <table class="grid">${s.rows.slice(1).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>` : ''}
+    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
+      ${d.type === 'distanza' ? `<input type="range" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" style="width:100%" title="Trascina: il pezzo si muove">` : ''}` : ''}
     ${d.type === 'angolo' ? `<div class="ff" style="margin-top:10px"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
+      <input type="range" id="m-slide" min="0" max="180" step="1" value="${d.angle}" style="width:100%" title="Trascina: il pezzo gira">
       <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : ''}
     <div class="row-btns">${gira ? `<button class="btn" id="m-flip">${gira[d.flip && gira[1] ? 1 : 0]}</button>` : ''}
       <button class="btn" id="m-sosp">${d.off ? 'Riattiva' : 'Sospendi'}</button></div>`;
@@ -1598,6 +1616,33 @@ function wireMate(s) {
   if ($('#m-off')) { $('#m-off').onkeydown = ev => { if (ev.key === 'Enter') fai({ offset: $('#m-off').value.trim() }); }; $('#m-off').onchange = () => fai({ offset: $('#m-off').value.trim() }); }
   if ($('#m-ang')) { $('#m-ang').onkeydown = ev => { if (ev.key === 'Enter') fai({ angle: $('#m-ang').value.trim() }); }; $('#m-ang').onchange = () => fai({ angle: $('#m-ang').value.trim() }); }
   if ($('#m-flip')) $('#m-flip').onclick = () => fai({ flip: !s.def.flip });
+  if ($('#m-slide')) {                              // trascinando: si spostano i pezzi già disegnati (una chiamata alla volta)
+    const campo = s.def.type === 'angolo' ? 'angle' : 'offset', box = $('#m-off') || $('#m-ang');
+    let inVolo = false, ultimo = null;
+    const manda = async () => {
+      if (inVolo || ultimo === null) return;
+      inVolo = true; const val = ultimo; ultimo = null;
+      const r = await call('asm_trascina_mate', s.id, campo, String(val), false);
+      if (r.ok) {
+        for (const [id, m] of Object.entries(r.pose || {})) {
+          const o = objs.get(id);
+          if (!o) continue;
+          o.pos = new THREE.Matrix4().set(...m);
+          o.data.matrix = m;
+          for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(o.pos); x.updateMatrixWorld(true); }
+        }
+        if (ESPLOSO > 0) esplodi(ESPLOSO); else paint();
+      }
+      inVolo = false;
+      if (ultimo !== null) manda();
+    };
+    $('#m-slide').oninput = ev => { ultimo = ev.target.value; if (box) box.value = String(ultimo).replace('.', ','); manda(); };
+    $('#m-slide').onchange = ev => {                // lasciato: si registra (annulla torna a prima)
+      const val = ev.target.value;
+      const fine = async () => { while (inVolo) await new Promise(r => setTimeout(r, 30)); const r = await call('asm_trascina_mate', s.id, campo, String(val), true); if (await apply(r)) await refreshSel(); };
+      inCoda(fine);
+    };
+  }
   $('#m-sosp').onclick = () => fai({ off: !s.def.off });
   $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
 }
@@ -2368,6 +2413,13 @@ const CMDS = [
   { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
   { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(preparaDialog) },
   { id: 'asm_insert', label: 'Assieme: inserisci pezzo…', run: () => inCoda(async () => { const r = await call('asm_insert_dialog'); if (await apply(r) && r.select) await select(r.select); }) },
+  { id: 'asm_esploso', label: 'Assieme: vista esplosa (apri / chiudi)', run: () => {
+    if (S?.mode !== 'assembly') { toast('La vista esplosa è degli assiemi.', 'err'); return; }
+    const da = ESPLOSO, a = ESPLOSO > 0 ? 0 : 0.8, t0 = performance.now();
+    const passo = t => { const k = Math.min(1, (t - t0) / 450); esplodi(da + (a - da) * (1 - (1 - k) ** 3)); if (k < 1) requestAnimationFrame(passo); };
+    requestAnimationFrame(passo);
+    document.querySelector('#ribbon [data-cmd="asm_esploso"]')?.classList.toggle('on', a > 0);
+  } },
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
     if (!r.ok) { toast(r.message, 'err'); return; }

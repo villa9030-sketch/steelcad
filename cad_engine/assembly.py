@@ -269,7 +269,11 @@ def resolve_ref(part: Part, ref: dict) -> dict:
     tipo = 'piana' if ref.get('kind') == 'piana' else 'cilindrica'
     cand = []
     nome = ref.get('name')
-    facce = [f for fs in ([part.names.get(nome)] if nome and part.names.get(nome) else []) for f in fs] or list(_faces_of(part.shape))
+    tutte = list(_faces_of(part.shape))
+    # le facce col nome, ma prese dal solido: quella salvata col nome può avere il verso rovesciato (la normale
+    # verso l'interno) e il pezzo si girava sottosopra pur rispettando l'accoppiamento (21/10)
+    facce = [next((g for g in tutte if g.IsSame(f)), f)
+             for fs in ([part.names.get(nome)] if nome and part.names.get(nome) else []) for f in fs] or tutte
     p0 = np.array(ref['p'], dtype=float)
     for f in facce:
         info = face_info(part, f)

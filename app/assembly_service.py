@@ -385,6 +385,35 @@ class AssemblyMixin:
         return self._asm_change(f'{mid}: modifica', fn)
 
     @_in_assieme
+    def asm_trascina_mate(self, mid: str, campo: str, valore, fine: bool = False) -> dict:
+        """Il cursore di un accoppiamento (distanza, angolo) mentre lo si trascina: i pezzi si muovono subito e si
+        rimandano solo le loro posizioni. A cursore lasciato (fine) la modifica si registra una volta, con l'annulla
+        che torna a prima del trascinamento."""
+        from app.service import _numero
+        if campo not in ('offset', 'angle'):
+            return {'ok': False, 'message': 'Si trascinano solo distanza e angolo.'}
+        m = next((x for x in self.asm.mates if x['id'] == mid), None)
+        if m is None:
+            return {'ok': False, 'message': f'Non c’è l’accoppiamento {mid}.'}
+        tenuti = self.__dict__.setdefault('_trascinati', {})
+        if fine:
+            if mid in tenuti:
+                m[campo] = tenuti.pop(mid)                # si riparte da prima: l'annulla torna lì
+            return self.asm_edit_mate(mid, {campo: valore})
+        try:
+            v = _numero(valore, 'il valore')
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message}
+        tenuti.setdefault(mid, m.get(campo) or 0)
+        m[campo] = v
+        A.solve(self.asm, self.asm_parts)
+        pose = {}
+        for i in self.asm.instances:
+            R, T = i['R'], i['T']
+            pose[i['id']] = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
+        return {'ok': True, 'pose': pose}
+
+    @_in_assieme
     def asm_delete_mate(self, mid: str) -> dict:
         def fn():
             self.asm.mates = [m for m in self.asm.mates if m['id'] != mid]
