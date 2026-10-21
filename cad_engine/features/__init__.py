@@ -1,10 +1,11 @@
-from . import dress, extrude, hole
+from . import dress, extrude, hole, revolve
 from .. import sheetmetal
 from ..sheetmetal import shapes
 from ..sheetmetal import forms
 
 BUILDERS = {
     'extrude': extrude.build,
+    'revolve': revolve.build,
     'hole': hole.build,
     'fillet': dress.build,
     'chamfer': dress.build,
@@ -17,6 +18,7 @@ BUILDERS = {
 # campi che contengono valori (numeri o espressioni sui parametri)
 VALUE_FIELDS = {
     'extrude': ('distance',),
+    'revolve': ('angle',),
     'hole': ('diameter', 'depth'),
     'fillet': ('radius',),
     'chamfer': ('distance',),

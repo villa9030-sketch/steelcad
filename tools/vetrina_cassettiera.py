@@ -216,11 +216,19 @@ def traversino(n, k=None):
 
 
 def utensile(nome, d, L):
+    """Punta o maschio: mezza sezione (gambo e punta) fatta girare attorno all'asse (rivoluzione). Le punte col cono
+    a 118°, i maschi con l'invito smussato. Asse lungo y, il gambo a y = 0."""
     s = Service()
     ok(s.new_project('zero', {'name': nome, 'material': MAT}), nome)
     sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
-    ok(s.sketch_add_circle(sid, [0, 0], d / 2), 'tondo')
-    ok(s.create_from_sketch(sid, 'plate', {'thickness': L}), 'estrudi')
+    r = d / 2
+    punta = r / math.tan(math.radians(59)) if nome.startswith('Punta') else r * 0.6
+    sezione = [[0, 0], [r, 0], [r, L - punta], [0 if nome.startswith('Punta') else r * 0.55, L]]
+    if not nome.startswith('Punta'):
+        sezione.append([0, L])
+    ok(s.sketch_add_polyline(sid, sezione, True), 'mezza sezione')
+    ok(s.sketch_add_polyline(sid, [[0, -5], [0, L + 5]], False, True), 'asse')
+    ok(s.create_from_sketch(sid, 'revolve', {'angle': 360}), 'rivoluzione')
     return salva(s, nome.replace('/', '-'))
 
 
@@ -257,7 +265,7 @@ class Facce:
     def cilindro(self, iid, asse, r, vicino):
         c = [(0 if vicino is None else np.linalg.norm(np.cross(p - np.array(vicino), asse)), k)
              for k, kind, p, nn, rr, a in self.di(iid)
-             if kind == 'cilindrica' and abs(abs(np.dot(nn, asse)) - 1) < 1e-6 and abs(rr - r) < 1e-3]
+             if kind == 'cilindrica' and abs(abs(np.dot(nn, asse)) - 1) < 1e-6 and abs(rr - r) < 1e-2]
         if not c:
             raise SystemExit(f'nessun foro r={r} in {iid}')
         return {'inst': iid, 'face': min(c)[1]}
@@ -334,7 +342,7 @@ def assieme(f):
             passo = min((w - 6) / copie, d + 3)
             for cc in range(copie):
                 xc = (j + 0.5) * w + (cc - (copie - 1) / 2) * passo
-                u = metti(f[f'utensile {nome}'], [('x', 90)])
+                u = metti(f[f'utensile {nome}'])         # l'asse è già lungo y
                 tondo = F.cilindro(u, Y, d / 2, None)
                 mate('tangente', pavimento, tondo)
                 mate('tangente', sx_c, tondo, xc - d / 2)

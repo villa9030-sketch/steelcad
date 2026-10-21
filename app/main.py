@@ -176,6 +176,9 @@ class Api:
     def sketch_add_circle(self, sid, center, r, construction=False):
         return self._call(self._svc.sketch_add_circle, sid, center, r, construction)
 
+    def add_edge_dress(self, tipo, punti, valore):
+        return self._call(self._svc.add_edge_dress, tipo, punti, valore)
+
     def sketch_add_text(self, sid, pos, testo, h, angolo=0):
         return self._call(self._svc.sketch_add_text, sid, pos, testo, h, angolo)
 

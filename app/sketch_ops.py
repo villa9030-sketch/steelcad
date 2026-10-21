@@ -239,7 +239,9 @@ def _position(sk, pid, xy):
 
 
 def _r(v: float):
-    v = round(float(v), 2)
+    # sei decimali: arrotondare al centesimo la quota di una linea inclinata (6,7058 → 6,71) spostava i punti
+    # per rispettarla (21/10: una punta Ø11,5 veniva Ø11,51 dopo la rivoluzione)
+    v = round(float(v), 6)
     return int(v) if v.is_integer() else v
 
 

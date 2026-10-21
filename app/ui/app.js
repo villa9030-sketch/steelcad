@@ -206,6 +206,86 @@ function pickEdge(ev) {
   }
   return best?.e ?? null;
 }
+// ---- raccordo / smusso sugli spigoli del pezzo (piastre, pezzi pieni): si cliccano gli spigoli, poi Invio
+let DRESS = null;
+const DRESS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB000, depthTest: false });
+const DRESS_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF, depthTest: false });
+function dressTool(kind) {
+  if (DRESS?.group) model.remove(DRESS.group);
+  DRESS = kind ? { kind, scelti: [], hover: null, group: new THREE.Group() } : null;
+  if (DRESS) model.add(DRESS.group);
+  $('#sk-foot').hidden = !DRESS;
+  if (DRESS) dressHelp(); else setHelp('');
+  paint();
+}
+function dressHelp() {
+  const n = DRESS.scelti.length, nome = DRESS.kind === 'fillet' ? 'Raccordo' : 'Smusso';
+  setHelp(`${nome}: clic sugli spigoli da ${DRESS.kind === 'fillet' ? 'arrotondare' : 'smussare'} (si accendono)` +
+    (n ? ` · ${n} scelt${n === 1 ? 'o' : 'i'}: Invio per la misura` : '') + ' · Esc annulla');
+}
+function pickBodyEdge(ev) {                          // lo spigolo del pezzo sotto il mouse, e il punto più vicino
+  const o = objs.get('body');
+  if (!o) return null;
+  const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height]; };
+  let best = null;
+  o.data.edges.forEach((e, k) => {
+    for (let i = 0; i + 5 < e.length; i += 3) {
+      const A = new THREE.Vector3(e[i], e[i + 1], e[i + 2]), B = new THREE.Vector3(e[i + 3], e[i + 4], e[i + 5]);
+      const a = scr(A), b = scr(B), dx = b[0] - a[0], dy = b[1] - a[1], LL = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((mx - a[0]) * dx + (my - a[1]) * dy) / LL));
+      const d = Math.hypot(mx - a[0] - t * dx, my - a[1] - t * dy);
+      if (d > 8 || (best && d >= best.d)) continue;
+      const P = A.clone().lerp(B, t), dir = P.clone().sub(camera.position), dist = dir.length();
+      ray.set(camera.position, dir.normalize());
+      const hit = ray.intersectObjects([o.mesh], false)[0];
+      if (hit && hit.distance < dist - 0.5) continue;  // dietro al pezzo
+      best = { k, d, p: [P.x, P.y, P.z] };
+    }
+  });
+  return best;
+}
+function dressDraw() {
+  DRESS.group.clear();
+  const o = objs.get('body');
+  const linea = (k, mat) => {
+    const e = o.data.edges[k], pts = [];
+    for (let i = 0; i + 2 < e.length; i += 3) pts.push(new THREE.Vector3(e[i], e[i + 1], e[i + 2]));
+    DRESS.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+  };
+  for (const c of DRESS.scelti) linea(c.k, DRESS_MAT);
+  if (DRESS.hover != null && !DRESS.scelti.some(c => c.k === DRESS.hover)) linea(DRESS.hover, DRESS_HOV);
+  paint();
+}
+function dressMove(ev) {
+  const h = pickBodyEdge(ev);
+  const k = h ? h.k : null;
+  if (k !== DRESS.hover) { DRESS.hover = k; dressDraw(); }
+}
+function dressClick(ev) {
+  const h = pickBodyEdge(ev);
+  if (!h) { toast('Clicca proprio su uno spigolo (si accende in blu).', 'err'); return; }
+  const i = DRESS.scelti.findIndex(c => c.k === h.k);
+  if (i >= 0) DRESS.scelti.splice(i, 1); else DRESS.scelti.push(h);
+  dressHelp(); dressDraw();
+}
+function dressFine() {
+  if (!DRESS?.scelti.length) { toast('Scegli almeno uno spigolo.', 'err'); return; }
+  const kind = DRESS.kind, punti = DRESS.scelti.map(c => c.p), ultimo = DRESS.ultimo || (kind === 'fillet' ? '5' : '1');
+  modal(`<h3>${kind === 'fillet' ? 'Raccordo' : 'Smusso'} su ${punti.length} spigol${punti.length === 1 ? 'o' : 'i'}</h3>
+    <div class="form"><label>${kind === 'fillet' ? 'Raggio' : 'Misura (a 45°)'}<span class="inp"><input class="field" id="dr-v" value="${esc(ultimo)}"><i>mm</i></span></label><span></span></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div>`, close => {
+    $('#m-no').onclick = close;
+    const vai = () => {
+      const v = $('#dr-v').value.trim(); close();
+      dressTool(null);
+      inCoda(async () => { const r = await call('add_edge_dress', kind, punti, v); await apply(r, r.message); });
+    };
+    $('#m-ok').onclick = vai;
+    $('#dr-v').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+    $('#dr-v').select();
+  });
+}
 function selectEdge(e) {
   selTok++; selGen++;
   sel = { id: 'edge=' + e.id };
@@ -309,6 +389,7 @@ window.addEventListener('pointerup', ev => {
 });
 canvas.addEventListener('pointermove', ev => {
   if (SK) { skMove(ev); return; }
+  if (DRESS && !ev.buttons) { dressMove(ev); return; }
   if (ev.buttons) { tip.style.display = 'none'; return; }
   const he = pickEdge(ev);
   if (he !== hoverEdge) { hoverEdge = he; paint(); }
@@ -339,6 +420,7 @@ canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; 
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK) { skClick(ev); return; }
+  if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
   const he = pickEdge(ev);
   if (he) { selectEdge(he); return; }
@@ -889,6 +971,8 @@ function azione(id) {
     case 'tubo': t('Clicca un’asta nel modello: nel pannello scegli il tubo (anche per tutte le aste uguali).'); return;
     case 'asta': runCmd('member_help'); return;
     case 'giunti': t('Clicca un pallino in un angolo: nel pannello scegli come si uniscono i tubi.'); return;
+    case 'raccordo3d': dressTool('fillet'); return;
+    case 'smusso3d': dressTool('chamfer'); return;
     default: return;
   }
 }
@@ -2323,6 +2407,10 @@ document.addEventListener('keydown', ev => {
     return;
   }
   if (ev.key === 'Escape' && ASM.tool) { asmTool(null); sel = null; paint(); return; }
+  if (DRESS && $('#modal').hidden) {
+    if (ev.key === 'Escape') { dressTool(null); return; }
+    if (ev.key === 'Enter') { ev.preventDefault(); dressFine(); return; }
+  }
   if (ev.key === 'Escape') {
     if (!$('#modal').hidden) { $('#modal').hidden = true; return; }
     if (linkFrom) { linkFrom = null; paintNodes(); return; }
@@ -2621,6 +2709,7 @@ function drawSketch() {
   document.querySelectorAll('#sk-finish-box [data-make]').forEach(b => { b.disabled = !pronto; });
   $('#sk-face [data-make="cut"]').disabled = !(pronto || (suPezzo && v.drawn - (v.texts || []).length));
   $('#sk-mark').disabled = !(v.texts || []).length;
+  $('#sk-make [data-make="revolve"]').disabled = !(pronto && v.lines.some(l => l.construction && !l.ref));
   $('#sk-mark').classList.toggle('primary', !!(v.texts || []).length && !v.profiles);
   $('#sk-make [data-make="structure"]').disabled = !v.lines.some(l => !l.construction);
   $('#sk-make [data-make="profilo"]').disabled = !(v.lines.some(l => !l.construction) || v.arcs.some(a => !a.construction));   // bastano linee aperte   // da bordo a bordo: la chiudo io
@@ -3583,6 +3672,22 @@ function makeDialog(kind) {
     inCoda(async () => { if (await apply(await call('contour_flange', sid))) exitSketch(); });
     return;
   }
+  if (kind === 'revolve') {
+    const sid = SK.sid, pezzo = !!S?.body || objs.has('body');
+    modal(`<h3>Rivoluzione</h3>
+      <p class="hint">Il contorno chiuso gira attorno alla linea di costruzione (l’asse). Disegna solo metà sezione, da una parte dell’asse.</p>
+      <div class="form"><label>Angolo<span class="inp"><input class="field" id="rv-a" value="360"><i>°</i></span></label><span></span></div>
+      ${pezzo ? '<label class="check"><input type="checkbox" id="rv-t"> togli dal pezzo (una gola, un incavo) invece di aggiungere</label>' : ''}
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai girare</button></div>`, close => {
+      $('#m-no').onclick = close;
+      $('#m-ok').onclick = () => {
+        const v = { angle: $('#rv-a').value.trim() || '360', togli: $('#rv-t')?.checked ? 1 : '' };
+        close();
+        inCoda(async () => { const r = await call('create_from_sketch', sid, 'revolve', v); if (await apply(r, r.message)) exitSketch(); });
+      };
+    });
+    return;
+  }
   if (kind === 'mark') {
     const sid = SK.sid;
     inCoda(async () => { const r = await call('create_from_sketch', sid, 'mark', {}); if (await apply(r, r.message)) exitSketch(); });
@@ -3803,7 +3908,7 @@ function ribbonTabs() {
   }
   if (schedaPrima === 'assieme') schedaPrima = 'lamiera';
   const usa = { lamiera: !!S?.sheet, strutture: !!(S?.cutlist?.rows?.length || nodes.length),
-    piastra: !S?.sheet && JSON.stringify(S?.tree || {}).includes('"kind":"extrude"') };
+    piastra: !S?.sheet && /"kind":"(extrude|revolve)"/.test(JSON.stringify(S?.tree || {})) };
   const nessuna = !Object.values(usa).some(Boolean);
   for (const [k, v] of Object.entries(usa)) document.querySelector(`.rtabs [data-rtab="${k}"]`).hidden = !(v || nessuna);
   if (!SK && document.querySelector(`.rtabs [data-rtab="${schedaPrima}"]`)?.hidden) {
@@ -3819,7 +3924,7 @@ function ribbonForProject() {
   schedaPrima = t; showRibbon(t);
 }
 // ---------------------------------------------------------------- storia delle operazioni (timeline)
-const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'joint', sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', extrude: 'extrude', hole: 'hole', fillet: 'fillet',
+const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'joint', sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', extrude: 'extrude', revolve: 'refold', hole: 'hole', fillet: 'fillet',
   chamfer: 'chamfer', structure: 'joint', members: 'line', part: 'box', group: 'list', project: 'box' };
 const iconImg = k => `<img src="icons/${ICONA_TIPO[k] || 'box'}.svg" alt="">`;
 // (la barra "Storia" in basso è stata tolta: ripeteva l'albero, senza tornare indietro a un passo)

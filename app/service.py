@@ -1718,6 +1718,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             return self._change('Persiane' if kind == 'louver' else 'Imbutiture', fn)
         if kind == 'mark':
             return self._marcatura(sid, sk)
+        if kind == 'revolve':
+            return self._rivoluzione(sid, sk, v)
         if isinstance(sk.plane, dict) and kind in ('cut', 'boss'):
             return self._from_face_sketch(sid, sk, kind, v)
         if kind == 'profilo':
@@ -2175,6 +2177,66 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 sk_def['id'] = f'K{j}'
                 st.setdefault('skeletons', []).append(sk_def)
         return self._change('Crea struttura dallo sketch', fn)
+
+    def _rivoluzione(self, sid, sk, v) -> dict:
+        """Il contorno chiuso fatto girare attorno alla linea di costruzione: nuovo pezzo, o aggiunto/tolto."""
+        if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
+            return {'ok': False, 'code': 'usato', 'message': 'Questo sketch è già usato: modificalo da lì.'}
+        op = 'new' if self.result.body is None else ('cut' if v.get('togli') else 'add')
+        ang = v.get('angle', 360)
+
+        def fn():
+            self.doc.add_feature('revolve', 'Rivoluzione', sketch=sid, angle=ang, operation=op)
+        r = self._change('Rivoluzione', fn)
+        if r.get('ok'):
+            r['message'] = f'Rivoluzione: {"giro intero" if ang >= 360 else f"{fmt_mm(ang)}°"}' + \
+                {'new': '.', 'add': ', aggiunta al pezzo.', 'cut': ', tolta dal pezzo.'}[op]
+        return r
+
+    def add_edge_dress(self, tipo: str, punti: list, valore) -> dict:
+        """Raccordo o smusso sugli spigoli del pezzo: punti cliccati sugli spigoli (x, y, z), uno per spigolo."""
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.gp import gp_Pnt
+
+        from cad_engine.topology.naming import _edges_of
+        if tipo not in ('fillet', 'chamfer'):
+            return {'ok': False, 'message': f'Lavorazione «{tipo}» sconosciuta.'}
+        body = self.result.body
+        if body is None:
+            return {'ok': False, 'message': 'Prima serve un pezzo.'}
+        if getattr(body, 'sheet', None) is not None:
+            return {'ok': False, 'code': 'lamiera', 'message': 'Sulla lamiera gli spigoli si arrotondano nel disegno '
+                    '(Raccordo dello sketch sull’angolo del contorno): così vanno anche nello sviluppo.'}
+        try:
+            val = _numero(valore, 'il raggio' if tipo == 'fillet' else 'la misura')
+            refs = []
+            spigoli = list(_edges_of(body.shape))
+            for p in punti or []:
+                v = BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(c) for c in p])).Vertex()
+                migliore = None
+                for e in spigoli:
+                    dd = BRepExtrema_DistShapeShape(v, e)
+                    if dd.IsDone() and (migliore is None or dd.Value() < migliore[0]):
+                        migliore = (dd.Value(), e)
+                if migliore is None or migliore[0] > 1.0:
+                    raise SteelCADError('Clicca proprio sullo spigolo (si accende).', code='spigolo')
+                ref = body.edge_ref(migliore[1])
+                if ref not in refs:
+                    refs.append(ref)
+            if not refs:
+                raise SteelCADError('Scegli almeno uno spigolo.', code='spigolo')
+        except SteelCADError as ex:
+            return _err(ex)
+        nome = f'Raccordo R{fmt_mm(val)}' if tipo == 'fillet' else f'Smusso {fmt_mm(val)} mm'
+
+        def fn():
+            campi = {'radius': val} if tipo == 'fillet' else {'distance': val}
+            self.doc.add_feature(tipo, 'Raccordo' if tipo == 'fillet' else 'Smusso', edges=refs, **campi)
+        r = self._change(nome, fn)
+        if r.get('ok'):
+            r['message'] = f'{nome} su {len(refs)} {"spigolo" if len(refs) == 1 else "spigoli"}.'
+        return r
 
     def _marcatura(self, sid, sk) -> dict:
         """I testi dello sketch marcati col laser: sul layer di marcatura dello sviluppo, nella posizione giusta."""

@@ -45,6 +45,11 @@ def _feature_label(doc, f, fr) -> str:
             n = len(f.get('points') or [])
             prof = 'passante' if f.get('through', True) else f'prof. {f.get("depth")}'
             return f'{nome or "Foro"}: {n} × Ø{fmt_mm(d) if isinstance(d, (int, float)) else d} {prof}'
+        if t == 'revolve':
+            op = {'new': '', 'add': ' (aggiunta)', 'cut': ' (tolta)'}.get(f.get('operation', 'new'), '')
+            a = f.get('angle')
+            giro = 'giro intero' if a in (None, '', 360, 360.0) else f'{a}°'
+            return f'{nome or "Rivoluzione"}: {giro}{op}'
         if t == 'fillet':
             return f'{nome or "Raccordo"} R{f.get("radius")}'
         if t == 'chamfer':
