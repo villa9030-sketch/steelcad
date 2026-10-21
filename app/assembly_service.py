@@ -821,8 +821,11 @@ class AssemblyMixin:
             R, T = i['R'], i['T']
             mat = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
             facce = [{**f, 'label': f'{i["name"]}: {part.doc.describe_face(f["name"]) if f["name"] else "faccia"}'} for f in m['faces']]
+            # le marcature laser del pezzo: tratti come gli spigoli, si muovono con lui
+            dati = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
+            segni = [[c for q in sg['pezzo'] for c in q] for sg in (getattr(dati, 'marks', None) or []) if sg.get('pezzo')]
             objs.append({'id': i['id'], 'kind': 'instance', 'name': i['name'], 'matrix': mat,
-                         'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges']})
+                         'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges'] + segni})
         return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
 
     def _asm_select(self, obj_id: str, face_index=None) -> dict:

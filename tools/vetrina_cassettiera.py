@@ -142,14 +142,31 @@ def vaschetta():
     return salva(s, 'Cassetto')
 
 
-def frontalino():
-    """Frontalino: in basso un bordo indietro, in alto la gola per le dita (indietro e giù)."""
-    s = nuovo('Frontalino', FW, FH, SPC)
+def marca(s, faccia, testi):
+    """Testi marcati col laser sulla faccia: [(testo, centro nelle coordinate del pezzo (x, y, z), altezza)]."""
+    from cad_engine.sketch import testo as testo_mod
+    from cad_engine.sketch.face_plane import plane_of
+    sid = ok(s.sketch_on_face(faccia), f'sketch su {faccia}')['sketch']
+    piano = plane_of(s.result.body, faccia, s.doc.sketch(sid))
+    for t, c, h in testi:
+        x, y = tuple(piano.to_local_coords(bd.Vector(*c)))[:2]
+        ok(s.sketch_add_text(sid, [round(x - testo_mod.larghezza(t, h) / 2, 3), round(y - h / 2, 3)], t, h), f'testo {t}')
+    ok(s.create_from_sketch(sid, 'mark', {}), f'marca {faccia}')
+
+
+ETICHETTE = {0: 'MASCHI M3 - M12', 1: 'PUNTE Ø10 - Ø13', 2: 'PUNTE Ø5,5 - Ø9,5', 3: 'PUNTE Ø1 - Ø5'}
+
+
+def frontalino(k):
+    """Frontalino del cassetto k: in basso un bordo indietro, in alto la gola per le dita; il contenuto marcato."""
+    nome = f'Frontalino {k + 1}'
+    s = nuovo(nome, FW, FH, SPC)
     piega(s, 'L1', 10, lambda a, b: a[2] < -5)
     g = piega(s, 'L3', 16, lambda a, b: a[2] < -10)
     # la gola: dal bordo in alto scende di 7, sopra le sponde del cassetto
     piega(s, None, 7, lambda a, b: b[1] < FH + 0.1, parent=g)
-    return salva(s, 'Frontalino')
+    marca(s, 'SM1/sopra', [(ETICHETTE[k], (FW / 2, FH * 0.42, SPC), 9)])
+    return salva(s, nome)
 
 
 def sagoma(nome, punti, sp):
@@ -178,14 +195,24 @@ def separatore():
     return sagoma('Separatore', pts, SPR)
 
 
-def traversino(n):
-    """Largo quanto il cassetto; una cava dall'alto per ogni separatore."""
+def traversino(n, k=None):
+    """Largo quanto il cassetto; una cava dall'alto per ogni separatore. Quello davanti del cassetto k ha la misura
+    di ogni scomparto marcata col laser."""
     L = LI - 1
     pts = [(2, 0), (L - 2, 0), (L, 2), (L, HR)]        # angoli in basso smussati: lì c'è il raggio della piega del cassetto
     for x in reversed([x - 0.5 for x in scomparti(n)]):
         pts += [(x + CAVA / 2, HR), (x + CAVA / 2, HR - FONDO_CAVA), (x - CAVA / 2, HR - FONDO_CAVA), (x - CAVA / 2, HR)]
     pts += [(0, HR), (0, 2)]
-    return sagoma(f'Traversino {n} scomparti', pts, SPR)
+    if k is None:
+        return sagoma(f'Traversino {n} scomparti', pts, SPR)
+    f = sagoma(f'Traversino {n} scomparti - cassetto {k + 1}', pts, SPR)
+    s = Service()
+    ok(s.open(str(f)), 'apri traversino')
+    w = LI / n
+    misure = [nome.replace('Ø', '').replace('.', ',') for nome, _d, _L in CASSETTI[k]]
+    marca(s, 'SM1/sopra', [(m, ((j + 0.5) * w - 0.5, 6, SPR), 5) for j, m in enumerate(misure)])
+    ok(s.save(str(f)), 'salva traversino')
+    return f
 
 
 def utensile(nome, d, L):
@@ -270,7 +297,7 @@ def assieme(f):
         mate('centra', sx, F.piana(c, -X), 0, False, dx, F.piana(c, X))
         mate('distanza', davanti, F.piana(c, -Y), -SPC + fuori, True)
         # frontalino contro il davanti del cassetto
-        fr = metti(f['frontalino'], [('x', 90)])
+        fr = metti(f[f'frontalino {k}'], [('x', 90)])
         mate('faccia', F.piana(c, -Y), F.piana(fr, Y, piu=False, filtro=lambda p, a: a > 5000))
         mate('centra', F.piana(c, -X), F.piana(fr, -X), 0, False, F.piana(c, X), F.piana(fr, X))
         mate('distanza', F.piana(c, -Z), F.piana(fr, -Z), 3, True)
@@ -288,7 +315,7 @@ def assieme(f):
         dav_c, die_c = F.piana(c, Y, piu=False), F.piana(c, -Y, piu=False)  # davanti e dietro, dentro
         tr = {}
         for dove, faccia_c, verso in (('davanti', dav_c, -Y), ('dietro', die_c, Y)):
-            t = metti(f[f'traversino {n}'], [('x', 90)])
+            t = metti(f[f'traversino davanti {k}'] if dove == 'davanti' else f[f'traversino {n}'], [('x', 90)])
             mate('faccia', pavimento, F.piana(t, -Z))
             mate('distanza', faccia_c, F.piana(t, verso), DAL_BORDO)
             mate('centra', sx_c, F.piana(t, -X), 0, False, dx_c, F.piana(t, X))
@@ -326,11 +353,14 @@ if __name__ == '__main__':
     log('cassa fatta')
     f['guida'] = guida()
     f['cassetto'] = vaschetta()
-    f['frontalino'] = frontalino()
+    for k in range(4):
+        f[f'frontalino {k}'] = frontalino(k)
     log('guide, cassetto, frontalino')
     f['separatore'] = separatore()
     for n in sorted({len(v) for v in CASSETTI.values()}):
         f[f'traversino {n}'] = traversino(n)
+    for k in range(4):
+        f[f'traversino davanti {k}'] = traversino(len(CASSETTI[k]), k)
     for k in range(4):
         for nome, d, L in CASSETTI[k]:
             f[f'utensile {nome}'] = utensile(('Maschio ' if nome.startswith('M') else 'Punta ') + nome, d, L)
@@ -357,7 +387,9 @@ if __name__ == '__main__':
     log(f'interferenze: {[x.get("label") for x in inter]}')
     # per l'officina: i pezzi in lamiera (le punte e i maschi si comprano)
     officina = D / 'Per officina'
-    for k, nome in enumerate(['Cassa', 'Cassetto', 'Frontalino'] + ['Separatore'] + [f'Traversino {n} scomparti' for n in sorted({len(v) for v in CASSETTI.values()})]):
+    for k, nome in enumerate(['Cassa', 'Cassetto'] + [f'Frontalino {i + 1}' for i in range(4)] + ['Separatore']
+                             + [f'Traversino {n} scomparti' for n in sorted({len(v) for v in CASSETTI.values()})]
+                             + [f'Traversino {len(CASSETTI[i])} scomparti - cassetto {i + 1}' for i in range(4)]):
         x = Service()
         ok(x.open(str(D / f'{nome}.steelcad')), f'apri {nome}')
         ok(x.prepara(str(officina), ['laser', 'piegatrice', 'officina', 'step'], {'numero': f'CP-{k + 1:03d}'}), f'prepara {nome}')
