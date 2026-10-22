@@ -852,3 +852,12 @@ body.sketching.disegno-attivo #dims .dim:not(.edit) { pointer-events: none; }
 .dim.ing { color: #8A5A00; border-color: #D9B36A; cursor: help; }
 body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 .dim.ing::before { content: '⤢ '; font-weight: 400; opacity: .7; }
+
+/* Quota dappertutto (22/10) */
+#mis-box { position: absolute; inset: 0; pointer-events: none; }
+#mis-box .dim.mis { pointer-events: auto; border-color: #FFB000; color: #FFB000; cursor: context-menu; }
+#mis-snap { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; display: none; z-index: 5;
+  border: 2px solid #FFB000; box-sizing: border-box; }
+#mis-snap.mis-centro, #mis-snap.mis-cerchio { border-radius: 50%; }
+#mis-snap.mis-meta { transform: rotate(45deg); }
+#mis-snap.mis-punto { width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; }

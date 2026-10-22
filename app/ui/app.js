@@ -494,6 +494,7 @@ window.addEventListener('pointerup', ev => {
 });
 canvas.addEventListener('pointermove', ev => {
   if (SK) { skMove(ev); return; }
+  if (MIS && !ev.buttons) { misMove(ev); return; }
   if (DRESS && !ev.buttons) { dressMove(ev); return; }
   if (ev.buttons) { tip.style.display = 'none'; return; }
   const he = pickEdge(ev);
@@ -525,6 +526,7 @@ canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; 
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK) { skClick(ev); return; }
+  if (MIS) { misClick(ev); return; }
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
   const he = pickEdge(ev);
@@ -857,7 +859,7 @@ function quoteIngombro() {
 }
 function placeDims() {
   const w = view.clientWidth, h = view.clientHeight;
-  for (const { el, at } of [...dimEls, ...nodeEls]) {
+  for (const { el, at } of [...dimEls, ...nodeEls, ...(misEls || [])]) {
     const p = at.clone().project(camera);
     const fuori = p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1;
     el.style.display = fuori ? 'none' : '';
@@ -991,6 +993,8 @@ async function caricaScena() {
   buildNodes();
   aggiornaComandi();                 // i comandi dipendono anche da nodi e pezzi della scena
   if (flatView || SK?.v.on_flat) { if (!buildFlat()) flatView = false; }
+  if (MIS) MIS.cand = misCandidati();
+  disegnaMisure();
   if (SK?.v.on_face) buildWorkFace(SK.v.on_face);
   applyLook();
   const esiste = id => objs.has(id) || nodes.some(n => n.id === id) || id.startsWith('flange=') || id.startsWith('pb=');
@@ -2023,6 +2027,206 @@ $('#sk-where-box').addEventListener('click', () => {
   try { localStorage.setItem('steelcad.skPanel', aperto ? 'aperto' : 'chiuso'); } catch { /* niente memoria: va bene lo stesso */ }
   $('#sk-where-fr').textContent = aperto ? '▾' : '▸';
 });
+
+// ===================================================================== Quota (misura) dappertutto
+// 22/10, Stefano: «un tasto quota dappertutto, anche negli assiemi». Due clic = distanza; un clic sul bordo di un foro
+// = diametro. Ci si aggancia a vertici, metà degli spigoli dritti, centri di fori e archi (pezzo, sviluppo, assieme).
+// Le quote restano a video (per file aperto, in questa sessione); tasto destro su una quota per toglierla.
+let MIS = null;                                    // { a: punto, cand: [...], hover }
+const MISURE = new Map();                          // file -> [{ a, b, tipo, testo }]
+const misGroup = new THREE.Group();
+scene.add(misGroup);
+const MIS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB000, depthTest: false });
+const MIS_RUB = new THREE.LineDashedMaterial({ color: 0xFFB000, dashSize: 4, gapSize: 3, depthTest: false });
+var misEls = [];                                   // var: placeDims la legge già prima di qui
+const misBox = document.createElement('div');
+misBox.id = 'mis-box';
+document.getElementById('dims').after(misBox);
+const misSnap = document.createElement('div');
+misSnap.id = 'mis-snap';
+misBox.after(misSnap);
+const chiaveMis = () => (S?.path || S?.name || 'nuovo') + (S?.mode === 'assembly' ? '#asm' : '');
+const quoteDi = () => { const k = chiaveMis(); if (!MISURE.has(k)) MISURE.set(k, []); return MISURE.get(k); };
+
+function misCandidati() {
+  const out = [], visti = new Set();
+  const metti = (p, tipo, extra = {}) => {
+    const k = `${tipo}:${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}`;
+    if (visti.has(k)) return;
+    visti.add(k); out.push({ p, tipo, ...extra });
+  };
+  const daPolilinea = (pts) => {
+    if (pts.length < 2) return;
+    const chiusa = pts.length > 8 && pts[0].distanceTo(pts[pts.length - 1]) < 1e-3;
+    if (chiusa) {                                   // un cerchio intero (l'ultimo punto è il primo: non si conta due volte)
+      const giro = pts.slice(0, -1);
+      const c = giro.reduce((s, q) => s.add(q), new THREE.Vector3()).multiplyScalar(1 / giro.length);
+      const r = giro.reduce((s, q) => s + q.distanceTo(c), 0) / giro.length;
+      if (giro.every(q => Math.abs(q.distanceTo(c) - r) < Math.max(0.02 * r, 0.05))) { metti(c, 'centro', { r, giro: pts }); cuciture.push(pts[0]); return; }
+    }
+    if (pts.length > 4) {                           // un arco: il suo centro (tre punti)
+      const a = pts[0], b = pts[Math.floor(pts.length / 2)], c = pts[pts.length - 1];
+      const ab = b.clone().sub(a), ac = c.clone().sub(a), n = ab.clone().cross(ac);
+      if (n.lengthSq() > 1e-9) {
+        const cc = ac.clone().multiplyScalar(ab.lengthSq()).sub(ab.clone().multiplyScalar(ac.lengthSq())).cross(n).multiplyScalar(1 / (2 * n.lengthSq()));
+        const centro = a.clone().add(cc), r = centro.distanceTo(a);
+        if (pts.every(q => Math.abs(q.distanceTo(centro) - r) < Math.max(0.02 * r, 0.05))) { archi.push({ centro, r, pts }); return; }
+      }
+    }
+    metti(pts[0], 'vertice'); metti(pts[pts.length - 1], 'vertice');
+    if (pts.length === 2) metti(pts[0].clone().add(pts[1]).multiplyScalar(0.5), 'metà', { capi: [pts[0], pts[1]] });
+  };
+  const cuciture = [];                              // il punto dove il motore «chiude» un cerchio: non è un vertice vero
+  // gli archi: quelli con lo stesso centro e raggio sono pezzi dello stesso cerchio (il motore spezza i cerchi in due):
+  // un cerchio intero ha solo il centro; un arco vero anche i suoi due estremi
+  const archi = [];
+  const chiudiArchi = () => {
+    const gruppi = [];
+    for (const a of archi) {
+      const g = gruppi.find(x => x.centro.distanceTo(a.centro) < 1e-3 && Math.abs(x.r - a.r) < 1e-3);
+      if (g) { g.pezzi.push(a); g.giro = g.giro.concat(a.pts); } else gruppi.push({ centro: a.centro, r: a.r, pezzi: [a], giro: [...a.pts] });
+    }
+    for (const g of gruppi) {
+      const lungo = g.pezzi.reduce((s, a) => s + a.pts.slice(1).reduce((t, q, i) => t + q.distanceTo(a.pts[i]), 0), 0);
+      metti(g.centro, 'centro', { r: g.r, giro: g.giro });
+      if (lungo < 2 * Math.PI * g.r * 0.98) for (const a of g.pezzi) { metti(a.pts[0], 'vertice'); metti(a.pts[a.pts.length - 1], 'vertice'); }
+    }
+    archi.length = 0;
+    // via i vertici sulle cuciture dei cerchi e le metà della linea di cucitura dei fori (non sono spigoli veri)
+    for (let i = out.length - 1; i >= 0; i--) {
+      const c = out[i];
+      const suCucitura = p => cuciture.some(q => q.distanceTo(p) < 1e-3);
+      if ((c.tipo === 'vertice' && suCucitura(c.p)) || (c.tipo === 'metà' && c.capi && c.capi.every(suCucitura))) out.splice(i, 1);
+    }
+  };
+  if (flatView && !SK && S?.sheet?.data) {                  // lo sviluppo a video
+    flatGroup.updateMatrixWorld(true);
+    const M = flatGroup.matrixWorld, d = S.sheet.data;
+    for (const anello of d.outline) {
+      const pts = [];
+      for (let i = 0; i + 1 < anello.length; i += 2) pts.push(new THREE.Vector3(anello[i], anello[i + 1], 0).applyMatrix4(M));
+      if (pts.length > 2) pts.push(pts[0].clone());
+      if (pts.length > 8) daPolilinea(pts);
+      for (let i = 0; i + 1 < pts.length; i++) daPolilinea([pts[i], pts[i + 1]]);
+    }
+    for (const [a, b] of d.bend_lines) daPolilinea([new THREE.Vector3(a[0], a[1], 0).applyMatrix4(M), new THREE.Vector3(b[0], b[1], 0).applyMatrix4(M)]);
+    chiudiArchi();
+    return out;
+  }
+  for (const o of objs.values()) {
+    if (!o.mesh.visible || !o.data.edges) continue;
+    o.mesh.updateMatrixWorld(true);
+    const M = o.mesh.matrixWorld;
+    for (const e of o.data.edges) {
+      const pts = [];
+      for (let i = 0; i + 2 < e.length; i += 3) pts.push(new THREE.Vector3(e[i], e[i + 1], e[i + 2]).applyMatrix4(M));
+      daPolilinea(pts);
+    }
+    chiudiArchi();                                  // per pezzo: i cerchi di due copie non si mescolano
+  }
+  return out;
+}
+function misStart() {
+  if (SK) { toast('Nel disegno c’è già la Quota del disegno (tasto D).'); return; }
+  MIS = { a: null, cand: misCandidati(), hover: null };
+  document.querySelectorAll('[data-cmd="misura"]').forEach(b => b.classList.add('on'));
+  setHelp('Quota: clic sul primo punto (vertice, metà, centro) e sul secondo · clic sul bordo di un foro = diametro · tasto destro su una quota per toglierla · Esc finisce');
+  $('#sk-foot').hidden = false;
+}
+function misStop() {
+  MIS = null;
+  document.querySelectorAll('[data-cmd="misura"]').forEach(b => b.classList.remove('on'));
+  misSnap.style.display = 'none';
+  setHelp(''); if (!SK && !DRESS) $('#sk-foot').hidden = true;
+  disegnaMisure();
+}
+function misTrova(ev) {
+  const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height, q.z]; };
+  let best = null;
+  for (const c of MIS.cand) {
+    const [x, y, z] = scr(c.p);
+    if (z > 1) continue;
+    const d = Math.hypot(x - mx, y - my) - (c.tipo === 'metà' ? -3 : 0);          // vertici e centri prima delle metà
+    if (d < 12 && (!best || d < best.d)) best = { ...c, d };
+  }
+  if (best) return best;
+  for (const c of MIS.cand) {                     // sul bordo di un foro: il diametro
+    if (c.tipo !== 'centro' || !c.giro) continue;
+    for (let i = 0; i + 1 < c.giro.length; i++) {
+      const [ax, ay] = scr(c.giro[i]), [bx, by] = scr(c.giro[i + 1]);
+      const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((mx - ax) * dx + (my - ay) * dy) / L));
+      if (Math.hypot(mx - ax - t * dx, my - ay - t * dy) < 6) return { p: c.p, tipo: 'cerchio', r: c.r, giro: c.giro };
+    }
+  }
+  const h = pick(ev);                             // nessun aggancio: il punto sotto il mouse sulla superficie
+  if (h) {
+    const rr = canvas.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2(((ev.clientX - rr.left) / rr.width) * 2 - 1, -((ev.clientY - rr.top) / rr.height) * 2 + 1), camera);
+    const hit = ray.intersectObjects([...objs.values()].map(o => o.mesh), false)[0];
+    if (hit) return { p: hit.point.clone(), tipo: 'punto' };
+  }
+  return null;
+}
+const NOMI_AGGANCIO = { vertice: 'vertice', 'metà': 'metà dello spigolo', centro: 'centro', cerchio: 'bordo del foro: clic = diametro', punto: 'sulla faccia' };
+function misMove(ev) {
+  MIS.hover = misTrova(ev);
+  const h = MIS.hover, r = view.getBoundingClientRect();
+  if (h) {
+    const q = h.p.clone().project(camera);
+    misSnap.style.display = 'block';
+    misSnap.style.left = ((q.x + 1) / 2 * r.width) + 'px'; misSnap.style.top = ((1 - q.y) / 2 * r.height) + 'px';
+    misSnap.className = 'mis-' + (h.tipo === 'metà' ? 'meta' : h.tipo);
+    tip.textContent = MIS.a ? `${num(MIS.a.p.distanceTo(h.p), 2)} mm · ${NOMI_AGGANCIO[h.tipo]}` : NOMI_AGGANCIO[h.tipo];
+    tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 14) + 'px'; tip.style.display = 'block';
+  } else { misSnap.style.display = 'none'; tip.style.display = 'none'; }
+  disegnaMisure();
+}
+function misClick(ev) {
+  const h = MIS.hover || misTrova(ev);
+  if (!h) return;
+  if (h.tipo === 'cerchio' && !MIS.a) {
+    const lontano = h.giro.reduce((m, q) => (q.distanceTo(h.giro[0]) > m.distanceTo(h.giro[0]) ? q : m), h.giro[0]);
+    quoteDi().push({ a: h.giro[0].toArray(), b: lontano.toArray(), testo: 'Ø' + num(2 * h.r, 2) });
+    disegnaMisure(); return;
+  }
+  if (!MIS.a) { MIS.a = h; disegnaMisure(); return; }
+  const a = MIS.a.p, b = h.p, d = a.distanceTo(b);
+  if (d < 1e-6) return;
+  const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y), dz = Math.abs(b.z - a.z);
+  quoteDi().push({ a: a.toArray(), b: b.toArray(), testo: num(d, 2), dett: `ΔX ${num(dx, 2)} · ΔY ${num(dy, 2)} · ΔZ ${num(dz, 2)}` });
+  MIS.a = null;
+  disegnaMisure();
+}
+function disegnaMisure() {
+  misGroup.traverse(x => x.geometry?.dispose()); misGroup.clear();
+  misBox.innerHTML = ''; misEls = [];
+  const lista = SK ? [] : quoteDi();
+  lista.forEach((q, k) => {
+    const a = new THREE.Vector3(...q.a), b = new THREE.Vector3(...q.b);
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), MIS_MAT); l.renderOrder = 30; misGroup.add(l);
+    for (const p of [a, b]) {
+      const g = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.6, modelRadius * 0.004), 10, 8), new THREE.MeshBasicMaterial({ color: 0xFFB000, depthTest: false }));
+      g.position.copy(p); g.renderOrder = 30; misGroup.add(g);
+    }
+    const el = document.createElement('div');
+    el.className = 'dim mis'; el.textContent = q.testo; el.title = (q.dett ? q.dett + '\n' : '') + 'Tasto destro: togli questa quota';
+    el.oncontextmenu = ev => { ev.preventDefault(); quoteDi().splice(k, 1); disegnaMisure(); };
+    misBox.appendChild(el);
+    misEls.push({ el, at: a.clone().add(b).multiplyScalar(0.5) });
+  });
+  if (MIS?.a && MIS.hover) {
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([MIS.a.p, MIS.hover.p]), MIS_RUB);
+    l.computeLineDistances(); l.renderOrder = 30; misGroup.add(l);
+  }
+  placeDims(); ridisegna();
+}
+function misTogliTutte() { quoteDi().length = 0; disegnaMisure(); }
+document.addEventListener('keydown', ev => {
+  if (!MIS || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); if (MIS.a) { MIS.a = null; disegnaMisure(); } else misStop(); }
+}, true);
+
 // ===================================================================== tavole
 async function drawingsDialog() {
   const r = await call('drawing_fields');
@@ -2826,6 +3030,8 @@ const CMDS = [
   { id: 'toggle_dims', label: 'Mostra/nascondi quote', keys: 'Q', run: () => { showDims = !showDims; buildDims(); } },
   { id: 'toggle_theme', label: 'Tema scuro / chiaro', run: () => applyTheme(!document.body.classList.contains('dark')) },
   { id: 'unfold', label: 'Spiega / ripiega la lamiera', keys: 'U', run: () => toggleFlat() },
+  { id: 'misura', label: 'Quota: misura tra due punti, diametro di un foro', keys: 'M', run: () => (MIS ? misStop() : misStart()) },
+  { id: 'misura_via', label: 'Togli tutte le quote misurate', run: () => misTogliTutte() },
   { id: 'view_back', label: 'Vista da dietro', run: () => goTo(VISTE.view_back) },
   { id: 'view_left', label: 'Vista da sinistra', run: () => goTo(VISTE.view_left) },
   { id: 'view_bottom', label: 'Vista da sotto', run: () => goTo(VISTE.view_bottom) },
@@ -2954,7 +3160,7 @@ document.addEventListener('keydown', ev => {
   }
   if (inCampo || ev.altKey || ev.metaKey) return;
   if (ev.key === 'Delete') { ev.preventDefault(); deleteSelected(); return; }
-  const tasti = { f: 'fit', 0: 'view_iso', 7: 'view_top', 1: 'view_front', 3: 'view_right', q: 'toggle_dims', u: 'unfold' };
+  const tasti = { f: 'fit', 0: 'view_iso', 7: 'view_top', 1: 'view_front', 3: 'view_right', q: 'toggle_dims', u: 'unfold', m: 'misura' };
   if (tasti[k]) { ev.preventDefault(); runCmd(tasti[k]); }
 });
 
@@ -4514,6 +4720,8 @@ let schedaPrima = 'lamiera';
 const VOCI_ESPORTA = [['drawings', 'Tavole PDF con cartiglio…'], ['export_dxf', 'DXF di taglio…'],
   ['export_bendtable', 'Tabella pieghe (per la piegatrice)…'], ['export_step', 'STEP (modello 3D)…'],
   ['export_bom', 'Distinta materiali (Excel)…']];
+document.querySelectorAll('.rgroup[data-esporta]').forEach(g => g.insertAdjacentHTML('beforebegin',
+  `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button></div><div class="rname">Misura</div></div>`));
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
   g.innerHTML = `<div class="rbtns"><div class="menu-item rmenu"><button class="rb rb-export" title="Esporta: tavole, DXF di taglio, tabella pieghe, STEP">
     <img src="icons/export.svg" alt=""><span>Esporta ▾</span></button><div class="drop">${VOCI_ESPORTA.map(([c, l]) =>
@@ -4695,7 +4903,7 @@ async function start() {
   requestAnimationFrame(loop);
   introFine();
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
-    objs, select, camera, controls, skScreen: xy => skScreen(xy), lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
+    objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo
