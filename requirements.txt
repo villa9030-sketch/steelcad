@@ -4,3 +4,5 @@ planegcs==0.9.6
 ezdxf==1.4.4
 pytest==9.1.1
 pywebview==6.2.1
+scipy==1.18.1
+fonttools==4.67.0

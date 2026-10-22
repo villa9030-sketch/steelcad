@@ -42,3 +42,18 @@ def test_bordo_sul_materiale_aggiunto():
     assert s.sketch_on_face(f'{fid}/esterno')['ok']
     assert any(x['face'] == f'{fid}/esterno' for x in s.scene()['bend_edges'] if x['kind'] == 'libero')
     assert s.tree_action('sheet_edge_flange', fid, 'elimina')['ok']
+
+
+def test_tabella_pieghe_con_fianchi_e_bordi_liberi(tmp_path):
+    """Le pieghe sul fianco di una parete e sui bordi liberi stanno in tabella con le altre (22/10)."""
+    s = Service()
+    s.new_project('lamiera', {'name': 'C', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 1, 'k': 0.4})
+    s.add_flange('SM1', 'L2', {'length': '50'})
+    assert s.set_ear('SM1', 'FL1', 'u0', True, {'length': '20'})['ok']
+    e = next(x for x in s.scene()['bend_edges'] if x['kind'] == 'libero')
+    assert s.add_edge_flange(e['face'], e['ea'], e['eb'], {'length': '15'})['ok']
+    righe = s.result.body.sheet.summary()['bends']
+    assert {'FL1', 'FL1/u0'} <= {r['flange'] for r in righe} and any(r['edge'] == 'bordo libero' for r in righe)
+    p = tmp_path / 'pieghe.csv'
+    r = s.export_bend_table(str(p))
+    assert r['ok'] and '3 pieghe' in r['message'] and 'bordo libero' in p.read_text(encoding='utf-8-sig')

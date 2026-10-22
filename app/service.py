@@ -1175,11 +1175,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 b = g.bend
                 righe.append(';'.join([str(i), g.fid, data.lato_di(g), n(g.length, 2), n(b.angle, 1),
                                        'su' if g.direction == 'up' else 'giù', n(b.r, 2), n(b.k), n(b.ba), n(b.bd), n(g.u1 - g.u0, 2)]))
+            for i, e in enumerate(data.extra_bends or [], len(righe)):     # pieghe sui fianchi e sui bordi liberi
+                righe.append(';'.join([str(i), e['flange'], e['edge'], n(e['length'], 2), n(e['angle'], 1),
+                                       'su' if e['direction'] == 'up' else 'giù', n(e['r'], 2), n(e['k']), n(e['ba']), n(e['bd']),
+                                       n(e['width'], 2)]))
             righe.append('')
             righe.append(f'Spessore mm;{n(data.thickness, 2)};Materiale;{self.doc.material};Sviluppo mm;'
                          f'{n(data.flat_size[0], 2)} x {n(data.flat_size[1], 2)}')
             Path(path).write_text('\n'.join(righe) + '\n', encoding='utf-8-sig')
-            return _ok(message=f'Tabella pieghe salvata: {len(data.flanges)} pieghe.', path=path)
+            return _ok(message=f'Tabella pieghe salvata: {len(data.flanges) + len(data.extra_bends or [])} pieghe.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 

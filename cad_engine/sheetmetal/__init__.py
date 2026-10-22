@@ -184,6 +184,8 @@ class SheetData:
     shape_info: object = None
     pannelli: dict = field(default_factory=dict)       # faccia -> (piano sul pezzo, piano nello sviluppo, verso dentro)
     fold_pos: dict = field(default_factory=dict)
+    # le pieghe che non sono flange (sul fianco di una parete, su un bordo libero): in tabella con le altre (22/10)
+    extra_bends: list = field(default_factory=list)
 
     def in_ordine(self) -> list:
         """Le flange nell'ordine delle loro linee di piega sullo sviluppo, da un capo all'altro (21/10: una catena di
@@ -221,7 +223,7 @@ class SheetData:
                 'bends': [{'flange': g.fid, 'edge': self.lato_di(g), 'parent': g.parent, 'length': g.length,
                            'line_at': (getattr(self, 'fold_pos', None) or {}).get(g.fid),
                            'direction': g.direction, 'position': g.position, 'width': g.u1 - g.u0,
-                           **g.bend.as_dict()} for g in self.in_ordine()],
+                           **g.bend.as_dict()} for g in self.in_ordine()] + list(self.extra_bends or []),
                 'flat_size': list(self.flat_size), 'flat_area': self.flat_area, 'warnings': self.warnings,
                 'outline': self.outline(), 'bend_lines': [[list(a), list(b), t] for a, b, t in self.bend_lines],
                 'bend_zones': self.bend_zones(), 'tip_contacts': [list(c) for c in self.tip_contacts],
@@ -504,6 +506,9 @@ def build(fdef: dict, ctx) -> NamedShape:
         ns = _countersinks(ns, ss, prof, None, t, fid, fori=[(c, spec, N) for c, spec in fori_base])
     if orecchie:
         _ear_names(ns, data, orecchie, fid, t)
+        data.extra_bends = [{'flange': f'{o["g"].fid}/{o["end"]}', 'edge': f'fianco di {o["g"].fid}', 'parent': o['g'].fid,
+                             'length': o['lung'], 'line_at': None, 'direction': 'up' if o['sigma'] > 0 else 'down',
+                             'position': 'outside', 'width': o['s1'] - o['s0'], **o['bend'].as_dict()} for o in orecchie]
     # pieghe su linea con la parte piegata non rettangolare: si toglie dallo sviluppo (e dal pezzo) quello che la
     # striscia della flangia ha in più rispetto al disegno
     for fo, parte in piegate:

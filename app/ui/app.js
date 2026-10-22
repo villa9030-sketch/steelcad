@@ -2138,7 +2138,7 @@ function renderSheet() {
     : `<p class="hint">Calandrato: nessuna piega. Corona con raggi ${num(data.shape_info?.raggio_grande, 2)} e ${num(data.shape_info?.raggio_piccolo, 2)} mm, settore ${num(data.shape_info?.angolo_settore, 3)}°.</p>`)
     : data && data.bends.length ? `<table class="grid"><thead><tr><th>Flangia</th><th>Lato</th><th class="n">L</th><th class="n">Angolo</th><th>Verso</th>
     <th class="n" title="Raggio interno di piega (mm)">Raggio</th><th class="n" title="K-factor: dove sta la fibra neutra nello spessore">K</th><th class="n" title="Allungamento (BA): lunghezza della fibra neutra nella piega, mm">Allung.</th><th class="n" title="Detrazione (BD): quanto si toglie alla somma delle quote esterne, mm">Detraz.</th></tr></thead><tbody>${data.bends.map(b => `<tr data-fl="${esc(b.flange)}">
-    <td>${esc(b.flange)}</td><td>${esc(b.edge)}</td><td class="n">${num(b.length, 2)}</td><td class="n">${num(b.angle, 2)}°</td><td>${b.direction === 'up' ? 'su' : 'giù'}</td>
+    <td>${esc(b.flange)}</td><td>${esc(b.edge)}</td><td class="n">${num(b.length, 2)}</td><td class="n">${num(b.angle, 2)}°</td><td>${b.position === 'outside' && b.parent !== undefined && String(b.flange).match(/\/u[01]$|^PB/) ? (b.direction === 'up' ? 'dentro' : 'fuori') : (b.direction === 'up' ? 'su' : 'giù')}</td>
     <td class="n">${num(b.r, 2)}</td><td class="n">${num(b.k, 3)}</td><td class="n">${num(b.ba, 3)}</td><td class="n">${num(b.bd, 3)}</td></tr>`).join('')}</tbody></table>`
     : '<p class="empty">Nessuna piega. Clicca un fianco della lamiera nel modello per aggiungere una flangia.</p>';
   let flat = '<p class="empty">Lo sviluppo compare quando la lamiera è costruita.</p>';
@@ -2168,7 +2168,9 @@ function renderSheet() {
     i.onblur = () => { if (i.value.trim() !== ora) salva({ [i.dataset.tech]: i.value }); };
   });
   $('#t-method').onchange = () => salva({ method: $('#t-method').value });
-  document.querySelectorAll('#tab-sheet tr[data-fl]').forEach(tr => { tr.onclick = () => select(`flange=${sh.feature}/${tr.dataset.fl}`); });
+  document.querySelectorAll('#tab-sheet tr[data-fl]').forEach(tr => {   // le pieghe su un bordo libero sono «PB…»
+    tr.onclick = () => select(tr.dataset.fl.startsWith('PB') ? `pb=${tr.dataset.fl}` : `flange=${sh.feature}/${tr.dataset.fl}`);
+  });
 }
 
 let ultimaAsta = { length: '500', profile: null, group: '' };
