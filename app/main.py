@@ -382,6 +382,21 @@ class Api:
     def new_assembly(self, name='Assieme'):
         return self._call(self._svc.new_assembly, name)
 
+    def new_assembly_con_pezzi(self, name, pezzi):
+        return self._call(self._svc.new_assembly_con_pezzi, name, pezzi)
+
+    def scegli_pezzo(self):
+        p = self._dialog(webview.OPEN_DIALOG, FILTRO_PEZZO)
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.info_pezzo, p)
+
+    def impostazioni(self):
+        return self._call(self._svc.impostazioni)
+
+    def set_cartiglio(self, valori):
+        return self._call(self._svc.set_cartiglio, valori)
+
     def asm_insert_dialog(self):
         p = self._dialog(webview.OPEN_DIALOG, FILTRO_PEZZO)
         if not p:

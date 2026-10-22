@@ -3360,6 +3360,25 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             nonsalvato = {'when': _quando(auto.stat().st_mtime)}
         return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato)
 
+    def impostazioni(self) -> dict:
+        """Le impostazioni che c'erano già, sparse (piegatrice, cartiglio, cartelle), lette in un colpo per la loro
+        finestra (22/10)."""
+        from app.drawings_service import _leggi_fissi
+        cartella = Path.home() / 'Documents' / 'SteelCAD'
+        r = self.sheet_rules()
+        return _ok(bend_default=self.bend_default(), rules=r.get('rules', []), cartiglio=_leggi_fissi(),
+                   cartelle={'lavori': str(cartella), 'libreria': str(cartella / 'Libreria')})
+
+    def set_cartiglio(self, valori: dict) -> dict:
+        from app.drawings_service import FISSI, _scrivi_fissi
+        _scrivi_fissi({k: str((valori or {}).get(k) or '').strip() for k in FISSI})
+        return {'ok': True, 'message': 'Cartiglio salvato: vale per le prossime tavole.'}
+
+    def info_pezzo(self, path: str) -> dict:
+        """Nome, cartella e anteprima di un file pezzo scelto con Sfoglia (per il nuovo assieme)."""
+        q = Path(path)
+        return _ok(path=str(q), name=q.stem, folder=str(q.parent), thumb=_anteprima(q))
+
     def save_thumbnail(self, path: str, data_url: str) -> dict:
         """L'anteprima del lavoro (la vista 3D, presa dall'interfaccia quando apri o salvi) per la pagina iniziale.
         Sta accanto alla lista dei recenti, non nel file del progetto."""

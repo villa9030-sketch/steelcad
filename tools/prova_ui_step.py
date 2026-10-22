@@ -43,8 +43,7 @@ try:
         pg.goto('http://127.0.0.1:5147/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
         api = lambda n, *a: pg.evaluate("async ([n, a]) => (await (await fetch('/api/' + n, {method: 'POST', body: JSON.stringify(a)})).json())", [n, list(a)])  # noqa: E731
         pg.click('#top .brand'); pg.wait_for_selector('#home:not([hidden])')
-        pg.click('#home .home-cat[data-cat="lamiera"]'); time.sleep(0.4)
-        ok('nella pagina iniziale c’è «Da uno STEP»', pg.is_visible('#home [data-new="step"]'))
+        ok('nella pagina iniziale c’è «Apri uno STEP del cliente»', pg.is_visible('#home [data-new="step"]'))
         pg.click('#home [data-new="step"]'); pg.wait_for_selector('#st-k')
         ok('la finestra chiede il K', pg.input_value('#st-k') != '')
         pg.click('#m-no')

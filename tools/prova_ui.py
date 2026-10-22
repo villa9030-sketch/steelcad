@@ -57,7 +57,7 @@ def main():
             time.sleep(0.3)
             ok('albero con il telaio', 'Telaio superiore' in pg.inner_text('#tree'))
             ok('8 aste nella scena', pg.evaluate('window.__steelcad.objs.size') == 8)
-            ok('quote L e P sul modello', pg.locator('.dim').count() == 2)
+            ok('quote L e P sul modello', pg.locator('.dim:not(.ing)').count() == 2)
             ok('cut list 2040', '2.040' in pg.inner_text('#tab-cut') or '2040' in pg.inner_text('#tab-cut'))
 
             # clic su una gamba nell'albero
@@ -116,12 +116,11 @@ def main():
             ok('errore chiaro, una volta sola: ' + pg.inner_text('.toast.err')[:90], pg.locator('.toast.err').count() == 1)
 
             # piastra: nuovo progetto, clic su faccia, export DXF
-            pg.keyboard.press('Control+N')
-            pg.click('.choice button[data-k="piastra"]')
+            pg.evaluate("window.__steelcad.nuovo('piastra')")  # i modelli senza voce nella home nuova (22/10)
             pg.click('#n-ok')
             pg.wait_for_function("window.__steelcad.state.name === 'Piastra'")
             time.sleep(0.4)
-            ok('piastra: quote 300, 200, Ø30', sorted(pg.locator('.dim').all_inner_texts()) == sorted(['larghezza300', 'altezza200', 'foroØ30']))
+            ok('piastra: quote 300, 200, Ø30', sorted(pg.locator('.dim:not(.ing)').all_inner_texts()) == sorted(['larghezza300', 'altezza200', 'foroØ30']))
             pg.click('.dim:has-text("larghezza")')
             pg.keyboard.press('Control+A'); pg.keyboard.type('400'); pg.keyboard.press('Enter')
             pg.wait_for_function("window.__steelcad.state.info.part && Math.round(window.__steelcad.state.info.part.size_mm[0]) === 400")
@@ -149,10 +148,8 @@ def main():
 
 def nuovo_subito(pg, ok):
     """Bug 16/10: appena aperta l'app, Nuovo → il pezzo nuovo deve sostituire quello vecchio a video."""
-    pg.click('#home [data-cat="lamiera"]')
-    pg.click('#home [data-new="piastra"]')
-    pg.click('#n-ok')
-    pg.wait_for_function("window.__steelcad.state.name === 'Piastra'")
+    pg.click('#home [data-new="lamiera"]')                 # la lamiera si apre subito, senza finestra (22/10)
+    pg.wait_for_function("window.__steelcad.state.name === 'Lamiera'")
     pg.wait_for_selector('#home', state='hidden')
     pg.wait_for_function("window.__steelcad.objs.has('body') && window.__steelcad.objs.size === 1", timeout=8000)
     ok('nuovo progetto subito dopo l’avvio: a video c’è il pezzo nuovo', True)
@@ -161,8 +158,7 @@ def nuovo_subito(pg, ok):
 def da_zero(pg, ok):
     """Lamiera da zero: contorno disegnato col mouse e le lunghezze scritte, foro, poi Crea lamiera."""
     pg.keyboard.press('Escape')
-    pg.keyboard.press('Control+N')
-    pg.click('.choice button[data-k="zero"]')
+    pg.evaluate("window.__steelcad.nuovo('zero')")  # i modelli senza voce nella home nuova (22/10)
     pg.fill('#n-name', 'Staffa')
     pg.click('#n-ok')
     pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.state.name === 'Staffa'")
@@ -215,6 +211,7 @@ def da_zero(pg, ok):
     # riapro lo sketch dall'albero e allungo il pezzo con la quota
     pg.click('#tree .node:has-text("Contorno")')
     pg.wait_for_function("window.__steelcad.sketch")
+    pg.click('.rbody:not([hidden]) >> text=Seleziona')         # con la Linea attiva i clic passano attraverso le quote
     pg.locator('.dim', has_text='400').first.click()
     pg.keyboard.press('Control+A'); pg.keyboard.type('500'); pg.keyboard.press('Enter')
     pg.wait_for_function("window.__steelcad.state.sheet.data && Math.round(Math.max(...window.__steelcad.state.sheet.data.flat_size)) >= 500")
@@ -226,8 +223,7 @@ def da_zero(pg, ok):
 def scatola(pg, ok):
     """Scatola: 4 flange, angolo chiuso dal pannello, foro disegnato sulla faccia di una flangia."""
     pg.keyboard.press('Escape')
-    pg.keyboard.press('Control+N')
-    pg.click('.choice button[data-k="lamiera"]')
+    pg.evaluate("window.__steelcad.nuovo('lamiera')")  # i modelli senza voce nella home nuova (22/10)
     pg.fill('#n-name', 'Scatola')
     pg.fill('[data-f="larghezza"]', '400'); pg.fill('[data-f="profondita"]', '300')
     pg.fill('[data-f="raggio"]', '2'); pg.fill('[data-f="k"]', '0,5')
@@ -284,8 +280,7 @@ def scatola(pg, ok):
 def comandi_sketch(pg, ok):
     """Guide di costruzione, foro agganciato all'incrocio, serie, specchio, offset: tutto con mouse e tastiera."""
     pg.keyboard.press('Escape')
-    pg.keyboard.press('Control+N')
-    pg.click('.choice button[data-k="zero"]')
+    pg.evaluate("window.__steelcad.nuovo('zero')")  # i modelli senza voce nella home nuova (22/10)
     pg.fill('#n-name', 'Piastra forata')
     pg.click('#n-ok')
     pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.state.name === 'Piastra forata'")
@@ -386,8 +381,7 @@ def comandi_sketch(pg, ok):
 def lamiera(pg, ok):
     """Milestone 3 dall'interfaccia: base 500x300 sp. 2, dati di piega, due flange, foro, sviluppo, DXF."""
     pg.keyboard.press('Escape')
-    pg.keyboard.press('Control+N')
-    pg.click('.choice button[data-k="lamiera"]')
+    pg.evaluate("window.__steelcad.nuovo('lamiera')")  # i modelli senza voce nella home nuova (22/10)
     pg.fill('#n-name', 'Canalina')
     pg.click('#n-ok')
     pg.wait_for_function("window.__steelcad.state.name === 'Canalina' && window.__steelcad.state.sheet")
@@ -431,8 +425,7 @@ def cancello(pg, ok, errori):
     if True:
         if True:
             # cancello da zero: nodo, aste tirate con direzione e lunghezza, chiusura con un clic sul nodo
-            pg.keyboard.press('Control+N')
-            pg.click('.choice button[data-k="vuoto"]')
+            pg.evaluate("window.__steelcad.nuovo('vuoto')")  # i modelli senza voce nella home nuova (22/10)
             pg.fill('#n-name', 'Cancello')
             pg.click('#n-ok')
             pg.wait_for_function("window.__steelcad.state.name === 'Cancello' && document.querySelectorAll('.node-dot').length === 1")

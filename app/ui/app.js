@@ -843,8 +843,15 @@ function quoteIngombro() {
     [sz.y, new THREE.Vector3(mx.x, mn.y, mn.z), new THREE.Vector3(mx.x, mx.y, mn.z), new THREE.Vector3(1, 0, 0), 'profondità (Y)'],
     [sz.z, new THREE.Vector3(mn.x, mn.y, mn.z), new THREE.Vector3(mn.x, mn.y, mx.z), new THREE.Vector3(-1, -1, 0).normalize(), 'altezza (Z)'],
   ];
-  for (const [mis, a, b, dir, nome] of lati) {
-    if (mis < 0.05) continue;
+  // un ingombro uguale a una quota del pezzo già a video (W 500 e 500) è la stessa misura due volte: resta quella che si cambia
+  const assi = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+  const doppia = (k, mis) => (S?.dimensions || []).some(d => {
+    if (d.local || d.type === 'diameter' || d.type === 'radius') return false;
+    const v = new THREE.Vector3(...d.b).sub(new THREE.Vector3(...d.a));
+    return Math.abs(v.length() - mis) < 0.05 && Math.abs(Math.abs(v.normalize().dot(assi[k])) - 1) < 1e-3;
+  });
+  for (const [k, [mis, a, b, dir, nome]] of lati.entries()) {
+    if (mis < 0.05 || doppia(k, mis)) continue;
     const pa = a.clone().addScaledVector(dir, off), pb = b.clone().addScaledVector(dir, off);
     const g = new THREE.BufferGeometry().setFromPoints([a, a.clone().addScaledVector(dir, off * 1.1), b, b.clone().addScaledVector(dir, off * 1.1), pa, pb]);
     dimLines.add(new THREE.LineSegments(g, ING_MAT).computeLineDistances());
@@ -2295,15 +2302,110 @@ async function drawingsDialog() {
   $('#modal-box').classList.add('wide');
 }
 
-function newAssemblyDialog() {
-  modal(`<h3>Nuovo assieme</h3><div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="Assieme"></label></div>
-    <p class="hint">Poi «Inserisci pezzo» per mettere i pezzi (file .steelcad) e gli accoppiamenti per posizionarli.</p>
-    <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea</button></div>`, close => {
+async function newAssemblyDialog() {
+  const info = await call('home_info');
+  let pezzi = (info.ok ? info.recent : []).filter(x => !x.assembly).map(x => ({ ...x, scelto: 0, n: 1 }));
+  let ordine = 0;                                  // la base è il primo pezzo scelto: l'ordine dei clic
+  const scegliPezzo = (x, si) => { x.scelto = si ? (x.scelto || ++ordine) : 0; };
+  const scelti = () => pezzi.filter(x => x.scelto).sort((a, b) => a.scelto - b.scelto);
+  const righe = () => pezzi.map((x, i) => `<tr class="${x.scelto ? 'scelto' : ''}">
+      <td class="na-c"><input type="checkbox" data-i="${i}" ${x.scelto ? 'checked' : ''} aria-label="Metti nell’assieme"></td>
+      <td class="na-p"><span class="na-pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : '<img class="icona" src="icons/box.svg" alt="">'}</span></td>
+      <td><b>${esc(x.name)}</b> <span class="na-base" data-base="${i}"></span><br><span class="hint">${esc(x.folder || '')}</span></td>
+      <td class="na-q"><label class="na-n">nr <input class="field" data-n="${i}" value="${x.n}" inputmode="numeric"></label></td>
+      <td class="hint na-w">${esc(x.when || '')}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="hint">Nessun pezzo recente: usa «Sfoglia…» oppure crea l’assieme vuoto.</td></tr>';
+  modal(`<h3>Nuovo assieme</h3>
+    <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="Assieme"></label></div>
+    <div class="na-testa"><div class="sub">Pezzi da mettere dentro</div><button class="btn" id="na-sfoglia">Sfoglia…</button></div>
+    <div class="na-lista"><table class="grid" id="na-tab">${righe()}</table></div>
+    <p class="hint">Il primo pezzo che scegli è la base e resta fermo; le copie si mettono a fianco e poi le accoppi. Nella distinta compaiono con la quantità.</p>
+    <div class="acts"><span class="hint" id="na-tot" style="margin-right:auto"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea assieme</button></div>`, close => {
+    const tot = () => {
+      const sc = scelti();
+      $('#na-tab').querySelectorAll('[data-base]').forEach(s => { s.textContent = pezzi[+s.dataset.base] === sc[0] ? 'base, resta fermo' : ''; });
+      const n = sc.reduce((a, x) => a + (parseInt(x.n, 10) || 0), 0);
+      $('#na-tot').textContent = sc.length ? `${sc.length} ${sc.length === 1 ? 'pezzo' : 'pezzi diversi'}, ${n} in tutto` : 'Assieme vuoto: i pezzi li metti dopo';
+    };
+    const wire = () => {
+      $('#na-tab').querySelectorAll('[data-i]').forEach(c => { c.onchange = () => { scegliPezzo(pezzi[+c.dataset.i], c.checked); c.closest('tr').classList.toggle('scelto', c.checked); tot(); }; });
+      $('#na-tab').querySelectorAll('[data-n]').forEach(c => { c.oninput = () => {
+        const x = pezzi[+c.dataset.n]; x.n = c.value.trim(); if (!x.scelto && x.n) { scegliPezzo(x, true); c.closest('tr').classList.add('scelto'); c.closest('tr').querySelector('[data-i]').checked = true; } tot(); }; });
+      tot();
+    };
+    wire();
+    $('#na-sfoglia').onclick = () => inCoda(async () => {
+      const r = await call('scegli_pezzo');
+      if (!r.ok) { if (!r.cancelled) toast(r.message, 'err'); return; }
+      const g = pezzi.find(x => x.path === r.path);
+      if (g) scegliPezzo(g, true); else pezzi.unshift({ path: r.path, name: r.name, folder: r.folder, when: '', thumb: r.thumb, scelto: ++ordine, n: 1 });
+      $('#na-tab').innerHTML = righe(); wire();
+    });
     $('#n-no').onclick = close;
-    $('#n-ok').onclick = () => { const n = $('#n-name').value.trim() || 'Assieme'; close(); primaVolta = true; clearSelection();
-      inCoda(async () => { if (await apply(await call('new_assembly', n))) hideHome(); }); };
-    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
+    $('#n-ok').onclick = () => {
+      const sc = scelti();
+      const male = sc.find(x => !/^\d+$/.test(String(x.n)) || +x.n < 1 || +x.n > 100);
+      if (male) { toast(`Quantità di «${male.name}»: scrivi un numero da 1 a 100.`, 'err'); return; }
+      const n = $('#n-name').value.trim() || 'Assieme';
+      close(); primaVolta = true; clearSelection();
+      inCoda(async () => { if (await apply(await call('new_assembly_con_pezzi', n, sc.map(x => ({ path: x.path, n: +x.n }))))) hideHome(); });
+    };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter' && ev.target.id === 'n-name') $('#n-ok').click(); if (ev.key === 'Escape') close(); };
+    setTimeout(() => { $('#n-name').focus(); $('#n-name').select(); }, 30);
   });
+  $('#modal-box').classList.add('na-box');
+}
+
+// ------------------------------------------------------------- impostazioni: quelle che c'erano già, in un posto solo
+async function impostazioniDialog(sezione = 'piegatrice') {
+  const r = await call('impostazioni');
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  const n = v => (v == null || v === '' ? '' : String(v).replace('.', ','));
+  const metodo = x => (x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : n(x.k));
+  const regole = r.rules.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.material || '')}</td><td style="text-align:right">${n(x.thickness)}</td>
+      <td style="text-align:right">${n(x.radius)}</td><td style="text-align:right">${metodo(x)}</td>
+      <td style="text-align:right"><button class="btn" data-rule-del="${esc(x.name)}" title="Elimina la regola">×</button></td></tr>`).join('')
+    || '<tr><td colspan="6" class="hint">Ancora nessuna regola. Con una lamiera aperta: «Regole piega» → «Salva regola».</td></tr>';
+  const corpi = {
+    piegatrice: `<h4>Piegatrice</h4>
+      <p class="hint">Raggio e K per ogni lamiera nuova, quando non scrivi niente.</p>
+      <div class="imp-riga"><span>Raggio interno</span><span class="imp-campo"><input class="field corto" id="i-r" value="${n(r.bend_default?.radius)}"><i>mm</i></span><span></span></div>
+      <div class="imp-riga"><span>Fattore K</span><span class="imp-campo"><input class="field corto" id="i-k" value="${n(r.bend_default?.k)}"></span><span></span></div>
+      <div class="imp-riga"><span></span><span><button class="btn" id="i-pieg">Salva come predefinito</button></span><span></span></div>
+      <h4 style="margin-top:10px">Regole salvate</h4>
+      <table class="grid imp-regole"><tr class="hint"><th style="text-align:left">Nome</th><th style="text-align:left">Materiale</th><th style="text-align:right">Spessore</th><th style="text-align:right">Raggio</th><th style="text-align:right">K</th><th></th></tr>${regole}</table>`,
+    tavole: `<h4>Tavole e cartiglio</h4>
+      <p class="hint">Vanno nel cartiglio di ogni tavola.</p>
+      <div class="imp-riga"><span>Azienda</span><input class="field medio" id="i-az" value="${esc(r.cartiglio.azienda || '')}"><span></span></div>
+      <div class="imp-riga"><span>Disegnatore</span><input class="field medio" id="i-dis" value="${esc(r.cartiglio.disegnatore || '')}"><span></span></div>
+      <div class="imp-riga"><span></span><span><button class="btn" id="i-cart">Salva</button></span><span></span></div>`,
+    cartelle: `<h4>Cartelle</h4>
+      <div class="imp-riga"><span>Lavori</span><span class="imp-percorso" title="${esc(r.cartelle.lavori)}">${esc(r.cartelle.lavori)}</span><button class="btn" data-apri="${esc(r.cartelle.lavori)}">Apri cartella</button></div>
+      <div class="imp-riga"><span>Viti e bulloni</span><span class="imp-percorso" title="${esc(r.cartelle.libreria)}">${esc(r.cartelle.libreria)}</span><button class="btn" data-apri="${esc(r.cartelle.libreria)}">Apri cartella</button></div>`,
+    aspetto: `<h4>Aspetto</h4>
+      <div class="imp-riga"><span>Tema</span><div class="seg" id="i-tema">${[['scuro', 'Scuro'], ['chiaro', 'Chiaro']].map(([k, t]) =>
+        `<button type="button" data-v="${k}" class="${document.body.classList.contains('dark') === (k === 'scuro') ? 'on' : ''}">${t}</button>`).join('')}</div><span></span></div>`,
+  };
+  const voci = [['piegatrice', 'Piegatrice'], ['tavole', 'Tavole e cartiglio'], ['cartelle', 'Cartelle'], ['aspetto', 'Aspetto']];
+  modal(`<div class="imp-box"><nav class="imp-nav"><h3>Impostazioni</h3>${voci.map(([k, t]) => `<button data-sez="${k}" class="${k === sezione ? 'on' : ''}">${t}</button>`).join('')}</nav>
+    <div class="imp-corpo">${corpi[sezione]}<div class="imp-spazio" style="flex:1"></div><div class="imp-acts"><button class="btn" id="m-no">Chiudi</button></div></div></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#modal-box').querySelectorAll('[data-sez]').forEach(b => { b.onclick = () => { close(); impostazioniDialog(b.dataset.sez); }; });
+    if ($('#i-pieg')) $('#i-pieg').onclick = () => inCoda(async () => {
+      const x = await call('set_bend_default', { radius: $('#i-r').value.trim(), method: 'k', k: $('#i-k').value.trim() });
+      toast(x.message, x.ok ? '' : 'err');
+      if (x.ok && S) S.bend_default = x.default;
+    });
+    $('#modal-box').querySelectorAll('[data-rule-del]').forEach(b => { b.onclick = () => inCoda(async () => { await call('delete_sheet_rule', b.dataset.ruleDel); close(); impostazioniDialog('piegatrice'); }); });
+    if ($('#i-cart')) $('#i-cart').onclick = () => inCoda(async () => {
+      const x = await call('set_cartiglio', { azienda: $('#i-az').value, disegnatore: $('#i-dis').value });
+      toast(x.message, x.ok ? '' : 'err');
+    });
+    $('#modal-box').querySelectorAll('[data-apri]').forEach(b => { b.onclick = () => call('apri_cartella', b.dataset.apri); });
+    if ($('#i-tema')) $('#i-tema').querySelectorAll('button').forEach(b => { b.onclick = () => {
+      $('#i-tema').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); applyTheme(b.dataset.v === 'scuro'); }; });
+  });
+  $('#modal-box').classList.add('imp-dlg');
 }
 
 function foldPanel(s) {
@@ -2957,45 +3059,75 @@ async function importDialog(percorso) {
 }
 
 // ------------------------------------------------------------- pagina iniziale
+let homeFiltro = 'tutti';
 async function showHome(info) {
   info = info || await call('home_info');
   if (!info.ok) return;
   if (SK) exitSketch();
-  // i lavori recenti con l'anteprima vera (scattata dall'app quando il lavoro è stato aperto o salvato)
-  const rec = info.recent.slice(0, 8).map(x => `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
-      <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
-      <div><b>${esc(x.name)}</b><small>${esc(x.when)}${x.assembly ? ' · assieme' : ''}</small></div>
-      <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti" aria-label="Togli dai recenti">×</button></div>`).join('')
-    || '<p class="hint">Ancora nessun lavoro. Quelli che apri o salvi compaiono qui, con l’anteprima.</p>';
-  $('#home-recent').innerHTML = rec;
+  // i lavori recenti con l'anteprima vera (scattata dall'app quando il lavoro è stato aperto o salvato); filtro e ricerca
+  const tutti = info.recent;
+  const conta = { tutti: tutti.length, pezzi: tutti.filter(x => !x.assembly).length, assiemi: tutti.filter(x => x.assembly).length };
+  const disegnaRecenti = () => {
+    const q = norm($('#home-cerca').value.trim());
+    const lst = tutti.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
+    $('#home-recent').innerHTML = lst.map(x => `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
+        <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
+        ${x.assembly ? '<span class="tipo">ASSIEME</span>' : ''}
+        <div class="testo"><b>${esc(x.name)}</b><small>${esc(x.when)}</small></div>
+        <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti" aria-label="Togli dai recenti">×</button></div>`).join('')
+      || `<p class="home-vuoto">${tutti.length ? 'Nessun lavoro con questo nome.' : 'Ancora nessun lavoro. Quelli che apri o salvi compaiono qui, con l’anteprima.'}</p>`;
+    $('#home').querySelectorAll('.home-rec').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
+    $('#home').querySelectorAll('[data-forget]').forEach(b => { b.onclick = () => inCoda(async () => showHome(await call('forget_recent', b.dataset.forget))); });
+  };
+  $('#home-filtro').innerHTML = [['tutti', 'Tutti'], ['pezzi', 'Pezzi'], ['assiemi', 'Assiemi']]
+    .map(([k, t]) => `<button data-filtro="${k}" class="${homeFiltro === k ? 'on' : ''}">${t}<i>${conta[k]}</i></button>`).join('');
+  $('#home-filtro').querySelectorAll('button').forEach(b => { b.onclick = () => { homeFiltro = b.dataset.filtro; showHome(info); }; });
+  $('#home-cerca').oninput = disegnaRecenti;
+  disegnaRecenti();
   $('#home-unsaved').innerHTML = info.unsaved ? `<div class="home-unsaved"><div><b>Hai un lavoro non salvato</b>
       <span>lasciato ${esc(info.unsaved.when)}: riprendilo e salvalo con un nome.</span></div>
       <button class="btn primary" id="home-recover">Riprendilo</button></div>` : '';
   $('#home-close').hidden = !!info.show;              // all'avvio non c'è un lavoro a cui tornare
   $('#home').hidden = false;
   document.body.classList.add('at-home');
-  // prima la scelta grande (lamiera, struttura, cono), poi sotto il tipo, con le foto
+  // Cono e Tubi: sopra i recenti si apre la scelta del tipo, con le foto; la lamiera si apre subito
   const scegli = cat => {
-    $('#home').querySelectorAll('.home-cat').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
+    $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
     $('#home').querySelectorAll('.home-tipi').forEach(s => { s.hidden = s.dataset.of !== cat; });
-    const s = $(`#home .home-tipi[data-of="${cat}"]`);
-    if (s) s.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
-  $('#home').querySelectorAll('.home-cat').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
+  $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
+  $('#home').querySelectorAll('[data-chiudi-tipi]').forEach(b => { b.onclick = () => scegli(null); });
   scegli(null);
   $('#home').querySelectorAll('[data-new]').forEach(b => {
-    b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'importa' ? inCoda(importDialog)
-      : b.dataset.new === 'step' ? stepDialog() : newDialog(b.dataset.new, true));
+    b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'step' ? stepDialog()
+      : b.dataset.new === 'lamiera' ? nuovaLamiera() : newDialog(b.dataset.new, true));
   });
   $('#home').querySelectorAll('[data-altro="importa"]').forEach(b => { b.onclick = () => inCoda(importDialog); });
   $('#home-open').onclick = () => inCoda(() => openProject());
   $('#home-close').onclick = hideHome;
-  $('#home').querySelectorAll('.home-rec').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
-  $('#home').querySelectorAll('[data-forget]').forEach(b => { b.onclick = () => inCoda(async () => showHome(await call('forget_recent', b.dataset.forget))); });
   if ($('#home-recover')) $('#home-recover').onclick = () => inCoda(async () => {
     primaVolta = true; clearSelection();
     if (await apply(await call('recover_unsaved'), 'Lavoro recuperato: salvalo con un nome.')) hideHome();
   });
+}
+// la lamiera nuova si apre subito, senza finestra: 500 × 300 sp. 2 coi dati della piegatrice; le misure si cambiano a sinistra
+function nuovaLamiera() {
+  primaVolta = true; sel = null; clearSelection();
+  if (SK) exitSketch();
+  inCoda(async () => {
+    if (!(await apply(await call('new_project', 'lamiera', { name: 'Lamiera', larghezza: 500, profondita: 300, spessore: 2 })))) return;
+    hideHome();
+    toast('Lamiera 500 × 300 sp. 2: cambia le misure a sinistra, poi clicca un bordo per piegarlo.');
+  });
+}
+// il menu File → Apri recenti: gli ultimi lavori, letti quando il menu si apre
+async function menuRecenti() {
+  const r = await call('home_info');
+  const box = $('#m-recenti');
+  if (!r.ok || !box) return;
+  box.innerHTML = r.recent.slice(0, 10).map(x => `<button data-recente="${esc(x.path)}">${esc(x.name)}<small>${x.assembly ? 'assieme · ' : ''}${esc(x.when)}</small></button>`).join('')
+    || '<div class="vuoto">Nessun lavoro recente</div>';
+  box.querySelectorAll('[data-recente]').forEach(b => { b.onclick = () => { b.closest('.menu-item')?.classList.remove('open'); inCoda(() => openProject(b.dataset.recente)); }; });
 }
 function hideHome() {
   $('#home').hidden = true;
@@ -3029,7 +3161,9 @@ async function fotoAnteprima(percorso) {
 }
 
 const CMDS = [
-  { id: 'new', label: 'Nuovo progetto…', keys: 'Ctrl+N', run: () => newDialog() },
+  { id: 'new', label: 'Nuovo pezzo (lamiera, cono, tubi)…', keys: 'Ctrl+N', run: () => inCoda(() => showHome()) },
+  { id: 'new_assembly', label: 'Nuovo assieme…', keys: 'Ctrl+Maiusc+N', run: () => newAssemblyDialog() },
+  { id: 'impostazioni', label: 'Impostazioni…', run: () => impostazioniDialog() },
   { id: 'home', label: 'Pagina iniziale', run: () => inCoda(() => showHome()) },
   { id: 'new_asm', label: 'Nuovo assieme…', run: newAssemblyDialog },
   { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
@@ -3083,7 +3217,7 @@ const CMDS = [
   { id: 'view_back', label: 'Vista da dietro', run: () => goTo(VISTE.view_back) },
   { id: 'view_left', label: 'Vista da sinistra', run: () => goTo(VISTE.view_left) },
   { id: 'view_bottom', label: 'Vista da sotto', run: () => goTo(VISTE.view_bottom) },
-  { id: 'new_sheet', label: 'Nuova lamiera…', run: () => newDialog('lamiera') },
+  { id: 'new_sheet', label: 'Nuova lamiera', run: () => nuovaLamiera() },
   { id: 'new_zero', label: 'Nuovo da zero (disegna)…', run: () => newDialog('zero') },
   { id: 'new_frame', label: 'Nuovo telaio / tavolo…', run: () => newDialog('telaio') },
   { id: 'new_free', label: 'Nuova struttura libera…', run: () => newDialog('vuoto') },
@@ -3109,7 +3243,12 @@ const runCmd = id => CMDS.find(c => c.id === id)?.run();
 document.addEventListener('click', ev => {
   const mi = ev.target.closest('.menu-item');
   for (const m of document.querySelectorAll('.menu-item')) if (m !== mi) m.classList.remove('open');
-  if (mi && ev.target.closest('.menu-item > button')) { mi.classList.toggle('open'); return; }
+  if (mi && ev.target.closest('.menu-item > button')) {
+    mi.classList.toggle('open');
+    if (mi.classList.contains('open') && mi.querySelector('#m-recenti')) menuRecenti();
+    return;
+  }
+  if (ev.target.closest('.sub-btn')) return;              // i sottomenu si aprono passandoci sopra
   const b = ev.target.closest('[data-cmd]');
   if (b && !b.disabled) { mi?.classList.remove('open'); runCmd(b.dataset.cmd); }
 });
@@ -3182,7 +3321,7 @@ document.addEventListener('keydown', ev => {
   const inCampo = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
   const k = ev.key.toLowerCase();
   if (ev.ctrlKey) {
-    const mappa = { z: ev.shiftKey ? 'redo' : 'undo', y: 'redo', s: ev.shiftKey ? 'saveas' : 'save', o: 'open', n: 'new', k: 'palette' };
+    const mappa = { z: ev.shiftKey ? 'redo' : 'undo', y: 'redo', s: ev.shiftKey ? 'saveas' : 'save', o: 'open', n: ev.shiftKey ? 'new_assembly' : 'new', k: 'palette' };
     if (mappa[k] && !(inCampo && (k === 'z' || k === 'y'))) { ev.preventDefault(); runCmd(mappa[k]); }
     return;
   }
@@ -4958,7 +5097,7 @@ async function start() {
   introStato('Pronto', 0.95);
   requestAnimationFrame(loop);
   introFine();
-  window.__steelcad = { ready: true, runCmd: id => runCmd(id), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
+  window.__steelcad = { ready: true, runCmd: id => runCmd(id), nuovo: k => newDialog(k), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }

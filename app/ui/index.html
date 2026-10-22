@@ -41,19 +41,32 @@
   <button class="brand" data-cmd="home" title="Pagina iniziale"><img src="icons/box.svg" alt="">SteelCAD</button>
   <div class="menu-item"><button class="tbtn" title="File"><img src="icons/open.svg" alt=""><span>File</span></button>
     <div class="drop">
-      <button data-cmd="new">Nuovo…<kbd>Ctrl+N</kbd></button>
+      <button data-cmd="new">Nuovo pezzo…<kbd>Ctrl+N</kbd></button>
+      <button data-cmd="new_assembly">Nuovo assieme…<kbd>Ctrl+Maiusc+N</kbd></button>
+      <hr>
       <button data-cmd="open">Apri…<kbd>Ctrl+O</kbd></button>
-      <button data-cmd="import_dxf">Importa sviluppo DXF / DWG…</button>
-      <button data-cmd="import_step">Apri STEP di una lamiera (fa lo sviluppo)…</button>
+      <div class="sub-item" id="m-recenti-voce"><button class="sub-btn">Apri recenti<span class="freccia">›</span></button><div class="subdrop" id="m-recenti"></div></div>
+      <hr>
       <button data-cmd="save">Salva<kbd>Ctrl+S</kbd></button>
       <button data-cmd="saveas">Salva con nome…<kbd>Ctrl+Maiusc+S</kbd></button>
-      <button data-cmd="specchiato" title="La versione specchiata del pezzo (destra/sinistra), con il suo sviluppo, salvata accanto">Crea la versione specchiata…</button>
-      <button data-cmd="home">Pagina iniziale</button>
       <hr>
-      <button data-cmd="export_step">Esporta STEP…</button>
-      <button data-cmd="export_dxf">Esporta DXF di taglio…</button>
-      <button data-cmd="export_bendtable">Esporta tabella pieghe…</button>
-      <button data-cmd="drawings">Tavole con cartiglio…</button>
+      <div class="sub-item"><button class="sub-btn">Importa<span class="freccia">›</span></button>
+        <div class="subdrop">
+          <button data-cmd="import_step">STEP del cliente (fa lo sviluppo)…</button>
+          <button data-cmd="import_dxf">Sviluppo DXF / DWG…</button>
+        </div></div>
+      <div class="sub-item"><button class="sub-btn">Esporta<span class="freccia">›</span></button>
+        <div class="subdrop">
+          <button data-cmd="export_dxf">DXF di taglio<small>Lo sviluppo per il laser</small></button>
+          <button data-cmd="export_bendtable">Tabella pieghe<small>Per la piegatrice</small></button>
+          <button data-cmd="drawings">Tavole PDF<small>Viste quotate con cartiglio</small></button>
+          <button data-cmd="export_step">STEP<small>Il 3D per altri CAD</small></button>
+        </div></div>
+      <hr>
+      <button data-cmd="specchiato" title="La versione specchiata del pezzo (destra/sinistra), con il suo sviluppo, salvata accanto">Crea la versione specchiata…</button>
+      <hr>
+      <button data-cmd="impostazioni">Impostazioni…</button>
+      <button data-cmd="home">Pagina iniziale</button>
     </div>
   </div>
   <button class="tbtn" data-cmd="save" title="Salva (Ctrl+S)"><img src="icons/save.svg" alt=""></button>
@@ -192,58 +205,54 @@
 </div>
 
 <div id="home" hidden>
-  <div class="home-box">
-    <div class="home-head">
-      <div class="home-brand"><img src="icons/box.svg" alt=""><b>SteelCAD</b></div>
-      <button class="btn" id="home-close" title="Torna al lavoro aperto (Esc)">Torna al lavoro</button>
-    </div>
+  <aside class="home-side">
+    <section class="home-gruppo">
+      <h2>NUOVO</h2>
+      <button class="home-nuovo" data-new="lamiera"><img src="img/modelli/lamiera_piegata.png" alt=""><span><b>Lamiera</b><small>Si apre subito, le misure a sinistra</small></span></button>
+      <button class="home-nuovo" data-cat="forme"><img src="img/modelli/cono.png" alt=""><span><b>Cono</b><small>Coni, raccordi, tramogge</small></span></button>
+      <button class="home-nuovo" data-cat="struttura"><img src="img/modelli/telaio.png" alt=""><span><b>Tubi</b><small>Telai, scaffali, armadi, cancelli</small></span></button>
+      <hr>
+      <button class="home-nuovo" data-new="assieme"><img src="img/modelli/armadio.png" alt=""><span><b>Assieme</b><small>Più pezzi montati insieme</small></span></button>
+    </section>
+    <section class="home-gruppo">
+      <h2>APRI</h2>
+      <button class="home-apri" id="home-open"><img src="icons/open.svg" alt=""><span>Apri un lavoro…</span><kbd>Ctrl+O</kbd></button>
+      <button class="home-apri" data-new="step"><img src="icons/box.svg" alt=""><span>Apri uno STEP del cliente…</span></button>
+      <button class="home-apri" data-altro="importa"><img src="icons/dxf.svg" alt=""><span>Parti da un DXF di sviluppo…</span></button>
+    </section>
+    <div class="home-spazio"></div>
+    <section class="home-gruppo home-fondo">
+      <button class="home-apri" data-cmd="impostazioni"><img src="icons/settings.svg" alt=""><span>Impostazioni</span></button>
+    </section>
+  </aside>
+  <main class="home-main">
     <div id="home-unsaved"></div>
-    <h1 class="home-q">Cosa vuoi fare?</h1>
-    <div class="home-cats">
-      <button class="home-cat" data-cat="lamiera"><span class="pic"><img src="img/modelli/lamiera_piegata.png" alt=""></span>
-        <b>Una lamiera piegata</b><span>Quadri, staffe, scatole, carter. Si parte da un rettangolo e si aggiungono le pieghe.</span></button>
-      <button class="home-cat" data-cat="struttura"><span class="pic"><img src="img/modelli/telaio.png" alt=""></span>
-        <b>Una struttura in tubolare</b><span>Telai, banchi, scaffali, armadi, cancelli. Con la lista di taglio delle barre.</span></button>
-      <button class="home-cat" data-cat="forme"><span class="pic"><img src="img/modelli/cono.png" alt=""></span>
-        <b>Un cono o un raccordo</b><span>Camini, tramogge, cappe, raccordi quadro-tondo. Con lo sviluppo per la piegatrice.</span></button>
-    </div>
-    <section class="home-tipi" data-of="lamiera" hidden>
-      <h2>Che pezzo di lamiera?</h2>
-      <div class="home-tipo-grid">
-        <button data-new="lamiera"><span class="pic"><img src="img/modelli/lamiera.png" alt=""></span><b>Lamiera</b><span>Un rettangolo: piana o piegata, come ti serve</span></button>
-        <button data-new="zero"><span class="pic"><img src="img/modelli/contorno.png" alt=""></span><b>Una forma disegnata</b><span>Quando il pezzo non parte da un rettangolo</span></button>
-        <button data-new="importa"><span class="pic"><img src="img/modelli/importa_dxf.png" alt=""></span><b>Da un DXF</b><span>Hai già lo sviluppo: diventa il pezzo piegato</span></button>
-        <button data-new="step"><span class="pic"><img src="img/modelli/lamiera.png" alt=""></span><b>Da uno STEP</b><span>Il 3D del cliente: ne faccio lo sviluppo</span></button>
-      </div>
-    </section>
-    <section class="home-tipi" data-of="struttura" hidden>
-      <h2>Che struttura?</h2>
-      <div class="home-tipo-grid">
-        <button data-new="telaio"><span class="pic"><img src="img/modelli/telaio.png" alt=""></span><b>Telaio o banco</b><span>Telaio sopra e quattro gambe</span></button>
-        <button data-new="scaffale"><span class="pic"><img src="img/modelli/scaffale.png" alt=""></span><b>Scaffale o telaio</b><span>Due spalle e i ripiani; anche telai per armadi</span></button>
-        <button data-new="cancello"><span class="pic"><img src="img/modelli/cancello.png" alt=""></span><b>Cancello</b><span>Telaio e sbarre a passo uguale</span></button>
-        <button data-new="disegno"><span class="pic"><img src="img/modelli/struttura_disegno.png" alt=""></span><b>La disegno io</b><span>Tracci le linee, diventano tubi</span></button>
-      </div>
-    </section>
     <section class="home-tipi" data-of="forme" hidden>
-      <h2>Che forma?</h2>
+      <div class="home-tipi-testa"><h2>Che cono?</h2><button class="link" data-chiudi-tipi>Chiudi</button></div>
       <div class="home-tipo-grid">
         <button data-new="cono"><span class="pic"><img src="img/modelli/cono.png" alt=""></span><b>Cono o tronco di cono</b><span>Calandrato o a pieghe</span></button>
         <button data-new="tramoggia"><span class="pic"><img src="img/modelli/raccordo.png" alt=""></span><b>Raccordo quadro-tondo</b><span>Da rettangolo a tondo, anche fuori centro</span></button>
         <button data-new="tramoggia_cassone"><span class="pic"><img src="img/modelli/tramoggia.png" alt=""></span><b>Tramoggia con cassone</b><span>Divisa in pezzi da piegare, con le saldature contate</span></button>
       </div>
     </section>
-    <section class="home-recenti">
-      <h2>Continua un lavoro</h2>
-      <div id="home-recent"></div>
+    <section class="home-tipi" data-of="struttura" hidden>
+      <div class="home-tipi-testa"><h2>Che struttura in tubi?</h2><button class="link" data-chiudi-tipi>Chiudi</button></div>
+      <div class="home-tipo-grid">
+        <button data-new="telaio"><span class="pic"><img src="img/modelli/telaio.png" alt=""></span><b>Telaio o banco</b><span>Telaio sopra e quattro gambe</span></button>
+        <button data-new="scaffale"><span class="pic"><img src="img/modelli/scaffale.png" alt=""></span><b>Scaffale o armadio</b><span>Due spalle e i ripiani; anche telai per armadi</span></button>
+        <button data-new="cancello"><span class="pic"><img src="img/modelli/cancello.png" alt=""></span><b>Cancello</b><span>Telaio e sbarre a passo uguale</span></button>
+        <button data-new="disegno"><span class="pic"><img src="img/modelli/struttura_disegno.png" alt=""></span><b>La disegno io</b><span>Tracci le linee, diventano tubi</span></button>
+      </div>
     </section>
-    <div class="home-altro">
-      <span>Altro:</span>
-      <button class="link" id="home-open">Apri un file dal computer</button>
-      <button class="link" data-altro="importa">Parti dal DXF di uno sviluppo</button>
-      <button class="link" data-new="assieme">Monta più pezzi insieme (assieme)</button>
+    <div class="home-rec-testa">
+      <h1>Lavori recenti</h1>
+      <div class="home-filtro" id="home-filtro"></div>
+      <span class="home-spazio"></span>
+      <label class="home-cerca"><img src="icons/search.svg" alt=""><input id="home-cerca" placeholder="Cerca per nome"></label>
+      <button class="btn" id="home-close" title="Torna al lavoro aperto (Esc)">Torna al lavoro</button>
     </div>
-  </div>
+    <div id="home-recent"></div>
+  </main>
 </div>
 
 <div id="modal" hidden><div class="modal-box" id="modal-box"></div></div>

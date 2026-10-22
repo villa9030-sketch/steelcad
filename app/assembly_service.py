@@ -76,6 +76,32 @@ class AssemblyMixin:
         self._asm_set(A.Assembly(name or 'Assieme'))
         return _ok(state=self.state())
 
+    def new_assembly_con_pezzi(self, name: str, pezzi: list) -> dict:
+        """Assieme nuovo coi pezzi scelti e le loro quantità (22/10: una scatola = fondo 1, parete A 2, parete B 2):
+        ogni copia entra a fianco della precedente; il primo pezzo resta fermo (la base)."""
+        lista = []
+        for p in pezzi or []:
+            try:
+                n = int(p.get('n') or 1)
+            except (TypeError, ValueError):
+                n = 0
+            if not 1 <= n <= 100:
+                return {'ok': False, 'message': f'Quantità di «{Path(str(p.get("path"))).stem}»: scrivi un numero da 1 a 100.'}
+            lista += [str(p['path'])] * n
+        r = self.new_assembly(name)
+        if not r.get('ok') or not lista:
+            return r
+        for k, f in enumerate(lista):
+            r = self.asm_insert(f)
+            if not r.get('ok'):
+                return r
+            if k == 0:
+                self.asm.instances[0]['fixed'] = True
+        self.asm_undo.clear()                       # Annulla non torna all'assieme vuoto: è il punto di partenza
+        r = _ok(state=self.state())
+        r['message'] = f'Assieme con {len(lista)} {"pezzo" if len(lista) == 1 else "pezzi"}: il primo è fermo, gli altri sono a fianco da accoppiare.'
+        return r
+
     def _asm_change(self, label: str, fn):
         prima = self.asm.to_dict()
         try:
