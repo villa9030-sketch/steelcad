@@ -164,6 +164,9 @@ class Api:
     def gradino(self, fid, flid, altezza, angolo=45, lunghezza=20, verso='dentro'):
         return self._call(self._svc.gradino, fid, flid, altezza, angolo, lunghezza, verso)
 
+    def feature_serie(self, fid, cols, px, rows, py):
+        return self._call(self._svc.feature_serie, fid, cols, px, rows, py)
+
     def tree_menu(self, kind, ref):
         return self._call(self._svc.tree_menu, kind, ref)
 

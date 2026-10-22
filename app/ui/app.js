@@ -1060,7 +1060,7 @@ function renderTree() {
   $('#tree').innerHTML = `<ul>${nodo(S.tree)}</ul>`;
 }
 // tasto destro su una voce dell'albero: modifica, rinomina, disattiva, elimina, perché è rossa (21/10)
-const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', disattiva: 'Disattiva (non farla, senza cancellarla)',
+const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', serie: 'Ripeti in serie…', disattiva: 'Disattiva (non farla, senza cancellarla)',
   attiva: 'Attiva', elimina: 'Elimina…', perche: 'Perché è rossa?' };
 // Elimina con la conferma: cosa sparisce insieme (i disegni sopra, i tagli che li usano), poi tutto in un colpo
 async function confermaElimina(kind, ref, titolo, dip = null) {
@@ -1108,6 +1108,18 @@ $('#tree').addEventListener('contextmenu', ev => {
         return;
       }
       if (v === 'elimina') { confermaElimina(kind, ref, titolo, m.dipendenti || []); return; }
+      if (v === 'serie') {
+        modal(`<h3>Ripeti in serie</h3><p class="hint">${esc(titolo)}: tutto il suo disegno ripetuto a griglia, originale compreso. Colonne lungo X e righe lungo Y del disegno (X verso destra, Y verso l’alto guardando la faccia). I passi diventano misure (px, py) che cambi dopo.</p>
+          <div class="form"><label>Colonne<input class="field" id="se-c" value="3"></label><label>Passo X<span class="inp"><input class="field" id="se-px" value="50"><i>mm</i></span></label>
+          <label>Righe<input class="field" id="se-r" value="1"></label><label>Passo Y<span class="inp"><input class="field" id="se-py" value="50"><i>mm</i></span></label></div>
+          <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Ripeti</button></div>`, close => {
+          $('#m-no').onclick = close;
+          $('#m-ok').onclick = () => { const v = ['#se-c', '#se-px', '#se-r', '#se-py'].map(q => $(q).value.trim()); close();
+            inCoda(async () => { const r2 = await call('feature_serie', ref, ...v); await apply(r2, r2.message); }); };
+          $('#modal-box').onkeydown = e2 => { if (e2.key === 'Enter') $('#m-ok').click(); if (e2.key === 'Escape') close(); };
+        });
+        return;
+      }
       inCoda(async () => apply(await call('tree_action', kind, ref, v)));   // disattiva / attiva
     };
   });

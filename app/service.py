@@ -834,6 +834,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
             tt = not isinstance(f, Sketch) and f.get('type') == 'sheet_miter'
             voci = ['modifica'] if sketch or pb or tt else []
             voci += ['rinomina']
+            if not isinstance(f, Sketch) and f.get('sketch') and f.get('type') in ('sheet_cut', 'extrude', 'revolve')                     and (f.get('type') != 'extrude' or f.get('operation') == 'cut'):
+                voci.append('serie')
             if not isinstance(f, Sketch) and f.get('type') != 'sheet':
                 voci.append('attiva' if f.get('disattiva') else 'disattiva')
             voci.append('elimina')
@@ -1989,6 +1991,27 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         except SteelCADError as ex:
             return _err(ex)
         return self._sketch_change('Sposta', lambda: sketch_edit.move(self.doc, sid, eids, dx, dy))
+
+    def feature_serie(self, fid: str, cols, px, rows, py) -> dict:
+        """Ripete in serie una lavorazione che viene da un disegno (un taglio, una tasca): tutto il suo disegno copiato
+        a griglia, colonne lungo X e righe lungo Y del disegno, originale compreso (22/10). I passi diventano misure."""
+        try:
+            f = self.doc.feature(fid)
+            sid = f.get('sketch') if not isinstance(f, Sketch) else None
+            if not sid:
+                raise SteelCADError('Si ripetono in serie le lavorazioni fatte da un disegno (tagli, tasche).', code='serie')
+            sk = self.doc.sketch(sid)
+            ids = [k for k, e in sk.entities.items() if e['kind'] in ('line', 'circle', 'arc', 'text')
+                   and not e.get('ref') and not e.get('construction')]
+            if not ids:
+                raise SteelCADError('Il disegno di questa lavorazione è vuoto.', code='serie')
+        except SteelCADError as ex:
+            return _err(ex)
+        r = self._change(f'Serie {cols} × {rows} di {fid}', lambda: sketch_edit.pattern(
+            self.doc, sid, ids, int(_number(cols)), _number(px), int(_number(rows)), _number(py)))
+        if r.get('ok'):
+            r['message'] = f'{fid} ripetuto {int(_number(cols))} × {int(_number(rows))}: i passi sono le misure px, py (a sinistra).'
+        return r
 
     def sketch_pattern(self, sid: str, eids: list, cols, px, rows, py) -> dict:
         return self._sketch_change(f'Serie {cols} × {rows}', lambda: sketch_edit.pattern(

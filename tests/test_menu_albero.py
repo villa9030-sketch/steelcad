@@ -52,3 +52,17 @@ def test_clic_sulla_faccia_della_piega_apre_la_piega():
     f = next(f for f in s.scene()['objects'][0]['faces'] if f['name'] == 'SM1/FL1/u0/esterno')
     sel = s.select('body', f['index'], f['name'])['selection']
     assert sel['kind'] == 'sidebend' and sel['end'] == 'u0' and sel['face']['name'] == 'SM1/FL1/u0/esterno'
+
+
+def test_ripeti_in_serie():
+    """Tasto destro su un taglio → Ripeti in serie: il suo disegno a griglia (22/10)."""
+    s = Service()
+    s.new_project('lamiera', {'name': 'L', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 1, 'k': 0.4})
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    s.sketch_add_rectangle(sid, [20, 20], [40, 30])
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    fid = next(f['id'] for f in s.doc.features if not hasattr(f, 'entities') and f['type'] == 'sheet_cut')
+    assert 'serie' in s.tree_menu('sheet_cut', fid)['voci']
+    a0 = s.result.body.sheet.flat_area
+    assert s.feature_serie(fid, 4, 50, 2, 60)['ok']
+    assert abs(a0 - s.result.body.sheet.flat_area - 7 * 200) < 1e-3
