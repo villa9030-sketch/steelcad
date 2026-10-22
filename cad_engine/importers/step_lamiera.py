@@ -7,8 +7,8 @@ Il pezzo arriva dal cliente come solido. Si riconosce la lamiera e la si spiega:
 3. ogni piega si apre attorno al suo spigolo: il tratto dopo finisce nel piano di quello prima, spostato della
    lunghezza della piega sulla fibra neutra (angolo × (R interno + K × spessore));
 4. lo sviluppo è l'unione dei tratti piani portati in piano (con i loro fori) e delle strisce delle pieghe.
-Le pieghe una dopo l'altra senza tratto piano in mezzo (bumping fitto) e le forme non a pieghe dritte (coni,
-imbutiture) si dicono, non si inventano.
+Le pieghe una dopo l'altra senza tratto piano in mezzo (colpi fitti, raggi diversi di fila) si spiegano una per una
+con un avviso; le forme non a pieghe dritte (coni, imbutiture) si dicono, non si inventano.
 """
 from __future__ import annotations
 
@@ -141,6 +141,23 @@ def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
         c, n = _piano(facce[i_piano])
         return abs(abs(np.dot(o - c, n)) - R) < 1e-3
 
+    def di_seguito(qa, qb, e):
+        """Due pieghe attaccate senza tratto piano: spigolo dritto lungo i due assi e la superficie che continua liscia."""
+        r = retta(e)
+        if r is None:
+            return False
+        u = (r[1] - r[0]) / np.linalg.norm(r[1] - r[0])
+        if any(abs(abs(np.dot(u, cilindro(q)[1])) - 1) > 1e-6 for q in (qa, qb)):
+            return False
+        m = bd.Vector(*((r[0] + r[1]) / 2))
+        return float(np.dot(_v(facce[qa].normal_at(m)), _v(facce[qb].normal_at(m)))) > 1 - 1e-6
+
+    def coassiali(qa, qb):
+        oa, aa, ra = cilindro(qa)
+        ob, ab, rb = cilindro(qb)
+        d = ob - oa
+        return abs(ra - rb) < 1e-4 and abs(abs(np.dot(aa, ab)) - 1) < 1e-9 and np.linalg.norm(d - aa * np.dot(d, aa)) < 1e-4
+
     # visita: tratti piani e pieghe del lato A, ognuno con la sua trasformazione verso il piano
     M0 = np.linalg.inv(_frame(c0, *_assi(facce[F0], n0), n0))
     pos = {F0: M0}
@@ -159,57 +176,83 @@ def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
                 continue
             if tipi[Q] != GeomAbs_Cylinder or Q in visti_cil or not tangente(P, Q, e):
                 continue
-            o, a, R = cilindro(Q)
-            # l'altro bordo dritto della piega: il tratto dopo
-            figlio = None
-            for C, e2 in vicini.get(Q, []):
-                if C == P or e2.IsSame(e):
-                    continue
-                if tipi[C] == GeomAbs_Plane and tangente(C, Q, e2):
-                    figlio = (C, e2)
-                    break
-                if tipi[C] == GeomAbs_Cylinder and retta(e2) is not None:
-                    avvisi.append('Due pieghe una dopo l’altra senza tratto piano (bumping fitto): non le spiego, '
-                                  'controlla lo sviluppo.')
+            # dopo la piega può venire subito un'altra piega, senza tratto piano (colpi fitti, raggi diversi di
+            # fila, 22/10): si segue la catena fino al tratto piano dopo
+            catena, figlio = [(Q, e)], None
+            while figlio is None:
+                Qc, ec = catena[-1]
+                dopo = None
+                for C, e2 in vicini.get(Qc, []):
+                    if C == P or e2.IsSame(ec) or any(C == x for x, _ in catena):
+                        continue
+                    if tipi[C] == GeomAbs_Plane and tangente(C, Qc, e2):
+                        figlio = (C, e2)
+                        break
+                    if tipi[C] == GeomAbs_Cylinder and C not in visti_cil and di_seguito(Qc, C, e2):
+                        dopo = (C, e2)
+                if figlio is None:
+                    if dopo is None:
+                        break
+                    catena.append(dopo)
             if figlio is None:
                 continue
             C, e2 = figlio
-            visti_cil.add(Q)
+            visti_cil.update(x for x, _ in catena)
             if C in pos:
                 continue                                   # già messo da un'altra strada (un giro chiuso)
-            cC, nC = _piano(facce[C])
-            r1, r2 = retta(e), retta(e2)
-            u = (r1[1] - r1[0]) / np.linalg.norm(r1[1] - r1[0])
-            O1 = r1[0]
-            O2 = r2[0] + u * np.dot(O1 - r2[0], u)
-            # verso dal tratto di prima dentro la piega (nel suo piano), e dalla piega dentro il tratto dopo
-            cq = _v(facce[Q].center())
-            w1 = cq - O1
-            w1 = w1 - u * np.dot(w1, u) - nP * np.dot(w1, nP)
-            w1 /= np.linalg.norm(w1)
-            w2 = cC - O2
-            w2 = w2 - u * np.dot(w2, u) - nC * np.dot(w2, nC)
-            w2 /= np.linalg.norm(w2)
-            phi = math.acos(max(-1.0, min(1.0, float(np.dot(nP, nC)))))
-            # il lato A è dentro la piega (concavo) se la sua normale guarda verso l'asse
-            pq = _v(facce[Q].center())
-            radiale = pq - o - a * np.dot(pq - o, a)
-            n_q = _v(facce[Q].normal_at(facce[Q].center()))
-            dentro = np.dot(n_q, radiale) < 0
-            r_in = R if dentro else R - t
-            if r_in < raggio_min - 1e-6:
-                r_in = max(r_in, 0.0)
-            BA = phi * (r_in + k * t)
-            # il tratto dopo: E2 va dove E1 + w1 × BA, nel piano del tratto di prima, con la stessa normale
-            dst = _frame(O1 + w1 * BA, u, w1, nP)
-            src = _frame(O2, u, w2, nC)
-            # attenzione al verso: le due terne devono essere destre allo stesso modo
-            if np.linalg.det(src[:3, :3]) * np.linalg.det(dst[:3, :3]) < 0:
-                src = _frame(O2, -u, w2, nC)
-                dst = _frame(O1 + w1 * BA, -u, w1, nP)
-            pos[C] = pos[P] @ dst @ np.linalg.inv(src)
-            pieghe.append({'P': P, 'Q': Q, 'C': C, 'e1': r1, 'e2': r2, 'angolo': math.degrees(phi), 'r': r_in,
-                           'BA': BA, 'su': bool(dentro), 'MP': pos[P], 'MC': pos[C]})
+            # le facce sullo stesso asse e con lo stesso raggio sono una piega sola (il CAD l'ha spezzata)
+            gruppi = []
+            for j, (Qj, ej) in enumerate(catena):
+                uscita = catena[j + 1][1] if j + 1 < len(catena) else e2
+                if gruppi and coassiali(gruppi[-1][0], Qj):
+                    gruppi[-1][2] = uscita
+                else:
+                    gruppi.append([Qj, ej, uscita])
+            if len(gruppi) > 1:
+                avvisi.append(f'{len(gruppi)} pieghe una dopo l’altra senza tratto piano (colpi fitti o raggi diversi): '
+                              'spiegate una per una, controlla lo sviluppo.')
+            M, nA = pos[P], nP
+            for j, (Qg, ea, eb) in enumerate(gruppi):
+                ultimo = j == len(gruppi) - 1
+                r1, r2 = retta(ea), retta(eb)
+                u = (r1[1] - r1[0]) / np.linalg.norm(r1[1] - r1[0])
+                O1 = r1[0]
+                O2 = r2[0] + u * np.dot(O1 - r2[0], u)
+                if ultimo:
+                    cB, nB = _piano(facce[C])
+                else:
+                    cB = _v(facce[gruppi[j + 1][0]].center())
+                    nB = _v(facce[Qg].normal_at(bd.Vector(*((r2[0] + r2[1]) / 2))))
+                # verso dal tratto di prima dentro la piega (nel suo piano), e dalla piega dentro il tratto dopo
+                cq = _v(facce[Qg].center())
+                w1 = cq - O1
+                w1 = w1 - u * np.dot(w1, u) - nA * np.dot(w1, nA)
+                w1 /= np.linalg.norm(w1)
+                w2 = cB - O2
+                w2 = w2 - u * np.dot(w2, u) - nB * np.dot(w2, nB)
+                w2 /= np.linalg.norm(w2)
+                phi = math.acos(max(-1.0, min(1.0, float(np.dot(nA, nB)))))
+                o, a, R = cilindro(Qg)
+                # il lato A è dentro la piega (concavo) se la sua normale guarda verso l'asse
+                radiale = cq - o - a * np.dot(cq - o, a)
+                n_q = _v(facce[Qg].normal_at(facce[Qg].center()))
+                dentro = np.dot(n_q, radiale) < 0
+                r_in = R if dentro else R - t
+                if r_in < raggio_min - 1e-6:
+                    r_in = max(r_in, 0.0)
+                BA = phi * (r_in + k * t)
+                # il tratto dopo: E2 va dove E1 + w1 × BA, nel piano del tratto di prima, con la stessa normale
+                dst = _frame(O1 + w1 * BA, u, w1, nA)
+                src = _frame(O2, u, w2, nB)
+                # attenzione al verso: le due terne devono essere destre allo stesso modo
+                if np.linalg.det(src[:3, :3]) * np.linalg.det(dst[:3, :3]) < 0:
+                    src = _frame(O2, -u, w2, nB)
+                    dst = _frame(O1 + w1 * BA, -u, w1, nA)
+                M2 = M @ dst @ np.linalg.inv(src)
+                pieghe.append({'P': P if j == 0 else None, 'Q': Qg, 'C': C if ultimo else None, 'e1': r1, 'e2': r2,
+                               'angolo': math.degrees(phi), 'r': r_in, 'BA': BA, 'su': bool(dentro), 'MP': M, 'MC': M2})
+                M, nA = M2, nB
+            pos[C] = M
             coda.append(C)
     # lo sviluppo: tratti piani in piano + strisce delle pieghe
     pezzi = []
