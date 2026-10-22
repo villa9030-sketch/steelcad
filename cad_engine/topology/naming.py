@@ -39,7 +39,9 @@ def _contains(lst, s) -> bool:
 
 
 def _list(occ_list) -> list:
-    return [x for x in occ_list]
+    # una lista vuota di OCC costa mezzo millesimo a scorrerla (finisce con un'eccezione dentro OCP): con centinaia
+    # di facce era mezzo secondo per ogni aggiunta di materiale (22/10)
+    return [x for x in occ_list] if occ_list.Size() else []
 
 
 @dataclass

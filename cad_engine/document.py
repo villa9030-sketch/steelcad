@@ -170,6 +170,17 @@ class Document:
         return out
 
     # ======================================================= ricostruzione
+    VERSIONI_TENUTE = 4
+
+    def _dalla_cache(self, h: str):
+        r = self._cache.get(h)
+        if r is None:
+            for vecchia in getattr(self, '_cache_vecchie', ()):
+                r = vecchia.get(h)
+                if r is not None:
+                    break
+        return r
+
     def rebuild(self) -> RebuildResult:
         t0 = time.perf_counter()
         try:
@@ -203,7 +214,7 @@ class Document:
                         dove = body_hash
                 h = _hash(f.to_dict(), self._used(f, params), dove, sorted(usi.get(fid, ())))
                 sketch_hash[fid] = h
-                cached = self._cache.get(h)
+                cached = self._dalla_cache(h)
                 if cached is not None:
                     solved, prof = cached
                     res.cached += 1
@@ -239,7 +250,7 @@ class Document:
             if ftype == 'structure':
                 usati = sorted(self._sketch_refs(f))
                 h = _hash(f, self._used(f, params), [sketch_hash.get(x, 'manca') for x in usati])
-                cached = self._cache.get(h)
+                cached = self._dalla_cache(h)
                 if cached is not None:
                     res.cached += 1
                     st_res, from_cache = cached, True
@@ -266,7 +277,7 @@ class Document:
                                                   f'Non costruita: prima va sistemato l\'errore in {blocked_by}.'))
                 continue
             h = _hash(f, self._used(f, params), body_hash, sketch_hash.get(f.get('sketch'), ''))
-            cached = self._cache.get(h)
+            cached = self._dalla_cache(h)
             if cached is not None:
                 body = cached
                 res.cached += 1
@@ -291,6 +302,9 @@ class Document:
             nuova_cache[h] = body
             body_hash = h
             res.features.append(FeatureResult(fid, ftype, True, ''))
+        # le ultime versioni restano da parte: Annulla e Rifai ritrovano i pezzi già fatti invece di rifarli
+        # (con 400 fori Annulla era 3,6 secondi, 22/10)
+        self._cache_vecchie = ([self._cache] + getattr(self, '_cache_vecchie', []))[:self.VERSIONI_TENUTE]
         self._cache = nuova_cache
         res.body = body
         res.seconds = time.perf_counter() - t0

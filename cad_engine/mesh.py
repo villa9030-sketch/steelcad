@@ -7,6 +7,7 @@ quale faccia hai preso.
 from __future__ import annotations
 
 import build123d as bd
+import numpy as np
 from OCP.BRep import BRep_Tool
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
@@ -71,8 +72,11 @@ def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angula
                 continue
             visti.Add(e)
             nodi = poly.Nodes()
-            pts = [tri.Node(nodi.Value(j)).Transformed(trsf) for j in range(nodi.Lower(), nodi.Upper() + 1)]
-            edges.append([round(c, 4) for q in pts for c in (q.X(), q.Y(), q.Z())])
+            if loc.IsIdentity():
+                pts = [nodo(nodi.Value(j)) for j in range(nodi.Lower(), nodi.Upper() + 1)]
+            else:
+                pts = [nodo(nodi.Value(j)).Transformed(trsf) for j in range(nodi.Lower(), nodi.Upper() + 1)]
+            edges.append(np.round([c for q in pts for c in (q.X(), q.Y(), q.Z())], 4).tolist())
     for e in _edges_of(shape):                  # gli spigoli rimasti fuori (senza triangolazione): sulla curva
         if visti.Contains(e) or BRep_Tool.Degenerated_s(e):
             continue                        # lo spigolo "a punto" del polo di una sfera: niente da disegnare
@@ -85,4 +89,5 @@ def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angula
         except Exception:  # noqa: BLE001 - uno spigolo strano non deve fermare la vista
             continue
         edges.append([round(c, 4) for p in pts for c in (p.X, p.Y, p.Z)])
-    return {'positions': [round(v, 4) for v in pos], 'indices': idx, 'faces': faces, 'edges': edges}
+    # arrotondare tutto insieme: un round() per numero erano 250 mila chiamate con 400 fori
+    return {'positions': np.round(np.asarray(pos, dtype=float), 4).tolist(), 'indices': idx, 'faces': faces, 'edges': edges}

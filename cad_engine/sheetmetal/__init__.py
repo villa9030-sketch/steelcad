@@ -258,6 +258,13 @@ class SheetData:
         if self.flat is None:
             return []
         out = []
+        # nel piano dello sviluppo con due prodotti scalari: to_local_coords punto per punto era lento con le lettere
+        o, ax, ay = self.plane.origin, self.plane.x_dir, self.plane.y_dir
+        ox, oy, oz, xx, xy, xz, yx, yy, yz = o.X, o.Y, o.Z, ax.X, ax.Y, ax.Z, ay.X, ay.Y, ay.Z
+
+        def loc(p):
+            dx, dy, dz = p.X - ox, p.Y - oy, p.Z - oz
+            return (dx * xx + dy * xy + dz * xz, dx * yx + dy * yy + dz * yz)
         for w in self.flat.wires():
             tratti = []
             es = w.edges()
@@ -269,8 +276,7 @@ class SheetData:
                 continue
             for e in es:
                 n = 2 if e.geom_type == bd.GeomType.LINE else 24
-                tratti.append([(q.X, q.Y) for q in (self.plane.to_local_coords(p)
-                                                    for p in e.positions([i / (n - 1) for i in range(n)]))])
+                tratti.append([loc(p) for p in e.positions([i / (n - 1) for i in range(n)])])
             # i tratti in fila, testa contro coda (il kernel non promette né l'ordine né il verso)
             fila = tratti.pop(0)
             while tratti:
@@ -2345,6 +2351,7 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     op = BRepAlgoAPI_Cut()
     op.SetArguments(argomenti)
     op.SetTools(utensili)
+    op.SetRunParallel(True)               # tanti fori: OCCT li interseca su più core
     op.Build()
     if not op.IsDone():
         raise FeatureError('Il kernel non è riuscito a fare il taglio.', feature=fid)

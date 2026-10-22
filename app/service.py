@@ -290,7 +290,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         objs = []
         r = self.result
         if r.body is not None:
-            m = tessellate(r.body.shape, r.body.names)
+            m = self._mesh_del_pezzo(r.body)
             for f in m['faces']:
                 f['label'] = self.doc.describe_face(f['name']) if f['name'] else 'faccia'
             from cad_engine import finiture
@@ -322,6 +322,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
                 'bend_edges': bordi, 'threads': self._filettature(), 'svasature_ko': self._svasature_ko(),
                 'marks': [m['pezzo'] for m in (getattr(data, 'marks', None) or []) if m.get('pezzo')] if data is not None else []}
+
+    def _mesh_del_pezzo(self, body) -> dict:
+        """I triangoli del pezzo, tenuti per le ultime versioni: dopo Annulla/Rifai il pezzo è lo stesso oggetto di prima
+        e non si ritriangola (con 400 fori era un secondo, 22/10). Si tiene anche il pezzo, così il suo id non torna."""
+        tenute = getattr(self, '_mesh_tenute', [])
+        for b, m in tenute:
+            if b is body:
+                return m
+        m = tessellate(body.shape, body.names)
+        self._mesh_tenute = ([(body, m)] + tenute)[:4]
+        return m
 
     def _bordi_liberi(self, body, data, noti) -> list:
         """Gli altri bordi dritti liberi delle facce piane (materiale aggiunto, pieghe sui bordi…): dove si può
