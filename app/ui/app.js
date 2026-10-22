@@ -1455,7 +1455,8 @@ function foroPanel(fo) {
     <div id="h-sva"${tipo === 'svasato' ? '' : ' hidden'}>${sv}</div><div id="h-fil"${tipo === 'filettato' ? '' : ' hidden'}>${fi}</div>
     <div id="h-ins"${tipo === 'inserto' ? '' : ' hidden'}>${ins}</div>
     ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} di questo disegno</label>` : ''}
-    <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button></div></div>`;
+    <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button></div>
+    <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button></div></div>`;
 }
 // anteprima della svasatura sul pezzo mentre scrivi: il cono com'è, rosso se va più giù dello spessore (21/10)
 const anteprimaForo = new THREE.Group();
@@ -1505,8 +1506,43 @@ function mostraAnteprimaForo(fo, tipo) {
   }
   ridisegna();
 }
+// una vite nel foro cliccato, direttamente dal pezzo: si sceglie la vite, il programma fa l'assieme (22/10)
+async function viteDalPezzo(fo) {
+  const r = await call('libreria_catalogo');
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  const cat = r.catalogo, sva = fo.hole?.tipo === 'svasato';
+  const viti = Object.entries(cat).filter(([k]) => k.startsWith('vite') || k === 'rivetto');
+  const misuraPer = c => c.misure.reduce((m, x) => (Math.abs(parseFloat(String(x).replace('M', '').replace(',', '.')) - fo.d) <
+    Math.abs(parseFloat(String(m).replace('M', '').replace(',', '.')) - fo.d) ? x : m), c.misure[0]);
+  const opz = (lst, v) => lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('');
+  const nomeServe = !S?.path;
+  modal(`<h3>Vite in questo foro</h3>
+    <p class="hint">Il pezzo si salva, si apre un assieme nuovo con il pezzo e la vite già nel foro${sva ? ' (seduta nella svasatura)' : ''}.</p>
+    <div class="form">${nomeServe ? `<label style="grid-column:1/-1">Nome del pezzo (si salva in Documenti/SteelCAD)<input class="field" id="vp-n" value="${esc(S?.name || 'Pezzo')}"></label>` : ''}
+      <label style="grid-column:1/-1">Cosa<select class="field" id="vp-t">${viti.map(([k, c]) => `<option value="${k}"${k === (sva ? 'vite_tspei' : 'vite_tcei') ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
+      <label>Misura<select class="field" id="vp-m"></select></label><label>Lunghezza<select class="field" id="vp-l"></select></label></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la vite</button></div>`, close => {
+    const rifai = () => {
+      const c = cat[$('#vp-t').value];
+      $('#vp-m').innerHTML = opz(c.misure, misuraPer(c));
+      $('#vp-l').innerHTML = opz(c.lunghezze, c.lunghezze[Math.floor(c.lunghezze.length / 3)]);
+    };
+    $('#vp-t').onchange = rifai; rifai();
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const tipo = $('#vp-t').value, misura = $('#vp-m').value, L = cat[tipo].lunghezze.length ? +$('#vp-l').value : null;
+      const nome = $('#vp-n')?.value || '';
+      close();
+      inCoda(async () => {
+        const r2 = await call('viti_dal_pezzo', nome, fo.centri[fo.cerchio], fo.dentro, fo.d, tipo, misura, L);
+        if (await apply(r2, r2.message) && r2.select) await select(r2.select);
+      });
+    };
+  });
+}
 function wireForo(fo) {
   let tipo = fo.hole?.tipo || 'semplice';
+  if ($('#h-vite')) $('#h-vite').onclick = () => viteDalPezzo(fo);
   const vedi = () => mostraAnteprimaForo(fo, tipo);
   document.querySelectorAll('#h-tipo button').forEach(b => { b.onclick = () => {
     tipo = b.dataset.k;

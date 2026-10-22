@@ -150,3 +150,24 @@ def test_viti_svasate_su_un_pezzo_non_ancora_accoppiato(tmp_path, monkeypatch):
         Rv = pose[vite][0]
         assert float(np.dot(Rv @ np.array([0, 1.0, 0]), R2 @ np.array([0, 0, 1.0]))) > 0.999 or \
             float(np.dot(Rv @ np.array([0, 0, 1.0]), R2 @ np.array([0, 0, 1.0]))) > 0.999
+
+
+def test_vite_dal_pezzo(tmp_path, monkeypatch):
+    """«Metti una vite in questo foro» dal pezzo: salva, apre l'assieme, vite nel foro (22/10)."""
+    import numpy as np
+
+    from app.service import Service
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path))
+    s = Service()
+    s.new_project('lamiera', {'name': 'Staffa', 'larghezza': 120, 'profondita': 80, 'spessore': 3})
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    s.sketch_add_circle(sid, [40, 40], 3.2)
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    f = next(f for f in s.scene()['objects'][0]['faces'] if (f['name'] or '').endswith('parete'))
+    fo = s.select('body', f['index'], f['name'])['selection']['foro']
+    r = s.viti_dal_pezzo('Staffa', fo['centri'][fo['cerchio']], fo['dentro'], fo['d'], 'vite_tcei', 'M6', 20)
+    assert r['ok'], r.get('message')
+    assert (tmp_path / 'Documents' / 'SteelCAD' / 'Staffa.steelcad').exists()
+    assert len(s.asm.instances) == 2 and [m['type'] for m in s.asm.mates] == ['asse']
+    assert np.allclose(np.array(s.asm.instances[1]['T'])[:2], [40, 40], atol=1e-3)

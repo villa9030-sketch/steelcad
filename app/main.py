@@ -158,6 +158,9 @@ class Api:
     def edit_edge_flange(self, fid, fields):
         return self._call(self._svc.edit_edge_flange, fid, fields)
 
+    def viti_dal_pezzo(self, nome, centro, asse, d, tipo, misura, lunghezza=None):
+        return self._call(self._svc.viti_dal_pezzo, nome, centro, asse, d, tipo, misura, lunghezza)
+
     def tree_menu(self, kind, ref):
         return self._call(self._svc.tree_menu, kind, ref)
 

@@ -3212,6 +3212,50 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return self.home_info()
 
     # ================================================================ file
+    def viti_dal_pezzo(self, nome: str, centro: list, asse: list, d: float, tipo: str, misura: str, lunghezza=None) -> dict:
+        """Una vite nel foro cliccato sul pezzo, senza passare a mano dall'assieme (22/10): salva il pezzo (col nome dato
+        se non è ancora salvato), apre un assieme nuovo col pezzo e ci mette la vite nel foro."""
+        import numpy as np
+
+        from cad_engine import assembly as A
+        from cad_engine.topology.naming import _faces_of
+        if self.asm is not None:
+            return {'ok': False, 'message': 'Sei già in un assieme: usa Viteria.'}
+        if self.path is None:
+            nome = (str(nome or '').strip() or self.doc.meta.get('name') or 'Pezzo').replace('/', '-').replace('\\', '-')
+            cartella = Path.home() / 'Documents' / 'SteelCAD'
+            cartella.mkdir(parents=True, exist_ok=True)
+            p, k = cartella / f'{nome}.steelcad', 2
+            while p.exists():
+                p, k = cartella / f'{nome} ({k}).steelcad', k + 1
+            r = self.save(str(p))
+        else:
+            r = self.save()
+        if not r.get('ok'):
+            return r
+        pezzo = str(self.path)
+        self.new_assembly(f'{Path(pezzo).stem} con viti')
+        r = self.asm_insert(pezzo)
+        if not r.get('ok'):
+            return r
+        iid = self.asm.instances[0]['id']
+        part = self.asm_parts[self.asm.instances[0]['file']]
+        c, n = np.array(centro, dtype=float), np.array(asse, dtype=float)
+        n /= np.linalg.norm(n) or 1
+        k_foro = None
+        for k, f in enumerate(_faces_of(part.shape)):
+            inf = A.face_info(part, f)
+            if inf['kind'] != 'cilindrica' or abs(inf['r'] - d / 2) > 1e-3 or abs(abs(np.dot(inf['n'], n)) - 1) > 1e-6:
+                continue
+            v = c - np.array(inf['p'])
+            if np.linalg.norm(v - n * np.dot(v, n)) < 1e-3:
+                k_foro = k
+                break
+        r = self.asm_insert_libreria(tipo, misura, lunghezza, {'inst': iid, 'face': k_foro} if k_foro is not None else None)
+        if r.get('ok'):
+            r['message'] = f'Pezzo salvato in {Path(pezzo).name}; assieme nuovo: ' + r.get('message', '')
+        return r
+
     def save(self, path: str | None = None) -> dict:
         if self.asm is not None:
             try:
