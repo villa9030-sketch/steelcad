@@ -195,6 +195,15 @@ class DrawingsMixin:
             dim[i['id']] = (max(b.size.X, b.size.Y, b.size.Z), sh)
         out = [None] * len(ist)
         for i in ist:
+            # bloccati su un pezzo più grande (lamelle saldate nell'anta): nell'esploso vanno insieme a lui
+            blocco = next((m for m in self.asm.mates if not m.get('off') and m['type'] == 'blocca'
+                           and i['id'] in (m['a']['inst'], m['b']['inst'])
+                           and (m['b']['inst'] if m['a']['inst'] == i['id'] else m['a']['inst']) in indice
+                           and dim[i['id']][0] < dim[m['b']['inst'] if m['a']['inst'] == i['id'] else m['a']['inst']][0]), None)
+            if blocco is not None:
+                altro = blocco['b']['inst'] if blocco['a']['inst'] == i['id'] else blocco['a']['inst']
+                out[indice[i['id']]] = (indice[altro], [0.0, 0.0, 0.0], 0.0)
+                continue
             mie = [m for m in self.asm.mates if not m.get('off') and m['type'] in ('asse', 'cono')
                    and i['id'] in (m['a']['inst'], m['b']['inst'])]
             for m in mie:
@@ -282,6 +291,10 @@ class DrawingsMixin:
             gruppi.setdefault(capo(i['id']), []).append(i['id'])
         legami = lambda x: sum(1 for m in mates if x in (m['a']['inst'], m['b']['inst']))  # noqa: E731
         primo = True
+        fisso = next((i['id'] for i in self.asm.instances if i.get('fixed')), None)
+        if fisso is not None and len(gruppi.get(capo(fisso), [])) == 1:
+            radice(fisso, 'è la base, sta ferma')            # il pezzo fermo per primo, anche senza accoppiamenti
+            primo = False
         for membri in sorted((g for g in gruppi.values() if len(g) > 1), key=len, reverse=True):
             fermo = next((x for x in membri if ist[x].get('fixed')), None)
             r = fermo or max(membri, key=lambda x: (dim_di(x), legami(x)))

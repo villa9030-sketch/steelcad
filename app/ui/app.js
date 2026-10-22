@@ -87,13 +87,68 @@ const controls = new OrbitControls(camera, canvas);
 controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
 controls.screenSpacePanning = true;
 controls.zoomToCursor = true;
-const cielo = new THREE.HemisphereLight(0xffffff, 0x7d8790, 1.7);
+// luce da studio (23/10, «polish»): un ambiente con pannelli di luce per i riflessi dei metalli, resa fotografica
+// dei colori, poca luce diretta (dà il verso alle facce) e un'ombra morbida a terra sotto il pezzo
+renderer.toneMapping = THREE.LinearToneMapping;     // lineare: i colori RAL restano pieni (ACES li sbiadiva)
+renderer.toneMappingExposure = 0.9;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.VSMShadowMap;
+function ambienteStudio() {
+  const pm = new THREE.PMREMGenerator(renderer);
+  const st = new THREE.Scene();
+  const stanza = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x5c636c, side: THREE.BackSide }));
+  stanza.scale.set(24, 24, 16);
+  st.add(stanza);
+  const pannello = (w, h, x, y, z, forza) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(forza, forza, forza), side: THREE.DoubleSide }));
+    m.position.set(x, y, z); m.lookAt(0, 0, 0); st.add(m);
+  };
+  pannello(10, 6, 0, 0, 7.8, 2.4);         // il grande pannello sopra (z in su)
+  pannello(6, 4, -11.8, -4, 3, 3.2);       // di lato, da sinistra davanti
+  pannello(5, 3, 10, 8, 2, 1.4);           // controluce, dietro a destra
+  pannello(14, 1.2, 0, -11.8, -3, 1.8);    // una striscia bassa davanti: il riflesso sugli spigoli
+  const env = pm.fromScene(st, 0.035).texture;
+  pm.dispose();
+  return env;
+}
+scene.environment = ambienteStudio();
+const cielo = new THREE.HemisphereLight(0xffffff, 0x6d7780, 0.9);
 cielo.position.set(0, 0, 1);   // il cielo sta sopra: l'asse Z
 scene.add(cielo);
-const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+const sun = new THREE.DirectionalLight(0xffffff, 1.15);
 sun.position.set(0.4, 0.6, 1);
 camera.add(sun);
 scene.add(camera);
+// l'ombra a terra: una luce dall'alto solo per l'ombra, su un piano che prende solo l'ombra, appena sotto il pezzo
+const luceOmbra = new THREE.DirectionalLight(0xffffff, 0.0001);
+luceOmbra.castShadow = true;
+luceOmbra.shadow.mapSize.set(2048, 2048);
+luceOmbra.shadow.radius = 14;
+luceOmbra.shadow.blurSamples = 16;
+luceOmbra.shadow.bias = -0.0005;
+const suolo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ opacity: 0.22, transparent: true, depthWrite: false }));
+suolo.receiveShadow = true;
+suolo.renderOrder = -2;
+suolo.raycast = () => {};
+scene.add(luceOmbra, luceOmbra.target, suolo);
+function aggiornaSuolo() {
+  const box = new THREE.Box3();
+  model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
+  if (box.isEmpty()) { suolo.visible = false; return; }
+  const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+  const r = Math.max(sz.x, sz.y, sz.z, 1);
+  suolo.position.set(c.x, c.y, box.min.z - r * 0.004);
+  suolo.scale.set(sz.x + r * 1.6, sz.y + r * 1.6, 1);
+  luceOmbra.position.set(c.x - r * 0.55, c.y - r * 0.75, box.max.z + r * 1.6);   // di sbieco: l'ombra si vede di lato
+  luceOmbra.target.position.set(c.x, c.y, box.min.z);
+  luceOmbra.target.updateMatrixWorld();
+  const cam = luceOmbra.shadow.camera;
+  cam.left = -r * 1.1; cam.right = r * 1.1; cam.top = r * 1.1; cam.bottom = -r * 1.1;
+  cam.near = r * 0.5; cam.far = r * 4 + sz.z;
+  cam.updateProjectionMatrix();
+  luceOmbra.shadow.needsUpdate = true;
+  ridisegna();
+}
 
 const model = new THREE.Group();
 const overlay = new THREE.Group();
@@ -123,6 +178,7 @@ function loop() {
   if (anim) stepAnim();
   if (!daRidisegnare) return;
   daRidisegnare = false;
+  suolo.visible = model.visible && !SK && !flatView && objs.size > 0;   // l'ombra solo col pezzo 3D a video
   renderer.render(scene, camera);
   placeDims();
   placeCube();
@@ -159,7 +215,9 @@ function buildScene(sc) {
     const base = new THREE.Color(d.look?.color || (d.kind === 'body' ? 0xB7BFC8 : 0xA8B1BA));
     const mat = new THREE.MeshStandardMaterial({ color: base.clone(), metalness: d.look?.metal ?? 0.15, roughness: d.look?.rough ?? 0.55,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    mat.envMapIntensity = 0.45 + 0.8 * mat.metalness;    // i riflessi dello studio: pieni sui metalli, leggeri sulle vernici
     const mesh = new THREE.Mesh(g, mat);
+    mesh.castShadow = true;
     mesh.userData.id = d.id;
     const pos = d.matrix ? new THREE.Matrix4().set(...d.matrix) : null;      // istanza di un assieme: dove sta
     const seg = [];
@@ -390,9 +448,13 @@ function pannelloPiegaBordo(e, fatta = null) {
   if (fatta) $('#f-del').onclick = () => (libero ? confermaElimina('sheet_edge_flange', feature, 'Piega sul bordo')
     : confermaElimina('flange', `${feature}/${flange}/${end}`, 'Piega sul bordo'));
   else { $('#f-len').focus(); $('#f-len').select(); }
+  const campi = () => { const f = readFlange(); if (libero) { f.trim0 = $('#f-t0').value.trim(); f.trim1 = $('#f-t1').value.trim(); } return f; };
+  if (libero) anteprimaPannello(fatta ? 'edit_edge_flange' : 'add_edge_flange', () => (fatta ? [feature, campi()] : [e.face, e.ea, e.eb, campi()]));
+  else anteprimaPannello('set_ear', () => [feature, flange, end, true, campi()]);
 }
 function selectEdge(e) {
   selTok++; selGen++;
+  if ($('#modal').hidden) anteprimaVia();
   sel = { id: 'edge=' + e.id };
   hover = null;
   aggiornaLayout();
@@ -418,6 +480,7 @@ function selectEdge(e) {
   };
   $('#f-add').onclick = vai;
   ['#f-len', '#f-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  anteprimaPannello('add_flange', () => [e.feature, punta ? null : e.ref, readFlange(), punta ? e.ref : null]);
   $('#f-len').focus(); $('#f-len').select();
 }
 
@@ -928,6 +991,12 @@ function buildDims() {
     el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
       : d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla` : 'Clicca per cambiare la quota';
     el.addEventListener('click', ev => { ev.stopPropagation(); if (d.driven) toast(el.title); else editDim(el, d); });
+    // tasto destro: la quota si toglie (la misura torna libera, il disegno resta dov'è)
+    el.title += ' · tasto destro: togli la quota';
+    el.addEventListener('contextmenu', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      inCoda(async () => { const r = await call('sketch_delete_dimension', d.sketch, d.dim); if (await apply(r)) toast('Quota tolta: quella misura è libera.', 'ok', { label: 'Annulla', fn: () => runCmd('undo') }); });
+    });
     dimsBox.appendChild(el);
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
     dimEls.push({ el, d, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
@@ -1141,6 +1210,7 @@ async function caricaScena() {
   const raggio = () => new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere()).radius;
   const prima = eraVuota ? 0 : raggio();
   buildScene(sc);
+  aggiornaSuolo();
   buildThreads(sc.threads);
   buildSvasatureKo(sc.svasature_ko);
   buildMarks(sc.marks);
@@ -1349,6 +1419,7 @@ $('#params').addEventListener('focusout', ev => {
 let selTok = 0, selGen = 0;
 async function select(id, face = null, ids = null, silenzioso = false) {
   const mio = ++selTok;
+  if ($('#modal').hidden) anteprimaVia();             // l'anteprima del pannello di prima
   if (!sel || sel.id !== id || sel.face !== face) selGen++;
   sel = { id, face, ids };
   paint(); renderTree(); paintNodes();
@@ -1367,6 +1438,7 @@ async function select(id, face = null, ids = null, silenzioso = false) {
 function clearSelection() {
   selTok++; selGen++;
   togliAnteprimaForo();
+  if ($('#modal').hidden) anteprimaVia();
   sel = null; paint(); renderTree(); paintNodes();
   $('#props').innerHTML = '';
   aggiornaLayout();
@@ -1592,6 +1664,10 @@ async function renderProps(s) {
     $('#props').innerHTML = h + nodePanel(s);
     wireNode(s);
     return;
+  } else if (s.kind === 'body' && s.contorno) {
+    $('#props').innerHTML = h + pannelloContorno(s.contorno);
+    wireContorno(s.contorno);
+    return;
   } else if (s.kind === 'body' && s.foro) {
     $('#props').innerHTML = h + foroPanel(s.foro);
     wireForo(s.foro);
@@ -1698,6 +1774,28 @@ function faceSketchButton(s) {
 // Come in ogni CAD: clic sulla parete del foro, a destra il tipo. Vale per il cerchio che l'ha fatto (e, se vuoi, per
 // tutti i fori uguali dello stesso disegno).
 const FILETTI_M = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12', 'M16'];
+// il taglio cliccato sul pezzo (rettangolo, raccordi, contorno): le sue misure, da cambiare lì (22/10)
+function pannelloContorno(co) {
+  const righe = co.campi.map((c, i) => `<label>${esc(c.label)}<span class="inp"><input class="field" data-ci="${i}" value="${esc(virgola(Math.round(c.value * 100) / 100))}"><i>${c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm'}</i></span></label>`).join('');
+  return `<div class="ff">${righe}</div>
+    <p class="hint">Cambia le misure e premi Applica: il taglio si rifà. La posizione è dall’origine del disegno (l’angolo del pezzo su cui hai disegnato).</p>
+    <div class="row-btns"><button class="btn primary" id="co-ok">Applica</button><button class="btn" id="co-sk">Modifica il disegno</button></div>`;
+}
+function wireContorno(co) {
+  const vai = () => {
+    const cambiati = [];
+    document.querySelectorAll('[data-ci]').forEach(inp => {
+      const c = co.campi[+inp.dataset.ci], v = parseFloat(inp.value.trim().replace(',', '.'));
+      if (Number.isFinite(v) && Math.abs(v - c.value) > 1e-6) cambiati.push({ ...c, value: inp.value.trim() });
+      else if (!Number.isFinite(v)) cambiati.push({ ...c, value: inp.value.trim() });     // il servizio dice cosa non va
+    });
+    if (!cambiati.length) { toast('Nessuna misura cambiata.'); return; }
+    inCoda(async () => { const r = await call('cut_contour_set', co.sketch, cambiati); await apply(r, r.message); });
+  };
+  $('#co-ok').onclick = vai;
+  document.querySelectorAll('[data-ci]').forEach(inp => { inp.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  $('#co-sk').onclick = () => { clearSelection(); enterSketch(co.sketch); };
+}
 function foroPanel(fo) {
   const h = fo.hole || {}, tipo = h.tipo || 'semplice', n = fo.uguali.length;
   const sv = `<div class="ff"><label>Ø svasatura<span class="inp"><input class="field" id="h-D" value="${esc(String(h.D ?? Math.round(fo.d * 2 * 10) / 10).replace('.', ','))}"><i>mm</i></span></label>
@@ -1708,12 +1806,14 @@ function foroPanel(fo) {
   const ins = `<div class="ff"><label>Codice inserto<input class="field" id="h-cod" value="${esc(h.codice || '')}"></label>
     <label>Ø foro (catalogo)<span class="inp"><input class="field" id="h-Di" value="${esc(h.tipo === 'inserto' ? String(h.D).replace('.', ',') : '')}"><i>mm</i></span></label></div>`;
   return `<div class="foro-p" data-tipo="${tipo}">
+    <div class="ff" id="h-dia-w"${tipo === 'filettato' || tipo === 'inserto' ? ' hidden' : ''}><label>Diametro del foro<span class="inp"><input class="field" id="h-d" value="${esc(virgola(Math.round(fo.d * 100) / 100))}"><i>mm</i></span></label><span></span></div>
     <div class="fo-scelta" id="h-tipo">${[['semplice', 'Semplice'], ['svasato', 'Svasato'], ['filettato', 'Filettato'], ['inserto', 'Inserto']]
       .map(([k, l]) => `<button type="button" data-k="${k}" class="${tipo === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="h-sva"${tipo === 'svasato' ? '' : ' hidden'}>${sv}</div><div id="h-fil"${tipo === 'filettato' ? '' : ' hidden'}>${fi}</div>
     <div id="h-ins"${tipo === 'inserto' ? '' : ' hidden'}>${ins}</div>
     ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} di questo disegno</label>` : ''}
-    <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button></div>
+    <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button>
+      <button class="btn" id="h-sk" title="Apre il disegno del foro: lo sposti, cambi le quote, ne aggiungi altri">Modifica il disegno</button></div>
     <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button></div></div>`;
 }
 // anteprima della svasatura sul pezzo mentre scrivi: il cono com'è, rosso se va più giù dello spessore (21/10)
@@ -1806,18 +1906,28 @@ function wireForo(fo) {
     tipo = b.dataset.k;
     document.querySelectorAll('#h-tipo button').forEach(x => x.classList.toggle('on', x === b));
     $('#h-sva').hidden = tipo !== 'svasato'; $('#h-fil').hidden = tipo !== 'filettato'; $('#h-ins').hidden = tipo !== 'inserto';
+    $('#h-dia-w').hidden = tipo === 'filettato' || tipo === 'inserto';
     vedi();
   }; });
   ['#h-D', '#h-ang'].forEach(q => { $(q).oninput = vedi; });
   if ($('#h-tutti')) $('#h-tutti').onchange = vedi;
   vedi();
-  $('#h-ok').onclick = () => {
+  $('#h-sk').onclick = () => { clearSelection(); enterSketch(fo.sketch); };
+  const vai = () => {
     const spec = tipo === 'svasato' ? { tipo, D: $('#h-D').value.trim(), angolo: $('#h-ang').value.trim() }
       : tipo === 'filettato' ? { tipo, M: $('#h-M').value }
       : tipo === 'inserto' ? { tipo, codice: $('#h-cod').value.trim(), D: $('#h-Di').value.trim() } : null;
     const cerchi = $('#h-tutti')?.checked ? fo.uguali : [fo.cerchio];
-    inCoda(async () => { await apply(await call('sketch_hole_type', fo.sketch, cerchi, spec)); });
+    const nuovo = parseFloat($('#h-d').value.trim().replace(',', '.'));
+    const cambia = !$('#h-dia-w').hidden && Number.isFinite(nuovo) && Math.abs(nuovo - fo.d) > 1e-6;
+    inCoda(async () => {
+      // prima il diametro (la svasatura si controlla col foro nuovo), poi il tipo
+      if (cambia && !await apply(await call('sketch_hole_diameter', fo.sketch, cerchi, $('#h-d').value.trim()))) return;
+      await apply(await call('sketch_hole_type', fo.sketch, cerchi, spec));
+    });
   };
+  $('#h-ok').onclick = vai;
+  $('#h-d').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
 }
 
 // ------------------------------------------------------------- fori e asole, senza sketch
@@ -1943,6 +2053,7 @@ function wireNewFlange(ff) {
   };
   $('#f-add').onclick = vai;
   ['#f-len', '#f-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  anteprimaPannello('add_flange', () => [ff.feature, ff.edge, readFlange()]);
 }
 // angoli tra i bordi piegati sulle punte (scatola bordata): visti dall'alto, un angolo della scatola
 const DISEGNI_ANGOLO = {            // in chiaro il bordo del lato lungo, in scuro quello del lato corto
@@ -2723,6 +2834,12 @@ function wireFlange(s) {
     };
     ['#t-len', '#t-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') punta(); }; });
     if (s.tip_form) $('#t-len').focus();          // hai cliccato la punta: si parte da lì
+    // la piega sulla punta: anteprima appena tocchi i suoi campi (il pannello della flangia serve anche per altro)
+    const tAnt = () => anteprima('add_flange', () => [s.feature, null, readFlange('t'), s.flange], $('#t-ant'));
+    if (!$('#t-ant')) $('#t-add').closest('.row-btns')?.insertAdjacentHTML('beforebegin', '<div class="ant-stato" id="t-ant"></div>');
+    ['#t-len', '#t-ang'].forEach(q => { $(q).addEventListener('input', tAnt); });
+    ['#t-dir', '#t-pos'].forEach(q => { if ($(q)) $(q).addEventListener('change', tAnt); });
+    if (s.tip_form) tAnt();
   }
   document.querySelectorAll('#props .corner').forEach(div => {
     const salva = () => inCoda(async () => apply(await call('set_corner', s.feature, s.flange, div.dataset.other,
@@ -2926,13 +3043,24 @@ document.querySelector('.tabs').addEventListener('click', ev => {
 });
 
 // ===================================================================== comandi
-function toast(msg, kind = '') {
+// le notifiche (23/10, polish): un'icona per tipo (errore, fatto, informazione), e se serve un pulsante (Annulla)
+const ICONE_TOAST = { err: '!', ok: '✓', '': 'i' };
+function toast(msg, kind = '', azione = null) {
   const t = document.createElement('div');
+  if (!kind && /^(fatto|salvat|tavole salvate|quota tolta|aggiunt|creat|esportat)/i.test(String(msg))) kind = 'ok';
   t.className = 'toast ' + kind;
-  t.textContent = msg;
+  const ic = document.createElement('span'); ic.className = 'ti'; ic.textContent = ICONE_TOAST[kind] ?? 'i';
+  const tx = document.createElement('span'); tx.className = 'tt'; tx.textContent = msg;
+  t.append(ic, tx);
+  if (azione) {
+    const b = document.createElement('button'); b.className = 'ta'; b.textContent = azione.label;
+    b.onclick = () => { t.remove(); azione.fn(); };
+    t.append(b);
+  }
   $('#toasts').appendChild(t);
   while ($('#toasts').children.length > 3) $('#toasts').firstChild.remove();
-  setTimeout(() => t.remove(), kind === 'err' ? 7000 : 3500);
+  const via = () => { t.classList.add('via'); setTimeout(() => t.remove(), 220); };
+  setTimeout(via, kind === 'err' ? 7000 : azione ? 6000 : 3500);
 }
 
 // ------------------------------------------------------------- anteprima dei comandi (22/10)
@@ -3019,6 +3147,22 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     }
     paint();
   }, 300);
+}
+// l'anteprima nel pannello a destra (le pieghe sui bordi: 23/10, «anche per le pieghe la preview del su/giù,
+// così non sbaglio il senso»): sotto i campi la riga dello stato; ogni campo cambiato, o Verso/Misura, la rifà.
+// Si toglie da sola quando il pannello cambia (altra selezione, piega aggiunta)
+function anteprimaPannello(metodo, argomenti, dentro = '#props') {
+  const box = $(dentro);
+  if (!box) return;
+  let st = box.querySelector('.ant-stato');
+  if (!st) {
+    st = document.createElement('div'); st.className = 'ant-stato';
+    (box.querySelector('#f-add')?.closest('.row-btns') || box.querySelector('.row-btns') || box.lastElementChild)?.before(st);
+  }
+  const vai = () => anteprima(metodo, argomenti, st);
+  box.querySelectorAll('input, select').forEach(i => { i.addEventListener('input', vai); i.addEventListener('change', vai); });
+  box.querySelectorAll('.seg').forEach(g => g.addEventListener('change', vai));
+  vai();
 }
 // una finestra con l'anteprima: si mette di lato, sotto i campi la riga dello stato, e ogni campo cambiato rifà
 // l'anteprima. Nel disegno (sketch) la vista gira in isometrica, se no lo spessore e la profondità non si vedono
@@ -3471,29 +3615,54 @@ function hideHome() {
   document.body.classList.remove('at-home');
 }
 
-// l'anteprima del lavoro per la pagina iniziale: la vista 3D di adesso, ritagliata attorno al pezzo
+// l'anteprima del lavoro per la pagina iniziale (23/10, polish): una foto da catalogo, sempre uguale qualunque cosa
+// ci sia a video — isometrica inquadrata sul pezzo, luce da studio e ombra, sfondo trasparente, senza quote,
+// selezioni né disegno — poi la vista torna com'era
 async function fotoAnteprima(percorso) {
   try {
-    if (!percorso || !objs.size) return;
-    const box = new THREE.Box3().setFromObject(model);
+    if (!percorso || !objs.size || SK) return;
+    const box = new THREE.Box3();
+    model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
     if (box.isEmpty()) return;
-    renderer.render(scene, camera);
+    const c = box.getCenter(new THREE.Vector3()), r = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
+    const cam = camera.clone();
+    cam.clearViewOffset();
+    const dir = new THREE.Vector3(1, -1.25, 0.95).normalize();
+    cam.position.copy(c).addScaledVector(dir, r / Math.sin(THREE.MathUtils.degToRad(cam.fov) / 2) * 1.05);
+    cam.up.set(0, 0, 1); cam.lookAt(c); cam.near = r * 0.05; cam.far = r * 40; cam.updateProjectionMatrix();
+    const nascosti = [dimLines, overlay, flatGroup, workGroup].filter(g => g && g.visible);
+    const selPrima = sel;
+    nascosti.forEach(g => { g.visible = false; });
+    const modelPrima = model.visible;
+    model.visible = true;
+    sel = null; hover = null; paint();
+    aggiornaSuolo();
+    suolo.visible = true;
+    renderer.render(scene, cam);
     const W = canvas.width, H = canvas.height;
     let x0 = W, y0 = H, x1 = 0, y1 = 0;
     for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
-      const v = new THREE.Vector3(x, y, z).project(camera);
+      const v = new THREE.Vector3(x, y, z).project(cam);
       const px = (v.x + 1) / 2 * W, py = (1 - v.y) / 2 * H;
       x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
     }
-    const m = 0.04 * Math.max(x1 - x0, y1 - y0);
+    const m = 0.06 * Math.max(x1 - x0, y1 - y0);
     x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
-    if (x1 - x0 < 4 || y1 - y0 < 4) return;
     const out = document.createElement('canvas');
-    out.width = 320; out.height = 240;
-    const k = Math.min(out.width / (x1 - x0), out.height / (y1 - y0));
-    const w = (x1 - x0) * k, h = (y1 - y0) * k;
-    out.getContext('2d').drawImage(canvas, x0, y0, x1 - x0, y1 - y0, (out.width - w) / 2, (out.height - h) / 2, w, h);
-    await call('save_thumbnail', percorso, out.toDataURL('image/png'));
+    out.width = 480; out.height = 360;
+    if (x1 - x0 >= 4 && y1 - y0 >= 4) {
+      const k = Math.min(out.width / (x1 - x0), out.height / (y1 - y0));
+      const w = (x1 - x0) * k, h = (y1 - y0) * k;
+      const g2 = out.getContext('2d');
+      g2.imageSmoothingQuality = 'high';
+      g2.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, (out.width - w) / 2, (out.height - h) / 2, w, h);
+    }
+    // la vista torna com'era
+    nascosti.forEach(g => { g.visible = true; });
+    model.visible = modelPrima;
+    sel = selPrima; paint();
+    ridisegna();
+    if (x1 - x0 >= 4) await call('save_thumbnail', percorso, out.toDataURL('image/png'));
   } catch (e) { /* l'anteprima è una comodità: se non riesce, pazienza */ }
 }
 
@@ -5468,7 +5637,7 @@ async function start() {
   requestAnimationFrame(loop);
   introFine();
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), nuovo: k => newDialog(k), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
-    objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, THREE, get bendEdges() { return bendEdges; },
+    objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, foto: p => fotoAnteprima(p), THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo

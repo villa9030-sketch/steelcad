@@ -119,6 +119,15 @@ class Api:
     def extend_over_tab(self, fid, flid):
         return self._call(self._svc.extend_over_tab, fid, flid)
 
+    def sketch_delete_dimension(self, sid, did):
+        return self._call(self._svc.sketch_delete_dimension, sid, did)
+
+    def cut_contour_set(self, sid, campi):
+        return self._call(self._svc.cut_contour_set, sid, campi)
+
+    def sketch_hole_diameter(self, sid, eids, d):
+        return self._call(self._svc.sketch_hole_diameter, sid, eids, d)
+
     def sketch_hole_type(self, sid, eids, spec):
         return self._call(self._svc.sketch_hole_type, sid, eids, spec)
 

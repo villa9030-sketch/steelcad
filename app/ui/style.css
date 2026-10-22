@@ -345,11 +345,22 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 /* --- messaggi --- */
 #toasts { position: fixed; bottom: 244px; right: 324px; justify-items: end; display: grid; gap: 6px; z-index: 70; }
 .toast {
-  background: var(--tip-bg); color: #fff; padding: 8px 14px; border-radius: 4px; max-width: 640px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .2); animation: in .16s ease-out;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--tip-bg); color: #fff; padding: 9px 14px 9px 10px; border-radius: 8px; max-width: 640px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .28), 0 0 0 1px rgba(255, 255, 255, .06) inset; animation: in .22s cubic-bezier(.2, .8, .2, 1);
+  transition: opacity .2s ease, transform .2s ease;
 }
-.toast.err { background: var(--err); }
-@keyframes in { from { opacity: 0; transform: translateY(6px); } }
+.toast.via { opacity: 0; transform: translateX(12px); }
+.toast .ti { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  background: #4EA1FF; color: #0B1622; }
+.toast.ok .ti { background: #3DBE72; }
+.toast.err { background: #3A1715; box-shadow: 0 10px 28px rgba(0, 0, 0, .3), 0 0 0 1px rgba(229, 72, 77, .55) inset; }
+.toast.err .ti { background: #E5484D; color: #fff; }
+.toast .tt { line-height: 1.35; }
+.toast .ta { margin-left: 6px; background: transparent; color: #8CC0FF; border: 1px solid rgba(140, 192, 255, .45); border-radius: 5px;
+  padding: 3px 10px; font: inherit; font-weight: 600; cursor: pointer; }
+.toast .ta:hover { background: rgba(140, 192, 255, .14); }
+@keyframes in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 .xyz input, .lbl input, .xyz select, .lbl select { color: var(--ink); }
 .corner { display: grid; gap: 4px; margin-bottom: 6px; }
@@ -567,12 +578,16 @@ button, input, select, textarea { color: inherit; }
   background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 .home-cerca img { width: 13px; height: 13px; opacity: .6; }
 .home-cerca input { flex: 1; min-width: 0; background: none; border: 0; outline: none; }
-#home-recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-.home-rec { position: relative; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
-  overflow: hidden; cursor: pointer; }
-.home-rec:hover { border-color: var(--hover); }
-.home-rec .pic { height: 150px; display: flex; align-items: center; justify-content: center; background: linear-gradient(var(--view-top), var(--view-bot)); }
-.home-rec .pic img { max-width: 86%; max-height: 136px; object-fit: contain; }
+#home-recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+.home-rec { position: relative; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  overflow: hidden; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.home-rec:hover { border-color: var(--hover); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0, 0, 0, .18); }
+.home-rec .pic { height: 170px; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 38%, var(--view-top) 0%, var(--view-bot) 100%); }
+.home-rec .pic img { max-width: 92%; max-height: 158px; object-fit: contain; transition: transform .25s ease; }
+.home-rec:hover .pic img { transform: scale(1.035); }
+@media (prefers-reduced-motion: reduce) { .home-rec, .home-rec .pic img { transition: none; } .home-rec:hover { transform: none; } }
 .home-rec .pic img.icona { width: 40px; height: 40px; opacity: .6; }
 .home-rec .tipo { position: absolute; top: 8px; left: 8px; padding: 1px 7px; border-radius: 3px; background: var(--on-bg); color: var(--ink);
   font-size: 11px; font-weight: 600; letter-spacing: .03em; }

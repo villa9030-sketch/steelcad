@@ -40,3 +40,20 @@ def test_struttura_e_serie_e_tubi():
 def test_metodo_non_previsto():
     s = Service()
     assert not s.anteprima('save', ['x.steelcad'])['ok']                                        # niente file dalle anteprime
+
+
+def test_anteprima_delle_pieghe_sui_bordi():
+    """23/10, «anche per le pieghe la preview del su/giù, così non sbaglio il senso»: la flangia nuova provata su una
+    copia, su e giù danno pezzi diversi (sopra e sotto il piano), il progetto non cambia."""
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'P', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 1, 'k': 0.4})['ok']
+    prima = s.doc.to_dict()
+    zeta = {}
+    for verso in ('up', 'down'):
+        r = s.anteprima('add_flange', ['SM1', 'L1', {'length': '30', 'angle': '90', 'direction': verso, 'position': 'inside'}, None])
+        assert r['ok'], r
+        zs = [z for o in r['objects'] for z in o['positions'][2::3]]
+        zeta[verso] = (min(zs), max(zs))
+    assert zeta['up'][1] > 20 and zeta['down'][0] < -20
+    assert s.doc.to_dict() == prima
+    assert s.anteprima('add_flange', ['SM1', 'L1', {'length': '-5'}, None])['ok'] is False

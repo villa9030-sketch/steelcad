@@ -577,6 +577,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     from OCP.GeomAbs import GeomAbs_Plane
                     dati['face']['planar'] = BRepAdaptor_Surface(f).GetType() == GeomAbs_Plane
                     foro = self._foro_della_faccia(f, dati['face']['name'] or '')
+                    if not foro:
+                        cont = self._contorno_della_faccia(f, dati['face']['name'] or '')
+                        if cont:
+                            dati['contorno'] = cont
+                            dati['title'] = 'Taglio ' + ('rettangolare' if cont['tipo'] == 'rettangolo' else 'sagomato')
                     if foro:
                         dati['foro'] = foro
                         dati['title'] = f'Foro Ø{fmt_mm(round(foro["d"], 2))}'
@@ -1840,6 +1845,46 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return self._part_corner(sid, pid, d, 'chamfer')
         return self._sketch_change(f'Smusso {d}', lambda: sketch_more.chamfer(self.doc, sid, pid, _number(d)))
 
+    def sketch_delete_dimension(self, sid: str, did: str) -> dict:
+        """Toglie una quota dello sketch (23/10: «come faccio a eliminare delle quote che ho fatto?»). Il disegno resta
+        dov'è: quella misura torna libera."""
+        def fn():
+            sk = self.doc.sketch(sid)
+            c = sk.constraints.get(did)
+            if c is None:
+                raise SteelCADError('Questa quota non c’è più.', code='quota')
+            del sk.constraints[did]
+        return self._sketch_change('Quota tolta', fn)
+
+    def sketch_hole_diameter(self, sid: str, eids: list, d) -> dict:
+        """Il diametro dei fori già fatti (22/10: «dopo una foratura non posso più né stringerla né allargarla»): la
+        quota del cerchio nel suo disegno, o una nuova se il cerchio non ne ha; il taglio si rifà da solo."""
+        try:
+            d = _numero(d, 'il diametro')
+            if d <= 0:
+                raise SteelCADError('Il diametro del foro deve essere più di zero.', code='foro')
+        except SteelCADError as ex:
+            return _err(ex)
+
+        def fn():
+            sk = self.doc.sketch(sid)
+            cerchi = [e for e in eids if sk.entities.get(e, {}).get('kind') == 'circle' and not sk.entities[e].get('ref')]
+            if not cerchi:
+                raise SteelCADError('Scegli uno o più cerchi (i fori).', code='foro')
+            for e in cerchi:
+                h = sk.entities[e].get('hole') or {}
+                if h.get('tipo') == 'filettato':
+                    raise SteelCADError('Il foro filettato ha il diametro della filettatura: cambia la M (o rendilo '
+                                        'semplice).', code='foro')
+                q = next((k for k, c in sk.constraints.items() if c['type'] in ('diameter', 'radius') and c['refs'] == [e]
+                          and not c.get('driven')), None)
+                if q is not None:
+                    c = sk.constraints[q]
+                    c['value'] = sketch_ops._r(d if c['type'] == 'diameter' else d / 2)
+                else:
+                    sketch_edit.add_dimension(self.doc, sid, 'diameter', [e], d)
+        return self._sketch_change(f'Foro Ø{fmt_mm(d)}', fn)
+
     def sketch_hole_type(self, sid: str, eids: list, spec: dict | None) -> dict:
         """Tipo di foro per i cerchi scelti: semplice (None), svasato {'tipo': 'svasato', 'D': 12, 'angolo': 90}
         o filettato {'tipo': 'filettato', 'M': 'M6'} (il cerchio diventa il preforo della filettatura)."""
@@ -1909,6 +1954,150 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             ent['hole'] = {'tipo': 'svasato', 'D': D, 'angolo': ang}
         else:
             raise SteelCADError(f'Tipo di foro "{tipo}" sconosciuto.', code='foro')
+
+    def _contorno_della_faccia(self, f, nome: str) -> dict | None:
+        """Hai cliccato la parete di un taglio non tondo (rettangolo, asola, contorno raccordato): quale contorno di
+        quale disegno l'ha fatto, e le sue misure da cambiare lì (22/10: «è applicato anche ai rettangoli con
+        eventuali raggi?»). Rettangoli (anche raccordati o smussati): larghezza, altezza, posizione dall'origine del
+        disegno, raggi. Altri contorni: le quote che ci sono. None se non si riconosce."""
+        import math as _m
+
+        import build123d as bd
+        prima = nome.split('/')[0] if nome else None
+        t = next((x for x in self.doc.features if not isinstance(x, Sketch) and x.get('id') == prima and x.get('sketch')
+                  and ((x.get('type') == 'sheet_cut' and x.get('mode') not in ('add', 'mark'))
+                       or (x.get('type') == 'extrude' and x.get('operation') == 'cut'))), None)
+        if t is None:
+            return None
+        sid = t['sketch']
+        fatto = (self.doc._sketch_results or {}).get(sid)
+        if not fatto or fatto[1] is None:
+            return None
+        ss, pl = fatto[0], fatto[1].plane
+        sk = self.doc.sketch(sid)
+        if isinstance(sk.plane, dict) and sk.plane.get('flat'):
+            return None                                   # disegnato sullo sviluppo: il pezzo piegato non è il suo piano
+        q = pl.to_local_coords(bd.Face(f).center())
+        P = ss.points
+        vivi = lambda k: not sk.entities[k].get('construction') and not sk.entities[k].get('ref')  # noqa: E731
+
+        def dist_seg(p, a, b):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            L2 = dx * dx + dy * dy or 1e-12
+            u = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2))
+            return _m.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dy)
+        cand = []
+        for k, (a, b) in ss.lines.items():
+            if vivi(k):
+                cand.append((dist_seg((q.X, q.Y), P[a], P[b]), k))
+        for k, (c, a, b, r) in ss.arcs.items():
+            if vivi(k):
+                cand.append((abs(_m.dist((q.X, q.Y), P[c]) - r), k))
+        if not cand:
+            return None
+        d0, k0 = min(cand)
+        if d0 > 2.0:
+            return None
+        # il contorno: le linee e gli archi collegati (per posizione: punti sovrapposti contano come uno)
+        chiave = lambda pid: (round(P[pid][0], 4), round(P[pid][1], 4))  # noqa: E731
+        estremi = {}
+        for k, (a, b) in ss.lines.items():
+            if vivi(k):
+                estremi[k] = (chiave(a), chiave(b))
+        for k, (c, a, b, r) in ss.arcs.items():
+            if vivi(k):
+                estremi[k] = (chiave(a), chiave(b))
+        contorno, coda = {k0}, [k0]
+        while coda:
+            x = coda.pop()
+            for k, ee in estremi.items():
+                if k not in contorno and set(ee) & set(estremi[x]):
+                    contorno.add(k)
+                    coda.append(k)
+        linee = [k for k in contorno if k in ss.lines]
+        archi = [k for k in contorno if k in ss.arcs]
+        campi = []
+        vert = [k for k in linee if abs(P[ss.lines[k][0]][0] - P[ss.lines[k][1]][0]) < 1e-6]
+        oriz = [k for k in linee if abs(P[ss.lines[k][0]][1] - P[ss.lines[k][1]][1]) < 1e-6]
+        if len(vert) >= 2 and len(oriz) >= 2:
+            sx = min(vert, key=lambda k: P[ss.lines[k][0]][0])
+            dx = max(vert, key=lambda k: P[ss.lines[k][0]][0])
+            sotto = min(oriz, key=lambda k: P[ss.lines[k][0]][1])
+            sopra = max(oriz, key=lambda k: P[ss.lines[k][0]][1])
+            psx, pdx = ss.lines[sx][0], ss.lines[dx][0]
+            pso, psp = ss.lines[sotto][0], ss.lines[sopra][0]
+            campi += [
+                {'label': 'Larghezza', 'value': round(P[pdx][0] - P[psx][0], 4), 'kind': 'hdistance', 'refs': [psx, pdx]},
+                {'label': 'Altezza', 'value': round(P[psp][1] - P[pso][1], 4), 'kind': 'vdistance', 'refs': [pso, psp]},
+                {'label': 'Da sinistra (dall’origine)', 'value': round(P[psx][0], 4), 'kind': 'hdistance', 'refs': ['O', psx]},
+                {'label': 'Dal basso (dall’origine)', 'value': round(P[pso][1], 4), 'kind': 'vdistance', 'refs': ['O', pso]},
+            ]
+        raggi = {}
+        for k in archi:
+            raggi.setdefault(round(ss.arcs[k][3], 4), []).append(k)
+        for r, ks in sorted(raggi.items()):
+            campi.append({'label': 'Raggio' + (f' (× {len(ks)})' if len(ks) > 1 else ''), 'value': r, 'kind': 'radius',
+                          'refs': ks})
+        if not campi:
+            # un contorno qualsiasi: le quote che ci sono sui suoi elementi
+            punti = {p for k in contorno for p in (ss.lines.get(k) or ss.arcs.get(k)[:3])}
+            for did, c in sk.constraints.items():
+                if c['type'] in ('length', 'radius', 'diameter', 'distance', 'hdistance', 'vdistance', 'angle') \
+                        and not c.get('driven') and any(r in contorno or r in punti for r in c['refs']):
+                    campi.append({'label': sk.describe_constraint(did), 'value': ss.values.get(did, c['value']), 'dim': did})
+        if not campi:
+            return None
+        return {'sketch': sid, 'feature': t['id'], 'campi': campi,
+                'tipo': 'rettangolo' if len(vert) >= 2 and len(oriz) >= 2 else 'contorno'}
+
+    def cut_contour_set(self, sid: str, campi: list) -> dict:
+        """Le misure cambiate di un contorno tagliato: per ogni campo {kind, refs, value} (o {dim, value}) la quota
+        nel disegno, nuova se non c'è; se la misura la decide già un'altra quota, quella si cambia."""
+        try:
+            lavori = []
+            for c in campi or []:
+                v = _numero(c.get('value'), c.get('label') or 'la misura')
+                if c.get('kind') in ('radius',) and v <= 0:
+                    raise SteelCADError('Il raggio deve essere più di zero (per lo spigolo vivo: Raccordo con 0).', code='taglio')
+                if c.get('label', '').startswith(('Larghezza', 'Altezza')) and v <= 0:
+                    raise SteelCADError(f'{c["label"]}: deve essere più di zero.', code='taglio')
+                lavori.append((c, v))
+        except SteelCADError as ex:
+            return _err(ex)
+        avvisi = []
+
+        def fn():
+            sk = self.doc.sketch(sid)
+            for c, v in lavori:
+                if c.get('dim'):
+                    sk.set_value(c['dim'], v)
+                    continue
+                refs = list(c['refs'])
+                kind = c['kind']
+                if kind == 'radius':
+                    for a in refs:
+                        q = next((k for k, x in sk.constraints.items() if x['type'] == 'radius' and x['refs'] == [a]
+                                  and not x.get('driven')), None)
+                        if q:
+                            sk.constraints[q]['value'] = sketch_ops._r(v)
+                        else:
+                            info = {}
+                            did = sketch_edit.add_dimension(self.doc, sid, 'radius', [a], v, info)
+                            sk.constraints[did]['value'] = sketch_ops._r(v)
+                    continue
+                info = {}
+                did = sketch_edit.add_dimension(self.doc, sid, kind, refs, v, info)
+                c2 = sk.constraints[did]
+                if info.get('guidata'):
+                    avvisi.append(c.get('label', 'la misura'))
+                    continue
+                # la quota può essere stata girata (verso positivo): il valore resta la distanza
+                c2['value'] = sketch_ops._r(abs(v) if kind in ('hdistance', 'vdistance') else v)
+        r = self._sketch_change('Misure del taglio', fn)
+        if r.get('ok') and avvisi:
+            r['message'] = (f'{", ".join(avvisi)}: la decide già il disegno (bordi o vincoli). Cambiala dal disegno '
+                            '(«Modifica il disegno»).')
+        return r
 
     def _foro_della_faccia(self, f, nome: str) -> dict | None:
         """Hai cliccato la parete di un foro sul pezzo: quale cerchio di quale sketch l'ha fatto (centro sull'asse del
@@ -3400,7 +3589,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
 
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
     ANTEPRIMA_OK = {'fai_tubi', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
-                    'add_edge_dress'}
+                    'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear'}
 
     def anteprima(self, metodo: str, args: list) -> dict:
         """L'anteprima di un comando (22/10, «ci deve essere SEMPRE una preview»): lo stesso comando provato su una

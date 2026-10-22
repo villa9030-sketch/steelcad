@@ -1113,8 +1113,9 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
     xd = np.cross(up, d)
     P2 = lambda p3: TI((float(np.dot(p3, xd)), float(np.dot(p3, up))))  # noqa: E731
     # linee di montaggio: dal centro del pezzo esploso a dove va montato
-    for (num, sh), c, dd in zip(forme, centri, spost):
-        if np.linalg.norm(dd) > 1e-6:
+    for k, ((num, sh), c, dd) in enumerate(zip(forme, centri, spost)):
+        attaccato = figli[k] is not None and not figli[k][2]        # va insieme al suo pezzo: la linea è la sua
+        if np.linalg.norm(dd) > 1e-6 and not attaccato:
             f.line('nascoste', P2(c + dd), P2(c))
     palloncini, fatti = [], set()
     cx = oxi + wi * si / 2
