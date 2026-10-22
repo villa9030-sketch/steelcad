@@ -1,11 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Plane angle</title>
-  <path d="M8 37.37L32 51.37L32 58.37L8 44.37Z" fill="#b8c3cf"/>
-  <path d="M32 51.37L56 37.37L56 44.37L32 58.37Z" fill="#8e9faf"/>
-  <path d="M8 37.37L32 23.37L56 37.37L32 51.37Z" fill="#e2e8ef"/>
-  <path d="M8 37.37L32 23.37L56 37.37L56 44.37L32 58.37L8 44.37Z" fill="none" stroke="#34465b" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M32 51.37L8 37.37" fill="none" stroke="#34465b" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M32 51.37L56 37.37" fill="none" stroke="#34465b" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M32 51.37L32 58.37" fill="none" stroke="#34465b" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M12 18.37L36 4.37L56 37.37L32 51.37Z" fill="#b9ddf8" stroke="#236ead" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="0.1 5"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M5 22 H25 M5 22 L19 5.5" stroke="#8591A0" stroke-width="2"/><path d="M16 22 L15.9836 21.4003 L15.9346 20.8025 L15.8531 20.2081 L15.7393 19.6192 L15.5935 19.0373 L15.4162 18.4642 L15.208 17.9016 L14.9694 17.3512 L14.7011 16.8146 L14.404 16.2935 L14.079 15.7893 L13.7269 15.3036 L13.3489 14.8378 L12.946 14.3934 L12.5195 13.9715 L13.8664 15.1658" stroke="#1F4FE8" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M15.43 14.01 L12.07 13.57 L12.91 16.85Z" fill="#1F4FE8"/><rect x="2.8" y="19.8" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/></svg>

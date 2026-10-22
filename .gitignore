@@ -6,3 +6,4 @@ __pycache__/
 *.autosave
 *.bak
 out/
+app/ui/icons_nuove/

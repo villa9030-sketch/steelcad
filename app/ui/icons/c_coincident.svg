@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Coincident</title>
-  <path d="M10.4 42.32L32 27.92" fill="none" stroke="#34465b" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M32 27.92L53.6 37.52" fill="none" stroke="#34465b" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M25.76 27.92A6.24 6.24 0 1 0 38.24 27.92A6.24 6.24 0 1 0 25.76 27.92Z" fill="#b9ddf8" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M4 22 L14 14 M14 14 L24 18" stroke="#8591A0" stroke-width="2"/><circle cx="14" cy="14" r="4" fill="url(#bl)" stroke="#FFFFFF" stroke-width="1.2"/></svg>

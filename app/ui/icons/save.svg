@@ -1,11 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Save</title>
-  <defs>
-    <mask id="save3-slots" maskUnits="userSpaceOnUse" x="-32" y="-32" width="128" height="128">
-      <path d="M-32 -32L96 -32L96 96L-32 96Z" fill="white"/>
-      <path d="M25.5 9L35.5 9A3.5 3.5 0 0 1 39 12.5L39 19.5A3.5 3.5 0 0 1 35.5 23L25.5 23A3.5 3.5 0 0 1 22 19.5L22 12.5A3.5 3.5 0 0 1 25.5 9Z" fill="black"/>
-      <path d="M25 34L39 34A4.5 4.5 0 0 1 43.5 38.5L43.5 43.5A4.5 4.5 0 0 1 39 48L25 48A4.5 4.5 0 0 1 20.5 43.5L20.5 38.5A4.5 4.5 0 0 1 25 34Z" fill="black"/>
-    </mask>
-  </defs>
-  <path d="M19 10L40.5 10Q43 10 44.8 11.8L52.2 19.2Q54 21 54 23.5L54 45Q54 54 45 54L19 54Q10 54 10 45L10 19Q10 10 19 10Z" fill="currentColor" mask="url(#save3-slots)"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M4 6 A2 2 0 0 1 6 4 H20 L24 8 V22 A2 2 0 0 1 22 24 H6 A2 2 0 0 1 4 22 Z" fill="url(#ac)" stroke="#5D6773" stroke-width="1"/><rect x="8.5" y="4" width="10" height="6.5" fill="url(#bl)" stroke="#0A2A9E" stroke-width=".8"/><rect x="7.5" y="14.5" width="13" height="9.5" rx="1" fill="#FFFFFF" stroke="#5D6773" stroke-width="1"/><path d="M10 18 H18 M10 21 H16" stroke="#9AA5B1" stroke-width="1"/></svg>

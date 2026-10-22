@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Zoom</title>
-  <path d="M38.5 38.5L52 52" fill="none" stroke="currentColor" stroke-width="5.6" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="27" cy="27" r="15" fill="none" stroke="currentColor" stroke-width="5.6" stroke-linejoin="round" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M17.5 17.5 L24 24" stroke="#5D6773" stroke-width="5"/><path d="M17.5 17.5 L24 24" stroke="url(#ac)" stroke-width="3.4"/><circle cx="11.5" cy="11.5" r="8" fill="url(#ac)" stroke="#5D6773" stroke-width="1"/><circle cx="11.5" cy="11.5" r="5.6" fill="url(#bl)"/><path d="M8.4 9.2 A4 4 0 0 1 11 7.6" stroke="#FFFFFF" stroke-width="1.2" opacity=".8"/><path d="M11.5 9 V14 M9 11.5 H14" stroke="#FFFFFF" stroke-width="1.6"/></svg>

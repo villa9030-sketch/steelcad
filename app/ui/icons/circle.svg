@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Centre circle</title>
-  <path d="M10 32A22 22 0 1 0 54 32A22 22 0 1 0 10 32Z" fill="#b9ddf8" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="32" cy="32" r="5.8" fill="#ffffff"/>
-  <circle cx="32" cy="32" r="3.4" fill="#236ead"/>
-  <circle cx="51.05" cy="21" r="5.8" fill="#ffffff"/>
-  <circle cx="51.05" cy="21" r="3.4" fill="#236ead"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><circle cx="13" cy="15" r="9" stroke="#1F4FE8" stroke-width="2.2"/><path d="M13 15 L19.4 8.6" stroke="#8591A0" stroke-width="1.2" stroke-dasharray="2 1.6"/><rect x="10.8" y="12.8" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/><rect x="17.2" y="6.4" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/></svg>

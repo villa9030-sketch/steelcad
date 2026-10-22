@@ -1,10 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Three-point arc</title>
-  <path d="M8 46A24 24 0 0 1 56 46" fill="none" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="8" cy="46" r="5.8" fill="#ffffff"/>
-  <circle cx="8" cy="46" r="3.4" fill="#236ead"/>
-  <circle cx="56" cy="46" r="5.8" fill="#ffffff"/>
-  <circle cx="56" cy="46" r="3.4" fill="#236ead"/>
-  <circle cx="32" cy="22" r="5.8" fill="#ffffff"/>
-  <circle cx="32" cy="22" r="3.4" fill="#236ead"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M4.34 17.41 L4.89 15.87 L5.69 14.44 L6.70 13.16 L7.91 12.07 L9.29 11.18 L10.79 10.53 L12.37 10.13 L14.00 10.00 L15.63 10.13 L17.21 10.53 L18.71 11.18 L20.09 12.07 L21.30 13.16 L22.31 14.44 L23.11 15.87 L23.66 17.41" stroke="#1F4FE8" stroke-width="2.2"/><rect x="2.14074" y="15.2118" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/><rect x="11.8" y="7.8" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/><rect x="21.4593" y="15.2118" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/></svg>

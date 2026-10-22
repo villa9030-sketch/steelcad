@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>DXF</title>
-  <path d="M14 6L38 6L52 20L52 58L14 58Z" fill="#e2e8ef"/>
-  <path d="M14 6L38 6L52 20L52 58L14 58Z" fill="none" stroke="#34465b" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M38 6L38 20L52 20" fill="none" stroke="#34465b" stroke-width="2.55" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M21 43A8 8 0 1 0 37 43A8 8 0 1 0 21 43Z" fill="none" stroke="#236ead" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M21 29L43 29" fill="none" stroke="#236ead" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M6 3 H17 L22 8 V25 H6 Z" fill="url(#ac)" stroke="#5D6773" stroke-width="1"/><path d="M17 3 V8 H22" fill="#E9EDF1" stroke="#5D6773" stroke-width="1"/><rect x="2.5" y="14" width="19" height="8" rx="1.5" fill="url(#bl)"/><text x="12" y="20.4" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="700" font-size="6.4" fill="#FFFFFF">DXF</text></svg>

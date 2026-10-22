@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Construction</title>
-  <path d="M13 51L19 45M25 39L31 33M37 27L43 21M49 15L51 13" fill="none" stroke="#6f879c" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M10 54L12 52" fill="none" stroke="#6f879c" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="12" cy="52" r="3.07" fill="#6f879c"/>
-  <circle cx="52" cy="12" r="3.07" fill="#6f879c"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M5 23 L23 5" stroke="#1F4FE8" stroke-width="2" stroke-dasharray="3.2 2.4"/><rect x="2.6" y="20.6" width="4.8" height="4.8" rx="1" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.4" stroke-dasharray="1.4 1"/><rect x="20.6" y="2.6" width="4.8" height="4.8" rx="1" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.4" stroke-dasharray="1.4 1"/></svg>

@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Extend</title>
-  <path d="M7.16 22.06L32.16 22.06" fill="none" stroke="#8e9faf" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M32.16 22.06L57.16 22.06" fill="none" stroke="#236ead" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="0.1 5.6"/>
-  <path d="M34.16 38.06L50.16 38.06" fill="none" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M57.16 38.06L46.16 44.06L46.16 32.06Z" fill="#236ead"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M23 4 V24" stroke="#8591A0" stroke-width="2"/><path d="M4 14 H12" stroke="#1F4FE8" stroke-width="2.2"/><path d="M12 14 H17.5" stroke="#1F4FE8" stroke-width="1.8" stroke-dasharray="2 1.6"/><path d="M12 14 L20.1 14" stroke="#1F4FE8" stroke-width="0.01" fill="none" stroke-linecap="round"/><path d="M19.70 15.90 L22.50 14.00 L19.70 12.10Z" fill="#1F4FE8"/><rect x="1.8" y="11.8" width="4.4" height="4.4" rx=".9" fill="#FFFFFF" stroke="#1F4FE8" stroke-width="1.5"/></svg>

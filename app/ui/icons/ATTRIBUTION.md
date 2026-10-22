@@ -1,17 +1,13 @@
 # Icone
 
-Le icone SVG di questa cartella vengono da **SolidCraft**
-(https://github.com/tangency-labs/solidcraft, commit 2b8e85a7c60b3cff0ef694d26a12ccadb304d345,
-cartella `assets/icons/ui/design/svg/`).
+Le icone SVG di questa cartella sono disegnate per SteelCAD (stile «acciaio»: pezzi in acciaio satinato, in blu
+quello che fa il comando; schizzo a tratto blu con maniglie bianche; vincoli in grigio col simbolo blu).
 
-Copyright (c) 2026 SolidCraft contributors. Distribuite con licenza MIT oppure Apache-2.0, a scelta
-(`LICENSE-MIT`, `LICENSE-APACHE` in questa cartella). Sono disegni originali di SolidCraft (non presi da
-prodotti CAD commerciali). In SteelCAD si usano senza modifiche; se se ne aggiungono altre, vanno copiate
-dalla stessa cartella e citate qui.
+Non si modificano a mano: si generano con
 
-Aggiunte il 21/10/2026 (accoppiamenti), dalla stessa cartella e commit: c_parallel, c_perpendicular, c_tangent,
-c_symmetry, c_fix, plane_angle.
-text (21/10/2026), dalla stessa cartella e commit.
-c_collinear, c_coincident (21/10/2026), dalla stessa cartella e commit.
-fastener (21/10/2026), dalla stessa cartella e commit.
-explode (21/10/2026), dalla stessa cartella e commit.
+    python tools/icone_acciaio.py
+
+che scrive `app/ui/icons_nuove/acciaio/*.svg` (da copiare qui) e la pagina di controllo `app/ui/icons_nuove/acciaio.html`.
+Per un comando nuovo: aggiungere l'icona in `tools/icone_acciaio.py` con le stesse regole e rigenerare.
+
+Fino al 23/10/2026 qui c'erano le icone di SolidCraft (MIT / Apache-2.0); sono state tutte sostituite.

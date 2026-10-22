@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>Offset</title>
-  <path d="M8 56L8 28A20 20 0 0 1 28 8L56 8" fill="none" stroke="#8e9faf" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M24 56L24 32A8 8 0 0 1 32 24L56 24" fill="none" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="ac" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFB"/><stop offset=".55" stop-color="#CDD4DB"/><stop offset="1" stop-color="#8E99A6"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6D95FF"/><stop offset=".55" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0A2A9E"/></linearGradient></defs><path d="M12 24 V15 A3 3 0 0 1 15 12 H24" stroke="#8591A0" stroke-width="2.2"/><path d="M5 24 V12 A7 7 0 0 1 12 5 H24" stroke="#1F4FE8" stroke-width="2.2"/><path d="M15.5 9.5 V7.5 M15.5 9.5" stroke="#8591A0" stroke-width="1"/><path d="M18.5 11 L18.5 8.6" stroke="#1F4FE8" stroke-width="1.2" fill="none" stroke-linecap="round"/><path d="M20.40 9.00 L18.50 6.20 L16.60 9.00Z" fill="#1F4FE8"/></svg>

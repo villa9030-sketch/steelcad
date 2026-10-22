@@ -483,7 +483,7 @@ body.dark #top { background: #101215; }
 body.dark .rtabs button.on, body.dark .rtabs button:hover { color: #8CC0FF; }
 body.dark .rtabs button.on { border-bottom-color: #8CC0FF; }
 body.dark .rb img, body.dark #navbar img, body.dark #tree .k img, body.dark .cube-home img {
-  filter: invert(.88) hue-rotate(180deg) brightness(1.15); }          /* icone pensate per il chiaro: luminosità rovesciata, colori tenuti */
+  filter: none; }          /* le icone in acciaio (23/10) stanno bene anche sullo scuro: niente più colori rovesciati */
 body.dark #viewcube .cf { background: rgba(48, 55, 63, .94); color: #C9D2DB; border-color: #5A6672; }
 body.dark #viewcube .cf:hover { background: #27486E; color: #fff; }
 body.dark .dim { border-color: #4A6A8E; color: #8CC0FF; }
@@ -604,7 +604,7 @@ button, input, select, textarea { color: inherit; }
 .home-unsaved div { flex: 1; }
 .home-unsaved b { color: var(--warn); margin-right: 10px; }
 .home-unsaved span { color: var(--ink-2); }
-body.dark .home-rec img.icona, body.dark .home-apri img, body.dark .home-cerca img { filter: invert(.88) hue-rotate(180deg) brightness(1.15); }
+body.dark .home-rec img.icona, body.dark .home-apri img, body.dark .home-cerca img { filter: none; }
 @media (max-width: 900px) { #home { flex-direction: column; } .home-side { width: auto; border-right: 0; border-bottom: 1px solid var(--line); } }
 /* sottomenu (Apri recenti, Importa, Esporta) */
 .sub-item { position: relative; }
@@ -640,7 +640,7 @@ body.at-home #doctab, body.at-home #top > .tbtn, body.at-home #top > .menu-item:
 .ibtn { background: none; border: 1px solid transparent; border-radius: 6px; padding: 5px; line-height: 0; }
 .ibtn img { width: 18px; height: 18px; opacity: .75; }
 .ibtn.danger:hover { border-color: var(--err); background: rgba(240, 123, 112, .12); }
-body.dark .ibtn img { filter: invert(.88) hue-rotate(180deg) brightness(1.15); }
+body.dark .ibtn img { filter: none; }
 .ff { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
 .ff label { display: grid; gap: 3px; font-size: 12px; color: var(--ink-2); }
 .ff .inp { position: relative; display: block; }
