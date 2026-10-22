@@ -127,7 +127,7 @@ class Sketch:
         self.entities[cid] = {'kind': 'circle', 'center': self._pt(center), 'r': float(r), 'construction': construction}
         return cid
 
-    def text(self, anchor, testo: str, h: float, angolo: float = 0.0) -> str:
+    def text(self, anchor, testo: str, h: float, angolo: float = 0.0, stencil: str | None = None) -> str:
         """Un testo da marcare: il punto in basso a sinistra (anchor), il testo, l'altezza delle maiuscole, l'angolo."""
         if not str(testo).strip():
             raise SketchError('Scrivi il testo da marcare.')
@@ -136,6 +136,8 @@ class Sketch:
         tid = self._new_id('T', self.entities)
         self.entities[tid] = {'kind': 'text', 'center': self._pt(anchor), 'text': str(testo), 'h': float(h),
                               'angle': float(angolo)}
+        if stencil:
+            self.entities[tid]['stencil'] = stencil          # da tagliare: contorni chiusi (non da marcare)
         return tid
 
     def arc(self, center, start, end, *, construction: bool = False) -> str:

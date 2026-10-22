@@ -227,9 +227,8 @@ def build_edge_flange(fdef: dict, ctx):
             if -1e-6 <= x <= dritto + 1e-6:
                 nuovo.names.setdefault(n_f, []).append(f)
         mappa[n_f] = (bd.Plane(origin=p, x_dir=T, z_dir=T.cross(e)), dst_p, verso)
-    for f in _faces_of(nuovo.shape):
-        if not nuovo.names_of(f):
-            nuovo.names.setdefault(f'{fid}/piega', []).append(f)
+    for f in nuovo.senza_nome():
+        nuovo.names.setdefault(f'{fid}/piega', []).append(f)
     riga = {'flange': fid, 'edge': 'bordo libero', 'parent': None, 'length': lung, 'line_at': None,
             'direction': 'up' if sig > 0 else 'down', 'position': 'outside', 'width': L_edge, **piega.as_dict()}
     nuovo.sheet = dataclasses.replace(data, flat=flat, flat_area=flat.area, flat_size=flat_size(flat, data.plane),

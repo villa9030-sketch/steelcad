@@ -1392,14 +1392,18 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
                                    lambda: sketch_ops.add_circle(self.doc, sid, center, r, construction))
 
-    def sketch_add_text(self, sid: str, pos, testo: str, h, angolo=0) -> dict:
-        """Un testo da marcare col laser (numeri, codici, sigle): poi «Marca col laser»."""
+    def sketch_add_text(self, sid: str, pos, testo: str, h, angolo=0, stencil=None) -> dict:
+        """Un testo da marcare col laser (numeri, codici, sigle): poi «Marca col laser». Con stencil ('saira' o
+        'allerta') le lettere sono contorni chiusi da tagliare: poi «Togli materiale»."""
         try:
             pos, h = _punto(pos, 'la posizione'), _numero(h, 'l’altezza')
             angolo = _numero(angolo or 0, 'l’angolo')
+            if stencil and stencil not in ('saira', 'allerta'):
+                raise SteelCADError(f'Carattere «{stencil}» sconosciuto.', code='testo')
         except SteelCADError as ex:
             return _err(ex)
-        return self._sketch_change(f'Testo «{str(testo)[:20]}»', lambda: sketch_ops.add_text(self.doc, sid, pos, testo, h, angolo))
+        return self._sketch_change(f'Testo «{str(testo)[:20]}»',
+                                   lambda: sketch_ops.add_text(self.doc, sid, pos, testo, h, angolo, stencil or None))
 
     def sketch_add_slot(self, sid: str, c1, c2, r, construction: bool = False) -> dict:
         try:

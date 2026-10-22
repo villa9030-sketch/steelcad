@@ -4023,20 +4023,28 @@ function skPlace(c) {
     }
   } else if (SK.tool === 'text') {
     const sid = SK.sid;
-    const ultimo = SK.lastText || { text: '', h: 5, angle: 0 };
-    modal(`<h3>Testo da marcare</h3>
-      <p class="hint">Va sul layer di marcatura del DXF (MARK): il laser lo segna in una passata, lettere a tratto singolo.</p>
+    const ultimo = SK.lastText || { text: '', h: 5, angle: 0, come: '' };
+    modal(`<h3>Testo</h3>
       <div class="form"><label style="grid-column:1/-1">Testo<input class="field" id="tx-t" value="${esc(ultimo.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
+        <label style="grid-column:1/-1">Come<select class="field" id="tx-c">
+          <option value=""${!ultimo.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option>
+          <option value="saira"${ultimo.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
+          <option value="allerta"${ultimo.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option></select></label>
         <label>Altezza<span class="inp"><input class="field" id="tx-h" value="${esc(String(ultimo.h).replace('.', ','))}"><i>mm</i></span></label>
         <label>Angolo<span class="inp"><input class="field" id="tx-a" value="${esc(String(ultimo.angle).replace('.', ','))}"><i>°</i></span></label></div>
+      <p class="hint" id="tx-hint"></p>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti il testo</button></div>`, close => {
       $('#m-no').onclick = close;
+      const spiega = () => { $('#tx-hint').textContent = $('#tx-c').value
+        ? 'Lettere stencil a contorno chiuso, coi ponticelli (le isole di O, A, B… non cadono): poi «Togli materiale».'
+        : 'Il laser lo segna in una passata (lettere a tratto singolo): poi «Marca col laser».'; };
+      $('#tx-c').onchange = spiega; spiega();
       const vai = () => {
-        const t = $('#tx-t').value, h = $('#tx-h').value.trim(), a = $('#tx-a').value.trim() || '0';
+        const t = $('#tx-t').value, h = $('#tx-h').value.trim(), a = $('#tx-a').value.trim() || '0', come = $('#tx-c').value;
         if (!t.trim()) { toast('Scrivi il testo.', 'err'); return; }
-        SK.lastText = { text: t, h, angle: a };
+        SK.lastText = { text: t, h, angle: a, come };
         close();
-        inCoda(async () => { await apply(await call('sketch_add_text', sid, ptArg(p), t, h, a)); });
+        inCoda(async () => { await apply(await call('sketch_add_text', sid, ptArg(p), t, h, a, come || null)); });
       };
       $('#m-ok').onclick = vai;
       $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') vai(); };

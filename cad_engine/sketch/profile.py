@@ -101,6 +101,15 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
 
     chiusi, sciolte = _loops(sk, open_edges)
     loops = [bd.Wire([e]) for _, e in circles] + chiusi
+    # i testi da tagliare: ogni contorno di lettera è un contorno chiuso (22/10)
+    for e in sk.entities.values():
+        if e['kind'] != 'text' or not e.get('stencil') or e['center'] not in ss.points:
+            continue
+        from . import testo as testo_mod
+        x, y = ss.points[e['center']]
+        for giro in testo_mod.contorni(e['text'], e['h'], x, y, e.get('angle', 0), e['stencil']):
+            if len(giro) >= 3 and abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(giro, giro[1:] + giro[:1]))) > 1e-4:
+                loops.append(bd.Wire.make_polygon([plane.from_local_coords(q) for q in giro], close=True))
     if sciolte and not loops:
         # niente di chiuso: è davvero un contorno aperto (o lo scheletro di una struttura)
         x, y = sciolte[0][1]

@@ -1444,7 +1444,7 @@ def _ear_names(ns, data, orecchie, fid, t):
     come i tratti dei profili: un foro disegnato lì va al suo posto nello sviluppo."""
     from ..topology.naming import _faces_of
     mappa = dict(getattr(data, 'pannelli', None) or {})
-    facce = [(f, bd.Face(f)) for f in _faces_of(ns.shape) if not ns.names_of(f)]
+    facce = [(f, bd.Face(f)) for f in ns.senza_nome()]
     for o in orecchie:
         g, sg, r, b = o['g'], o['sg'], o['r'], o['bend']
         dvec, nrm, fuori, nb, th, base, C, dir_, T = _ear_geo(o, t)
@@ -1758,7 +1758,7 @@ def _marca(fdef, body, data, ss, prof, fid):
     pl = prof.plane
     tratti = []
     for e in sk.entities.values():
-        if e['kind'] == 'text' and e['center'] in ss.points:
+        if e['kind'] == 'text' and e['center'] in ss.points and not e.get('stencil'):
             x, y = ss.points[e['center']]
             tratti += testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0))
     if not tratti:
@@ -1831,9 +1831,8 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     tolto = volume(body.shape) - volume(nuovo.shape)
     if tolto < 1e-6:
         raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
-    for f in _faces_of(nuovo.shape):
-        if not nuovo.names_of(f):
-            nuovo.names.setdefault(f'{fid}/parete', []).append(f)
+    for f in nuovo.senza_nome():
+        nuovo.names.setdefault(f'{fid}/parete', []).append(f)
     # sviluppo: lo stesso contorno, in piano
     flat = data.flat
     for _, _, f2 in lavori:
@@ -1917,9 +1916,8 @@ def _add_tab(fdef, body, data, lavori, t):
     if messo < 1e-6:
         raise FeatureError('Il contorno sta tutto dentro la faccia: non aggiunge niente. Disegnalo fuori, attaccato al bordo.',
                            feature=fid)
-    for f in _faces_of(nuovo.shape):
-        if not nuovo.names_of(f):
-            nuovo.names.setdefault(f'{fid}/linguetta', []).append(f)
+    for f in nuovo.senza_nome():
+        nuovo.names.setdefault(f'{fid}/linguetta', []).append(f)
     nuovo = _unisci_facce(nuovo)                # la linguetta e la faccia su cui è disegnata diventano una faccia sola
     flat = data.flat
     for _, _, f2 in lavori:
@@ -2237,9 +2235,8 @@ def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
         sheet = ns.sheet
         ns = ns.after(op, op.Shape())
         ns.sheet = sheet
-        for f in _faces_of(ns.shape):
-            if not ns.names_of(f):
-                ns.names.setdefault(f'{fid}/svasatura', []).append(f)
+        for f in ns.senza_nome():
+            ns.names.setdefault(f'{fid}/svasatura', []).append(f)
     return ns
 
 
@@ -2296,7 +2293,13 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     def tutto_dentro(x, bx):
         if any(sovrappone(bx, b) for b in buchi):
             return False
-        return all(esterno.is_inside(p) for e in x.edges() for p in e.positions([0, 0.25, 0.5, 0.75]))
+        es = x.edges()
+        if len(es) > 8:                        # un contorno a tanti lati (lettere, poligoni): bastano i suoi vertici, una ventina
+            vs = [bd.Vector(v) for v in x.vertices()]
+            pts = vs[::max(1, len(vs) // 24)]
+        else:
+            pts = [p for e in es for p in e.positions([0, 0.25, 0.5, 0.75])]
+        return all(esterno.is_inside(p) for p in pts)
     for i, f in enumerate(contorni):
         resto = [f]
         bf = f.bounding_box()
@@ -2349,9 +2352,8 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     tolto = volume(body.shape) - volume(nuovo.shape)
     if tolto < 1e-6:
         raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
-    for f in _faces_of(nuovo.shape):
-        if not nuovo.names_of(f):
-            nuovo.names.setdefault(f'{fid}/parete', []).append(f)
+    for f in nuovo.senza_nome():
+        nuovo.names.setdefault(f'{fid}/parete', []).append(f)
     flat = data.flat.cut(*contorni)                       # tutti i contorni in un colpo solo
     flat = flat.clean() if hasattr(flat, 'clean') else flat
     facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]

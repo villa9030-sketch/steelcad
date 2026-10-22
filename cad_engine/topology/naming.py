@@ -56,6 +56,15 @@ class NamedShape:
     def faces(self) -> list:
         return _faces_of(self.shape)
 
+    def senza_nome(self) -> list:
+        """Le facce del solido che non hanno ancora un nome (con una mappa indicizzata: chiedere names_of a ogni faccia
+        erano milioni di confronti dopo un taglio con tante lettere o tanti fori, 22/10)."""
+        con = TopTools_IndexedMapOfShape()
+        for fs in self.names.values():
+            for f in fs:
+                con.Add(f)
+        return [f for f in _faces_of(self.shape) if not con.Contains(f)]
+
     def names_of(self, face) -> list[str]:
         return sorted(n for n, fs in self.names.items() if _contains(fs, face))
 

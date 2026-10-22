@@ -53,3 +53,24 @@ def test_specchiata_e_fuori_dalla_lamiera():
     s.sketch_add_text(sk, [-40, 40], 'FUORI', 8)
     r = s.create_from_sketch(sk, 'mark', {})
     assert not r['ok'] or s.state()['errors']
+
+
+def test_testo_tagliato_stencil(tmp_path, monkeypatch):
+    """Testo tagliato passante (22/10): lettere stencil a contorno chiuso, tolte dal pezzo e dallo sviluppo; non vanno
+    nella marcatura."""
+    import build123d as bd
+
+    from app.service import Service
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path))
+    for font in ('saira', 'allerta'):
+        s = Service()
+        s.new_project('lamiera', {'name': 'T', 'larghezza': 200, 'profondita': 80, 'spessore': 2, 'raggio': 1, 'k': 0.4})
+        sid = s.sketch_on_face('SM1/sopra')['sketch']
+        assert s.sketch_add_text(sid, [15, 25], 'AB 08', 25, 0, font)['ok']
+        v = s.sketch_view(sid)['sketch']
+        assert v['profiles'] >= 6 and v['texts'][0]['stencil'] == font            # A, B, 0, 8 in più pezzi
+        a0 = s.result.body.sheet.flat_area
+        assert s.create_from_sketch(sid, 'cut', {})['ok']
+        assert a0 - s.result.body.sheet.flat_area > 300                      # le lettere sono buchi
+        assert len(bd.Shape.cast(s.result.body.shape).solids()) == 1           # le isole restano attaccate
+    assert not s.sketch_add_text(sid, [15, 25], 'X', 10, 0, 'comic')['ok']

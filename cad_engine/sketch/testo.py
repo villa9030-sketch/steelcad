@@ -111,3 +111,103 @@ def tratti(testo: str, h: float, x: float = 0.0, y: float = 0.0, angolo: float =
 def larghezza(testo: str, h: float) -> float:
     *_, alto = _font()
     return max((sum(_glifo(ch)[1] for ch in riga) for riga in str(testo).split('\n')), default=0) * h / alto
+
+
+# ============================================================================ testi da tagliare (stencil)
+# 22/10: lettere a contorno chiuso, tagliate attraverso la lamiera. Caratteri stencil (licenza SIL OFL, nella cartella
+# cad_engine/fonts): le isole di O, A, B, R, 0, 8… restano attaccate coi ponticelli, non cadono.
+STENCIL = {'saira': ('Saira Stencil One', 'SairaStencilOne-Regular.ttf'),
+           'allerta': ('Allerta Stencil', 'AllertaStencil-Regular.ttf')}
+PASSI_TAGLIO = 8
+
+
+@lru_cache(maxsize=4)
+def _font_stencil(nome: str):
+    import logging
+
+    from fontTools.ttLib import TTFont
+    if nome not in STENCIL:
+        raise ValueError(f'Carattere «{nome}» sconosciuto.')
+    logging.getLogger('fontTools').setLevel(logging.ERROR)
+    f = TTFont(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'fonts', STENCIL[nome][1]))
+    alto = getattr(f['OS/2'], 'sCapHeight', 0) or 0.7 * f['head'].unitsPerEm
+    return f, f.getGlyphSet(), f.getBestCmap(), f['hmtx'], float(alto)
+
+
+@lru_cache(maxsize=1024)
+def _glifo_stencil(nome: str, ch: str) -> tuple:
+    """I contorni chiusi di una lettera (unità del carattere) e quanto avanza."""
+    from fontTools.pens.basePen import BasePen
+    f, gs, cmap, hmtx, _ = _font_stencil(nome)
+    g = cmap.get(ord(ch)) or cmap.get(ord('?'))
+    if g is None:
+        return (), 500
+
+    class Penna(BasePen):
+        def __init__(self, gs):
+            super().__init__(gs)
+            self.giri, self.cur = [], None
+
+        def _moveTo(self, p):
+            self._chiudi()
+            self.cur = [p]
+
+        def _lineTo(self, p):
+            self.cur.append(p)
+
+        def _qCurveToOne(self, p1, p2):
+            p0 = self.cur[-1]
+            for i in range(1, PASSI_TAGLIO + 1):
+                t = i / PASSI_TAGLIO
+                self.cur.append(((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
+                                 (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]))
+
+        def _curveToOne(self, p1, p2, p3):
+            p0 = self.cur[-1]
+            for i in range(1, PASSI_TAGLIO + 1):
+                t = i / PASSI_TAGLIO
+                a, b, c, d = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3
+                self.cur.append((a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]))
+
+        def _closePath(self):
+            self._chiudi()
+
+        def _endPath(self):
+            self._chiudi()
+
+        def _chiudi(self):
+            if self.cur and len(self.cur) > 2:
+                pts = [q for i, q in enumerate(self.cur) if i == 0 or math.dist(q, self.cur[i - 1]) > 1e-6]
+                if math.dist(pts[0], pts[-1]) < 1e-6:
+                    pts.pop()
+                if len(pts) > 2:
+                    self.giri.append(tuple(pts))
+            self.cur = None
+
+    pen = Penna(gs)
+    gs[g].draw(pen)
+    pen._chiudi()
+    return tuple(pen.giri), hmtx[g][0]
+
+
+def contorni(testo: str, h: float, x: float = 0.0, y: float = 0.0, angolo: float = 0.0, font: str = 'saira') -> list:
+    """I contorni chiusi del testo da tagliare (senza ripetere il primo punto), come tratti()."""
+    *_, alto = _font_stencil(font)
+    k = h / alto
+    ca, sa = math.cos(math.radians(angolo)), math.sin(math.radians(angolo))
+    out = []
+    for r, riga in enumerate(str(testo).split('\n')):
+        avanti = 0.0
+        y0 = -r * 1.6 * h
+        for ch in riga:
+            giri, larg = _glifo_stencil(font, ch)
+            for gr in giri:
+                out.append([(x + (avanti + gx * k) * ca - (y0 + gy * k) * sa, y + (avanti + gx * k) * sa + (y0 + gy * k) * ca)
+                            for gx, gy in gr])
+            avanti += larg * k
+    return out
+
+
+def larghezza_stencil(testo: str, h: float, font: str = 'saira') -> float:
+    *_, alto = _font_stencil(font)
+    return max((sum(_glifo_stencil(font, ch)[1] for ch in riga) for riga in str(testo).split('\n')), default=0) * h / alto

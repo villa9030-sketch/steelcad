@@ -72,11 +72,15 @@ def view(doc, sid: str, body=None) -> dict:
         if e['kind'] != 'text' or e['center'] not in pts:
             continue
         x, y = pts[e['center']]
-        tr = testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0))
+        if e.get('stencil'):
+            tr = [c + c[:1] for c in testo_mod.contorni(e['text'], e['h'], x, y, e.get('angle', 0), e['stencil'])]
+            w = testo_mod.larghezza_stencil(e['text'], e['h'], e['stencil'])
+        else:
+            tr, w = testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0)), testo_mod.larghezza(e['text'], e['h'])
         out['texts'].append({'id': k, 'text': e['text'], 'h': e['h'], 'angle': e.get('angle', 0), 'xy': [x, y],
-                             'anchor_id': e['center'], 'strokes': [[g(q) for q in t] for t in tr],
-                             'w': testo_mod.larghezza(e['text'], e['h'])})
-    if out['texts'] and isinstance(sk.plane, dict) and not out['profiles']:
+                             'anchor_id': e['center'], 'strokes': [[g(q) for q in t] for t in tr], 'w': w,
+                             'stencil': e.get('stencil')})
+    if out['texts'] and isinstance(sk.plane, dict) and not out['profiles'] and not any(t.get('stencil') for t in out['texts']):
         out['status'] = (f'{len(out["texts"])} testo' if len(out['texts']) == 1 else f'{len(out["texts"])} testi') + \
             ': «Marca col laser» li mette sul layer di marcatura del DXF (si vedono anche sul pezzo).'
     if out['on_flat']:
@@ -468,11 +472,11 @@ def add_circle(doc, sid: str, center, r: float, construction: bool = False) -> s
     return cid
 
 
-def add_text(doc, sid: str, pos, testo: str, h: float, angolo: float = 0.0) -> str:
-    """Un testo da marcare col laser, col punto in basso a sinistra in pos."""
+def add_text(doc, sid: str, pos, testo: str, h: float, angolo: float = 0.0, stencil: str | None = None) -> str:
+    """Un testo col punto in basso a sinistra in pos: da marcare col laser, o da tagliare (stencil = 'saira'/'allerta')."""
     sk = doc.sketch(sid)
     pid, xy, nuovo = _point_ref(sk, pos)
-    tid = sk.text(pid, testo, float(h), float(angolo or 0))
+    tid = sk.text(pid, testo, float(h), float(angolo or 0), stencil or None)
     if nuovo:
         _position(sk, pid, xy)
     return tid
