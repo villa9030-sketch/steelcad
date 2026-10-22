@@ -191,6 +191,26 @@ def main():
             ok(f'da zero: due tubi con le frecce {nomi}', any(x.startswith('Traverso davanti') and x.endswith('1600') for x in nomi)
                and any(x.startswith('Fianco a destra') and x.endswith('700') for x in nomi))
             foto('da_zero')
+
+            # 8. il caso di Stefano (23/10): traverso spezzato dalla gamba nel mezzo → «tubo unico» sopra, gamba sotto
+            angolo = "window.__steelcad.nodes.find(n => n.xyz[0] === 1600 && n.xyz[1] === 0).id"
+            for lung, freccia, pezzi in (('700', 'Destra', 3), ('500', 'Giù', 4)):
+                pg.evaluate(f"window.__steelcad.select({angolo})")
+                pg.wait_for_selector('#n-len')
+                time.sleep(0.4)
+                pg.fill('#n-len', lung)
+                pg.click(f'.freccia-3d:has-text("{freccia}")')
+                pg.wait_for_function(f'window.__steelcad.state.cutlist.pieces === {pezzi}')
+                scena_pronta()
+            pg.evaluate(f"window.__steelcad.select({angolo})")
+            pg.wait_for_selector('[data-angolo="unisci:x"]')
+            ok('angolo nel mezzo: «Passa il traverso, tubo unico»', 'tubo unico' in pg.inner_text('#props'))
+            foto('mezzo_prima')
+            pg.click('[data-angolo="unisci:x"]')
+            pg.wait_for_function("window.__steelcad.state.cutlist.rows.some(r => r.length_mm === 2300)")
+            scena_pronta()
+            ok('traverso unico da 2300, gamba sotto', True)
+            foto('mezzo_unico')
             ok(f'nessun errore nella pagina {errori[:3]}', not errori)
             b.close()
     finally:

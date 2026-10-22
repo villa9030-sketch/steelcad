@@ -425,6 +425,17 @@ def _nodes(members, pts, joints, by_id, fid, angoli=None):
             for m, i in collega:
                 out[(m.id, i)] = ('butt', node, [b])
             continue
+        # due tubi in linea (un traverso spezzato dove arriva una gamba o un fianco): passano dritti, a filo tra loro,
+        # e gli altri ci battono contro (23/10: «avrebbe più senso il tubo lungo sopra e la gamba sotto»)
+        coppia = next(((a, b) for a in lst for b in lst if a[0].id < b[0].id
+                       and (a[0].w if a[1] == 0 else -a[0].w).dot(b[0].w if b[1] == 0 else -b[0].w) < -0.999), None)
+        if coppia and len(lst) >= 3:
+            for m, i in coppia:
+                out[(m.id, i)] = ('square', node, [])
+            for m, i in lst:
+                if (m, i) not in coppia:
+                    out[(m.id, i)] = ('butt', node, [coppia[0][0], coppia[1][0]])
+            continue
         resto = sorted(lst, key=lambda e: (-abs(e[0].w.dot(bd.Vector(0, 0, 1))), e[0].id))
         batte = []
         while len(resto) > 2:

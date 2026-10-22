@@ -119,3 +119,39 @@ def test_sagoma_ripetuta_dietro_e_collegata():
     b = bd.Compound([m.solid for m in st.members]).bounding_box()
     assert b.min.Y == pytest.approx(0)                    # ripetuta dietro (verso +Y), non davanti
     assert sum(1 for m in st.members if m.group == 'Collegamenti') == 6
+
+
+def test_tubo_unico_o_diviso_nell_angolo():
+    """23/10, screenshot di Stefano: il traverso spezzato dalla gamba nel mezzo → «tubo unico lungo sopra e la gamba
+    sotto»; e il contrario, «Passa la gamba», lo ridivide."""
+    s = Service()
+    s.new_project('vuoto', {'name': 'T'})
+    r = s.tubo_da_angolo('ST1', 'A', 'su', 500, '40x40x3')
+    r = s.tubo_da_angolo('ST1', r['node'].split(':')[1], 'destra', 500)
+    mezzo = r['node'].split(':')[1]
+    for d in ('destra', 'giu', 'dietro'):              # traverso che continua, gamba sotto, fianco: 4 tubi qui
+        assert s.tubo_da_angolo('ST1', mezzo, d, 500)['ok']
+    assert s.result.structures[0].warnings == []
+    a = s.angolo_info('ST1', mezzo)
+    assert ('unisci:x', 'Passa il traverso, tubo unico') in [(x['key'], x['label']) for x in a['scelte']]
+    r = s.set_angolo('ST1', mezzo, 'unisci:x')
+    assert r['ok']
+    assert ('40×40×3', 1000.0, 1) in _righe(s.result) and s.result.structures[0].warnings == []
+    a = s.angolo_info('ST1', mezzo)
+    assert [x['key'] for x in a['scelte']] == ['unico', 'dividi'] and a['ora'] == 'unico'
+    assert s.set_angolo('ST1', mezzo, 'dividi')['ok']
+    assert not any(x[1] == 1000.0 for x in _righe(s.result)) and s.result.structures[0].warnings == []
+    s.undo()
+    assert ('40×40×3', 1000.0, 1) in _righe(s.result)
+
+
+def test_montante_dello_scaffale_diviso_ai_piani():
+    s = Service()
+    s._set(templates.scaffale())
+    st = s.result.structures[0]
+    k = next(k for k, v in st.nodes.items() if 500 < v['xyz'][2] < 700 and abs(v['xyz'][0]) < 1e-6 and abs(v['xyz'][1]) < 1e-6)
+    a = s.angolo_info('ST1', k)
+    assert [x['key'] for x in a['scelte']] == ['unico', 'dividi']
+    assert s.set_angolo('ST1', k, 'dividi')['ok']
+    st = s.result.structures[0]
+    assert st.warnings == [] and _fuori(st) == [1000, 400, 1800]
