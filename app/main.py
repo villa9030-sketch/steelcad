@@ -212,6 +212,9 @@ class Api:
     def sagoma_nuova(self, piano='XZ'):
         return self._call(self._svc.sagoma_nuova, piano)
 
+    def anteprima(self, metodo, args):
+        return self._call(self._svc.anteprima, metodo, args)
+
     def fai_tubi(self, sid, values):
         return self._call(self._svc.fai_tubi, sid, values)
 

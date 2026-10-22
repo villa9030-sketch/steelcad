@@ -3398,6 +3398,35 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         q = Path(path)
         return _ok(path=str(q), name=q.stem, folder=str(q.parent), thumb=_anteprima(q))
 
+    # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
+    ANTEPRIMA_OK = {'fai_tubi', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
+                    'add_edge_dress'}
+
+    def anteprima(self, metodo: str, args: list) -> dict:
+        """L'anteprima di un comando (22/10, «ci deve essere SEMPRE una preview»): lo stesso comando provato su una
+        copia del progetto. Torna i triangoli e gli spigoli di quello che verrebbe fuori, o perché non si può: così
+        l'anteprima è esattamente il risultato, non un disegno a parte."""
+        import copy as _copy
+        if metodo not in self.ANTEPRIMA_OK:
+            return {'ok': False, 'message': f'Anteprima non prevista per {metodo}.'}
+        if self.asm is not None:
+            return {'ok': False, 'message': 'Anteprima non ancora disponibile negli assiemi.'}
+        prova = _copy.copy(self)
+        prova.doc = Document.from_dict(_copy.deepcopy(self.doc.to_dict()))
+        prova.doc._cache = self.doc._cache                      # i pezzi già fatti: la prova rifà solo il nuovo
+        prova.doc._cache_vecchie = list(getattr(self.doc, '_cache_vecchie', []))
+        prova.history = History(prova.doc)
+        prova._mesh_tenute = []
+        try:
+            r = getattr(prova, metodo)(*(args or []))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+        if not r.get('ok'):
+            return {'ok': False, 'message': r.get('message') or 'Così non si può fare.'}
+        oggetti = [{'positions': o['positions'], 'indices': o['indices'], 'edges': o['edges']}
+                   for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member')]
+        return {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}
+
     def save_thumbnail(self, path: str, data_url: str) -> dict:
         """L'anteprima del lavoro (la vista 3D, presa dall'interfaccia quando apri o salvi) per la pagina iniziale.
         Sta accanto alla lista dei recenti, non nel file del progetto."""

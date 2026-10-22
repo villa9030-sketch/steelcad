@@ -354,6 +354,7 @@ function dressFine() {
     };
     $('#m-ok').onclick = vai;
     $('#dr-v').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+    conAnteprima('add_edge_dress', () => [kind, punti, $('#dr-v').value.trim()]);
     $('#dr-v').select();
   });
 }
@@ -604,18 +605,37 @@ function sagomaNuova() {
 }
 function faiTubiDialog() {
   const sid = SK.sid;
-  modal(`<h3>Fai i tubi</h3><p class="hint">Ogni linea della sagoma diventa un tubo. Le misure sono fuori tutto.</p>
-    <div class="form"><label style="grid-column:1/-1">Tubo<input class="field" id="ft-p" list="dl-prof" value="${esc(ultimaAsta.profile || '40x40x3')}"></label></div>
+  // «dietro» dipende da come guardi la sagoma: di fronte → dietro, dall'alto → sopra, di fianco → di lato
+  const z = SK.v?.z_dir || [0, -1, 0];
+  const [dove, misura] = Math.abs(z[2]) > 0.9 ? ['sopra', 'Altezza'] : Math.abs(z[0]) > 0.9 ? ['di fianco', 'Larghezza'] : ['dietro', 'Profondità'];
+  const tubo = esc(ultimaAsta.profile || '40x40x3');
+  modal(`<h3>Fai i tubi</h3>
+    <p class="hint">Ogni linea della sagoma diventa un tubo. Misure fuori tutto. In azzurro nel disegno vedi cosa viene fuori.</p>
+    <div class="ft-form">
+      <label class="ft-riga"><span>Tubo della sagoma</span><input class="field" id="ft-p" list="dl-prof" value="${tubo}"></label>
+      <label class="ft-check"><input type="checkbox" id="ft-r" checked> Fai anche il lato ${dove}, uguale</label>
+      <div class="ft-dentro" id="ft-rr">
+        <label class="ft-riga"><span>${misura} fuori tutto</span><span class="ft-mm"><input class="field" id="ft-d" value="1000"><i>mm</i></span></label>
+        <label class="ft-check"><input type="checkbox" id="ft-c" checked> Traversi tra i due lati, in ogni angolo</label>
+        <label class="ft-riga" id="ft-cr"><span>Tubo dei traversi</span><input class="field" id="ft-cp" list="dl-prof" value="${tubo}"></label>
+      </div>
+    </div>
     <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <label class="check"><input type="checkbox" id="ft-r" checked> <b>Ripeti la sagoma dietro</b></label>
-    <div class="form" id="ft-rr"><label>a (mm, fuori tutto)<input class="field" id="ft-d" value="1000"></label>
-    <label><span><input type="checkbox" id="ft-c" checked> Collega i due lati in ogni angolo, con</span><input class="field" id="ft-cp" list="dl-prof" value="${esc(ultimaAsta.profile || '40x40x3')}"></label></div>
+    <div class="ant-stato" id="ft-ant"></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai i tubi</button></div>`, close => {
+    $('#modal').classList.add('laterale');
+    const valori = () => ({ profile: $('#ft-p').value.trim(), ripeti: $('#ft-r').checked ? 1 : '', distanza: $('#ft-d').value.trim(),
+      collega: $('#ft-r').checked && $('#ft-c').checked ? 1 : '', collega_profile: $('#ft-cp').value.trim() });
+    const aggiorna = () => {
+      $('#ft-rr').hidden = !$('#ft-r').checked;
+      $('#ft-cr').hidden = !$('#ft-c').checked;
+      anteprima('fai_tubi', () => [sid, valori()], $('#ft-ant'), { vista: 'iso' });
+    };
+    $('#modal-box').querySelectorAll('input').forEach(i => { i.oninput = aggiorna; i.onchange = aggiorna; });
+    aggiorna();
     $('#m-no').onclick = close;
-    $('#ft-r').onchange = () => { $('#ft-rr').hidden = !$('#ft-r').checked; };
     $('#m-ok').onclick = () => {
-      const v = { profile: $('#ft-p').value.trim(), ripeti: $('#ft-r').checked ? 1 : '', distanza: $('#ft-d').value.trim(),
-        collega: $('#ft-c').checked ? 1 : '', collega_profile: $('#ft-cp').value.trim() };
+      const v = valori();
       close();
       inCoda(async () => { const r = await call('fai_tubi', sid, v); if (await apply(r, r.message)) exitSketch(); });
     };
@@ -628,12 +648,12 @@ function goTo(dir, keepDir = false) {
   if (!objs.size) return;
   fitBox(new THREE.Box3().setFromObject(model), dir, keepDir);
 }
-function fitBox(box, dir, keepDir = false, subito = false) {
+function fitBox(box, dir, keepDir = false, subito = false, tutto3d = false) {
   const c = box.getCenter(new THREE.Vector3());
   const rad = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
   const fov = THREE.MathUtils.degToRad(camera.fov);
   let dist = rad / Math.sin(Math.min(fov, fov * camera.aspect) / 2) * 1.08;
-  if (SK) {
+  if (SK && !tutto3d) {
     // nel disegno si guarda la faccia di fronte: si inquadra larghezza × altezza, non la sfera intorno
     // (una faccia lunga e bassa verrebbe minuscola)
     const ax = v3(SK.v.x_dir), ay = v3(SK.v.y_dir), xs = [], ys = [];
@@ -1257,6 +1277,7 @@ $('#tree').addEventListener('contextmenu', ev => {
           $('#m-no').onclick = close;
           $('#m-ok').onclick = () => { const v = ['#se-c', '#se-px', '#se-r', '#se-py'].map(q => $(q).value.trim()); close();
             inCoda(async () => { const r2 = await call('feature_serie', ref, ...v); await apply(r2, r2.message); }); };
+          conAnteprima('feature_serie', () => [ref, ...['#se-c', '#se-px', '#se-r', '#se-py'].map(q => $(q).value.trim())]);
           $('#modal-box').onkeydown = e2 => { if (e2.key === 'Enter') $('#m-ok').click(); if (e2.key === 'Escape') close(); };
         });
         return;
@@ -1636,6 +1657,7 @@ function lavorazioneTuboDialog() {
         close();
         inCoda(async () => { const r = await call('lavora_tubo', sid, passante, tutti, nome); if (await apply(r, r.message)) exitSketch(); });
       };
+      conAnteprima('lavora_tubo', () => [sid, !!document.querySelector('input[name="lt-p"]:checked')?.value, !!$('#lt-u')?.checked, $('#lt-n').value.trim()]);
     });
   });
 }
@@ -2696,6 +2718,7 @@ function wireFlange(s) {
           close();
           inCoda(async () => { const r = await call('gradino', s.feature, s.flange, v[0], v[1], v[2], verso); if (await apply(r, r.message)) await refreshSel(); });
         };
+        conAnteprima('gradino', () => [s.feature, s.flange, ...['#g-h', '#g-a', '#g-l'].map(q => $(q).value.trim()), $('#g-v').value]);
       });
     };
     ['#t-len', '#t-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') punta(); }; });
@@ -2912,8 +2935,111 @@ function toast(msg, kind = '') {
   setTimeout(() => t.remove(), kind === 'err' ? 7000 : 3500);
 }
 
+// ------------------------------------------------------------- anteprima dei comandi (22/10)
+// «ci deve essere SEMPRE una preview del comando»: mentre la finestra è aperta il risultato si vede in trasparenza
+// nel 3D, calcolato dal motore su una copia del progetto (è proprio quello che verrà). Se non si può: rosso e perché.
+const ANT_MAT = new THREE.MeshStandardMaterial({ color: 0x5FA8F5, metalness: 0.1, roughness: 0.6, transparent: true, opacity: 0.75,
+  polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+const ANT_EDGE = new THREE.LineBasicMaterial({ color: 0x8CC0FF });
+let antGruppo = null, antTimer = null, antN = 0, antCamera = null, antUltimi = '';
+function anteprimaVia() {
+  clearTimeout(antTimer); antN++; antUltimi = '';
+  if (camera.view?.enabled) { camera.clearViewOffset(); ridisegna(); }
+  if (antCamera) {                                  // la vista torna com'era prima della finestra
+    camera.position.copy(antCamera.pos); controls.target.copy(antCamera.target); controls.update(); antCamera = null; ridisegna();
+  }
+  model.visible = true; overlay.visible = true;
+  if (!antGruppo) return;
+  scene.remove(antGruppo);
+  antGruppo.traverse(o => o.geometry?.dispose());
+  antGruppo = null;
+  paint();
+}
+async function chiamaMuto(name, ...args) {          // come call, senza la finestrella «Sto lavorando…»
+  if (!DEV) return await window.pywebview.api[name](...args);
+  const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  return await r.json();
+}
+// il disegno si sposta a sinistra della finestra laterale, così la finestra non copre l'anteprima
+function anteprimaSpazio() {
+  const box = $('#modal.laterale .modal-box'), cv = document.getElementById('c3d');
+  if (!box || !cv) return;
+  const w = cv.clientWidth, h = cv.clientHeight, dx = Math.round((box.offsetWidth + 24) / 2);
+  camera.setViewOffset(w, h, dx, 0, w, h);
+  ridisegna();
+}
+// metodo: il comando del motore; argomenti: funzione che legge la finestra; stato: dove scrivere com'è andata;
+// opz.vista: 'iso' = al primo risultato gira la vista in isometrica (per vedere anche la profondità)
+function anteprima(metodo, argomenti, stato, opz = {}) {
+  // stessi valori di prima (es. il campo che perde il fuoco cliccando Annulla): niente da rifare. Se si rifacesse, la
+  // scritta sotto cambierebbe lunghezza e il pulsante scapperebbe sotto il mouse (22/10)
+  const chiave = metodo + JSON.stringify(argomenti());
+  if (chiave === antUltimi) return;
+  antUltimi = chiave;
+  clearTimeout(antTimer);
+  const n = ++antN;
+  anteprimaSpazio();
+  if (stato) {                                    // la scritta di prima resta (più chiara) finché arriva la nuova
+    stato.classList.add('calcolo');
+    if (!stato.textContent) stato.textContent = 'Preparo l’anteprima…';
+  }
+  antTimer = setTimeout(async () => {
+    let r;
+    try { r = await chiamaMuto('anteprima', metodo, argomenti()); } catch (e) { r = { ok: false, message: String(e) }; }
+    if (n !== antN) return;                       // nel frattempo hai cambiato un valore: vale l'ultima
+    if (antGruppo) { scene.remove(antGruppo); antGruppo.traverse(o => o.geometry?.dispose()); antGruppo = null; }
+    if (!r.ok) {
+      model.visible = true; overlay.visible = true;
+      if (stato) { stato.className = 'ant-stato no'; stato.textContent = r.message || 'Così non si può fare.'; }
+      paint();
+      return;
+    }
+    model.visible = false; overlay.visible = false;   // al posto del pezzo di adesso si vede quello che verrà
+    antGruppo = new THREE.Group();
+    for (const d of r.objects) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3)); g.setIndex(d.indices); g.computeVertexNormals();
+      const seg = [];
+      for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
+      const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+      const m = new THREE.Mesh(g, ANT_MAT), l = new THREE.LineSegments(lg, ANT_EDGE);
+      m.raycast = () => {}; l.raycast = () => {}; m.renderOrder = l.renderOrder = 5;
+      antGruppo.add(m, l);
+    }
+    scene.add(antGruppo);
+    if (stato) { stato.className = 'ant-stato ok'; stato.textContent = 'Anteprima: in azzurro il pezzo come verrà.'; }
+    // se il risultato esce dalla vista, si allarga l'inquadratura per vederlo tutto
+    const box = new THREE.Box3().setFromObject(antGruppo);
+    if (!box.isEmpty() && opz.vista === 'iso' && !antCamera) {
+      antCamera = { pos: camera.position.clone(), target: controls.target.clone() };
+      fitBox(box.union(new THREE.Box3().setFromObject(model)), VISTE.view_iso, false, true, true);
+    } else if (!box.isEmpty()) {
+      const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+      if (!fr.containsPoint(box.min) || !fr.containsPoint(box.max)) fitBox(box.union(new THREE.Box3().setFromObject(model)), null, true);
+    }
+    paint();
+  }, 300);
+}
+// una finestra con l'anteprima: si mette di lato, sotto i campi la riga dello stato, e ogni campo cambiato rifà
+// l'anteprima. Nel disegno (sketch) la vista gira in isometrica, se no lo spessore e la profondità non si vedono
+function conAnteprima(metodo, argomenti, opz = {}) {
+  $('#modal').classList.add('laterale');
+  const box = $('#modal-box');
+  let st = box.querySelector('.ant-stato');
+  if (!st) { st = document.createElement('div'); st.className = 'ant-stato'; (box.querySelector('.acts') || box).before(st); }
+  const o = { vista: SK ? 'iso' : undefined, ...opz };
+  const vai = () => anteprima(metodo, argomenti, st, o);
+  box.querySelectorAll('input, select').forEach(i => { i.addEventListener('input', vai); i.addEventListener('change', vai); });
+  box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setTimeout(vai)));
+  vai();
+}
+// la finestra si chiude (Annulla, Esc, OK): l'anteprima sparisce
+new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal').classList.remove('laterale'); } })
+  .observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
+
 function modal(html, wire) {
   $('#modal-box').classList.remove('wide', 'nuovo');
+  $('#modal').classList.remove('laterale');
   $('#modal-box').innerHTML = html;
   $('#modal').hidden = false;
   const close = () => { $('#modal').hidden = true; };
@@ -4971,6 +5097,9 @@ async function structureDialog() {
       close();
       inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'structure', v), 'Struttura creata: la cut list è in basso.')) exitSketch(); });
     };
+    conAnteprima('create_from_sketch', () => [sid, 'structure', { profile: $('#st-p').value.trim(), group: $('#st-g').value.trim(),
+      copies: $('#st-n').value.trim(), distance: $('#st-d').value.trim(), side: $('#st-s').value, connect: $('#st-c').checked,
+      connect_profile: $('#st-cp').value.trim(), connect_group: $('#st-cg').value.trim() }]);
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
   });
 }
@@ -5002,6 +5131,7 @@ function makeDialog(kind) {
         close();
         inCoda(async () => { const r = await call('create_from_sketch', sid, 'revolve', v); if (await apply(r, r.message)) exitSketch(); });
       };
+      conAnteprima('create_from_sketch', () => [sid, 'revolve', { angle: $('#rv-a').value.trim() || '360', togli: $('#rv-t')?.checked ? 1 : '' }]);
     });
     return;
   }
@@ -5041,6 +5171,9 @@ function makeDialog(kind) {
         close();
         inCoda(async () => { const r = await call('sheet_fold', sid, ang, dir, flip, bump); if (await apply(r)) exitSketch(); });
       };
+      conAnteprima('sheet_fold', () => [SK.sid, serie ? String(colpo() ?? '') : $('#m-ang').value.trim(), $('#m-dir .on').dataset.v,
+        !serie && $('#m-flip').checked,
+        !serie && $('#m-colpi').value.trim() ? { colpi: $('#m-colpi').value.trim(), raggio: $('#m-rg').value.trim() } : null]);
     });
     return;
   }
@@ -5064,6 +5197,8 @@ function makeDialog(kind) {
         close();
         inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'profilo', v))) exitSketch(); });
       };
+      conAnteprima('create_from_sketch', () => [sid, 'profilo', { lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(),
+        colpi: $('#pf-colpi')?.value.trim() || '', raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: $('#pf-gira').checked }]);
     });
     return;
   }
@@ -5080,6 +5215,7 @@ function makeDialog(kind) {
         const sid = SK.sid; close();
         inCoda(async () => { if (await apply(await call('create_from_sketch', sid, kind, v))) exitSketch(); });
       };
+      conAnteprima('create_from_sketch', () => [SK.sid, kind, per ? { width: $('#m-w').value.trim(), height: $('#m-h').value.trim() } : { depth: $('#m-h').value.trim() }]);
     });
     return;
   }
@@ -5089,6 +5225,7 @@ function makeDialog(kind) {
       $('#m-no').onclick = close;
       $('#m-ok').onclick = () => { const sid = SK.sid, d = $('#m-d').value.trim(); close();
         inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'boss', { distance: d }))) exitSketch(); }); };
+      conAnteprima('create_from_sketch', () => [SK.sid, 'boss', { distance: $('#m-d').value.trim() }]);
     });
     return;
   }
@@ -5112,6 +5249,11 @@ function makeDialog(kind) {
         }
       });
     };
+    conAnteprima('create_from_sketch', () => {
+      const v = { thickness: $('#m-sp').value.trim() };
+      if (lam) { v.radius = $('#m-r').value.trim(); v.k = $('#m-k').value.trim(); }
+      return [SK.sid, kind, v];
+    });
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
   });
 }
