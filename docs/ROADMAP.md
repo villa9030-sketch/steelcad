@@ -156,6 +156,17 @@ carter) sullo stesso motore, ottimizzazione barre da 6 m, componenti
 commerciali, PDF, BOM avanzata, import STEP con analisi, da solido a lamiera,
 e solo alla fine richieste in linguaggio naturale che producono parametri.
 
+### Lavorazioni sui tubi (22/10, motore)
+- Clic su una faccia di un'asta → sketch su quella faccia (piano `{"tube", "member", "side"}`): zero sulla testa
+  del tubo (la punta, come si misura in officina) e sul bordo della faccia, bordi in arancio. Se la struttura cambia
+  misura le lavorazioni restano a quella distanza dalla testa.
+- Feature `tube_cut` (`cad_engine/structures/lavorazioni.py`): la sagoma buca la parete, o le due pareti (passante);
+  si ripete sui tubi uguali; una sagoma che esce dalla faccia o dalla testa è un intaglio.
+- Cut list e albero: i tubi lavorati hanno la loro riga. Lo STEP esce già bucato.
+- Servizio: `sketch_on_tube`, `lavora_tubo`, `tubi_uguali` (`app/tubi_service.py`). Test `tests/test_lavorazioni_tubi.py`.
+- Da fare: interfaccia (clic sul tubo, pannello all'uscita dallo sketch), tubi tondi, tavola della singola asta,
+  STEP per asta per il laser tubo, misure fuori tutto delle strutture (decise: sempre fuori tutto, luci a filo interno).
+
 ## Fuori dalla strada principale
 SLDPRT: solo esperimento separato (openswx); se non si legge, il messaggio
 è "Esporta il componente in STEP".
