@@ -171,6 +171,20 @@ e solo alla fine richieste in linguaggio naturale che producono parametri.
 - Da fare: tubi tondi, tavola della singola asta,
   STEP per asta per il laser tubo, misure fuori tutto delle strutture (decise: sempre fuori tutto, luci a filo interno).
 
+### Tubi: un modo solo di lavorare (22/10, dalla tela «SteelCAD tubi: flusso nuovo»)
+- Misure FUORI TUTTO per le strutture nuove (`"esterno": true`): le linee sono gli spigoli esterni, ogni tubo si
+  mette da solo dalla parte dei tubi vicini (`frame._dentro`); dove non lo dicono decide `rif` (sotto/metà/sopra).
+  Banco, scaffale, armadio, cancello rifatti così; luci a filo interno (piani dello scaffale, sbarre del cancello).
+- Nomi da officina (`structures/nomi.py`): «Traverso davanti, in alto», «Gamba dietro a destra», «Angolo davanti a
+  sinistra, in alto». Niente M1, G1, T0, S1.P1 a video.
+- Angoli col disegnino (A 45° / Passa la gamba / il traverso / il fianco) anche su tutti gli angoli uguali; regola
+  della struttura `angoli` e giunti `passa` per direzione.
+- Traverso tra due tubi cliccati (altezza da terra, al sotto/metà/sopra, anche dall'altra parte); tubo nuovo con
+  le frecce Su/Giù/Avanti/Dietro/Destra/Sinistra intorno all'angolo; «Cosa puoi fare adesso»; telaio da zero;
+  «Disegna la sagoma» → «Fai i tubi» (ripeti dietro e collega). Servizio: `app/strutture_service.py`.
+- Prove: `tests/test_tubi_flusso.py`, `tools/prova_ui_tubi_flusso.py` (16 controlli, Edge).
+- Da fare: piedini e piastre di base, anteprima tratteggiata del traverso, pavimento a quadretti nel «da zero».
+
 ## Fuori dalla strada principale
 SLDPRT: solo esperimento separato (openswx); se non si legge, il messaggio
 è "Esporta il componente in STEP".

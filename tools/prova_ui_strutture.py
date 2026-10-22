@@ -64,7 +64,7 @@ def main():
             pg.wait_for_function("window.__steelcad.state.name === 'Scaffale' && window.__steelcad.state.cutlist.pieces === 20")
             scena_pronta()
             righe = pg.evaluate("window.__steelcad.state.cutlist.rows.map(r => [r.profile, r.length_mm, r.qty])")
-            ok(f'scaffale H 2000: {righe}', ['30×30×2', 1960, 4] in righe)
+            ok(f'scaffale H 2000: {righe}', ['30×30×2', 2000, 4] in righe)       # fuori tutto (22/10)
             pg.screenshot(path=str(SHOTS / 'st1_scaffale.png'))
             pg.wait_for_selector('#tpl-apply')        # appena creato: la scheda con i dati del modello
             ok('scheda del modello aperta a destra', pg.locator('[data-tf="ripiani"]').input_value() == '4')
@@ -75,8 +75,8 @@ def main():
             ok('ripiani 4 → 5 dalla scheda: 24 pezzi', True)
             pg.screenshot(path=str(SHOTS / 'st1b_scheda.png'))
             pg.keyboard.press('Control+K'); pg.keyboard.type('L = 1500'); pg.keyboard.press('Enter')
-            pg.wait_for_function("window.__steelcad.state.cutlist.rows.some(r => r.length_mm === 1470)")
-            ok('L = 1500 dalla palette: traversi 1470', True)
+            pg.wait_for_function("window.__steelcad.state.cutlist.rows.some(r => r.length_mm === 1440)")
+            ok('L = 1500 dalla palette: traversi 1440 (fuori tutto)', True)
 
             # 2. cancello
             home()
@@ -84,10 +84,10 @@ def main():
                 pg.click('[data-cat="struttura"]')
             pg.click('[data-new="cancello"]')
             pg.click('#n-ok')
-            pg.wait_for_function("window.__steelcad.state.name === 'Cancello' && window.__steelcad.state.cutlist.pieces === 15")
+            pg.wait_for_function("window.__steelcad.state.name === 'Cancello' && window.__steelcad.state.cutlist.pieces === 13")
             scena_pronta()
             pg.screenshot(path=str(SHOTS / 'st2_cancello.png'))
-            ok('cancello: 11 sbarre + telaio', True)
+            ok('cancello: 9 sbarre con 120 di luce + telaio', True)
 
             # 3. struttura da disegno: rettangolo di fronte, traverso a metà, ripetuta dietro e collegata
             home()
@@ -109,8 +109,8 @@ def main():
             clic(0, 0); clic(400, 300)
             pg.wait_for_function("window.__steelcad.sketch.v.lines.length === 4")
             time.sleep(0.6)                       # il primo disegno si inquadra da solo
-            pg.click('#sk-make [data-make="structure"]')
-            pg.fill('#st-p', '40x40x3'); pg.fill('#st-n', '2'); pg.fill('#st-d', '500')
+            pg.click('#sk-tubi')                  # sagoma: «Fai i tubi», ripetuta dietro e collegata (22/10)
+            pg.fill('#ft-p', '40x40x3'); pg.fill('#ft-d', '500'); pg.fill('#ft-cp', '40x40x3')
             pg.click('#m-ok')
             pg.wait_for_function("!window.__steelcad.sketch && window.__steelcad.state.cutlist.pieces === 12")
             scena_pronta()

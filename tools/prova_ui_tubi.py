@@ -49,7 +49,7 @@ def main():
             # 1. telaio dalla pagina iniziale
             pg.evaluate("window.__steelcad.nuovo('telaio')")
             pg.click('#n-ok')
-            pg.wait_for_function("window.__steelcad.state.cutlist && window.__steelcad.state.cutlist.pieces === 8")
+            pg.wait_for_function("window.__steelcad.state.cutlist && window.__steelcad.state.cutlist.pieces === 12")      # banco col ripiano
             scena_pronta()
             pg.evaluate("window.__steelcad.runCmd('view_iso')")
             time.sleep(0.8)

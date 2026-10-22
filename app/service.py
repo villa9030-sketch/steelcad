@@ -31,6 +31,7 @@ from app.assembly_service import AssemblyMixin  # noqa: E402
 from app.drawings_service import DrawingsMixin  # noqa: E402
 from app.import_service import ImportMixin  # noqa: E402
 from app.tubi_service import TubiMixin  # noqa: E402
+from app.strutture_service import StruttureMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
@@ -66,7 +67,7 @@ def _err(ex: Exception):
             'code': 'interno'}
 
 
-class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))
@@ -298,12 +299,16 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
             objs.append({'id': 'body', 'kind': 'body', 'name': self.doc.meta.get('name'), **m,
                          'look': finiture.colore(self.doc.meta.get('finitura'))})
         for st in r.structures:
+            nomi = self.nomi_tubi(st)
             for mem in st.members:
                 m = tessellate(mem.solid.wrapped)
                 objs.append({'id': f'{st.id}/{mem.id}', 'kind': 'member',
-                             'name': f'{mem.group or "Asta"} {mem.id} — {mem.profile.name} L={fmt_mm(round(mem.length, 1))}',
+                             'name': f'{nomi[mem.id]} — {mem.profile.name} · {fmt_mm(round(mem.length, 1))}',
                              'group': mem.group, **m})
-        nodi = [{'id': f'{st.id}:{k}', 'structure': st.id, 'key': k, **v}
+        from cad_engine.structures.nomi import nome_punto
+        import build123d as _bd
+        nodi = [{'id': f'{st.id}:{k}', 'structure': st.id, 'key': k, **v,
+                 'nome': nome_punto(_bd.Vector(*v['xyz']), st.members)}
                 for st in r.structures for k, v in (st.nodes or {}).items()]
         # i bordi dove si può piegare: passandoci sopra col mouse si accendono, clic = flangia lì
         data = getattr(r.body, 'sheet', None) if r.body is not None else None
@@ -660,15 +665,19 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
                 if '-' in mid.split('.')[1] and k.get('connect'):
                     base['profile'] = k['connect'].get('profile') or base['profile']
                 mdef = {**base, **(fdef.get('overrides') or {}).get(mid, {})}
+            tubo = self.tubo_info(st, m)
             return _ok(selection={
-                'kind': 'member', 'id': obj_id, 'title': f'{m.group or "Asta"} {m.id}',
+                'kind': 'member', 'id': obj_id, 'title': tubo['nome'], 'tubo': tubo,
                 'profile': mdef.get('profile'), 'group': m.group, 'material': m.material,
                 'rotate': mdef.get('rotate', 0), 'flip': bool(mdef.get('flip')), 'anchor': mdef.get('anchor', 'center'),
                 'anchors': ANCORAGGI,
-                'rows': [['Profilo', m.profile.description], ['Materiale', m.material],
-                         ['Lunghezza di taglio', f'{fmt_mm(round(m.length, 1))} mm'],
-                         ['Tagli', ' / '.join(_cut_text(a) for a in m.cuts)],
-                         ['Peso', f'{m.kg():.2f} kg ({m.kg() / m.length * 1000:.2f} kg/m)'.replace('.', ',')]],
+                'esterno': bool(fdef.get('esterno')),
+                'rows': [['Tubo', f'{m.profile.description} {m.material}'],
+                         ['Da tagliare', f'{fmt_mm(round(m.length, 1))} mm, '
+                                         + (' / '.join(_cut_text(a) for a in m.cuts) if any(m.cuts) else 'dritto')],
+                         *([['Batte contro', ' e '.join(x.split(',')[0].lower() for x in tubo['contro'])]]
+                           if tubo['contro'] else []),
+                         ['Peso', f'{m.kg():.2f} kg'.replace('.', ',')]],
                 'commands': [{'id': 'rotate', 'label': 'Ruota di 90°'}, {'id': 'flip', 'label': 'Inverti'},
                              {'id': 'profile', 'label': 'Cambia profilo'}],
                 **self._info_lavorazioni(st, m),
@@ -2587,15 +2596,16 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
 
     # i campi dei modelli a misure, come nella finestra "Nuovo progetto"
     MODELLI_ST = {
-        'telaio': ('Telaio / tavolo', [('L', 'Lunghezza'), ('P', 'Profondità'), ('H', 'Altezza'),
-                                       ('profilo', 'Profilo telaio'), ('gambe', 'Profilo gambe')]),
-        'scaffale': ('Scaffale', [('L', 'Lunghezza'), ('P', 'Profondità'), ('H', 'Altezza'),
+        'telaio': ('Banco', [('L', 'Lunghezza fuori tutto'), ('P', 'Profondità fuori tutto'), ('H', 'Altezza fuori tutto'),
+                             ('ripiano', 'Ripiano sotto, da terra (0 = senza)'), ('profilo', 'Tubo del telaio'),
+                             ('gambe', 'Tubo delle gambe'), ('tubo_ripiano', 'Tubo del ripiano')]),
+        'scaffale': ('Scaffale', [('L', 'Lunghezza fuori tutto'), ('P', 'Profondità fuori tutto'), ('H', 'Altezza fuori tutto'),
                                   ('ripiani', 'Ripiani (a terra e in cima compresi)'), ('montanti', 'Profilo montanti'),
                                   ('traversi', 'Profilo traversi')]),
-        'armadio': ('Telaio armadio', [('L', 'Larghezza'), ('P', 'Profondità'), ('H', 'Altezza'),
+        'armadio': ('Telaio armadio', [('L', 'Larghezza fuori tutto'), ('P', 'Profondità fuori tutto'), ('H', 'Altezza fuori tutto'),
                                        ('ripiani', 'Livelli (sotto e sopra compresi)'), ('profilo', 'Profilo')]),
-        'cancello': ('Cancello', [('L', 'Larghezza'), ('H', 'Altezza'), ('telaio', 'Profilo telaio'),
-                                  ('sbarre', 'Profilo sbarre'), ('passo', 'Passo sbarre (circa)')]),
+        'cancello': ('Cancello', [('L', 'Larghezza fuori tutto'), ('H', 'Altezza fuori tutto'), ('telaio', 'Profilo telaio'),
+                                  ('sbarre', 'Profilo sbarre'), ('passo', 'Luce tra le sbarre (circa)')]),
         'cono': ('Cono / tronco di cono', [('D1', 'Ø grande'), ('D2', 'Ø piccolo (0 = a punta)'), ('H', 'Altezza'),
                                            ('spessore', 'Spessore'), ('riferimento', 'Misure', {'esterno': 'esterne (finite)', 'interno': 'interne', 'asse': 'in asse lamiera'}),
                                            ('modo', 'Lavorazione', {'press': 'a pieghe (piegatrice)', 'rolled': 'calandrato'}),
@@ -2631,6 +2641,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
                'rows': [['Aste', str(len(aste))], ['Metri di tubolare', f'{metri:.2f}'.replace('.', ',')],
                         ['Peso', f'{kg:.2f} kg'.replace('.', ',')]],
                'members': [f'{st_id}/{m.id}' for m in aste]}
+        if st is not None and aste:
+            out['cosa'] = self.struttura_cosa_fare(st_id)
         t = fdef.get('template')
         if t and t.get('kind') in self.MODELLI_ST:
             titolo, campi = self.MODELLI_ST[t['kind']]
@@ -2696,7 +2708,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
             if not t or t.get('kind') not in self.MODELLI_ST:
                 raise SteelCADError('Questa struttura non nasce da un modello a misure: si modifica dallo sketch '
                                     'o cliccando le aste.', code='modello')
-            for k in ('profilo', 'gambe', 'montanti', 'traversi', 'telaio', 'sbarre'):
+            for k in ('profilo', 'gambe', 'montanti', 'traversi', 'telaio', 'sbarre', 'tubo_ripiano'):
                 if k in values:
                     parse(str(values[k]))
             vals = {**t['values'], **{k: _number(v) for k, v in values.items() if str(v).strip() != '' or k == 'passo'}}
@@ -2767,8 +2779,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
                                      'group': v.get('connect_group') or 'Collegamenti'}
             st = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'structure'), None)
             if st is None:
+                extra = {'esterno': True, 'angoli': {'type': 'butt', 'passa': 'verticali'}} if v.get('esterno') else {}
                 self.doc.add_feature('structure', self.doc.meta.get('name') or 'Struttura', points={}, members=[],
-                                     skeletons=[sk_def])
+                                     skeletons=[sk_def], **extra)
             else:                       # nella stessa struttura: i giunti tra vecchio e nuovo funzionano
                 usati = {k['id'] for k in st.get('skeletons') or []}
                 j = 1
@@ -3088,11 +3101,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
             if m['id'] in info['members'] or not info['members']:
                 profilo = m.get('profile', profilo)
                 break
+        angolo = self.angolo_info(st_id, key)
         return {
-            'kind': 'node', 'id': node_id, 'structure': st_id, 'key': key, 'title': f'Nodo {key}',
-            'rows': [['Posizione', ' ; '.join(fmt_mm(round(c, 1)) for c in info['xyz']) + ' mm'],
-                     ['Aste', ', '.join(info['members']) or 'nessuna'],
-                     ['Giunto', JOINT_LABELS[tipo] + (f' (ora: {info["auto"]})' if tipo == 'auto' and info['auto'] else '')]],
+            'kind': 'node', 'id': node_id, 'structure': st_id, 'key': key,
+            'title': angolo.get('nome') or f'Nodo {key}', 'angolo': angolo if angolo.get('ok') else None,
+            'rows': [] if info['members'] else [['Tubi', 'ancora nessuno: tira il primo con le frecce']],
             'position': pos, 'joint': info['joint'], 'joint_types': {k: JOINT_LABELS[k] for k in possibili},
             'members': info['members'], 'default_profile': profilo,
         }

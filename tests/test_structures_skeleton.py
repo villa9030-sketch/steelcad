@@ -39,7 +39,7 @@ def test_spalla_ripetuta_e_collegata():
     assert ('40×20×2', 1170.0, 'dritto/dritto', 4) in _righe(d.rebuild())
 
 
-@pytest.mark.parametrize('nome,pezzi', [('scaffale', 20), ('armadio', 16), ('cancello', 15)])
+@pytest.mark.parametrize('nome,pezzi', [('scaffale', 20), ('armadio', 16), ('cancello', 13)])
 def test_modelli_a_misure(nome, pezzi):
     doc = getattr(templates, nome)()
     res = doc.rebuild()
@@ -51,9 +51,10 @@ def test_modelli_a_misure(nome, pezzi):
 def test_cancello_sbarre_e_parametri():
     doc = templates.cancello(L=1500, H=1200, passo=120)
     res = doc.rebuild()
-    assert ('20×20×2', 1140.0, 'dritto/dritto', 11) in _righe(res)      # 1200 − 60 del telaio
+    assert ('20×20×2', 1080.0, 'dritto/dritto', 9) in _righe(res)       # fuori tutto: 1200 − 2 × 60 del telaio,
+    # 9 sbarre con 120 di luce tra loro e contro il telaio (22/10)
     doc.set_parameter('H', 1000)
-    assert ('20×20×2', 940.0, 'dritto/dritto', 11) in _righe(doc.rebuild())
+    assert ('20×20×2', 880.0, 'dritto/dritto', 9) in _righe(doc.rebuild())
 
 
 def test_dallo_sketch_con_eccezioni():
@@ -122,5 +123,5 @@ def test_nodi_dello_scheletro_e_giunti():
     for k in angoli:
         assert s.set_joint('ST1', k, {'type': 'butt', 'through': [base.id]})['ok']
     righe = {(r['profile'], r['length_mm'], '/'.join(r['cuts'])) for r in s.state()['cutlist']['rows']}
-    assert ('80×40×3', 3009.0, 'dritto/dritto') in righe        # la base passa intera
-    assert ('40×40×3', 1370.0, 'dritto/45°') in righe            # montanti sopra la base, a 45° in cima
+    assert ('80×40×3', 2969.0, 'dritto/dritto') in righe        # la base passa intera (fuori tutto)
+    assert ('40×40×3', 1310.0, 'dritto/45°') in righe            # montanti sopra la base (1390 − 80), a 45° in cima

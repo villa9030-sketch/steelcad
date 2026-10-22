@@ -119,6 +119,11 @@ def view(doc, sid: str, body=None) -> dict:
         out['where'] = {'XY': 'sul piano XY (dall’alto)', 'XZ': 'sul piano XZ (di fronte)',
                         'YZ': 'sul piano YZ (di lato)'}.get(sk.plane, 'sul piano')
     out['xray'] = any(e.get('xray') and e['kind'] != 'point' for e in sk.entities.values())
+    # una sagoma di tubi non ancora fatta in tubi: l'interfaccia mostra solo «Fai i tubi» (22/10)
+    in_struttura = any(not hasattr(f, 'entities') and f.get('type') == 'structure' and sid in doc._sketch_refs(f)
+                       for f in doc.features)
+    out['sagoma'] = (isinstance(sk.plane, str) and not in_struttura and not out['used_by']
+                     and (sk.name or '').startswith(('Sagoma', 'Scheletro')))
     if out['on_flat']:
         out['on_sheet'] = True
     elif tubo:

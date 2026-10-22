@@ -62,10 +62,10 @@ def test_quote_sul_modello_e_modifica():
     r = s.set_dimension(dims['L']['sketch'], dims['L']['dim'], '2200')
     assert r['ok']
     lung = [x['length_mm'] for x in r['state']['cutlist']['rows']]
-    assert 2240 in lung
+    assert 2120 in lung                              # fuori tutto: 2200 − 2 gambe da 40
     assert r['state']['undo'] == ['L = 2200']
     s.undo()
-    assert 2040 in [x['length_mm'] for x in s.state()['cutlist']['rows']]
+    assert 1920 in [x['length_mm'] for x in s.state()['cutlist']['rows']]
 
 
 def test_modifica_asta_di_gruppo_e_rotazione():
@@ -127,9 +127,9 @@ def _cancello():
 def test_scheletro_da_zero_e_parametrico():
     s = _cancello()
     righe = sorted((x['length_mm'], tuple(x['cuts']), x['qty']) for x in s.state()['cutlist']['rows'])
-    assert righe == [(1040.0, ('45°', '45°'), 2), (1540.0, ('45°', '45°'), 2)]
+    assert righe == [(1000.0, ('45°', '45°'), 2), (1500.0, ('45°', '45°'), 2)]     # fuori tutto (22/10)
     s.set_parameter('B', 2000)                       # i nodi seguono il parametro
-    assert sorted(x['length_mm'] for x in s.state()['cutlist']['rows']) == [1040.0, 2040.0]
+    assert sorted(x['length_mm'] for x in s.state()['cutlist']['rows']) == [1000.0, 2000.0]
     assert {n['key'] for n in s.scene()['nodes']} == {'A', 'N1', 'N2', 'N3'}
 
 
@@ -141,7 +141,7 @@ def test_giunti_dal_pannello():
     assert not s.set_joint('ST1', 'N1', {'type': 'butt', 'through': ['M1', 'M2']})['ok']
     assert s.set_joint('ST1', 'N1', {'type': 'butt', 'through': ['M2']})['ok']
     tagli = {x['length_mm']: x['cuts'] for x in s.state()['cutlist']['rows']}
-    assert 'dritto' in tagli[1000.0]                 # il montante batte sotto il traverso
+    assert 'dritto' in tagli[960.0]                  # il montante batte sotto il traverso (1000 − 40)
     assert s.set_joint('ST1', 'N1', {'type': 'auto'})['ok']
     assert 'N1' not in (s.doc.feature('ST1').get('joints') or {})
 
@@ -1026,7 +1026,7 @@ def test_pezzo_nuovo_il_riassunto_a_parole():
     """Mentre si scrivono le misure: cosa viene fuori, a parole, senza toccare il progetto aperto."""
     s = Service()
     r = s.new_project_preview('cancello', {'L': 1500, 'H': 1200, 'telaio': '60x60x3', 'sbarre': '20x20x2', 'passo': 120})
-    assert r['ok'] and 'Escono 11 sbarre ogni 125 mm' in r['text'] and 'Fuori tutto 1560 × 1260 mm' in r['text']
+    assert r['ok'] and 'Escono 9 sbarre ogni 140 mm: tra una e l’altra restano 120 mm di luce' in r['text'] and 'Fuori tutto 1500 × 1200 mm' in r['text']
     assert 'Sviluppo 500 × 300 mm' in s.new_project_preview('lamiera', {'larghezza': 500, 'profondita': 300, 'spessore': 2})['text']
     assert 'Calandrato' in s.new_project_preview('cono', {'modo': 'rolled'})['text']
     male = s.new_project_preview('telaio', {'L': -5})

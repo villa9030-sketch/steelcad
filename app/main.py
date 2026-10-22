@@ -197,6 +197,24 @@ class Api:
     def sketch_on_face(self, face_name):
         return self._call(self._svc.sketch_on_face, face_name)
 
+    def angolo_info(self, st_id, key):
+        return self._call(self._svc.angolo_info, st_id, key)
+
+    def set_angolo(self, st_id, key, scelta, tutti=False):
+        return self._call(self._svc.set_angolo, st_id, key, scelta, tutti)
+
+    def add_traverso(self, st_id, a_id, b_id, quota, rif='sotto', profile=None, opposto=False, nome=''):
+        return self._call(self._svc.add_traverso, st_id, a_id, b_id, quota, rif, profile, opposto, nome)
+
+    def tubo_da_angolo(self, st_id, key, freccia, lunghezza, profile=None, nome=''):
+        return self._call(self._svc.tubo_da_angolo, st_id, key, freccia, lunghezza, profile, nome)
+
+    def sagoma_nuova(self, piano='XZ'):
+        return self._call(self._svc.sagoma_nuova, piano)
+
+    def fai_tubi(self, sid, values):
+        return self._call(self._svc.fai_tubi, sid, values)
+
     def sketch_on_tube(self, obj_id, normal):
         return self._call(self._svc.sketch_on_tube, obj_id, normal)
 

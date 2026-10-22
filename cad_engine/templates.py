@@ -1,6 +1,6 @@
 """Punti di partenza veloci, costruiti con le stesse feature del motore (niente modelli finti).
 
-- telaio: scheletro rettangolare in uno sketch (L × P), telaio sopra all'altezza H, 4 gambe;
+- telaio: banco L × P × H fuori tutto, telaio sopra, 4 gambe, ripiano sotto a scelta;
 - piastra: la piastra della Milestone 1 (larghezza × altezza × spessore, foro al centro).
 Tutte le misure sono parametri: si cambiano dopo, e il modello si rigenera.
 """
@@ -30,26 +30,43 @@ def _intero(v, nome: str, minimo: int) -> int:
     return int(x)
 
 
-def telaio(name: str = 'Telaio', L=2000, P=1000, H=900, profilo='40x40x3', gambe='40x40x3',
-           material='S235') -> Document:
+def telaio(name: str = 'Telaio', L=2000, P=1000, H=900, profilo='40x40x3', gambe='40x40x3', ripiano=0,
+           tubo_ripiano='30x30x2', material='S235') -> Document:
+    """Banco: telaio sopra e quattro gambe, ripiano sotto a scelta (0 = senza). Misure FUORI TUTTO (22/10): il
+    banco finito è L × P × H, i tubi stanno dentro; le gambe arrivano in cima, i traversi ci battono contro.
+    Il ripiano: il sotto dei suoi tubi a `ripiano` mm da terra."""
     for k, v in (('Lunghezza', L), ('Profondità', P), ('Altezza', H)):
         _misura(v, k)
+    rip = _misura(ripiano or 0, 'Ripiano sotto', zero=True)
+    if rip and rip >= float(H):
+        raise SteelCADError('Il ripiano sotto è più alto del banco.', code='misura')
     doc = Document(name, material)
     for k, v in (('L', L), ('P', P), ('H', H)):
         doc.set_parameter(k, v)
-    sk = doc.add_sketch('XY', 'Scheletro')
+    if rip:
+        doc.set_parameter('R', rip)
+    # la pianta fuori tutto in uno sketch: le quote L e P si vedono e si cambiano sul modello
+    sk = doc.add_sketch('XY', 'Pianta')
     r = sk.rectangle(0, 0, float(L) * 0.97, float(P) * 0.97)
     sk.constrain('coincident', r['corners'][0], 'O')
     sk.dimension('length', r['bottom'], value='L')
     sk.dimension('length', r['left'], value='P')
-    pts = {f'T{i}': {'sketch': sk.id, 'point': c, 'offset': [0, 0, 'H']} for i, c in enumerate(r['corners'])}
-    pts.update({f'F{i}': {'sketch': sk.id, 'point': c} for i, c in enumerate(r['corners'])})
-    mem = [{'id': f'M{i + 1}', 'group': 'Telaio superiore', 'from': f'T{i}', 'to': f'T{(i + 1) % 4}',
-            'profile': profilo} for i in range(4)]
-    mem += [{'id': f'G{i + 1}', 'group': 'Gambe', 'from': f'F{i}', 'to': f'T{i}', 'profile': gambe}
-            for i in range(4)]
-    doc.add_feature('structure', 'Telaio', points=pts, members=mem, material=material,
-                    template={'kind': 'telaio', 'values': {'L': L, 'P': P, 'H': H, 'profilo': profilo, 'gambe': gambe}})
+    pts = {}
+    for k, c in enumerate(r['corners']):                     # davanti a sinistra, poi in giro
+        pts[f'F{k}'] = {'sketch': sk.id, 'point': c}
+        pts[f'T{k}'] = {'sketch': sk.id, 'point': c, 'offset': [0, 0, 'H']}
+        if rip:
+            pts[f'R{k}'] = {'sketch': sk.id, 'point': c, 'offset': [0, 0, 'R']}
+    mem = [{'id': f'M{i + 1}', 'group': 'Telaio sopra', 'from': f'T{i}', 'to': f'T{(i + 1) % 4}', 'profile': profilo}
+           for i in range(4)]
+    mem += [{'id': f'G{i + 1}', 'group': 'Gambe', 'from': f'F{i}', 'to': f'T{i}', 'profile': gambe} for i in range(4)]
+    if rip:
+        mem += [{'id': f'R{i + 1}', 'group': 'Ripiano sotto', 'from': f'R{i}', 'to': f'R{(i + 1) % 4}',
+                 'profile': tubo_ripiano} for i in range(4)]
+    doc.add_feature('structure', 'Telaio', points=pts, members=mem, material=material, esterno=True,
+                    angoli={'type': 'butt', 'passa': 'verticali'},
+                    template={'kind': 'telaio', 'values': {'L': L, 'P': P, 'H': H, 'profilo': profilo, 'gambe': gambe,
+                                                           'ripiano': rip, 'tubo_ripiano': tubo_ripiano}})
     return doc
 
 
@@ -76,7 +93,7 @@ def piastra(name: str = 'Piastra', larghezza=300, altezza=200, spessore=5, foro=
 def struttura_vuota(name: str = 'Struttura', material='S235') -> Document:
     """Un nodo nell'origine: da lì si tirano le aste (direzione + lunghezza) e si collegano i nodi."""
     doc = Document(name, material)
-    doc.add_feature('structure', 'Struttura', points={'A': [0, 0, 0]}, members=[], material=material)
+    doc.add_feature('structure', 'Struttura', points={'A': [0, 0, 0]}, members=[], material=material, esterno=True)
     return doc
 
 
@@ -148,21 +165,29 @@ def _spalla(sk, larg: str, alt: str, livelli: list[str]):
 
 def scaffale(name: str = 'Scaffale', L=1000, P=400, H=1800, ripiani=4, montanti='30x30x2',
              traversi='40x20x2', material='S235') -> Document:
-    """Scaffale: due spalle (montanti + traversi di fianco) a distanza L, collegate a ogni ripiano."""
+    """Scaffale: due spalle (montanti + traversi di fianco) a distanza L, collegate a ogni ripiano.
+    Misure FUORI TUTTO; i piani hanno la stessa luce a filo interno tra un tubo e l'altro (22/10)."""
     for k, v in (('Lunghezza', L), ('Profondità', P), ('Altezza', H)):
         _misura(v, k)
     n = _intero(ripiani, 'Ripiani', 2)
+    from .profiles import parse
+    ht = max(parse(montanti).height, parse(traversi).height)
+    if (n - 1) * ht >= float(H):
+        raise SteelCADError(f'{n} piani non ci stanno in {H} mm di altezza.', code='misura')
     doc = Document(name, material)
     for k, v in (('L', L), ('P', P), ('H', H)):
         doc.set_parameter(k, v)
-    doc.set_parameter('pr', f'H/{n - 1}')              # passo dei ripiani: uguali, seguono H
+    doc.set_parameter('ht', ht)                          # altezza del tubo dei piani
+    doc.set_parameter('pr', f'(H-ht)/{n - 1}')           # dal sotto di un piano al sotto del prossimo: luci uguali
     sk = doc.add_sketch('YZ', 'Spalla')
     _spalla(sk, 'P', 'H', ['0'] + [f'{i}*pr' for i in range(1, n - 1)] + ['H'])
-    doc.add_feature('structure', name, points={}, members=[], material=material, skeletons=[{
-        'id': 'K1', 'sketch': sk.id, 'profile': montanti, 'group': 'Spalle',
-        'copies': [[0, 0, 0], ['L', 0, 0]], 'connect': {'profile': traversi, 'group': 'Traversi ripiani'}}],
-        template={'kind': 'scaffale', 'values': {'L': L, 'P': P, 'H': H, 'ripiani': n, 'montanti': montanti,
-                                                 'traversi': traversi}})
+    doc.add_feature('structure', name, points={}, members=[], material=material, esterno=True,
+                    angoli={'type': 'butt', 'passa': 'verticali'}, skeletons=[{
+                        'id': 'K1', 'sketch': sk.id, 'profile': montanti, 'group': 'Spalle',
+                        'copies': [[0, 0, 0], ['L', 0, 0]],
+                        'connect': {'profile': traversi, 'group': 'Traversi ripiani'}}],
+                    template={'kind': 'scaffale', 'values': {'L': L, 'P': P, 'H': H, 'ripiani': n, 'montanti': montanti,
+                                                             'traversi': traversi}})
     return doc
 
 
@@ -177,32 +202,41 @@ def armadio(name: str = 'Telaio armadio', L=800, P=600, H=2000, ripiani=3, profi
 
 def cancello(name: str = 'Cancello', L=1500, H=1200, telaio='60x60x3', sbarre='20x20x2', passo=120,
              material='S235') -> Document:
-    """Cancello: telaio rettangolare e sbarre verticali a passo uguale (sul piano di fronte, XZ)."""
-    for k, v in (('Lunghezza', L), ('Altezza', H), ('Passo delle sbarre', passo)):
+    """Cancello: telaio rettangolare e sbarre verticali (sul piano di fronte, XZ). Misure FUORI TUTTO; `passo` è
+    la luce che si vuole tra una sbarra e l'altra (a filo interno, anche contro il telaio): le sbarre si contano
+    da lì e poi la luce si fa uguale per tutte (22/10)."""
+    for k, v in (('Lunghezza', L), ('Altezza', H), ('Luce tra le sbarre', passo)):
         _misura(v, k)
-    if float(passo) >= float(L):
-        raise SteelCADError('Il passo delle sbarre è più lungo del cancello.', code='misura')
+    from .profiles import parse
+    tf, sb = parse(telaio).width, parse(sbarre).width
+    interno = float(L) - 2 * tf
+    if float(passo) >= interno:
+        raise SteelCADError('La luce tra le sbarre è più larga del cancello.', code='misura')
+    n = max(1, int(round((interno - float(passo)) / (sb + float(passo)))))      # sbarre
     doc = Document(name, material)
     for k, v in (('L', L), ('H', H)):
         doc.set_parameter(k, v)
-    n = max(1, int(round(float(L) / float(passo))) - 1)        # sbarre
-    doc.set_parameter('ps', f'L/{n + 1}')              # passo delle sbarre: uguali, seguono L
+    doc.set_parameter('tf', tf)
+    doc.set_parameter('sb', sb)
+    doc.set_parameter('g', f'(L-2*tf-{n}*sb)/{n + 1}')       # la luce vera, uguale tra tutte le sbarre
     sk = doc.add_sketch('XZ', 'Cancello')
     r = sk.rectangle(0, 0, float(L) * 0.97, float(H) * 0.97)
     sk.constrain('coincident', r['corners'][0], 'O')
     sk.dimension('length', r['bottom'], value='L')
     sk.dimension('length', r['left'], value='H')
     ritocchi = {}
+    g = (interno - n * sb) / (n + 1)
     for i in range(1, n + 1):
-        a = sk.point(float(L) * i / (n + 1), 0)
-        b = sk.point(float(L) * i / (n + 1), float(H))
+        x = tf + i * g + (i - 1) * sb + sb / 2
+        a = sk.point(x, 0)
+        b = sk.point(x, float(H))
         sk.constrain('on_line', a, r['bottom'])
         sk.constrain('on_line', b, r['top'])
-        sk.dimension('hdistance', 'O', a, value=f'{i}*ps')
+        sk.dimension('hdistance', 'O', a, value=f'tf+{i}*g+{i - 1}*sb+sb/2')
         lid = sk.line(a, b, label=f'sbarra {i}')
         sk.constrain('vertical', lid, auto=True)
-        ritocchi[f'K1.1.{lid}'] = {'profile': sbarre, 'group': 'Sbarre'}
-    doc.add_feature('structure', name, points={}, members=[], material=material, overrides=ritocchi,
+        ritocchi[f'K1.1.{lid}'] = {'profile': sbarre, 'group': 'Sbarre', 'rif': 'meta'}
+    doc.add_feature('structure', name, points={}, members=[], material=material, overrides=ritocchi, esterno=True,
                     skeletons=[{'id': 'K1', 'sketch': sk.id, 'profile': telaio, 'group': 'Telaio'}],
                     template={'kind': 'cancello', 'values': {'L': L, 'H': H, 'telaio': telaio, 'sbarre': sbarre,
                                                              'passo': passo}})
@@ -214,7 +248,7 @@ def struttura_disegno(name: str = 'Struttura', piano='XZ', material='S235') -> D
     if piano not in ('XY', 'XZ', 'YZ'):
         raise SteelCADError('Piano sconosciuto: XY (pianta), XZ (fronte) o YZ (fianco).', code='piano')
     doc = Document(name, material)
-    doc.add_sketch(piano, 'Scheletro')
+    doc.add_sketch(piano, 'Sagoma')
     return doc
 
 

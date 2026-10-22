@@ -18,7 +18,13 @@ Giunti, se non si dice niente ("auto"):
 - un'asta che finisce a metà di un'altra: a battuta contro quella (giunto a T);
 - un'estremità libera: taglio dritto.
 Giunti a mano: "miter" (bisettrice), "butt" (a battuta: "through" dice quali
-aste passano), "square" (taglio dritto sul nodo), "angle" con "angle": gradi.
+aste passano, oppure "passa": "verticali" | "x" | "y" per direzione, così vale per tutti gli angoli uguali),
+"square" (taglio dritto sul nodo), "angle" con "angle": gradi.
+
+Misure fuori tutto ("esterno": true, le strutture nuove dal 22/10): le linee dello scheletro sono gli spigoli
+ESTERNI dei tubi. Ogni tubo si mette dalla parte dove vanno i tubi vicini (dentro la struttura): una gamba
+nell'angolo del telaio sta dentro l'angolo, il telaio sopra sta sotto la linea. Dove i vicini non lo dicono
+(un traverso a metà gamba) conta "rif": "sotto" (la linea è il sotto del tubo, predefinito), "sopra", "meta".
 
 Ogni asta è un solido BREP vero: sezione del profilo estrusa e tagliata con
 piani o con la sagoma piena delle aste contro cui batte.
@@ -56,6 +62,8 @@ class Member:
     length: float = 0.0         # lunghezza di taglio (massimo ingombro lungo l'asse)
     ruolo: str = ''             # 'collega' = traverso tra due ripetizioni di uno scheletro (batte contro le spalle)
     testa: float = 0.0          # dove comincia il materiale lungo l'asse, dalla partenza: lo zero delle lavorazioni
+    contro: tuple = ()          # le aste contro cui batte (per dirlo all'officina)
+    nome: str = ''              # il nome dato a mano ("Mensola"); se no lo dà nomi.nomi_aste dalla posizione
     lavorazioni: tuple = ()     # le lavorazioni fatte sull'asta (firme): aste lavorate diverse = righe diverse
 
     @property
@@ -231,6 +239,10 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         shift = x * (-ax * prof.width / 2 + ox) + y * (-ay * prof.height / 2 + oy)
         members.append(Member(mid, m.get('group', ''), prof, mat, a, b, x, y, shift))
         members[-1].ruolo = m.get('ruolo', '')
+        members[-1].nome = m.get('name', '')
+        members[-1]._a_mano = 'anchor' in m or 'offset' in m
+        members[-1]._rif = m.get('rif', 'sotto')
+        members[-1]._rif_scelto = 'rif' in m
     if not members:       # si parte da un nodo e si costruisce: nessuna asta va bene
         return StructureResult(fid, nome, [], [], _node_info(pts, [], {}, fdef))
     ids = [m.id for m in members]
@@ -238,25 +250,30 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         raise FeatureError(f'Nella struttura "{nome}" due aste hanno lo stesso nome.', feature=fid)
 
     by_id = {m.id: m for m in members}
-    nodes = _nodes(members, pts, fdef.get('joints') or {}, by_id, fid)
+    esterno = bool(fdef.get('esterno'))
+    if esterno:
+        _dentro(members)
+    nodes = _nodes(members, pts, fdef.get('joints') or {}, by_id, fid, fdef.get('angoli'))
     for m in members:
-        key = _member_key(m, nodes)
+        key = _member_key(m, nodes) + (esterno,)
         hit = _CACHE.get(key)
         if hit is None:
-            solid, cuts = _member_solid(m, nodes, by_id, fid)
+            solid, cuts = _member_solid(m, nodes, by_id, fid, esterno)
             m.solid, m.cuts = solid, cuts
             hit = (solid, cuts) + _extent(m)
             if len(_CACHE) > 2000:
                 _CACHE.clear()
             _CACHE[key] = hit
         m.solid, m.cuts, m.length, m.testa = hit
+    for m in members:
+        m.contro = tuple(dict.fromkeys(o.id for i in (0, 1) if nodes[(m.id, i)][0] == 'butt' for o in nodes[(m.id, i)][2]))
     legati = set()
     for (mid, _), (kind, _, info) in nodes.items():
         altri = [info[0]] if kind == 'miter' else ([o for o, _ in info] if kind == 'extend' else
                                                   (info if kind == 'butt' else []))
         for o in altri:
             legati.add(frozenset((mid, o.id)))
-    chiavi = {m.id: _member_key(m, nodes) for m in members}
+    chiavi = {m.id: _member_key(m, nodes) + (esterno,) for m in members}
     return StructureResult(fid, nome, members, _interferences(members, legati, chiavi),
                            _node_info(pts, members, nodes, fdef))
 
@@ -332,7 +349,7 @@ def _section_axes(w: bd.Vector, rotate_deg: float, flip: bool):
     return x, y
 
 
-def _nodes(members, pts, joints, by_id, fid):
+def _nodes(members, pts, joints, by_id, fid, angoli=None):
     """Per ogni estremità di ogni asta: che taglio fare. Ritorna {(id asta, 0|1): istruzione}."""
     ends = {}
     for k, p in pts.items():
@@ -341,7 +358,7 @@ def _nodes(members, pts, joints, by_id, fid):
     for k, lst in ends.items():
         if not lst:
             continue
-        spec = dict(joints.get(k) or {})
+        spec = dict(joints.get(k) or angoli or {})        # angoli: come sono tutti gli angoli non scelti a mano
         tipo = spec.get('type', 'auto')
         node = pts[k]
         if tipo == 'square':
@@ -353,12 +370,25 @@ def _nodes(members, pts, joints, by_id, fid):
             for m, i in lst:
                 out[(m.id, i)] = ('angle', node, ang)
             continue
+        if tipo == 'butt' and spec.get('passa'):
+            # "passa la gamba" detto per direzione: vale per ogni angolo dove ci sono aste così
+            through = [m for m, _ in lst if _classe(m.w) == spec['passa']]
+            if not through or len(through) == len(lst) or len(lst) < 2:
+                tipo = 'auto'                                    # qui non c'è niente da far passare
         if tipo == 'butt':
-            through = [by_id[t] for t in spec.get('through', []) if t in by_id]
+            through = ([m for m, _ in lst if _classe(m.w) == spec['passa']] if spec.get('passa')
+                       else [by_id[t] for t in spec.get('through', []) if t in by_id])
             if not through:
                 raise FeatureError(f'Il giunto a battuta nel nodo {k} deve dire quali aste passano.', feature=fid)
+            def da_qui(m, i):
+                return m.w if i == 0 else -m.w
             for m, i in lst:
-                if m in through:
+                # due pezzi della stessa linea che passano (un montante spezzato dal traverso a metà): a filo nel nodo
+                in_linea = m in through and any(t is not m and da_qui(t, j).dot(da_qui(m, i)) < -0.999
+                                                for t, j in lst if t in through)
+                if in_linea:
+                    out[(m.id, i)] = ('square', node, [])
+                elif m in through:
                     out[(m.id, i)] = ('extend', node, [x for x in lst if x[0] not in through])
                 else:
                     out[(m.id, i)] = ('butt', node, through)
@@ -429,6 +459,94 @@ def _nodes(members, pts, joints, by_id, fid):
     return out
 
 
+def _classe(w: bd.Vector) -> str:
+    """La direzione di un'asta come la dice l'officina: verticale, lungo X (larghezza), lungo Y (profondità)."""
+    ax = max((abs(w.X), 'x'), (abs(w.Y), 'y'), (abs(w.Z), 'verticali'))
+    return ax[1]
+
+
+def _tocca(p: bd.Vector, o: Member) -> list:
+    """Da un punto, le direzioni in cui parte l'asta o: una se il punto è un suo estremo, due se le sta a metà."""
+    if (o.start - p).length < 1e-6:
+        return [o.w]
+    if (o.end - p).length < 1e-6:
+        return [-o.w]
+    w = o.end - o.start
+    t = (p - o.start).dot(w) / w.length ** 2
+    if 1e-6 < t < 1 - 1e-6 and (o.start + w * t - p).length < 1e-6:
+        return [o.w, -o.w]
+    return []
+
+
+def _dentro(members) -> None:
+    """Misure fuori tutto: sposta ogni tubo dalla parte dove stanno i tubi vicini, così la linea è il suo spigolo
+    esterno. Per ogni asse della sezione: i vicini vanno tutti da una parte → il tubo va da quella parte; da tutte e
+    due o da nessuna → per l'asse in verticale decide "rif" (sotto: la linea è il sotto del tubo), per gli altri
+    si copia dal tubo a cui è attaccato (una gamba sotto il traverso davanti sta a filo davanti), se no centrato."""
+    def vicini(m):
+        dirs = []
+        for o in members:
+            if o is m:
+                continue
+            for p in (m.start, m.end):
+                dirs += _tocca(p, o)
+            for p, d in ((o.start, o.w), (o.end, -o.w)):        # aste che arrivano a metà di m (giunto a T)
+                w = m.end - m.start
+                t = (p - m.start).dot(w) / w.length ** 2
+                if 1e-6 < t < 1 - 1e-6 and (m.start + w * t - p).length < 1e-6:
+                    dirs.append(d)
+        return dirs
+
+    scelte = {}
+    for m in members:
+        if m._a_mano:
+            continue
+        dirs = vicini(m)
+        for nome, asse, meta in (('x', m.x, m.profile.width / 2), ('y', m.y, m.profile.height / 2)):
+            piu = any(d.dot(asse) > 0.5 for d in dirs)
+            meno = any(d.dot(asse) < -0.5 for d in dirs)
+            segno = 1 if piu and not meno else -1 if meno and not piu else None
+            if segno is None and abs(asse.Z) > 0.9 and m._rif_scelto:
+                segno = _verso_rif(m, asse)
+            scelte[(m.id, nome)] = (asse, meta, segno)
+    for _giro in range(3):                     # chi non sa da che parte stare copia il tubo a cui è attaccato
+        for m in members:
+            if m._a_mano:
+                continue
+            for nome, asse, meta in (('x', m.x, m.profile.width / 2), ('y', m.y, m.profile.height / 2)):
+                k = (m.id, nome)
+                if scelte[k][2] is not None:
+                    continue
+                for o in members:
+                    if o is m or o._a_mano or not any(_tocca(p, o) for p in (m.start, m.end)):
+                        continue
+                    for on in ('x', 'y'):
+                        oa, _, so = scelte[(o.id, on)]
+                        if so and abs(oa.dot(asse)) > 0.99:
+                            scelte[k] = (asse, meta, so * (1 if oa.dot(asse) > 0 else -1))
+                            break
+                    if scelte[k][2] is not None:
+                        break
+    for (mid, nome), (asse, meta, segno) in list(scelte.items()):   # nessuno lo dice: in verticale decide rif
+        if segno is None and abs(asse.Z) > 0.9:
+            m = next(x for x in members if x.id == mid)
+            scelte[(mid, nome)] = (asse, meta, _verso_rif(m, asse))
+    for m in members:
+        if m._a_mano:
+            continue
+        shift = bd.Vector(0, 0, 0)
+        for nome in ('x', 'y'):
+            a, meta, segno = scelte[(m.id, nome)]
+            if segno:
+                shift = shift + a * (meta * segno)
+        m.origin_shift = shift
+
+
+def _verso_rif(m, asse) -> int:
+    verso = {'sotto': 1, 'sopra': -1, 'meta': 0}.get(m._rif, 1)
+    return verso if asse.Z > 0 else -verso
+
+
 def _sezione(m) -> tuple:
     """La sezione dell'asta per decidere se due aste si possono tagliare a 45° tra loro (stesse misure esterne)."""
     return (m.profile.family, round(m.profile.width, 3), round(m.profile.height, 3))
@@ -466,7 +584,7 @@ def _cut_keep(solid, origin, normal):
     return res if isinstance(res, bd.Solid) else (res.solids()[0] if res.solids() else None)
 
 
-def _member_solid(m: Member, nodes, by_id, fid):
+def _member_solid(m: Member, nodes, by_id, fid, esterno=False):
     STATS['members_built'] += 1
     prof = m.profile
     ext = max(prof.width, prof.height) * 3 + 20
@@ -509,7 +627,10 @@ def _member_solid(m: Member, nodes, by_id, fid):
         elif kind == 'extend':
             extra = 0.0
             for o, _ in info:
-                extra = max(extra, abs(o.x.dot(w)) * o.profile.width / 2 + abs(o.y.dot(w)) * o.profile.height / 2)
+                e = abs(o.x.dot(w)) * o.profile.width / 2 + abs(o.y.dot(w)) * o.profile.height / 2
+                if esterno:      # il nodo è già lo spigolo esterno: si va oltre solo quanto l'altro tubo sporge
+                    e = max(0.0, e + o.origin_shift.dot(-u))
+                extra = max(extra, e)
             tagli[i].append(('piano', p_end - u * extra, u))
             angoli.append(0.0)
     # le estremità tagliate solo a squadra (sbarre, battute, prolunghe) non si tagliano: l'asta si estrude già

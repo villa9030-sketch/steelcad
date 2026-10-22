@@ -536,8 +536,91 @@ canvas.addEventListener('pointerup', ev => {
   if (he) { selectEdge(he); return; }
   const h = pick(ev);
   ultimoClic = h;
+  if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
   if (h) select(h.id, h.face); else clearSelection();
 });
+
+// Traverso tra due tubi (22/10): clic sul primo, clic sul secondo, poi altezza da terra e «anche dietro»
+let TRAV = null;
+function iniziaTraverso(primo = null) {
+  if (!S?.cutlist?.rows?.length) { toast('Prima serve una struttura.', 'err'); return; }
+  TRAV = { primo, secondo: null };
+  if (primo) { sel = { id: primo, ids: [primo] }; paint(); }
+  pannelloTraverso();
+}
+function finisciTraverso() { TRAV = null; $('#trav-hint').hidden = true; clearSelection(); }
+function cliccaTraverso(id) {
+  if (!TRAV.primo) TRAV.primo = id;
+  else if (id !== TRAV.primo) TRAV.secondo = id;
+  sel = { id, ids: [TRAV.primo, TRAV.secondo].filter(Boolean) };
+  paint();
+  pannelloTraverso();
+}
+function pannelloTraverso() {
+  const nome = id => objs.get(id)?.data?.name?.split(' — ')[0] || 'tubo';
+  const hint = $('#trav-hint');
+  hint.hidden = false;
+  hint.textContent = !TRAV.primo ? 'Clicca il primo tubo (per esempio una gamba)' : !TRAV.secondo ? `✓ ${nome(TRAV.primo)} · ora clicca il secondo tubo` : `✓ ${nome(TRAV.primo)} · ✓ ${nome(TRAV.secondo)}`;
+  const pronto = TRAV.primo && TRAV.secondo;
+  const inPiedi = pronto && [TRAV.primo, TRAV.secondo].every(id => /^(Gamba|Montante|Sbarra)/.test(nome(id)));
+  $('#props').innerHTML = `<h3>Nuovo traverso</h3>
+    <p class="hint">${pronto ? `Tra «${esc(nome(TRAV.primo))}» e «${esc(nome(TRAV.secondo))}»` : 'Clicca due tubi nel disegno: il traverso va tra loro.'}</p>
+    ${pronto ? `<label class="lbl">${inPiedi ? 'Altezza da terra' : 'Distanza dall’inizio del tubo (da sinistra o da davanti)'}<input class="field" id="tr-q" value="${esc(TRAV.q || '400')}"></label>
+    ${inPiedi ? `<div class="seg">${[['sotto', 'al sotto del tubo'], ['meta', 'a metà tubo'], ['sopra', 'al sopra del tubo']].map(([k, t]) => `<button class="btn${(TRAV.rif || 'sotto') === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div>` : ''}
+    <label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || ultimaAsta.profile || '40x40x3')}"></label>
+    <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+    <label class="check"><input type="checkbox" id="tr-dietro" checked> Anche dall’altra parte (dietro), alla stessa misura</label>
+    <div class="row-btns"><button class="btn" id="tr-no">Annulla</button><button class="btn primary" id="tr-ok">Aggiungi</button></div>`
+    : '<div class="row-btns"><button class="btn" id="tr-no">Annulla</button></div>'}`;
+  $('#tr-no').onclick = finisciTraverso;
+  document.querySelectorAll('[data-rif]').forEach(b => { b.onclick = () => { TRAV.rif = b.dataset.rif; TRAV.q = $('#tr-q').value; pannelloTraverso(); }; });
+  if (!pronto) return;
+  const vai = () => {
+    const st = TRAV.primo.split('/')[0], a = TRAV.primo.split('/')[1], b = TRAV.secondo.split('/')[1];
+    const q = $('#tr-q').value.trim(), prof = $('#tr-prof').value.trim(), dietro = $('#tr-dietro').checked, rif = TRAV.rif || 'sotto';
+    inCoda(async () => {
+      const r = await call('add_traverso', st, a, b, q, rif, prof, dietro, '');
+      if (!r.ok && dietro && /altra parte/.test(r.message || '')) { toast(r.message, 'err'); return; }
+      if (await apply(r)) { TRAV = null; $('#trav-hint').hidden = true; await select(r.select); }
+    });
+  };
+  $('#tr-ok').onclick = vai;
+  $('#tr-q').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+  $('#tr-q').focus(); $('#tr-q').select();
+}
+// una sagoma nuova nella struttura: si sceglie da dove la si guarda, poi si disegna
+function sagomaNuova() {
+  modal(`<h3>Disegna la sagoma</h3><p class="hint">Ogni linea diventa un tubo. Poi la puoi ripetere dietro e collegare.</p>
+    <div class="form"><label style="grid-column:1/-1">Da dove la guardi mentre la disegni<select class="field" id="sg-p">
+    <option value="XZ">Di fronte: fianchi, portali, cancelli</option><option value="YZ">Di fianco</option><option value="XY">Dall’alto: basamenti, telai a terra</option></select></label></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const piano = $('#sg-p').value;
+      close();
+      inCoda(async () => { const r = await call('sagoma_nuova', piano); if (await apply(r)) await enterSketch(r.sketch); });
+    };
+  });
+}
+function faiTubiDialog() {
+  const sid = SK.sid;
+  modal(`<h3>Fai i tubi</h3><p class="hint">Ogni linea della sagoma diventa un tubo. Le misure sono fuori tutto.</p>
+    <div class="form"><label style="grid-column:1/-1">Tubo<input class="field" id="ft-p" list="dl-prof" value="${esc(ultimaAsta.profile || '40x40x3')}"></label></div>
+    <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+    <label class="check"><input type="checkbox" id="ft-r" checked> <b>Ripeti la sagoma dietro</b></label>
+    <div class="form" id="ft-rr"><label>a (mm, fuori tutto)<input class="field" id="ft-d" value="1000"></label>
+    <label><span><input type="checkbox" id="ft-c" checked> Collega i due lati in ogni angolo, con</span><input class="field" id="ft-cp" list="dl-prof" value="${esc(ultimaAsta.profile || '40x40x3')}"></label></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai i tubi</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#ft-r').onchange = () => { $('#ft-rr').hidden = !$('#ft-r').checked; };
+    $('#m-ok').onclick = () => {
+      const v = { profile: $('#ft-p').value.trim(), ripeti: $('#ft-r').checked ? 1 : '', distanza: $('#ft-d').value.trim(),
+        collega: $('#ft-c').checked ? 1 : '', collega_profile: $('#ft-cp').value.trim() };
+      close();
+      inCoda(async () => { const r = await call('fai_tubi', sid, v); if (await apply(r, r.message)) exitSketch(); });
+    };
+  });
+}
 
 // --------------------------------------------------------------- viste
 let anim = null;
@@ -877,6 +960,16 @@ function placeDims() {
     el.style.left = ((p.x + 1) / 2 * w) + 'px';
     el.style.top = ((1 - p.y) / 2 * h) + 'px';
   }
+  // le frecce: a 70 px dal pallino, nella direzione in cui va il tubo vista sullo schermo
+  for (const { el, at, v } of frecceEls) {
+    const p = at.clone().project(camera), q = at.clone().add(v).project(camera);
+    let dx = (q.x - p.x) * w, dy = -(q.y - p.y) * h;
+    const l = Math.hypot(dx, dy);
+    if (l < 1e-6) { dx = 0; dy = 0; } else { dx *= 70 / l; dy *= 70 / l; }
+    el.style.display = p.z > 1 ? 'none' : '';
+    el.style.left = ((p.x + 1) / 2 * w + dx) + 'px';
+    el.style.top = ((1 - p.y) / 2 * h + dy) + 'px';
+  }
 }
 function editDim(el, d) {
   if (el.classList.contains('edit')) return;
@@ -913,7 +1006,7 @@ function buildNodes() {
     const el = document.createElement('div');
     el.className = 'node-dot' + (n.members.length ? '' : ' free');
     el.dataset.id = n.id;
-    el.title = `Nodo ${n.key}` + (n.members.length ? ` (${n.members.join(', ')})` : ' (nessuna asta)');
+    el.title = n.nome || 'Angolo';
     el.addEventListener('click', ev => { ev.stopPropagation(); clickNode(n); });
     nodesBox.appendChild(el);
     nodeEls.push({ el, at: new THREE.Vector3(...n.xyz) });
@@ -928,6 +1021,43 @@ function paintNodes() {
     el.classList.toggle('target', !!linkFrom && n.structure === linkFrom.st && n.key !== linkFrom.key);
   }
   $('#link-hint').hidden = !linkFrom;
+  buildFrecce();
+}
+// Le frecce intorno all'angolo scelto (22/10): Su, Giù, Avanti, Dietro, Destra, Sinistra. Clic = tubo nuovo da lì,
+// con lunghezza e tubo scritti nel pannello. Al posto di X+ Y- Z+.
+const FRECCE = [['su', 'Su', [0, 0, 1]], ['giu', 'Giù', [0, 0, -1]], ['avanti', 'Avanti', [0, -1, 0]],
+  ['dietro', 'Dietro', [0, 1, 0]], ['destra', 'Destra', [1, 0, 0]], ['sinistra', 'Sinistra', [-1, 0, 0]]];
+let frecceEls = [];
+function buildFrecce() {
+  for (const { el } of frecceEls) el.remove();
+  frecceEls = [];
+  const n = sel && nodes.find(x => x.id === sel.id);
+  if (!n || SK) return;
+  for (const [dir, testo, v] of FRECCE) {
+    const el = document.createElement('button');
+    el.className = 'freccia-3d';
+    el.textContent = testo;
+    el.title = `Tubo nuovo verso ${testo.toLowerCase()}`;
+    el.addEventListener('click', ev => { ev.stopPropagation(); tuboDaFreccia(n, dir); });
+    nodesBox.appendChild(el);
+    frecceEls.push({ el, at: new THREE.Vector3(...n.xyz), v: new THREE.Vector3(...v).multiplyScalar(10) });
+  }
+  placeDims();
+}
+function tuboDaFreccia(n, dir) {
+  ricordaTubo();
+  inCoda(async () => {
+    const r = await call('tubo_da_angolo', n.structure, n.key, dir, ultimaAsta.length, ultimaAsta.profile || null, ultimaAsta.nome || '');
+    ultimaAsta.nome = '';
+    if (!(await apply(r))) return;
+    await select(r.node);                         // si continua dal capo del tubo nuovo
+    // il capo del tubo è uscito dalla vista: si riquadra tutto, così le frecce si vedono
+    const capo = nodes.find(x => x.id === r.node);
+    if (capo) {
+      const q = new THREE.Vector3(...capo.xyz).project(camera);
+      if (Math.abs(q.x) > 0.75 || Math.abs(q.y) > 0.75) { goTo(VISTE.view_iso); setTimeout(placeDims, 450); }
+    }
+  });
 }
 function clickNode(n) {
   if (linkFrom) {
@@ -1283,13 +1413,26 @@ function azione(id) {
       else { const d = $('#params-box'); if (d) d.open = true; t('Le misure sono a sinistra: cambia il numero e premi Invio.'); } return;
     case 'tubo': t('Clicca un’asta nel modello: nel pannello scegli il tubo (anche per tutte le aste uguali).'); return;
     case 'asta': runCmd('member_help'); return;
-    case 'giunti': t('Clicca un pallino in un angolo: nel pannello scegli come si uniscono i tubi.'); return;
+    case 'giunti': {
+      const angolo = nodes.filter(n => n.members.length >= 2).sort((a, b) => b.xyz[2] - a.xyz[2])[0];
+      if (angolo) inCoda(() => select(angolo.id));
+      t('Clicca un angolo (pallino): nel pannello scegli col disegnino come si saldano i tubi.'); return;
+    }
+    case 'tubonuovo': t(nodes.length ? 'Clicca un angolo (pallino): intorno compaiono le frecce Su, Giù, Avanti, Dietro, Destra, Sinistra.' : 'Prima serve una struttura.'); return;
+    case 'traverso': iniziaTraverso(); return;
+    case 'fori': t('Clicca nel 3D la faccia del tubo dove vanno i fori, poi «Disegna sulla faccia» nel pannello.'); return;
+    case 'sagoma': inCoda(sagomaNuova); return;
     case 'raccordo3d': dressTool('fillet'); return;
     case 'smusso3d': dressTool('chamfer'); return;
     default: return;
   }
 }
-$('#props').addEventListener('click', ev => { const b = ev.target.closest('[data-azione]'); if (b) azione(b.dataset.azione); });
+$('#props').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-azione]');
+  if (b) { azione(b.dataset.azione); return; }
+  const c = ev.target.closest('[data-cmd]');
+  if (c) runCmd(c.dataset.cmd);
+});
 
 // ------------------------------------------------------------- prepara per il laser / l'officina
 async function preparaDialog() {
@@ -1335,6 +1478,16 @@ async function renderProps(s) {
   const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
   if (!profili) profili = await call('profile_suggestions');
+  if (s.kind === 'structure' && s.cosa) {
+    const c = s.cosa;
+    h = `<h3>${esc(s.title)}</h3>${tab([['Fuori tutto', c.fuori_tutto.join(' × ') + ' mm'], ['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]])}
+      <div class="sub">Cosa puoi fare adesso</div><div class="cosa">
+      <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi: lo metto in mezzo</span></button>
+      <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
+      <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
+      <button class="cosa-b" data-azione="fori"><b>Fori sui tubi</b><span>Clicca la faccia del tubo e disegna</span></button>
+      <button class="cosa-b primary" data-cmd="prepara"><b>Prepara per l’officina</b><span>Cut list, tavola, file per il laser tubo</span></button></div>`;
+  }
   if (s.kind === 'structure' || (s.kind === 'body' && s.template)) {
     const t = s.template, idf = s.kind === 'structure' ? s.id : s.tpl_id;
     const forma = s.kind === 'body';
@@ -1361,17 +1514,21 @@ async function renderProps(s) {
   }
   if (s.kind === 'member') {
     const anc = Object.entries(s.anchors).map(([k, v]) => `<option value="${k}"${k === s.anchor ? ' selected' : ''}>${esc(v)}</option>`).join('');
-    h += `<div class="group-row"><label class="lbl" for="p-prof">Profilo</label>
+    const altri = (s.tubo?.gruppo_n || 1) - 1;
+    h = `<h3>${esc(s.title)}${quanti}</h3>${s.group ? `<div class="fsub" style="margin:-4px 0 6px">${esc(s.group)}</div>` : ''}${tab(s.rows)}`;
+    h += `<div class="group-row"><label class="lbl" for="p-prof">Tubo</label>
       <input class="field" id="p-prof" list="dl-prof" value="${esc(s.profile)}" spellcheck="false">
       <datalist id="dl-prof">${profili.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-      ${s.group ? `<label class="check"><input type="checkbox" id="p-all" checked> Tutte le aste di «${esc(s.group)}»</label>` : ''}
-      <label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
-      <select class="field" id="p-anc">${anc}</select></div>
-      <div class="row-btns"><button class="btn primary" id="p-apply">Applica profilo</button>
-      <button class="btn" id="p-rot" title="Ruota il profilo attorno al suo asse">Ruota di 90° (ora ${num(s.rotate)}°)</button>
-      <button class="btn" id="p-flip" title="Scambia il lato da cui è appoggiato il profilo">Inverti</button></div>
-      <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Elimina ${sel?.ids?.length > 1 ? sel.ids.length + ' aste' : 'asta'}</button></div>
-      ${pannelloLavorazioni(s)}`;
+      ${altri > 0 ? `<label class="check"><input type="checkbox" id="p-all" checked> Anche gli altri ${altri === 1 ? 'tubo' : altri + ' tubi'} di «${esc(s.group)}»</label>` : ''}</div>
+      <div class="row-btns"><button class="btn primary" id="p-apply">Cambia tubo</button></div>
+      <div class="cosa">
+        <button class="cosa-b" id="p-trav"><b>Traverso da qui</b><span>Parte da questo tubo, poi clicchi dove arriva</span></button>
+        ${s.tubo?.verticale ? '' : '<button class="cosa-b" id="p-rot"><b>Giralo di 90°</b><span>Per i tubi rettangolari: in piedi o sdraiato</span></button>'}
+      </div>
+      ${pannelloLavorazioni(s)}
+      ${s.esterno ? '' : `<details class="altro"><summary>Altro</summary><label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
+      <select class="field" id="p-anc">${anc}</select><div class="row-btns"><button class="btn" id="p-flip">Inverti</button></div></details>`}
+      <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div>`;
   } else if (s.kind === 'instance') {
     $('#props').innerHTML = instancePanel(s);
     wireInstance(s);
@@ -1426,22 +1583,24 @@ async function renderProps(s) {
   const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
   $('#p-apply').onclick = () => edit({ profile: $('#p-prof').value.trim() });
   $('#p-prof').onkeydown = ev => { if (ev.key === 'Enter') edit({ profile: $('#p-prof').value.trim() }); };
-  $('#p-rot').onclick = () => edit({ rotate_by: 90 });
-  $('#p-flip').onclick = () => edit({ toggle_flip: true });
-  $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
+  if ($('#p-rot')) $('#p-rot').onclick = () => edit({ rotate_by: 90 });
+  if ($('#p-flip')) $('#p-flip').onclick = () => edit({ toggle_flip: true });
+  if ($('#p-anc')) $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
   $('#p-del').onclick = deleteSelected;
+  $('#p-trav').onclick = () => iniziaTraverso(s.id);
   wireLavorazioni(s);
 }
 
 // Lavorazioni sul tubo (22/10): clic sulla faccia del tubo → sketch su quella faccia, come sulla lamiera
 function facciaCliccata(n) {
   if (!n) return 'di sopra';
+  if (n === 'davanti') return 'davanti';
   const [x, y, z] = n, m = Math.max(Math.abs(x), Math.abs(y), Math.abs(z));
   return m === Math.abs(z) ? (z > 0 ? 'di sopra' : 'di sotto') : m === Math.abs(y) ? (y < 0 ? 'davanti' : 'dietro') : (x > 0 ? 'a destra' : 'a sinistra');
 }
 function pannelloLavorazioni(s) {
   if (!s.lavorabile) return s.non_lavorabile ? `<p class="hint">${esc(s.non_lavorabile)}</p>` : '';
-  const n = ultimoClic?.id === s.id ? ultimoClic.normal : null;
+  const n = ultimoClic?.id === s.id ? ultimoClic.normal : (s.tubo?.verticale ? [0, -1, 0] : null);   // in piedi: davanti
   const fatte = (s.lavorazioni || []).map(l => `<tr><td>${esc(l.label)}${l.through ? ' (passante)' : ''}${l.members.length > 1 ? ` · ${l.members.length} tubi` : ''}</td>
     <td style="text-align:right"><button class="btn" data-lav-sk="${esc(l.sketch)}">Modifica</button></td></tr>`).join('');
   return `<div class="sub">Lavorazioni sul tubo</div>
@@ -1452,7 +1611,7 @@ function pannelloLavorazioni(s) {
 function wireLavorazioni(s) {
   const b = $('#p-lav');
   if (b) b.onclick = () => inCoda(async () => {
-    const n = ultimoClic?.id === s.id && ultimoClic.normal ? ultimoClic.normal : [0, 0, 1];
+    const n = ultimoClic?.id === s.id && ultimoClic.normal ? ultimoClic.normal : (s.tubo?.verticale ? [0, -1, 0] : [0, 0, 1]);
     const r = await call('sketch_on_tube', s.id, n);
     if (await apply(r)) await enterSketch(r.sketch);
   });
@@ -2611,74 +2770,68 @@ function renderSheet() {
   });
 }
 
-let ultimaAsta = { length: '500', profile: null, group: '' };
+let ultimaAsta = { length: '500', profile: null, group: '', nome: '' };
+function ricordaTubo() {
+  if (!$('#n-len')) return;
+  ultimaAsta = { ...ultimaAsta, length: $('#n-len').value.trim(), profile: $('#n-prof').value.trim(), nome: $('#n-nome')?.value.trim() || '' };
+}
+// i disegnini dell'angolo: due tubi visti di fronte, come si saldano
+function disegnoGiunto(tipo) {
+  const g = '#8C96A0', c = '#B8C0C8';
+  const forme = {
+    miter: `<polygon points="10,10 26,26 26,76 10,76" fill="${g}"/><polygon points="10,10 76,10 76,26 26,26" fill="${c}"/><line x1="10" y1="10" x2="26" y2="26" stroke="#16191D" stroke-width="2"/>`,
+    verticale: `<rect x="10" y="10" width="16" height="66" fill="${g}"/><rect x="27" y="10" width="49" height="16" fill="${c}"/>`,
+    orizzontale: `<rect x="10" y="10" width="66" height="16" fill="${c}"/><rect x="10" y="27" width="16" height="49" fill="${g}"/>`,
+  };
+  return `<svg width="60" height="60" viewBox="0 0 86 86" aria-hidden="true">${forme[tipo] || ''}</svg>`;
+}
 function nodePanel(s) {
-  const p = s.position;
-  const cosa = { abs: 'Coordinate (mm, anche parametri)', from: `Spostamento dal nodo ${p.base}`, sketch: `Spostamento dal punto ${p.base} dello sketch` }[p.mode];
-  const pos = p.mode === 'fixed' ? '<p class="hint">Il nodo è l’estremo di una linea di sketch: si sposta cambiando lo sketch.</p>'
-    : `<div class="sub">Posizione</div><p class="hint" style="margin:0 0 4px">${esc(cosa)}</p><div class="xyz">${['X', 'Y', 'Z'].map((a, i) =>
-      `<label>${a}<input class="field" data-xyz="${i}" value="${esc(String(p.values[i] ?? 0).replace('.', ','))}"></label>`).join('')}</div>
-      <div class="row-btns"><button class="btn" id="n-move">Sposta</button></div>`;
-  const tipo = s.joint.type || 'auto';
-  const opt = Object.entries(s.joint_types).map(([k, v]) => `<option value="${k}"${k === tipo ? ' selected' : ''}>${esc(v)}</option>`).join('');
-  const through = s.members.map(m => `<label class="check"><input type="checkbox" data-th="${esc(m)}"${(s.joint.through || []).includes(m) ? ' checked' : ''}> ${esc(m)} passa</label>`).join('');
-  const giunto = s.members.length ? `<div class="sub">Giunto</div><select class="field" id="n-joint">${opt}</select>
-      <div id="n-joint-more"><div class="through" data-for="butt">${through}</div>
-      <label class="lbl" data-for="angle">Angolo del taglio (°)<input class="field" id="n-angle" value="${esc(s.joint.angle ?? 0)}"></label>
-      <div class="row-btns"><button class="btn" id="n-joint-ok">Applica giunto</button></div></div>` : '';
+  const a = s.angolo;
+  let h = '';
+  if (a && a.scelte.length) {
+    h += `<div class="sub">Come si saldano qui?</div><div class="angoli">${a.scelte.map(x =>
+      `<button class="angolo${x.key === a.ora ? ' on' : ''}" data-angolo="${x.key}">${disegnoGiunto(x.disegno)}<span>${esc(x.label)}</span></button>`).join('')}</div>
+      ${a.simili > 1 ? `<label class="check"><input type="checkbox" id="n-tutti" checked> Uguale su tutti i ${a.simili} angoli come questo</label>` : ''}
+      <table class="grid" style="margin-top:6px">${a.righe.map(r => `<tr><td>${esc(r[0])}</td><td style="text-align:right">${esc(r[1])}</td></tr>`).join('')}</table>`;
+  }
   if (!ultimaAsta.profile) ultimaAsta.profile = s.default_profile;
-  const dir = ['X+', 'Y+', 'Z+', 'X-', 'Y-', 'Z-'];
-  return giunto + pos + `<div class="sub">Nuova asta da qui</div>
+  h += `<div class="sub">Tubo nuovo da qui</div>
+    <p class="hint" style="margin:0 0 6px">Scrivi lunghezza e tubo, poi clicca una freccia nel disegno (o qui sotto). Poi si riparte dal capo del tubo.</p>
     <div class="xyz"><label>Lunghezza<input class="field" id="n-len" value="${esc(ultimaAsta.length)}"></label>
-    <label style="grid-column:span 2">Profilo<input class="field" id="n-prof" list="dl-prof2" value="${esc(ultimaAsta.profile)}" spellcheck="false"></label></div>
+    <label style="grid-column:span 2">Tubo<input class="field" id="n-prof" list="dl-prof2" value="${esc(ultimaAsta.profile)}" spellcheck="false"></label></div>
     <datalist id="dl-prof2">${(profili || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
-    <label class="lbl" style="display:block;margin-top:4px">Gruppo<input class="field" id="n-group" value="${esc(ultimaAsta.group)}" placeholder="es. Montanti"></label>
-    <p class="hint" style="margin:6px 0 4px">Direzione:</p>
-    <div class="dirs">${dir.map(d => `<button class="btn" data-dir="${d}">${d}</button>`).join('')}</div>
-    <div class="row-btns"><button class="btn" id="n-link">Collega a un altro nodo…</button></div>`;
+    <label class="lbl" style="display:block;margin-top:4px">Nome (se vuoi)<input class="field" id="n-nome" value="" placeholder="es. Mensola"></label>
+    <div class="dirs">${FRECCE.map(([d, t]) => `<button class="btn" data-freccia="${d}">${t}</button>`).join('')}</div>
+    <div class="row-btns"><button class="btn" id="n-link">Unisci a un altro angolo…</button></div>`;
+  const p = s.position;
+  if (p.mode !== 'fixed') {
+    const cosa = { abs: 'Misure da zero (mm, anche nomi di misure)', from: 'Spostamento dall’angolo da cui parte', sketch: 'Spostamento dal punto del disegno' }[p.mode];
+    h += `<details class="altro"><summary>Sposta l’angolo</summary><p class="hint" style="margin:0 0 4px">${esc(cosa)}: verso destra, verso dietro, verso su.</p><div class="xyz">${['Destra', 'Dietro', 'Su'].map((t, i) =>
+      `<label>${t}<input class="field" data-xyz="${i}" value="${esc(String(p.values[i] ?? 0).replace('.', ','))}"></label>`).join('')}</div>
+      <div class="row-btns"><button class="btn" id="n-move">Sposta</button></div></details>`;
+  }
+  return h;
 }
 function wireNode(s) {
-  const more = () => {
-    const t = $('#n-joint')?.value;
-    if (!t) return;
-    $('#n-joint-more').hidden = !['butt', 'angle'].includes(t);
-    $('#n-joint-more').querySelectorAll('[data-for]').forEach(x => { x.hidden = x.dataset.for !== t; });
-  };
-  const giunto = () => {
-    const t = $('#n-joint').value;
-    const spec = { type: t };
-    if (t === 'butt') spec.through = [...document.querySelectorAll('[data-th]:checked')].map(x => x.dataset.th);
-    if (t === 'angle') spec.angle = $('#n-angle').value;
-    inCoda(async () => apply(await call('set_joint', s.structure, s.key, spec)));
-  };
-  if ($('#n-joint')) {
-    more();
-    $('#n-joint').onchange = () => { more(); if (!['butt', 'angle'].includes($('#n-joint').value)) giunto(); };
-    $('#n-joint-ok').onclick = giunto;
-  }
+  document.querySelectorAll('[data-angolo]').forEach(b => {
+    b.onclick = () => inCoda(async () => {
+      if (await apply(await call('set_angolo', s.structure, s.key, b.dataset.angolo, !!$('#n-tutti')?.checked))) await refreshSel();
+    });
+  });
+  document.querySelectorAll('[data-freccia]').forEach(b => { b.onclick = () => tuboDaFreccia(nodes.find(x => x.id === s.id) || { structure: s.structure, key: s.key }, b.dataset.freccia); });
   if ($('#n-move')) {
     const sposta = () => inCoda(async () => apply(await call('move_node', s.structure, s.key,
       [...document.querySelectorAll('[data-xyz]')].map(x => x.value))));
     $('#n-move').onclick = sposta;
     document.querySelectorAll('[data-xyz]').forEach(x => { x.onkeydown = ev => { if (ev.key === 'Enter') sposta(); }; });
   }
-  const ricorda = () => { ultimaAsta = { length: $('#n-len').value.trim(), profile: $('#n-prof').value.trim(), group: $('#n-group').value.trim() }; };
-  document.querySelectorAll('[data-dir]').forEach(b => {
-    b.onclick = () => {
-      ricorda();
-      inCoda(async () => {
-        const r = await call('add_member', s.structure, s.key, null, b.dataset.dir, ultimaAsta.length, ultimaAsta.profile, ultimaAsta.group || null);
-        if (await apply(r)) await select(r.node);     // si continua dal nodo nuovo, come una polilinea
-      });
-    };
-  });
   $('#n-link').onclick = () => {
-    ricorda();
-    linkFrom = { st: s.structure, key: s.key, profile: ultimaAsta.profile, group: ultimaAsta.group };
+    ricordaTubo();
+    linkFrom = { st: s.structure, key: s.key, profile: ultimaAsta.profile, group: '' };
     paintNodes();
+    toast('Clicca l’altro angolo: li unisco con un tubo.');
   };
 }
-
 // --------------------------------------------------------------- distinta, cut list, info
 function renderBottom() {
   const b = S.bom;
@@ -2826,11 +2979,13 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
         { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
     zero: { titolo: 'Una forma disegnata', nota: 'Disegni il contorno con le linee; poi diventa lamiera o piastra.', nome: 'Pezzo', campi: [] },
-    telaio: { titolo: 'Telaio o banco', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Banco',
-      campi: [{ k: 'L', l: 'Lunghezza', v: 2000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 1000, lettera: 'B' },
-        { k: 'H', l: 'Altezza', v: 900, lettera: 'C' }, { k: 'profilo', l: 'Tubo del telaio', v: '40x40x3', prof: true },
-        { k: 'gambe', l: 'Tubo delle gambe', v: '40x40x3', prof: true }] },
-    scaffale: { titolo: 'Scaffale o telaio', nota: 'Scaffali e telai per armadi. Misure in asse dei tubi: sotto vedi il fuori tutto. Tubi uguali? Scrivi lo stesso nei due campi.', nome: 'Scaffale',
+    telaio: { titolo: 'Banco', nota: 'Misure fuori tutto: il banco finito è grande così, i tubi stanno dentro.', nome: 'Banco',
+      campi: [{ k: 'L', l: 'Lunghezza', v: 1600, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 700, lettera: 'B' },
+        { k: 'H', l: 'Altezza (piano di lavoro)', v: 850, lettera: 'C' },
+        { k: 'ripiano', l: 'Ripiano sotto, da terra (0 = senza)', v: 150 },
+        { k: 'profilo', l: 'Tubo del telaio', v: '40x40x3', prof: true },
+        { k: 'gambe', l: 'Tubo delle gambe', v: '40x40x3', prof: true }, { k: 'tubo_ripiano', l: 'Tubo del ripiano', v: '30x30x2', prof: true }] },
+    scaffale: { titolo: 'Scaffale o telaio', nota: 'Scaffali e telai per armadi. Misure fuori tutto; i piani hanno la stessa luce tra un tubo e l’altro. Tubi uguali? Scrivi lo stesso nei due campi.', nome: 'Scaffale',
       campi: [{ k: 'L', l: 'Larghezza', v: 1000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 400, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 1800, lettera: 'C' }, { k: 'ripiani', l: 'Quanti piani (a terra e in cima compresi)', v: 4, lettera: 'D' },
         { k: 'montanti', l: 'Tubo dei montanti', v: '30x30x2', prof: true }, { k: 'traversi', l: 'Tubo dei traversi', v: '40x20x2', prof: true }] },
@@ -2838,11 +2993,11 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
       campi: [{ k: 'L', l: 'Larghezza', v: 800, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 600, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 2000, lettera: 'C' }, { k: 'ripiani', l: 'Quanti livelli (sotto e sopra compresi)', v: 3, lettera: 'D' },
         { k: 'profilo', l: 'Tubo', v: '40x40x2', prof: true }] },
-    cancello: { titolo: 'Cancello', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Cancello',
+    cancello: { titolo: 'Cancello', nota: 'Misure fuori tutto. La luce tra le sbarre è a filo interno, anche contro il telaio.', nome: 'Cancello',
       campi: [{ k: 'L', l: 'Larghezza', v: 1500, lettera: 'A' }, { k: 'H', l: 'Altezza', v: 1200, lettera: 'B' },
-        { k: 'passo', l: 'Distanza tra le sbarre, circa', v: 120, lettera: 'C' },
+        { k: 'passo', l: 'Luce tra le sbarre, circa', v: 120, lettera: 'C' },
         { k: 'telaio', l: 'Tubo del telaio', v: '60x60x3', prof: true }, { k: 'sbarre', l: 'Tubo delle sbarre', v: '20x20x2', prof: true }] },
-    disegno: { titolo: 'Struttura disegnata da te', nota: 'Tracci le linee dello scheletro: diventano tubi.', nome: 'Struttura',
+    disegno: { titolo: 'Disegna la sagoma', nota: 'Disegni la sagoma (un fianco, un portale): ogni linea diventa un tubo, poi la ripeti dietro. Misure fuori tutto.', nome: 'Struttura',
       campi: [{ k: 'piano', l: 'Da dove la guardi mentre la disegni', v: 'XZ',
         scelte: { XZ: 'Di fronte: cancelli, spalle, portali', XY: 'Dall’alto: basamenti, telai a terra', YZ: 'Di fianco' } }] },
     cono: { titolo: 'Cono o tronco di cono', nota: 'Misure finite del pezzo.', nome: 'Tronco di cono',
@@ -2869,7 +3024,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
         { k: 'riferimento', l: 'Le misure sono', v: 'esterno', scelte: RIF },
         { k: 'divisione', l: 'Divisione in pezzi', v: 'auto', scelte: { auto: 'automatica (meno saldature)', verticali: 'pieghe sugli spigoli verticali', tramoggia: 'pieghe sugli spigoli della tramoggia', lati: 'un pezzo per lato' }, altro: true },
         { k: 'foglio', l: 'Foglio', v: '1500x3000', altro: true }, ...piega] },
-    vuoto: { titolo: 'Struttura nodo per nodo', nota: 'Parti da un nodo e tiri le aste.', nome: 'Struttura', campi: [] },
+    vuoto: { titolo: 'Telaio da zero', nota: 'Parti da un angolo sul pavimento e tiri i tubi con le frecce (Su, Giù, Avanti, Dietro, Destra, Sinistra). Misure fuori tutto.', nome: 'Telaio', campi: [] },
   };
   const GRUPPI = [['Lamiera', ['lamiera', 'zero']], ['Forme', ['cono', 'tramoggia', 'tramoggia_cassone']],
     ['Strutture', ['telaio', 'scaffale', 'cancello', 'disegno', 'vuoto']]];
@@ -3762,6 +3917,13 @@ function drawSketch() {
   $('#sk-tab').hidden = !((v.on_sheet && v.on_face) || v.on_flat);
   $('#sk-tab').disabled = !v.drawn;
   $('#sk-mark').hidden = !!v.on_tube; $('#sk-boss').hidden = $('#sk-boss').hidden || !!v.on_tube;   // sul tubo: si buca e basta
+  // una sagoma di tubi: un solo pulsante grande, «Fai i tubi»; i comandi della lamiera non servono (22/10)
+  $('#sk-tubi').hidden = !v.sagoma;
+  $('#sk-tubi').disabled = !v.lines.some(l => !l.construction);
+  for (const m of ['sheet', 'plate', 'revolve', 'structure', 'profilo']) {
+    const b = document.querySelector(`#sk-make [data-make="${m}"]`);
+    if (b) b.hidden = !!v.sagoma;
+  }
   $('#sk-contour').disabled = !v.drawn || !v.lines.some(l => !l.construction);
   $('.sk-legend .l-ref').parentElement.hidden = !suPezzo;
   // "Altro" solo se dentro c'è qualcosa; i pulsanti spenti dicono perché
@@ -4812,6 +4974,7 @@ async function structureDialog() {
 
 function makeDialog(kind) {
   if (kind === 'structure') { structureDialog(); return; }
+  if (kind === 'tubi') { faiTubiDialog(); return; }
   if (kind === 'cut' && SK.v.on_tube) { lavorazioneTuboDialog(); return; }
   if (kind === 'tab') {
     const sid = SK.sid;

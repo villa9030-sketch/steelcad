@@ -177,6 +177,41 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
   padding: 6px 12px; border-radius: 4px; font-size: 12px;
 }
 #link-hint[hidden] { display: none; }
+#trav-hint {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: var(--tip-bg); color: #fff;
+  padding: 6px 12px; border-radius: 4px; font-size: 12px; z-index: 3;
+}
+#trav-hint[hidden] { display: none; }
+/* frecce intorno all'angolo scelto: Su, Giù, Avanti… (22/10) */
+.freccia-3d {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; padding: 3px 10px; border-radius: 12px;
+  border: 1px solid var(--hover); background: var(--surface); color: var(--ink); font-size: 12px; cursor: pointer;
+}
+.freccia-3d:hover { background: var(--sel); border-color: var(--sel); color: #16191D; }
+/* gli angoli col disegnino */
+.angoli { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.angolo {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); font-size: 12px; text-align: center;
+}
+.angolo:hover { border-color: var(--hover); }
+.angolo.on { border: 2px solid var(--hover); background: var(--on-bg); }
+/* «Cosa puoi fare adesso» */
+.cosa { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.cosa-b {
+  text-align: left; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.cosa-b b { font-weight: 600; }
+.cosa-b span { color: var(--ink-2); font-size: 12px; }
+.cosa-b:hover { border-color: var(--hover); }
+.cosa-b.primary { background: var(--action); border-color: var(--action); color: #fff; }
+.cosa-b.primary span { color: rgba(255, 255, 255, .85); }
+.seg { display: flex; gap: 4px; margin: 4px 0 8px; }
+.seg .btn { flex: 1; font-size: 12px; }
+.seg .btn.on { background: var(--on-bg); border-color: var(--on-line); }
+details.altro { margin: 8px 0; }
+details.altro summary { cursor: pointer; color: var(--ink-2); }
 #views button.on { background: var(--action); border-color: var(--action); color: #fff; }
 #views [hidden] { display: none; }
 #flat-bar {
