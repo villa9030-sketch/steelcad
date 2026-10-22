@@ -626,7 +626,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 f_ = self.doc.feature(obj_id[3:])
                 return _ok(selection={'kind': 'edgeflange', 'feature': f_['id'], 'title': 'Piega sul bordo', 'rows': [],
                                       'def': {'length': f_.get('length', 20), 'angle': f_.get('angle', 90),
-                                              'direction': 'down' if f_.get('side') == 'out' else 'up'},
+                                              'direction': 'down' if f_.get('side') == 'out' else 'up',
+                                              'trim0': f_.get('trim0'), 'trim1': f_.get('trim1')},
                                       'highlight': self._face_indices(f_['id']) if self.result.body is not None else []})
             if obj_id.startswith('flange=') and obj_id.count('/') == 2:
                 return _ok(selection=self._side_selection(*obj_id[7:].split('/')))
@@ -3507,6 +3508,9 @@ def _edge_flange_fields(fields: dict) -> dict:
     for k in ('length', 'angle'):
         if k in fields and str(fields[k]).strip() != '':
             out[k] = _number(fields[k])
+    for k in ('trim0', 'trim1'):                                  # gioco agli angoli: vuoto = automatico
+        if k in fields:
+            out[k] = _number(fields[k]) if str(fields[k]).strip() != '' else None
     if fields.get('direction') in ('up', 'down'):                 # dal pannello delle pieghe: su = verso dentro
         out['side'] = 'in' if fields['direction'] == 'up' else 'out'
     return out

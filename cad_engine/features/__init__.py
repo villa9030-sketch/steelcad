@@ -31,7 +31,7 @@ VALUE_FIELDS = {
     'sheet': ('thickness', 'radius', 'k', 'bd90'),
     'sheet_shape': ('thickness', 'radius', 'k', 'd1', 'd2', 'height', 'a', 'b', 'd', 'ex', 'ey', 'pitch', 'length', 'hits'),
     'sheet_form': ('width', 'height', 'depth'),
-    'sheet_edge_flange': ('length', 'angle'),
+    'sheet_edge_flange': ('length', 'angle', 'trim0', 'trim1'),
     'sheet_miter': ('angle', 'gap'),
     'step_lamiera': ('k',),
 }

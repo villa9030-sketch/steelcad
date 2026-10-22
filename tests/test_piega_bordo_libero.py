@@ -57,3 +57,17 @@ def test_tabella_pieghe_con_fianchi_e_bordi_liberi(tmp_path):
     p = tmp_path / 'pieghe.csv'
     r = s.export_bend_table(str(p))
     assert r['ok'] and '3 pieghe' in r['message'] and 'bordo libero' in p.read_text(encoding='utf-8-sig')
+
+
+def test_gioco_agli_angoli():
+    """Gioco scritto a mano: la piega si accorcia ai due capi (22/10)."""
+    s = Service()
+    s.new_project('lamiera', {'name': 'C', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 1, 'k': 0.4})
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    assert s.sketch_add_polyline(sid, [[100, 200], [100, 240], [200, 240], [200, 200]], False)['ok'] and s.sheet_tab(sid)['ok']
+    e = max((x for x in s.scene()['bend_edges'] if x['kind'] == 'libero'), key=lambda x: x['length'])
+    r = s.add_edge_flange(e['face'], e['ea'], e['eb'], {'length': '20', 'trim0': '5', 'trim1': '7'})
+    assert r['ok'], r.get('message')
+    assert abs(s.result.body.sheet.extra_bends[-1]['width'] - 88) < 1e-6
+    assert s.edit_edge_flange(r['select'][3:], {'trim0': '', 'trim1': ''})['ok']           # di nuovo automatico
+    assert abs(s.result.body.sheet.extra_bends[-1]['width'] - 100) < 1e-6

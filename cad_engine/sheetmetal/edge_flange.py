@@ -133,34 +133,61 @@ def build_edge_flange(fdef: dict, ctx):
     lato = 1 if (centro - (a + b) * 0.5).dot(dentro) > 0 else -1
     sig = lato if fdef.get('side', 'in') != 'out' else -lato         # +1 = si piega verso «dentro» (lo spessore)
     e = (b - a).normalized()
-    L_edge = (b - a).length
     th = math.radians(ang)
     nb = dentro * sig
     w_in = t if sig > 0 else 0.0
-    C = a + dentro * w_in + nb * r
     dir_ = lambda f: -nb * math.cos(f) + fuori * math.sin(f)  # noqa: E731
     T = nb * math.sin(th) + fuori * math.cos(th)
     R_ = r + t
-    Ao, Bo, Mo = C + dir_(0) * R_, C + dir_(th) * R_, C + dir_(th / 2) * R_
-    Ai, Bi, Mi = C + dir_(0) * r, C + dir_(th) * r, C + dir_(th / 2) * r
-    lati = [bd.Edge.make_three_point_arc(Ao, Mo, Bo), bd.Edge.make_line(Bo, Bi)]
-    if r > TOL:
-        lati.append(bd.Edge.make_three_point_arc(Bi, Mi, Ai))
-    lati.append(bd.Edge.make_line(Ai if r > TOL else Bi, Ao))
-    giro = bd.extrude(bd.Face(bd.Wire(lati)), amount=L_edge, dir=tuple(e))
     dritto = lung - piega.ossb
-    lastra = bd.extrude(bd.Face(bd.Wire.make_polygon([Bi, Bo, Bo + T * dritto, Bi + T * dritto], close=True)),
-                        amount=L_edge, dir=tuple(e))
-    pezzo = giro + lastra
-    op = BRepAlgoAPI_Fuse(body.shape, pezzo.wrapped)
-    if not op.IsDone():
-        raise FeatureError('Il kernel non è riuscito a fare la piega.', feature=fid)
-    nuovo = body.after(op, op.Shape())
-    sh = bd.Shape.cast(nuovo.shape)
-    if len(sh.solids()) != 1:
-        raise FeatureError('La piega non resta attaccata al pezzo.', feature=fid)
-    if abs(volume(nuovo.shape) - volume(body.shape) - pezzo.volume) > 1e-6 * max(pezzo.volume, 1) + 1e-3:
-        raise FeatureError('La piega tocca un’altra parte del pezzo: accorciala o cambia il verso.', feature=fid)
+    v0 = volume(body.shape)
+
+    def prova(t0, t1):
+        """La piega accorciata di t0 all'inizio e t1 alla fine del bordo: (pezzo, nuovo, a, b) o None se tocca."""
+        a_, b_ = a + e * t0, b - e * t1
+        L = (b_ - a_).length
+        if L <= TOL or (b_ - a_).dot(e) <= 0:
+            return None
+        C = a_ + dentro * w_in + nb * r
+        Ao, Bo, Mo = C + dir_(0) * R_, C + dir_(th) * R_, C + dir_(th / 2) * R_
+        Ai, Bi, Mi = C + dir_(0) * r, C + dir_(th) * r, C + dir_(th / 2) * r
+        lati = [bd.Edge.make_three_point_arc(Ao, Mo, Bo), bd.Edge.make_line(Bo, Bi)]
+        if r > TOL:
+            lati.append(bd.Edge.make_three_point_arc(Bi, Mi, Ai))
+        lati.append(bd.Edge.make_line(Ai if r > TOL else Bi, Ao))
+        giro = bd.extrude(bd.Face(bd.Wire(lati)), amount=L, dir=tuple(e))
+        lastra = bd.extrude(bd.Face(bd.Wire.make_polygon([Bi, Bo, Bo + T * dritto, Bi + T * dritto], close=True)),
+                            amount=L, dir=tuple(e))
+        pz = giro + lastra
+        op = BRepAlgoAPI_Fuse(body.shape, pz.wrapped)
+        if not op.IsDone():
+            return None
+        nv = body.after(op, op.Shape())
+        if len(bd.Shape.cast(nv.shape).solids()) != 1:
+            return None
+        if abs(volume(nv.shape) - v0 - pz.volume) > 1e-6 * max(pz.volume, 1) + 1e-3:
+            return None
+        return pz, nv, a_, b_, C
+    # il gioco agli angoli: scritto dall'utente, oppure automatico (22/10): se la piega piena tocca un'altra parete
+    # si accorcia di raggio + spessore + 0,2 dalla parte che tocca, poi da tutte e due
+    scritti = [val('trim0', None, 'il gioco all’inizio'), val('trim1', None, 'il gioco alla fine')]
+    if any(x is not None and x < 0 for x in scritti):
+        raise FeatureError('Il gioco agli angoli non può essere negativo.', feature=fid)
+    g = r + t + 0.2
+    if scritti[0] is not None or scritti[1] is not None:
+        tentativi = [(scritti[0] or 0.0, scritti[1] or 0.0)]
+    else:
+        tentativi = [(0.0, 0.0), (g, 0.0), (0.0, g), (g, g)]
+    fatto = None
+    for t0, t1 in tentativi:
+        fatto = prova(t0, t1)
+        if fatto:
+            break
+    if fatto is None:
+        raise FeatureError('La piega tocca un’altra parte del pezzo: accorciala, aumenta il gioco agli angoli o cambia '
+                           'il verso.', feature=fid)
+    pezzo, nuovo, a, b, C = fatto
+    L_edge = (b - a).length
 
     # sviluppo: oltre lo stesso bordo, la striscia della piega e il tratto dritto
     porta = lambda p: dst.from_local_coords(src.to_local_coords(p))  # noqa: E731

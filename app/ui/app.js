@@ -368,11 +368,15 @@ function pannelloPiegaBordo(e, fatta = null) {
     <p class="hint" style="margin:6px 0">${libero ? 'Altezza fuori tutto dallo spigolo esterno; la piega parte dal bordo.'
       : 'Verso dentro a 90°: la parete che pieghi dopo su quel lato sale e resta dentro (gioco 0,2 mm).'}</p>
     ${flangeFields(d, VERSI_PUNTA, POS_UI)}
+    ${libero ? `<div class="ff"><label>Gioco all’inizio<span class="inp"><input class="field" id="f-t0" value="${esc(String(d.trim0 ?? '').replace('.', ','))}" placeholder="auto"><i>mm</i></span></label>
+      <label>Gioco alla fine<span class="inp"><input class="field" id="f-t1" value="${esc(String(d.trim1 ?? '').replace('.', ','))}" placeholder="auto"><i>mm</i></span></label></div>
+      <p class="hint" style="margin:2px 0 6px">Vuoto: se la piega tocca un’altra parete si accorcia da sola in quell’angolo.</p>` : ''}
     <div class="row-btns"><button class="btn primary" id="f-add">${fatta ? 'Cambia' : 'Aggiungi piega'}</button></div>
     ${fatta ? '<div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button></div>' : ''}`;
   $('#f-pos').closest('.seg-row').style.display = 'none';      // «Misura» qui non serve
   const vai = () => {
     const f = readFlange();
+    if (libero) { f.trim0 = $('#f-t0').value.trim(); f.trim1 = $('#f-t1').value.trim(); }
     if (!fatta) ultimaBordo = f;
     inCoda(async () => {
       const r = libero ? (fatta ? await call('edit_edge_flange', feature, f) : await call('add_edge_flange', e.face, e.ea, e.eb, f))
