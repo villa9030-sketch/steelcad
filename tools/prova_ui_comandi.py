@@ -246,6 +246,7 @@ def main():
                 'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal',
                 'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'modal',
                 'export_dxf': 'toast', 'export_bendtable': 'toast', 'export_step': 'toast', 'show_cut': 'cut', 'show_bom': 'bom',
+                'misura': 'aiuto',
             }
             ok('progetto in lamiera: si vede solo la scheda LAMIERA',
                pg.evaluate("[...document.querySelectorAll('.rtabs button:not([hidden])')].map(b => b.dataset.rtab).join()") == 'lamiera')
@@ -271,6 +272,9 @@ def main():
                     elif tipo == 'toast':
                         pg.wait_for_selector('.toast', timeout=8000)
                         risposta = pg.locator('.toast.err').count() == 0 or cmd in ('member_help',)
+                    elif tipo == 'aiuto':                     # la Quota: si accende e dice cosa cliccare
+                        risposta = 'Quota' in pg.inner_text('#sk-help')
+                        pg.evaluate("(c) => window.__steelcad.runCmd(c)", cmd)      # e si spegne
                     elif tipo in ('cut', 'bom'):
                         risposta = pg.evaluate(f"!document.querySelector('#tab-{tipo}').hidden")
                     else:
