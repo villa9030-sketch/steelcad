@@ -473,6 +473,8 @@ class Document:
             return f'{flangia[parti[3]]} della piega sul bordo di {parti[1]} di {nome_f}'
         if len(parti) >= 2 and parti[1] in testi:
             return f'{testi[parti[1]]} di {nome_f}'
+        if len(parti) == 3 and parti[2] in ('fuori', 'dentro') and not isinstance(f, Sketch) and f.get('type') == 'sheet_shape':
+            return f'{parti[1].replace("_", " ")}, faccia {"esterna" if parti[2] == "fuori" else "interna"}'   # tramogge (22/10)
         return f'"{name}"'
 
     def solved_sketch(self, sid: str):

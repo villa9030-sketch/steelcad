@@ -1841,19 +1841,26 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
         nuovo.names.setdefault(f'{fid}/parete', []).append(f)
     # sviluppo: lo stesso contorno, in piano
     flat = data.flat
+    prima = data.flat.faces() if not isinstance(data.flat, bd.Face) else [data.flat]
     for _, _, f2 in lavori:
         flat = flat.cut(f2)
     flat = flat.clean() if hasattr(flat, 'clean') else flat
     facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
-    if len(facce) != 1:
+    # una tramoggia ha lo sviluppo in più pezzi (22/10): il taglio non ne deve aggiungere
+    if len(facce) != len(prima):
         raise FeatureError('Il taglio divide lo sviluppo in più pezzi.', feature=fid)
+    area = sum(f.area for f in facce)
     # i tagli stanno solo nei tratti piani: quello che sparisce dallo sviluppo × spessore = quello che sparisce
     # dal pezzo. Se no il contorno ha preso anche altro (una piega, un'altra flangia)
-    if abs((data.flat.area - facce[0].area) * t - tolto) > 1e-6 * max(tolto, 1) + 1e-3:
+    # le forme a facce (tramogge) hanno il solido fatto dalla superficie media: lo spessore vero è giusto a meno di
+    # qualche centesimo negli angoli dove si incontrano tante facce (2,94 su 3): lì basta il 5%
+    rel = 0.05 if (getattr(data, 'shape_info', None) or {}).get('kind') == 'sezioni' else 1e-6
+    if abs((sum(f.area for f in prima) - area) * t - tolto) > rel * max(tolto, 1) + 1e-3:
         raise FeatureError('Il contorno prende anche una piega o un’altra parte del pezzo: sviluppo e pezzo '
                            'piegato non tornerebbero. Tienilo dentro un solo tratto piano.', feature=fid)
-    nuovo.sheet = _copia_dati(data, dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area,
-                                                        flat_size=flat_size(facce[0], data.plane)))
+    nuovo_flat = facce[0] if len(facce) == 1 else bd.Compound(children=facce)
+    nuovo.sheet = _copia_dati(data, dataclasses.replace(data, flat=nuovo_flat, flat_area=area,
+                                                        flat_size=flat_size(nuovo_flat, data.plane) if len(facce) == 1 else data.flat_size))
     return nuovo
 
 

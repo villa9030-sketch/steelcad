@@ -1491,6 +1491,7 @@ async function renderProps(s) {
   if (s.kind === 'structure' || (s.kind === 'body' && s.template)) {
     const t = s.template, idf = s.kind === 'structure' ? s.id : s.tpl_id;
     const forma = s.kind === 'body';
+    if (forma) h += faceSketchButton(s);          // anche sulle facce delle tramogge si disegna (fori, tagli: 22/10)
     h += t ? `<div class="sub">${esc(t.title)}: ${forma ? 'misure' : 'misure e profili'}</div><p class="hint" style="margin:0 0 6px">Cambia e premi Applica: ${forma ? 'il pezzo e lo sviluppo si rifanno.' : 'la struttura si rifà. Le aste ritoccate a mano restano.'}</p>
       <div class="form st-tpl">${t.fields.map(([k, l, v, scelte]) => scelte
         ? `<label class="lbl">${esc(l)}<select class="field" data-tf="${esc(k)}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
@@ -3018,8 +3019,10 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
         { k: 'Hc', l: 'Altezza del cassone (0 = solo tramoggia)', v: 700 }, { k: 'a', l: 'Scarico: lato a', v: 250 }, { k: 'b', l: 'Scarico: lato b', v: 250 },
         { k: 'Ht', l: 'Altezza della tramoggia', v: 700 }, { k: 'spessore', l: 'Spessore', v: 3 },
         { k: 'bordo', l: 'Bordo in alto (0 = niente)', v: 40, altro: true, unit: 'mm' },
-        { k: 'angoli_bordo', l: 'Angoli dei bordi', v: 'aperti', scelte: { aperti: 'aperti (scasso, più pieghe)', 45: 'a 45° (da saldare)' }, altro: true },
-        { k: 'flangia', l: 'Flangia allo scarico (0 = niente)', v: 0, altro: true, unit: 'mm' }, { k: 'smusso', l: 'Angoli smussati (0 = vivi)', v: 0, altro: true, unit: 'mm' },
+        { k: 'verso_bordo', l: 'Bordo in alto piegato', v: 'fuori', scelte: { fuori: 'verso fuori', dentro: 'verso dentro' }, altro: true },
+        { k: 'flangia', l: 'Flangia allo scarico (0 = niente)', v: 0, altro: true, unit: 'mm' },
+        { k: 'verso_flangia', l: 'Flangia allo scarico piegata', v: 'fuori', scelte: { fuori: 'verso fuori', dentro: 'verso dentro' }, altro: true },
+        { k: 'angoli_bordo', l: 'Angoli dei bordi', v: 'aperti', scelte: { aperti: 'dritti (scasso all’angolo, più pieghe)', 45: 'a 45° (da saldare)' }, altro: true }, { k: 'smusso', l: 'Angoli smussati (0 = vivi)', v: 0, altro: true, unit: 'mm' },
         { k: 'ex', l: 'Scarico spostato di lato (X)', v: 0, altro: true, unit: 'mm' }, { k: 'ey', l: 'Scarico spostato avanti/dietro (Y)', v: 0, altro: true, unit: 'mm' },
         { k: 'riferimento', l: 'Le misure sono', v: 'esterno', scelte: RIF },
         { k: 'divisione', l: 'Divisione in pezzi', v: 'auto', scelte: { auto: 'automatica (meno saldature)', verticali: 'pieghe sugli spigoli verticali', tramoggia: 'pieghe sugli spigoli della tramoggia', lati: 'un pezzo per lato' }, altro: true },

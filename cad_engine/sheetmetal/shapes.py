@@ -484,12 +484,80 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
     data.bend_rows = righe
     pannelli = info.pop('pannelli', None)
     verso_L = info.pop('verso_L', 1.0)
-    data.shape_info = {'kind': kind, 'nome': nome, **info}
     ns = NamedShape(shape, {})
+    mappe = info.pop('mappe', None)
+    rif = info.pop('rif', 'esterno')
+    data.shape_info = {'kind': kind, 'nome': nome, **info}
     if kind == 'profilo' and pannelli:
         ns.names, data.pannelli = _nomi_profilo(fid, shape, piano_profilo, pannelli, verso_L, t)
+    if kind == 'sezioni' and mappe:
+        ns.names, data.pannelli = _nomi_sezioni(fid, shape, mappe, t, rif)
     ns.sheet = data
     return ns
+
+
+def _nomi_sezioni(fid, shape, mappe, t, rif):
+    """Le facce della forma a sezioni (tramogge, cassoni): «cassone destra fuori/dentro»… Per ognuna i piani sul
+    pezzo e nello sviluppo, così si disegna sulla faccia e il contorno va al suo posto nel DXF (22/10). Le facce del
+    solido fuse insieme (i bordi complanari) restano senza nome: non si sa in quale pezzo dello sviluppo vanno."""
+    from ..topology.naming import _faces_of
+    off_est = {'esterno': 0.0, 'interno': t, 'asse': t / 2}.get(rif, 0.0)
+    facce = [bd.Face(f) for f in _faces_of(shape)]
+    nomi, mappa = {}, {}
+    for f in facce:
+        try:
+            c = f.center()
+            nf = f.normal_at(c)
+        except Exception:  # noqa: BLE001
+            continue
+        trovate = []
+        for m in mappe:
+            n = bd.Vector(*m['normale'])
+            d = nf.dot(n)
+            if abs(abs(d) - 1) > 1e-6:
+                continue
+            lato = 'fuori' if d > 0 else 'dentro'
+            off = off_est if lato == 'fuori' else off_est - t
+            P0, P1 = bd.Vector(*m['pts3'][0]), bd.Vector(*m['pts3'][1])
+            if abs((c - P0).dot(n) - off) > 0.25 * t:          # il solido nasce dalla superficie media: qualche centesimo
+                continue
+            u = (P1 - P0).normalized()
+            v = n.cross(u)
+            poly = [((bd.Vector(*q) - P0).dot(u), (bd.Vector(*q) - P0).dot(v)) for q in m['poly3']]
+            x, y = (c - P0).dot(u), (c - P0).dot(v)
+            if _dentro_poligono(x, y, poly):
+                trovate.append((m, lato, n, c, nf * (1 if d > 0 else -1)))
+        if len(trovate) != 1:
+            continue
+        m, lato, n, c, nv = trovate[0]
+        nome = f"{fid}/{m['nome'].replace(' ', '_')}/{lato}"
+        nomi.setdefault(nome, []).append(f.wrapped)
+        if nome in mappa:
+            continue
+        # il piano della faccia vera del solido (nasce dalla superficie media: può essere spostata o girata di
+        # pochissimo rispetto alla faccia teorica). Se no il contorno arriva nello sviluppo fuori piano e non taglia
+        P0, P1, P2 = (bd.Vector(*q) for q in m['pts3'])
+        P0, P1, P2 = (q + nv * (c - q).dot(nv) for q in (P0, P1, P2))
+        u = (P1 - P0) - nv * (P1 - P0).dot(nv)
+        u = u.normalized()
+        sorg = bd.Plane(origin=P0, x_dir=u, z_dir=nv)
+        q0, q1, q2 = (bd.Vector(q[0], q[1], 0) for q in m['pts2'])
+        ux = (q1 - q0).normalized()
+        y3 = (P2 - P0).dot(nv.cross(u))
+        y2 = ux.cross(q2 - q0).Z
+        zf = (0, 0, 1) if (y3 > 0) == (y2 > 0) else (0, 0, -1)
+        dest = bd.Plane(origin=q0, x_dir=ux, z_dir=zf)
+        mappa[nome] = (sorg, dest, -n if lato == 'fuori' else n)
+    return nomi, mappa
+
+
+def _dentro_poligono(x, y, poly) -> bool:
+    dentro = False
+    for i in range(len(poly)):
+        (x1, y1), (x2, y2) = poly[i - 1], poly[i]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            dentro = not dentro
+    return dentro
 
 
 def _nomi_profilo(fid, shape, plane, pannelli, verso_L, t):

@@ -255,7 +255,8 @@ def struttura_disegno(name: str = 'Struttura', piano='XZ', material='S235') -> D
 # =============================================================================== forme di lamiera
 def tramoggia_cassone(name: str = 'Tramoggia con cassone', A=1000, B=1000, Hc=700, a=250, b=250, Ht=700, ex=0, ey=0,
                       bordo=40, angoli_bordo='aperti', flangia=0, smusso=0, spessore=3, riferimento='esterno',
-                      divisione='auto', foglio='1500x3000', raggio=None, k=None, material='S235') -> Document:
+                      divisione='auto', foglio='1500x3000', raggio=None, k=None, material='S235',
+                      verso_bordo='fuori', verso_flangia='fuori') -> Document:
     """Cassone a pareti verticali (A × B, alto Hc; Hc = 0: solo tramoggia) sopra una tramoggia a falde piane fino
     allo scarico a × b (alto Ht, centro spostato di ex, ey). Bordo superiore piegato in fuori e flangia dello
     scarico (0 = niente), angoli smussati (0 = vivi). La forma si divide in pezzi da piegare: più pieghe possibile,
@@ -277,14 +278,24 @@ def tramoggia_cassone(name: str = 'Tramoggia con cassone', A=1000, B=1000, Hc=70
         raise SteelCADError('Foglio: scrivilo come 1500x3000.', code='misura') from None
     angoli_bordo = str(angoli_bordo)
     if angoli_bordo not in ('aperti', '45'):
-        raise SteelCADError('Angoli del bordo: aperti (scasso) o a 45°.', code='misura')
+        raise SteelCADError('Angoli del bordo: dritti (scasso) o a 45°.', code='misura')
+    verso_bordo, verso_flangia = str(verso_bordo or 'fuori'), str(verso_flangia or 'fuori')
+    if verso_bordo not in ('fuori', 'dentro') or verso_flangia not in ('fuori', 'dentro'):
+        raise SteelCADError('Il bordo e la flangia vanno verso fuori o verso dentro.', code='misura')
+    num = lambda v: float(str(v).replace(',', '.'))  # noqa: E731
+    if verso_bordo == 'dentro' and 2 * num(bordo) >= min(num(A), num(B)):
+        raise SteelCADError(f'Il bordo verso dentro ({bordo} mm) chiude la bocca: deve stare sotto metà del lato più corto.', code='misura')
+    if verso_flangia == 'dentro' and 2 * num(flangia) >= min(num(a), num(b)):
+        raise SteelCADError(f'La flangia verso dentro ({flangia} mm) chiude lo scarico: deve stare sotto metà del lato più corto.', code='misura')
+    sb = '-' if verso_bordo == 'dentro' else '+'          # verso dentro la sezione del bordo è più stretta
+    sf = '-' if verso_flangia == 'dentro' else '+'
     doc = Document(name, material)
     for kk, v in (('A', A), ('B', B), ('Hc', Hc), ('a', a), ('b', b), ('Ht', Ht), ('ex', ex), ('ey', ey),
                   ('bordo', bordo), ('flangia', flangia), ('smusso', smusso), ('sp', spessore)):
         doc.set_parameter(kk, v)
     sez, fasce = [], []
     if float(flangia) > 0:
-        sez.append({'w': 'a+2*flangia', 'd': 'b+2*flangia', 'z': 0, 'ex': 'ex', 'ey': 'ey', 'smusso': 'smusso*a/A', 'nome': 'flangia scarico'})
+        sez.append({'w': f'a{sf}2*flangia', 'd': f'b{sf}2*flangia', 'z': 0, 'ex': 'ex', 'ey': 'ey', 'smusso': 'smusso*a/A', 'nome': 'flangia scarico'})
         fasce.append('flangia scarico')
     sez.append({'w': 'a', 'd': 'b', 'z': 0, 'ex': 'ex', 'ey': 'ey', 'smusso': 'smusso*a/A', 'nome': 'scarico'})
     fasce.append('tramoggia')
@@ -294,7 +305,7 @@ def tramoggia_cassone(name: str = 'Tramoggia con cassone', A=1000, B=1000, Hc=70
         sez.append({'w': 'A', 'd': 'B', 'z': 'Ht+Hc', 'smusso': 'smusso', 'nome': 'bocca'})
     if float(bordo) > 0:
         fasce.append('bordo')
-        sez.append({'w': 'A+2*bordo', 'd': 'B+2*bordo', 'z': 'Ht+Hc', 'smusso': 'smusso', 'nome': 'bordo'})
+        sez.append({'w': f'A{sb}2*bordo', 'd': f'B{sb}2*bordo', 'z': 'Ht+Hc', 'smusso': 'smusso', 'nome': 'bordo'})
     vuoto = lambda v: v is None or str(v).strip() == ''  # noqa: E731
     aperte = [f for f in ('bordo', 'flangia scarico') if f in fasce] if angoli_bordo == 'aperti' else []
     doc.add_feature('sheet_shape', name, kind='sezioni', sezioni=sez, fasce=fasce, aperte=aperte, thickness='sp',
@@ -302,7 +313,8 @@ def tramoggia_cassone(name: str = 'Tramoggia con cassone', A=1000, B=1000, Hc=70
                     radius=None if vuoto(raggio) else raggio, k=None if vuoto(k) else k,
                     template={'kind': 'tramoggia_cassone', 'values': {
                         'A': A, 'B': B, 'Hc': Hc, 'a': a, 'b': b, 'Ht': Ht, 'ex': ex, 'ey': ey, 'bordo': bordo,
-                        'angoli_bordo': angoli_bordo, 'flangia': flangia, 'smusso': smusso, 'spessore': spessore,
+                        'angoli_bordo': angoli_bordo, 'verso_bordo': verso_bordo, 'verso_flangia': verso_flangia,
+                        'flangia': flangia, 'smusso': smusso, 'spessore': spessore,
                         'riferimento': riferimento, 'divisione': divisione, 'foglio': foglio}})
     return doc
 

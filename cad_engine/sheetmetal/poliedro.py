@@ -84,6 +84,10 @@ def guscio_da_sezioni(sezioni: list[Sezione], fasce: list[str] | None = None, ap
         # il lato che resta è quello in comune con la fascia vicina: per la prima fascia (la flangia dello scarico,
         # attaccata da sopra) è quello della sezione dopo; per le altre (il bordo in alto) quello della sezione prima
         dal_basso = not (b == 0 and nfasce > 1)
+        tenuta, altra = (sezioni[b], sezioni[b + 1]) if dal_basso else (sezioni[b + 1], sezioni[b])
+        # bordo verso dentro (la sezione del bordo più stretta di quella da cui parte, 22/10): le facce dritte si
+        # accavallerebbero negli angoli; finiscono dritte prima dell'angolo e lì resta lo scasso quadrato
+        dentro = altra.larghezza * altra.profondita < tenuta.larghezza * tenuta.profondita
         for j in range(n):
             f = F[b * n + j]
             if not dal_basso:
@@ -95,11 +99,33 @@ def guscio_da_sezioni(sezioni: list[Sezione], fasce: list[str] | None = None, ap
             prof = _dot(_sub(b0, a0), w)
             if prof < 0:
                 w, prof = (-w[0], -w[1], -w[2]), -prof
-            n0 = tuple(a0[q] + w[q] * prof for q in range(3))
-            n1 = tuple(a1[q] + w[q] * prof for q in range(3))
-            P += [n0, n1]
-            nuova = [f[0], f[1], len(P) - 1, len(P) - 2]
+            if not dentro:
+                n0 = tuple(a0[q] + w[q] * prof for q in range(3))
+                n1 = tuple(a1[q] + w[q] * prof for q in range(3))
+                P += [n0, n1]
+                nuova = [f[0], f[1], len(P) - 1, len(P) - 2]
+                F[b * n + j] = nuova if dal_basso else nuova[::-1]
+                continue
+            lato = _norm(_sub(a1, a0))
+            if lato <= 2 * prof + 1e-6:
+                raise FeatureError(f'Il bordo verso dentro con gli angoli dritti ({prof:.0f} mm) è più largo di metà '
+                                   f'lato ({lato:.0f} mm): fallo più corto o con gli angoli a 45°.')
+            s0 = tuple(a0[q] + u[q] * prof for q in range(3))
+            s1 = tuple(a1[q] - u[q] * prof for q in range(3))
+            o0 = tuple(s0[q] + w[q] * prof for q in range(3))
+            o1 = tuple(s1[q] + w[q] * prof for q in range(3))
+            P += [s0, s1, o0, o1]
+            i0, i1 = len(P) - 4, len(P) - 3
+            nuova = [i0, i1, len(P) - 1, len(P) - 2]
             F[b * n + j] = nuova if dal_basso else nuova[::-1]
+            # la faccia accanto (la parete) ha lo spigolo a0→a1 percorso al contrario: ci entrano i due punti nuovi
+            for k, g in enumerate(F):
+                if k == b * n + j:
+                    continue
+                for m in range(len(g)):
+                    if g[m] == f[1] and g[(m + 1) % len(g)] == f[0]:
+                        F[k] = g[:m + 1] + [i1, i0] + g[m + 1:]
+                        break
     G = Guscio(P, F, nomi)
     _orienta(G, sezioni)
     _trova_spigoli(G, n, fasce)
@@ -633,6 +659,7 @@ def costruisci(fdef: dict, valuta, t: float, r, k, fid: str):
     facce_flat, linee, righe, info_pezzi = [], [], [], []
     x = 0.0
     corr_tot = 0.0
+    mappe = []
     for p in ps:
         corto, lungo, ang = ingombro_minimo(p.punti())
         c, s = math.cos(math.radians(-ang)), math.sin(math.radians(-ang))
@@ -666,6 +693,11 @@ def costruisci(fdef: dict, valuta, t: float, r, k, fid: str):
         if len(parti) > 1:
             avvisi.append(f'Il pezzo {p.nome} nello sviluppo è venuto staccato in {len(parti)} parti: controlla le pieghe.')
         facce_flat += [_pulisci_contorno(f) for f in parti]
+        for f in p.facce:                    # tre vertici di ogni faccia: sul pezzo e nello sviluppo (per disegnarci)
+            vs = G.facce[f][:3]
+            mappe.append({'faccia': f, 'nome': G.nomi[f], 'pts3': [G.punti[v] for v in vs],
+                          'pts2': [sp(p.vertici[f][v]) for v in vs], 'normale': _normale(G.punti, G.facce[f]),
+                          'poly3': [G.punti[v] for v in G.facce[f]]})
         for i, q in enumerate(p.pieghe, 1):
             a, b = sp(q['a']), sp(q['b'])
             nome = f'{p.nome}{i}'
@@ -702,7 +734,8 @@ def costruisci(fdef: dict, valuta, t: float, r, k, fid: str):
         solido = _solido_a_facce(media, t)
     info = {'pieghe': len(righe), 'angolo_max': max((x_['angle'] for x_ in righe), default=0.0),
             'correzione_totale': corr_tot, 'avvisi': avvisi, 'pezzi': info_pezzi, 'saldature_m': round(sald, 3),
-            'giunti_m': round(giunti, 3), 'spigoli': spigoli, 'divisione': divisione, 'foglio': list(foglio)}
+            'giunti_m': round(giunti, 3), 'spigoli': spigoli, 'divisione': divisione, 'foglio': list(foglio),
+            'mappe': mappe, 'rif': tec.rif}
     return solido, flat, linee, righe, info, fdef.get('name') or 'Forma da sezioni'
 
 
