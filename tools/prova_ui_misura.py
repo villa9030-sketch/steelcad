@@ -37,6 +37,16 @@ try:
         et = pg.evaluate("[...document.querySelectorAll('#mis-box .dim')].map(e => e.textContent)")
         chk(f'diametro del foro: {et}', any(e.startswith('Ø20') for e in et))
         pg.screenshot(path=str(OUT / 'pezzo.png'))
+        time.sleep(0.8)
+        q = api('state').get('quote') or []
+        chk(f'quote salvate nel progetto: {len(q)}', len(q) == 2)
+        pg.keyboard.press('Escape'); pg.evaluate("window.__steelcad.runCmd('drawings')"); time.sleep(2)
+        chk('Tavole: scelta della sezione', pg.is_visible('#modal-box [data-c="sezione"]'))
+        pg.select_option('#modal-box [data-c="sezione"]', 'X'); time.sleep(3)
+        pg.screenshot(path=str(OUT / 'tavole.png'))
+        pg.keyboard.press('Escape'); time.sleep(0.3)
+        if pg.is_visible('#modal-box'): pg.click('#modal-box #m-no')
+        pg.click('.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
         # nello sviluppo
         pg.keyboard.press('Escape'); pg.evaluate("window.__steelcad.runCmd('unfold')"); time.sleep(1.5)
         pg.keyboard.press('m'); time.sleep(0.3)

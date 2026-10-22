@@ -151,6 +151,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         return {
             'version': _VERSIONE,
             'name': doc.meta.get('name'), 'path': str(self.path) if self.path else None,
+            'quote': doc.meta.get('quote') or [],
             'dirty': self.history.dirty, 'undo': self.history.labels()['undo'][:1],
             'redo': self.history.labels()['redo'][:1],
             'tree': self._albero(doc, r), 'parameters': self._parameters(), 'mode': 'part',
@@ -2762,6 +2763,22 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 sk_def['id'] = f'K{j}'
                 st.setdefault('skeletons', []).append(sk_def)
         return self._change('Crea struttura dallo sketch', fn)
+
+    def set_quote(self, quote: list) -> dict:
+        """Le quote messe col tasto Quota sul pezzo: si salvano nel progetto e vanno nelle tavole."""
+        if self.asm is not None:
+            return _ok()
+        pulite = []
+        for q in quote or []:
+            try:
+                pulite.append({'a': [float(x) for x in q['a']][:3], 'b': [float(x) for x in q['b']][:3],
+                               'testo': str(q.get('testo', ''))[:40], **({'dett': str(q['dett'])[:80]} if q.get('dett') else {})})
+            except (KeyError, TypeError, ValueError):
+                continue
+        if pulite != (self.doc.meta.get('quote') or []):
+            self.doc.meta['quote'] = pulite
+            self.history.dirty = True
+        return _ok()
 
     def crea_specchiato(self) -> dict:
         """La versione specchiata del pezzo (la staffa destra dalla sinistra, 22/10): il 3D specchiato riletto come un pezzo

@@ -170,6 +170,9 @@ class Api:
     def crea_specchiato(self):
         return self._call(self._svc.crea_specchiato)
 
+    def set_quote(self, quote):
+        return self._call(self._svc.set_quote, quote)
+
     def tree_menu(self, kind, ref):
         return self._call(self._svc.tree_menu, kind, ref)
 

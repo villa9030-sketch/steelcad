@@ -97,8 +97,16 @@ class DrawingsMixin:
         if result.body is None:
             raise SteelCADError('Il progetto non ha un pezzo da mettere in tavola.')
         sheet = getattr(result.body, 'sheet', None)
-        tot = tot or (2 if sheet else 1)
-        fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato)]
+        sezione = str(campi.get('sezione') or '').upper()
+        sezione = sezione if sezione in ('X', 'Y') else ''
+        tot = tot or ((2 if sheet else 1) + (1 if sezione else 0))
+        fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato,
+                                quote_mano=doc.meta.get('quote') or [])]
+        if sezione:
+            c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
+            c['titolo'] = c['titolo'] + ' — sezione A-A'
+            fogli.append(D.tavola_sezione(result.body.shape, c, sezione, formato))
+            n0 += 1
         if sheet is not None and getattr(sheet, 'bend_rows', None) is not None:
             r_, k_ = sheet.tech.get('radius'), sheet.tech.get('k')
             pieg = [[str(x['n']), x.get('label') or f'P{x["n"]}', D.fmt(round(x['length'], 1)), f'{D.fmt(round(x["angle"], 2))}°', x.get('verso', '—'),

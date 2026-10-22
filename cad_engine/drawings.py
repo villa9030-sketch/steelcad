@@ -544,7 +544,69 @@ def _taglia_cartiglio(r, cart, m=8):
     return max((alto, sinistra), key=area)
 
 
-def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3', file_passo=None) -> Foglio:
+def _posto_libero(f: Foglio, pa, pb, verso: int) -> float:
+    """La prima distanza (7, 14, 21… mm) dove la linea di quota tra pa e pb non cade su una quota già sul foglio."""
+    ux, uy = pb[0] - pa[0], pb[1] - pa[1]
+    lu = math.hypot(ux, uy) or 1
+    ux, uy = ux / lu, uy / lu
+    nx, ny = -uy, ux
+    for j in range(1, 12):
+        d = verso * 7 * j
+        ax, ay = pa[0] + nx * d, pa[1] + ny * d
+        libero = True
+        for layer, pts in f.linee:
+            if layer != 'quote' or len(pts) != 2:
+                continue
+            (x0, y0), (x1, y1) = pts
+            vx, vy = x1 - x0, y1 - y0
+            lv = math.hypot(vx, vy)
+            if lv < 1e-6 or abs(vx * uy - vy * ux) / lv > 0.05:
+                continue                                    # non parallela
+            if abs((x0 - ax) * nx + (y0 - ay) * ny) > 3.5:
+                continue                                    # parallela ma lontana
+            t0, t1 = sorted(((x0 - ax) * ux + (y0 - ay) * uy, (x1 - ax) * ux + (y1 - ay) * uy))
+            if t1 > -2 and t0 < lu + 2:                      # si sovrappongono
+                libero = False
+                break
+        if libero:
+            return 7 * j
+    return 7 * 12
+
+
+def _quote_a_mano(f: Foglio, quote: list, viste: dict):
+    """Le quote messe col tasto Quota sul pezzo (22/10): ognuna nella prima vista (fronte, alto, sinistra) dove il
+    tratto si vede in vera lunghezza, staccata dal pezzo verso fuori, oltre le quote automatiche. viste: nome -> (T, centro della vista sul foglio)."""
+    for q in quote or []:
+        if str(q.get('testo', '')).startswith('Ø'):
+            continue                                        # i fori hanno già le loro note
+        a, b = q.get('a'), q.get('b')
+        if not a or not b:
+            continue
+        d = [b[i] - a[i] for i in range(3)]
+        L = math.sqrt(sum(x * x for x in d))
+        if L < 1e-6:
+            continue
+        for nome in ('fronte', 'alto', 'sinistra'):
+            if nome not in viste:
+                continue
+            dirv = VISTE[nome][0]
+            nd = math.sqrt(sum(x * x for x in dirv))
+            if abs(sum(d[i] * dirv[i] for i in range(3))) / (L * nd) > 1e-4:
+                continue                                    # di sbieco in questa vista: non è vera lunghezza
+            T, (cx, cy) = viste[nome]
+            pa, pb = T(proietta_punto(nome, a)), T(proietta_punto(nome, b))
+            # dalla parte opposta al centro della vista, una più in là dell'altra se sono dalla stessa parte
+            mx, my = (pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2
+            ux, uy = pb[0] - pa[0], pb[1] - pa[1]
+            lu = math.hypot(ux, uy) or 1
+            nx, ny = -uy / lu, ux / lu
+            verso = 1 if (mx - cx) * nx + (my - cy) * ny >= 0 else -1
+            quota(f, pa, pb, verso * _posto_libero(f, pa, pb, verso), L)
+            break
+
+
+def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3', file_passo=None,
+                 quote_mano: list | None = None) -> Foglio:
     """Fronte, alto, sinistra (europea) + isometrica, con ingombri e note dei fori. Le viste vanno nella zona
     libera più grande (sopra o a sinistra del cartiglio), con il posto per le quote e le catene di passo."""
     f = Foglio(formato, campi.get('titolo', ''))
@@ -603,6 +665,10 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     for nome, (x, y) in (('VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
                          ('VISTA DA SINISTRA', (xL, oyF + hL * s + 4))):
         f.text('testo', (x, y), nome, 2.5)
+    if quote_mano:
+        _quote_a_mano(f, quote_mano, {'fronte': (TF, (ox + wF * s / 2, oyF + hF * s / 2)),
+                                      'alto': (TT, (ox + wF * s / 2, oyT + hT * s / 2)),
+                                      'sinistra': (TL, (xL + wL * s / 2, oyF + hL * s / 2))})
     gia: set = set()
     et = etichette or {}
     # tanti tipi di foro: una lettera su ogni foro e la tabella sopra il cartiglio (se lì non ci sono le viste)
@@ -641,6 +707,79 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
         _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
                      quote_su=False)
         f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
+    return f
+
+
+def _tratteggio(f: Foglio, giri: list, passo: float):
+    """Tratteggio a 45° dentro i giri (sul foglio): righe ogni «passo» mm, tenute dentro col pari/dispari."""
+    tutti = [p for g in giri for p in g]
+    if not tutti:
+        return
+    # coordinate ruotate di 45°: u lungo le righe, w attraverso
+    rot = lambda p: ((p[0] + p[1]) / math.sqrt(2), (p[1] - p[0]) / math.sqrt(2))  # noqa: E731
+    back = lambda u, w: ((u - w) / math.sqrt(2), (u + w) / math.sqrt(2))  # noqa: E731
+    R_ = [[rot(p) for p in g] for g in giri]
+    ws = [q[1] for g in R_ for q in g]
+    w = min(ws) + passo / 2
+    while w < max(ws):
+        xs = []
+        for g in R_:
+            for (u1, w1), (u2, w2) in zip(g, g[1:] + g[:1]):
+                if (w1 <= w < w2) or (w2 <= w < w1):
+                    xs.append(u1 + (w - w1) * (u2 - u1) / (w2 - w1))
+        xs.sort()
+        for i in range(0, len(xs) - 1, 2):
+            f.line('quote', back(xs[i], w), back(xs[i + 1], w))
+        w += passo
+
+
+def tavola_sezione(shape, campi: dict, asse: str = 'X', formato: str = 'A3') -> Foglio:
+    """La sezione A-A: il pezzo tagliato da un piano verticale a metà (asse 'X': piano lungo la larghezza, vista di
+    fronte; 'Y': lungo la profondità, vista da sinistra), si guarda la parte dietro il piano, la faccia tagliata
+    tratteggiata (22/10)."""
+    import build123d as bd
+    f = Foglio(formato, campi.get('titolo', ''))
+    sh = bd.Shape.cast(shape)
+    bb = sh.bounding_box()
+    vista = 'fronte' if asse == 'X' else 'sinistra'
+    if asse == 'X':                                 # piano y = metà, si tiene la parte con y più grande (dietro)
+        y0 = (bb.min.Y + bb.max.Y) / 2
+        scatola = bd.Solid.make_box(bb.size.X + 20, bb.max.Y - y0 + 10, bb.size.Z + 20,
+                                    bd.Plane(origin=(bb.min.X - 10, y0, bb.min.Z - 10)))
+        piano, nome_piano = bd.Plane(origin=(0, y0, 0), z_dir=(0, 1, 0)), f'Y = {fmt(round(y0, 1))}'
+    else:                                           # piano x = metà, si tiene la parte con x più grande (vista da sinistra)
+        x0 = (bb.min.X + bb.max.X) / 2
+        scatola = bd.Solid.make_box(bb.max.X - x0 + 10, bb.size.Y + 20, bb.size.Z + 20,
+                                    bd.Plane(origin=(x0, bb.min.Y - 10, bb.min.Z - 10)))
+        piano, nome_piano = bd.Plane(origin=(x0, 0, 0), z_dir=(1, 0, 0)), f'X = {fmt(round(x0, 1))}'
+    tagliato = sh & scatola
+    v = proietta(tagliato.wrapped, vista)
+    wv, hv = v['bbox'][2] - v['bbox'][0], v['bbox'][3] - v['bbox'][1]
+    campi = dict(campi)
+    area, cart = _cornice(f, campi)
+    zona = max(_zone_libere(area, cart), key=lambda r: (r[2] - r[0]) * (r[3] - r[1]))
+    aw, ah = zona[2] - zona[0] - 40, zona[3] - zona[1] - 40
+    s = _scegli_scala((wv, hv), aw, ah)
+    fissa = _scala_scelta(campi.get('scala_fissa'))
+    if fissa:
+        s = fissa / FATTORE_USCITA
+    campi['scala'] = scala_testo(s)
+    f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
+    area, cart = _cornice(f, campi)
+    ox = zona[0] + 20 + (aw - wv * s) / 2
+    oy = zona[1] + 20 + (ah - hv * s) / 2
+    T, w, h = _metti_vista(f, v, s, ox, oy)
+    # le facce tagliate (sul piano): tratteggio
+    giri = []
+    for fa in tagliato.faces():
+        if fa.geom_type != bd.GeomType.PLANE or abs(abs(fa.normal_at().dot(piano.z_dir)) - 1) > 1e-6 \
+                or abs((fa.center() - piano.origin).dot(piano.z_dir)) > 1e-4:
+            continue
+        for wire in [fa.outer_wire()] + list(fa.inner_wires()):
+            pts = [q for e in wire.edges() for q in e.positions([i / 12 for i in range(13)])]
+            giri.append([T(proietta_punto(vista, (q.X, q.Y, q.Z))) for q in pts])
+    _tratteggio(f, giri, 2.0)
+    f.text('testo', (ox, oy + h + 6), f'SEZIONE A-A  (piano {nome_piano}, vista {"di fronte" if asse == "X" else "da sinistra"})', 3.0)
     return f
 
 

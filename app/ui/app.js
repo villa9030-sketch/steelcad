@@ -2059,7 +2059,13 @@ const misSnap = document.createElement('div');
 misSnap.id = 'mis-snap';
 misBox.after(misSnap);
 const chiaveMis = () => (S?.path || S?.name || 'nuovo') + (S?.mode === 'assembly' ? '#asm' : '');
-const quoteDi = () => { const k = chiaveMis(); if (!MISURE.has(k)) MISURE.set(k, []); return MISURE.get(k); };
+const quoteDi = () => {
+  const k = chiaveMis();
+  if (!MISURE.has(k)) MISURE.set(k, S?.mode !== 'assembly' && Array.isArray(S?.quote) ? S.quote.map(q => ({ ...q })) : []);
+  return MISURE.get(k);
+};
+// nel pezzo le quote si salvano nel progetto: vanno anche nelle tavole (nella vista dove si vedono vere)
+const salvaQuote = () => { if (S?.mode !== 'assembly') call('set_quote', quoteDi()); };
 
 function misCandidati() {
   const out = [], visti = new Set();
@@ -2201,13 +2207,14 @@ function misClick(ev) {
   if (h.tipo === 'cerchio' && !MIS.a) {
     const lontano = h.giro.reduce((m, q) => (q.distanceTo(h.giro[0]) > m.distanceTo(h.giro[0]) ? q : m), h.giro[0]);
     quoteDi().push({ a: h.giro[0].toArray(), b: lontano.toArray(), testo: 'Ø' + num(2 * h.r, 2) });
-    disegnaMisure(); return;
+    salvaQuote(); disegnaMisure(); return;
   }
   if (!MIS.a) { MIS.a = h; disegnaMisure(); return; }
   const a = MIS.a.p, b = h.p, d = a.distanceTo(b);
   if (d < 1e-6) return;
   const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y), dz = Math.abs(b.z - a.z);
   quoteDi().push({ a: a.toArray(), b: b.toArray(), testo: num(d, 2), dett: `ΔX ${num(dx, 2)} · ΔY ${num(dy, 2)} · ΔZ ${num(dz, 2)}` });
+  salvaQuote();
   MIS.a = null;
   disegnaMisure();
 }
@@ -2224,7 +2231,7 @@ function disegnaMisure() {
     }
     const el = document.createElement('div');
     el.className = 'dim mis'; el.textContent = q.testo; el.title = (q.dett ? q.dett + '\n' : '') + 'Tasto destro: togli questa quota';
-    el.oncontextmenu = ev => { ev.preventDefault(); quoteDi().splice(k, 1); disegnaMisure(); };
+    el.oncontextmenu = ev => { ev.preventDefault(); quoteDi().splice(k, 1); salvaQuote(); disegnaMisure(); };
     misBox.appendChild(el);
     misEls.push({ el, at: a.clone().add(b).multiplyScalar(0.5) });
   });
@@ -2234,7 +2241,7 @@ function disegnaMisure() {
   }
   placeDims(); ridisegna();
 }
-function misTogliTutte() { quoteDi().length = 0; disegnaMisure(); }
+function misTogliTutte() { quoteDi().length = 0; salvaQuote(); disegnaMisure(); }
 document.addEventListener('keydown', ev => {
   if (!MIS || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
   if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); if (MIS.a) { MIS.a = null; disegnaMisure(); } else misStop(); }
@@ -2251,9 +2258,10 @@ async function drawingsDialog() {
       ${campo('revisione', 'Revisione')}<label>Formato<select class="field" data-c="formato">${['A4', 'A3', 'A2'].map(f => `<option${c.formato === f ? ' selected' : ''}>${f}</option>`).join('')}</select></label>
       <label>Scala<select class="field" data-c="scala_fissa">${['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:20'].map(x => `<option${(c.scala_fissa || 'auto') === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
       <label>Quote dei fori<select class="field" data-c="quote_fori">${['sì', 'no'].map(x => `<option${(c.quote_fori || 'sì') === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label>Sezione<select class="field" data-c="sezione">${[['', 'nessuna'], ['X', 'A-A lungo la larghezza'], ['Y', 'A-A lungo la profondità']].map(([k, l]) => `<option value="${k}"${(c.sezione || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       ${campo('note', 'Note', ' style="grid-column:1/-1"')}</div>
       ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi (con gli sviluppi)</label>' : ''}
-      <p class="hint">Azienda e disegnatore si ricordano per le prossime tavole. Viste in proiezione europea, quote d’ingombro e note dei fori automatiche.</p>
+      <p class="hint">Azienda e disegnatore si ricordano per le prossime tavole. Viste in proiezione europea, quote d’ingombro e note dei fori automatiche. Le quote che metti col tasto Quota sul pezzo vanno anche qui, nella vista dove si vedono vere.</p>
       <div class="acts"><button class="btn" id="tav-agg">Aggiorna anteprima</button></div>
       <div class="acts"><button class="btn" id="m-no">Chiudi</button><button class="btn" id="tav-dxf">Esporta DXF</button><button class="btn primary" id="tav-pdf">Esporta PDF</button></div></div>
       <div class="tav-main"><div class="tav-tabs" id="tav-tabs"></div><div class="tav-view" id="tav-view"><p class="hint">Preparo l’anteprima…</p></div></div></div>`, close => {
@@ -2281,6 +2289,7 @@ async function drawingsDialog() {
     if ($('#tav-tutte')) $('#tav-tutte').onchange = anteprima;
     // il formato cambia l'impaginazione: l'anteprima si rifà subito, così il PDF è uguale a quello che vedi
     document.querySelector('#modal-box [data-c="formato"]')?.addEventListener('change', anteprima);
+    document.querySelector('#modal-box [data-c="sezione"]')?.addEventListener('change', anteprima);
     anteprima();
   });
   $('#modal-box').classList.add('wide');
