@@ -167,6 +167,9 @@ class Api:
     def feature_serie(self, fid, cols, px, rows, py):
         return self._call(self._svc.feature_serie, fid, cols, px, rows, py)
 
+    def crea_specchiato(self):
+        return self._call(self._svc.crea_specchiato)
+
     def tree_menu(self, kind, ref):
         return self._call(self._svc.tree_menu, kind, ref)
 

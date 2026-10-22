@@ -3045,6 +3045,15 @@ const CMDS = [
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
   { id: 'import_step', label: 'Apri STEP di una lamiera (fa lo sviluppo)…', run: () => stepDialog() },
   { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path); }) },
+  { id: 'specchiato', label: 'Crea la versione specchiata (destra / sinistra)', run: () => {
+    if (!S?.sheet?.data || S?.mode === 'assembly') { toast('Lo specchio si fa su un pezzo di lamiera aperto.', 'err'); return; }
+    modal(`<h3>Versione specchiata</h3><p class="hint">Il pezzo rovesciato come in uno specchio (la staffa destra dalla sinistra), con il suo sviluppo per il laser.
+      Si salva accanto a questo, col nome «… specchiato», e si apre. Le pieghe vengono dal 3D: per cambiarle si cambia l’originale e si rifà lo specchio.</p>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea</button></div>`, close => {
+      $('#m-no').onclick = close;
+      $('#m-ok').onclick = () => { close(); inCoda(async () => { const r = await call('crea_specchiato'); if (await apply(r, r.message)) await loadScene(); }); };
+    });
+  } },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => { if (await apply(await call('save', true), 'Salvato.')) fotoAnteprima(S.path); }) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
   { id: 'asm_viteria', label: 'Viteria: viti, dadi, rondelle, rivetti (norme ISO)…', run: () => inCoda(viteriaDialog) },

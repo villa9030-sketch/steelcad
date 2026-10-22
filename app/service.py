@@ -2763,6 +2763,48 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
                 st.setdefault('skeletons', []).append(sk_def)
         return self._change('Crea struttura dallo sketch', fn)
 
+    def crea_specchiato(self) -> dict:
+        """La versione specchiata del pezzo (la staffa destra dalla sinistra, 22/10): il 3D specchiato riletto come un pezzo
+        di lamiera da STEP, con il suo sviluppo; si salva accanto all'originale come «… specchiato» e si apre."""
+        import tempfile
+
+        import build123d as bd
+        if self.asm is not None or self.result.body is None:
+            return {'ok': False, 'message': 'Apri il pezzo da specchiare.'}
+        data = getattr(self.result.body, 'sheet', None)
+        if data is None:
+            return {'ok': False, 'message': 'Lo specchio si fa sui pezzi di lamiera.'}
+        if self.path is None:
+            return {'ok': False, 'code': 'serve_percorso', 'message': 'Salva prima il pezzo: lo specchiato va accanto a lui.'}
+        if self.history.dirty:
+            r = self.save()
+            if not r.get('ok'):
+                return r
+        originale = Path(self.path)
+        dest = originale.with_name(f'{originale.stem} specchiato.steelcad')
+        k = 2
+        while dest.exists():
+            dest, k = originale.with_name(f'{originale.stem} specchiato ({k}).steelcad'), k + 1
+        nome_step = Path(tempfile.mkdtemp()) / f'{dest.stem}.step'
+        bd.export_step(bd.Shape.cast(self.result.body.shape).mirror(bd.Plane.YZ), str(nome_step))
+        kk = data.tech.get('k') if data.tech.get('k') is not None else None
+        a0 = data.flat_area
+        materiale = self.doc.material
+        r = self.import_step(str(nome_step), kk)
+        if not r.get('ok'):
+            return r
+        self.doc.material = materiale
+        self.doc.meta['name'] = dest.stem
+        r = self.save(str(dest))
+        if not r.get('ok'):
+            return r
+        diff = abs(self.result.body.sheet.flat_area - a0)
+        r['message'] = (f'Versione specchiata salvata e aperta: {dest.name}. Sviluppo ' +
+                        ('uguale all’originale, rovesciato.' if diff < 1 else
+                         f'con {fmt_mm(round(diff, 1))} mm² di differenza dall’originale: controlla gli angoli e gli scarichi.') +
+                        ' Le pieghe sono quelle del 3D: per cambiarle, cambia l’originale e rifai lo specchio.')
+        return r
+
     def import_step(self, path: str, k=None) -> dict:
         """Uno STEP di lamiera piegata del cliente: diventa un pezzo con lo sviluppo (K della piegatrice, o quello
         scritto). Lo STEP si salva dentro il progetto: il file può poi spostarsi."""
