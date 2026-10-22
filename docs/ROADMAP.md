@@ -164,7 +164,11 @@ e solo alla fine richieste in linguaggio naturale che producono parametri.
   si ripete sui tubi uguali; una sagoma che esce dalla faccia o dalla testa è un intaglio.
 - Cut list e albero: i tubi lavorati hanno la loro riga. Lo STEP esce già bucato.
 - Servizio: `sketch_on_tube`, `lavora_tubo`, `tubi_uguali` (`app/tubi_service.py`). Test `tests/test_lavorazioni_tubi.py`.
-- Da fare: interfaccia (clic sul tubo, pannello all'uscita dallo sketch), tubi tondi, tavola della singola asta,
+- Interfaccia: clic sulla faccia del tubo → nel pannello «Disegna sulla faccia di sopra/davanti…» → sketch inquadrato
+  sulla testa (struttura in trasparenza) → «Togli materiale» apre «Lavorazione sul tubo» (nome, solo questa parete /
+  passante, anche sui tubi uguali). Nel pannello dell'asta le lavorazioni fatte con «Modifica». Prova
+  `tools/prova_ui_tubi.py` (9 controlli, usa Edge: `.venv` ha Playwright dal 22/10).
+- Da fare: tubi tondi, tavola della singola asta,
   STEP per asta per il laser tubo, misure fuori tutto delle strutture (decise: sempre fuori tutto, luci a filo interno).
 
 ## Fuori dalla strada principale

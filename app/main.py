@@ -197,6 +197,15 @@ class Api:
     def sketch_on_face(self, face_name):
         return self._call(self._svc.sketch_on_face, face_name)
 
+    def sketch_on_tube(self, obj_id, normal):
+        return self._call(self._svc.sketch_on_tube, obj_id, normal)
+
+    def lavora_tubo(self, sid, through=False, anche_uguali=False, nome=''):
+        return self._call(self._svc.lavora_tubo, sid, through, anche_uguali, nome)
+
+    def tubo_uguali(self, sid):
+        return self._call(self._svc.tubo_uguali, sid)
+
     def sketch_close(self, sid):
         return self._call(self._svc.sketch_close, sid)
 

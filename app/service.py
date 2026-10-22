@@ -671,6 +671,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
                          ['Peso', f'{m.kg():.2f} kg ({m.kg() / m.length * 1000:.2f} kg/m)'.replace('.', ',')]],
                 'commands': [{'id': 'rotate', 'label': 'Ruota di 90°'}, {'id': 'flip', 'label': 'Inverti'},
                              {'id': 'profile', 'label': 'Cambia profilo'}],
+                **self._info_lavorazioni(st, m),
             })
         except (KeyError, IndexError, StopIteration, ValueError):
             # un clic su qualcosa che intanto è sparito (pezzo ricostruito, asta cancellata): niente di grave
@@ -2211,7 +2212,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
         usato = any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features)
         ultimo = self.history.labels()['undo'][:1]
         if isinstance(sk.plane, dict) and vuoto and not usato and ultimo and ultimo[0] in ('Sketch su faccia',
-                                                                                           'Sketch sullo sviluppo'):
+                                                                                           'Sketch sullo sviluppo',
+                                                                                           'Sketch sul tubo'):
             self.history.undo()
             self.history.undone.pop()
             self._rebuild()

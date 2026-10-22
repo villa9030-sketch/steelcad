@@ -210,7 +210,7 @@ def project_tree(doc, result) -> dict:
             for f in lav:
                 fr = stati.get(f['id'])
                 aste = ', '.join(f.get('members') or [])
-                testo = f'{f.get("name") or "Lavorazione"} su {aste}' + (' (passante)' if f.get('through') else '')
+                testo = f'{f.get("etichetta") or f.get("name") or "Lavorazione"} su {aste}' + (' (passante)' if f.get('through') else '')
                 nl['children'].append(_n(testo, 'tube_cut', f['id'], status='disattivata' if f.get('disattiva') else
                                          (None if fr and fr.ok else 'errore')))
             nodo_st['children'].append(nl)

@@ -435,8 +435,11 @@ function pick(ev) {
     const k = hit.faceIndex * 3;
     face = o.data.faces.find(f => k >= f.start && k < f.start + f.count)?.index ?? null;
   }
-  return { id: o.data.id, face, name: o.data.name };
+  // da che parte guarda la faccia cliccata (per le aste: su quale faccia del tubo si disegna)
+  const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).toArray() : null;
+  return { id: o.data.id, face, name: o.data.name, normal };
 }
+let ultimoClic = null;                        // l'ultima cosa cliccata nel 3D, con la normale della faccia
 
 const tip = $('#hover-tip');
 let premuto = null;
@@ -532,6 +535,7 @@ canvas.addEventListener('pointerup', ev => {
   const he = pickEdge(ev);
   if (he) { selectEdge(he); return; }
   const h = pick(ev);
+  ultimoClic = h;
   if (h) select(h.id, h.face); else clearSelection();
 });
 
@@ -1366,7 +1370,8 @@ async function renderProps(s) {
       <div class="row-btns"><button class="btn primary" id="p-apply">Applica profilo</button>
       <button class="btn" id="p-rot" title="Ruota il profilo attorno al suo asse">Ruota di 90° (ora ${num(s.rotate)}°)</button>
       <button class="btn" id="p-flip" title="Scambia il lato da cui è appoggiato il profilo">Inverti</button></div>
-      <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Elimina ${sel?.ids?.length > 1 ? sel.ids.length + ' aste' : 'asta'}</button></div>`;
+      <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Elimina ${sel?.ids?.length > 1 ? sel.ids.length + ' aste' : 'asta'}</button></div>
+      ${pannelloLavorazioni(s)}`;
   } else if (s.kind === 'instance') {
     $('#props').innerHTML = instancePanel(s);
     wireInstance(s);
@@ -1425,6 +1430,54 @@ async function renderProps(s) {
   $('#p-flip').onclick = () => edit({ toggle_flip: true });
   $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
   $('#p-del').onclick = deleteSelected;
+  wireLavorazioni(s);
+}
+
+// Lavorazioni sul tubo (22/10): clic sulla faccia del tubo → sketch su quella faccia, come sulla lamiera
+function facciaCliccata(n) {
+  if (!n) return 'di sopra';
+  const [x, y, z] = n, m = Math.max(Math.abs(x), Math.abs(y), Math.abs(z));
+  return m === Math.abs(z) ? (z > 0 ? 'di sopra' : 'di sotto') : m === Math.abs(y) ? (y < 0 ? 'davanti' : 'dietro') : (x > 0 ? 'a destra' : 'a sinistra');
+}
+function pannelloLavorazioni(s) {
+  if (!s.lavorabile) return s.non_lavorabile ? `<p class="hint">${esc(s.non_lavorabile)}</p>` : '';
+  const n = ultimoClic?.id === s.id ? ultimoClic.normal : null;
+  const fatte = (s.lavorazioni || []).map(l => `<tr><td>${esc(l.label)}${l.through ? ' (passante)' : ''}${l.members.length > 1 ? ` · ${l.members.length} tubi` : ''}</td>
+    <td style="text-align:right"><button class="btn" data-lav-sk="${esc(l.sketch)}">Modifica</button></td></tr>`).join('');
+  return `<div class="sub">Lavorazioni sul tubo</div>
+    ${fatte ? `<table class="grid">${fatte}</table>` : ''}
+    <div class="row-btns"><button class="btn primary" id="p-lav">Disegna sulla faccia ${facciaCliccata(n)}</button></div>
+    <p class="hint">Fori, asole, intagli: clicca nel 3D la faccia del tubo dove vanno, poi questo pulsante. Le misure partono dalla testa del tubo.</p>`;
+}
+function wireLavorazioni(s) {
+  const b = $('#p-lav');
+  if (b) b.onclick = () => inCoda(async () => {
+    const n = ultimoClic?.id === s.id && ultimoClic.normal ? ultimoClic.normal : [0, 0, 1];
+    const r = await call('sketch_on_tube', s.id, n);
+    if (await apply(r)) await enterSketch(r.sketch);
+  });
+  document.querySelectorAll('[data-lav-sk]').forEach(x => { x.onclick = () => enterSketch(x.dataset.lavSk); });
+}
+function lavorazioneTuboDialog() {
+  const sid = SK.sid;
+  inCoda(async () => {
+    const u = await call('tubo_uguali', sid);
+    const uguali = u.ok ? u.uguali.length : 1;
+    modal(`<h3>Lavorazione sul tubo</h3>
+      <p class="hint">Il disegno buca la parete del tubo. Una sagoma che esce dal bordo o dalla testa diventa un intaglio.</p>
+      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="lt-n" placeholder="es. Fori per le viti"></label></div>
+      <label class="check"><input type="radio" name="lt-p" value="" checked> Solo questa parete</label>
+      <label class="check"><input type="radio" name="lt-p" value="1"> Passante: anche la parete di fronte</label>
+      ${uguali > 1 ? `<label class="check"><input type="checkbox" id="lt-u" checked> ${uguali - 1 === 1 ? 'Anche sull’altro tubo uguale' : `Anche sugli altri ${uguali - 1} tubi uguali`} (stessa misura, stessi tagli)</label>` : ''}
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai la lavorazione</button></div>`, close => {
+      $('#m-no').onclick = close;
+      $('#m-ok').onclick = () => {
+        const passante = !!document.querySelector('input[name="lt-p"]:checked')?.value, tutti = !!$('#lt-u')?.checked, nome = $('#lt-n').value.trim();
+        close();
+        inCoda(async () => { const r = await call('lavora_tubo', sid, passante, tutti, nome); if (await apply(r, r.message)) exitSketch(); });
+      };
+    });
+  });
 }
 
 // Forma da sezioni (tramoggia): i pezzi con l'ingombro e, spigolo per spigolo, piega o saldatura
@@ -3468,7 +3521,7 @@ function skStep() {          // passo della griglia: circa 12 px sullo schermo, 
 async function enterSketch(sid) {
   const r = await call('sketch_view', sid);
   if (!r.ok) { toast(r.message, 'err'); return; }
-  SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '', constr: false, pick: null, dimPick: [], ghost: false, grid: aggancioGriglia };
+  SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '', constr: false, pick: null, dimPick: [], ghost: !!r.sketch.on_tube, grid: aggancioGriglia };   // sul tubo: la struttura si vede in trasparenza
   aggiornaLayout();
   if (flatView) flatView = false;
   clearSelection();
@@ -3488,7 +3541,14 @@ async function enterSketch(sid) {
   const box = new THREE.Box3();
   if (pts.length > 1) pts.forEach(p => box.expandByPoint(v3(p)));
   else if (!faccia && !sviluppo) { box.expandByPoint(skToWorld([-50, -50])); box.expandByPoint(skToWorld([550, 350])); }
-  if (faccia) box.union(faccia);
+  if (SK.v.on_tube) {
+    // sul tubo: la faccia è lunga e stretta (2 m × 40): si parte inquadrando la testa, dove partono le misure
+    const xy = SK.v.points.filter(p => p.id !== 'O').map(p => p.xy);
+    const y0 = Math.min(...xy.map(q => q[1])), y1 = Math.max(...xy.map(q => q[1])), lung = Math.max(...xy.map(q => q[0]));
+    const x1 = Math.min(lung + 10, Math.max(250, 8 * (y1 - y0)));
+    box.makeEmpty();
+    box.expandByPoint(skToWorld([-15, y0 - 10])); box.expandByPoint(skToWorld([x1, y1 + 10]));
+  } else if (faccia) box.union(faccia);
   else if (sviluppo) box.union(flatBox());
   else if (objs.size) box.union(new THREE.Box3().setFromObject(model));
   const zd = v3(SK.v.z_dir);
@@ -3538,7 +3598,7 @@ function fitSketch(subito = false) {
 }
 // Vedi attraverso: le parti dietro e davanti alla faccia, proiettate (ci si aggancia); il pezzo si vede in trasparenza
 function toggleXray() {
-  if (!SK || !SK.v.on_face) return;
+  if (!SK || !SK.v.on_face || SK.v.on_tube) return;
   const on = !SK.v.xray, sid = SK.sid;
   inCoda(async () => {
     if (!(await apply(await call('sketch_xray', sid, on)))) return;
@@ -3678,7 +3738,7 @@ function drawSketch() {
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);
   $('#sk-finish-box').hidden = !libero;
-  $('#rb-xray').hidden = !(SK && SK.v.on_face);
+  $('#rb-xray').hidden = !(SK && SK.v.on_face) || !!v.on_tube;
   $('#rb-xray').classList.toggle('on', !!SK?.v?.xray);
   $('#sk-leg-xray').hidden = !SK?.v?.xray;
   $('#sk-make').hidden = suPezzo;
@@ -3701,6 +3761,7 @@ function drawSketch() {
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
   $('#sk-tab').hidden = !((v.on_sheet && v.on_face) || v.on_flat);
   $('#sk-tab').disabled = !v.drawn;
+  $('#sk-mark').hidden = !!v.on_tube; $('#sk-boss').hidden = $('#sk-boss').hidden || !!v.on_tube;   // sul tubo: si buca e basta
   $('#sk-contour').disabled = !v.drawn || !v.lines.some(l => !l.construction);
   $('.sk-legend .l-ref').parentElement.hidden = !suPezzo;
   // "Altro" solo se dentro c'è qualcosa; i pulsanti spenti dicono perché
@@ -4751,6 +4812,7 @@ async function structureDialog() {
 
 function makeDialog(kind) {
   if (kind === 'structure') { structureDialog(); return; }
+  if (kind === 'cut' && SK.v.on_tube) { lavorazioneTuboDialog(); return; }
   if (kind === 'tab') {
     const sid = SK.sid;
     inCoda(async () => { if (await apply(await call('sheet_tab', sid))) exitSketch(); });

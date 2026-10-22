@@ -10,6 +10,10 @@ from cad_engine.structures import lavorazioni
 from cad_engine.units import fmt_mm
 
 
+def _ok_(**kw):
+    return {'ok': True, **kw}
+
+
 class TubiMixin:
     def _asta(self, obj_id: str):
         st_id, _, mid = obj_id.partition('/')
@@ -25,6 +29,27 @@ class TubiMixin:
         firma = (m.profile, round(m.length, 1), tuple(sorted(round(a, 1) for a in m.cuts)))
         return [x.id for x in st.members
                 if (x.profile, round(x.length, 1), tuple(sorted(round(a, 1) for a in x.cuts))) == firma]
+
+    def _info_lavorazioni(self, st, m) -> dict:
+        """Per il pannello dell'asta: si può disegnare sopra? quali lavorazioni ha già?"""
+        try:
+            lavorazioni.check(m)
+            perche = ''
+        except SteelCADError as ex:
+            perche = ex.message
+        fatte = [{'id': f['id'], 'sketch': f.get('sketch'), 'label': f.get('etichetta') or f.get('name') or 'Lavorazione',
+                  'through': bool(f.get('through')), 'members': f.get('members') or []}
+                 for f in self.doc.features if isinstance(f, dict) and f.get('type') == 'tube_cut'
+                 and f.get('structure') == st.id and m.id in (f.get('members') or [])]
+        return {'lavorabile': not perche, 'non_lavorabile': perche, 'lavorazioni': fatte}
+
+    def tubo_uguali(self, sid: str) -> dict:
+        """Quanti tubi uguali a quello dello sketch (per «anche sui tubi uguali» nella finestra)."""
+        try:
+            pl = self.doc.sketch(sid).plane
+            return _ok_(uguali=self.tubi_uguali(f'{pl["tube"]}/{pl["member"]}'))
+        except (SteelCADError, KeyError, TypeError) as ex:
+            return {'ok': False, 'message': getattr(ex, 'message', 'Questo sketch non sta su un tubo.')}
 
     def sketch_on_tube(self, obj_id: str, normal) -> dict:
         """La faccia del tubo cliccata (quella più rivolta come `normal`) diventa il piano di uno sketch nuovo."""

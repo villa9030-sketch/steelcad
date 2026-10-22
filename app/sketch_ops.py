@@ -22,11 +22,26 @@ from cad_engine.sketch.profile import PLANES
 HV_TOL = math.radians(3)      # entro 3° un tratto diventa orizzontale o verticale
 
 
+def _dove_sul_tubo(doc, sk) -> str:
+    """«sulla faccia sopra di Telaio superiore M1 (60×40×3), lunga 840 mm»"""
+    from cad_engine.structures import lavorazioni
+    from cad_engine.units import fmt_mm
+    st = next((s for s in (doc.last.structures if doc.last else []) if s.id == sk.plane['tube']), None)
+    m = next((x for x in st.members if x.id == sk.plane.get('member')), None) if st else None
+    if m is None:
+        return 'su un tubo che non c’è più'
+    return (f'sulla faccia {lavorazioni.describe_side(m, sk.plane.get("side", "y+"))} di {m.label()}, lunga '
+            f'{fmt_mm(round(m.length, 1))} mm (0 = la testa)')
+
+
 def view(doc, sid: str, body=None) -> dict:
     """Lo sketch risolto, anche se il contorno è ancora aperto (mentre si disegna)."""
     sk = doc.sketch(sid)
+    tubo = sk.plane.get('tube') if isinstance(sk.plane, dict) else None
     if isinstance(sk.plane, str):
         pl = PLANES[sk.plane]
+    elif tubo:
+        pl = doc._plane(sk, body)                 # sulla faccia di un tubo: il pezzo non serve
     else:
         if body is None:
             raise SteelCADError('La faccia di questo sketch non c’è più nel pezzo.', code='piano')
@@ -57,7 +72,9 @@ def view(doc, sid: str, body=None) -> dict:
                       if not sk.entities.get(k, {}).get('construction') or sk.entities.get(k, {}).get('ref')],
            'lines': [], 'circles': [], 'arcs': [], 'texts': [],
            'used_by': [f['id'] for f in doc.features if not hasattr(f, 'entities') and f.get('sketch') == sid],
-           'on_face': sk.plane.get('face') if isinstance(sk.plane, dict) else None,
+           'on_face': (sk.plane.get('face') or (f'tubo:{tubo}/{sk.plane.get("member")}' if tubo else None))
+           if isinstance(sk.plane, dict) else None,
+           'on_tube': f'{tubo}/{sk.plane.get("member")}' if tubo else None,
            'on_flat': sk.plane.get('flat') if isinstance(sk.plane, dict) else None}
     fatto = (doc._sketch_results or {}).get(sid) if hasattr(doc, '_sketch_results') else None
     out['profiles'] = len(fatto[1].faces) if fatto and fatto[1] is not None else 0
@@ -85,6 +102,8 @@ def view(doc, sid: str, body=None) -> dict:
             ': «Marca col laser» li mette sul layer di marcatura del DXF (si vedono anche sul pezzo).'
     if out['on_flat']:
         out['where'] = 'sullo sviluppo della lamiera'
+    elif tubo:
+        out['where'] = _dove_sul_tubo(doc, sk)
     elif out['on_face']:
         testo = doc.describe_face(out['on_face']).replace('"', '')
         for art, prep in (('la ', 'sulla '), ('il ', 'sul '), ('lo ', 'sullo '), ('l’', 'sull’')):
@@ -102,6 +121,8 @@ def view(doc, sid: str, body=None) -> dict:
     out['xray'] = any(e.get('xray') and e['kind'] != 'point' for e in sk.entities.values())
     if out['on_flat']:
         out['on_sheet'] = True
+    elif tubo:
+        out['on_sheet'] = False
     elif out['on_face']:
         try:
             f0 = doc.feature(out['on_face'].split('/')[0])
