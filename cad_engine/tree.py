@@ -119,7 +119,7 @@ def project_tree(doc, result) -> dict:
     root = _n(doc.meta.get('name', 'Progetto'), 'project')
     stati = {fr.id: fr for fr in result.features}
     # il pezzo
-    solid_feats = [f for f in doc.features if not isinstance(f, Sketch) and f['type'] != 'structure']
+    solid_feats = [f for f in doc.features if not isinstance(f, Sketch) and f['type'] not in ('structure', 'tube_cut')]
     if solid_feats:
         label = doc.meta.get('name', 'Pezzo')
         if result.body is not None:
@@ -130,7 +130,7 @@ def project_tree(doc, result) -> dict:
             fid = Document_id(f)
             fr = stati.get(fid)
             if isinstance(f, Sketch):
-                if any(x.get('sketch') == fid for x in solid_feats) or isinstance(f.plane, dict):
+                if any(x.get('sketch') == fid for x in solid_feats) or (isinstance(f.plane, dict) and not f.plane.get('tube')):
                     st = (fr.sketch_status or {}).get('state') if fr else None
                     part['children'].append(_n(f'{f.name or "Sketch"}', 'sketch', fid,
                                                status=None if fr and fr.ok else 'errore',
@@ -195,12 +195,25 @@ def project_tree(doc, result) -> dict:
         for g, aste in gruppi.items():
             righe: OrderedDict = OrderedDict()
             for m in aste:
-                righe.setdefault((m.profile.name, round(m.length, 1)), []).append(m)
+                righe.setdefault((m.profile.name, round(m.length, 1), bool(m.lavorazioni)), []).append(m)
             ng = _n(g, 'group')
-            for (prof, lung), ms in righe.items():
-                ng['children'].append(_n(f'{len(ms)} × {prof} — {fmt_mm(lung)}', 'members',
-                                         [f'{st.id}/{m.id}' for m in ms]))
+            for (prof, lung, lav), ms in righe.items():
+                ng['children'].append(_n(f'{len(ms)} × {prof} — {fmt_mm(lung)}' + (' lavorati' if lav and len(ms) > 1 else
+                                                                                   ' lavorato' if lav else ''),
+                                         'members', [f'{st.id}/{m.id}' for m in ms]))
             nodo_st['children'].append(ng)
+        # le lavorazioni sui tubi di questa struttura, nell'ordine in cui si fanno
+        lav = [f for f in doc.features if not isinstance(f, Sketch) and f.get('type') == 'tube_cut'
+               and f.get('structure') == st.id]
+        if lav:
+            nl = _n('Lavorazioni sui tubi', 'group')
+            for f in lav:
+                fr = stati.get(f['id'])
+                aste = ', '.join(f.get('members') or [])
+                testo = f'{f.get("name") or "Lavorazione"} su {aste}' + (' (passante)' if f.get('through') else '')
+                nl['children'].append(_n(testo, 'tube_cut', f['id'], status='disattivata' if f.get('disattiva') else
+                                         (None if fr and fr.ok else 'errore')))
+            nodo_st['children'].append(nl)
         root['children'].append(nodo_st)
     usati = {f.get('sketch') for f in doc.features if not isinstance(f, Sketch)}
     for f in doc.features:
@@ -212,9 +225,15 @@ def project_tree(doc, result) -> dict:
             root['children'].append(_n(f.name or f.id, 'sketch', f.id,
                                        status=None if fr and fr.ok else 'da chiudere'))
     for fr in result.features:
-        if not fr.ok and fr.type == 'structure':
+        if not fr.ok and fr.type in ('structure', 'tube_cut') and fr.id not in {n['id'] for n in _tutti(root)}:
             root['children'].append(_n(f'{fr.id}: {fr.message}', 'structure', fr.id, status='errore'))
     return root
+
+
+def _tutti(n):
+    yield n
+    for c in n['children']:
+        yield from _tutti(c)
 
 
 def Document_id(f) -> str:  # noqa: N802 - piccolo aiuto locale

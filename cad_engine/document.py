@@ -25,9 +25,9 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB', 'sheet_miter': 'TT'}
+PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB', 'sheet_miter': 'TT', 'tube_cut': 'LT'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'revolve': 'Rivoluzione', 'step_lamiera': 'Lamiera da STEP', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
-        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma', 'sheet_edge_flange': 'Piega su un bordo', 'sheet_miter': 'Taglio di testa'}
+        'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma', 'sheet_edge_flange': 'Piega su un bordo', 'sheet_miter': 'Taglio di testa', 'tube_cut': 'Lavorazione tubo'}
 
 
 @dataclass
@@ -91,7 +91,7 @@ class Document:
         return sk
 
     def add_feature(self, ftype: str, name: str = '', **fields) -> str:
-        if ftype not in BUILDERS and ftype != 'structure':
+        if ftype not in BUILDERS and ftype not in ('structure', 'tube_cut'):
             raise FeatureError(f'Tipo di feature "{ftype}" sconosciuto.')
         fid = self._new_id(ftype)
         self.features.append({'id': fid, 'type': ftype, 'name': name, **fields})
@@ -143,10 +143,14 @@ class Document:
         if isinstance(f, Sketch):
             if isinstance(f.plane, dict) and 'flat' in f.plane:
                 return {f.plane['flat']}
+            if isinstance(f.plane, dict) and 'tube' in f.plane:
+                return {f.plane['tube']}
             return {f.plane['face'].split('/')[0]} if isinstance(f.plane, dict) and 'face' in f.plane else set()
         out = set()
         if f.get('sketch'):
             out.add(f['sketch'])
+        if f.get('type') == 'tube_cut' and f.get('structure'):
+            out.add(f['structure'])
         if f.get('type') == 'structure':
             out |= Document._sketch_refs(f)
         for ref in f.get('edges') or []:
@@ -193,6 +197,7 @@ class Document:
         body: NamedShape | None = None
         body_hash = 'vuoto'
         sketch_hash: dict[str, str] = {}
+        st_hash: dict[str, str] = {}          # impronta di ogni struttura (con le sue lavorazioni fin qui)
         ctx_sketches: dict = {}
         blocked_by: str | None = None
         nuova_cache: dict[str, object] = {}
@@ -208,7 +213,7 @@ class Document:
                 dove = ''
                 if on_face:
                     try:
-                        pl_ = self._plane(f, body)
+                        pl_ = self._plane(f, body, res.structures)
                         dove = [round(v, 6) for q in (pl_.origin, pl_.x_dir, pl_.z_dir) for v in (q.X, q.Y, q.Z)]
                     except SteelCADError:
                         dove = body_hash
@@ -222,7 +227,7 @@ class Document:
                 else:
                     from_cache = False
                     try:
-                        plane = self._plane(f, body)
+                        plane = self._plane(f, body, res.structures)
                         solved = solve(f, params)
                         prof = None
                         if solved.status.ok_for_features:
@@ -266,7 +271,45 @@ class Document:
                     res.rebuilt += 1
                     from_cache = False
                 nuova_cache[h] = st_res
+                st_hash[fid] = h
                 res.structures.append(st_res)
+                res.features.append(FeatureResult(fid, ftype, True, '', from_cache))
+                continue
+            if ftype == 'tube_cut':
+                # lavorazione su un'asta: la struttura di prima (in cache) resta com'è, ne nasce una bucata al suo posto
+                k = next((i for i, s in enumerate(res.structures) if s.id == f.get('structure')), None)
+                if f.get('disattiva'):
+                    res.features.append(FeatureResult(fid, ftype, True, 'Disattivata: non si fa (tasto destro → Attiva).'))
+                    continue
+                if k is None:
+                    res.features.append(FeatureResult(fid, ftype, False, f'La struttura {f.get("structure")} di questa '
+                                                      'lavorazione non c’è o ha un errore.'))
+                    continue
+                if f.get('sketch') not in ctx_sketches:
+                    res.features.append(FeatureResult(fid, ftype, False, 'Lo sketch di questa lavorazione ha un errore.'))
+                    continue
+                h = _hash(f, st_hash.get(f['structure'], ''), sketch_hash.get(f['sketch'], ''))
+                cached = self._dalla_cache(h)
+                if cached is not None:
+                    res.cached += 1
+                    nuova, from_cache = cached, True
+                else:
+                    try:
+                        from .structures import lavorazioni
+                        nuova = lavorazioni.apply(f, res.structures[k], ctx_sketches[f['sketch']][1],
+                                                  self.sketch(f['sketch']).label())
+                    except SteelCADError as ex:
+                        res.features.append(FeatureResult(fid, ftype, False, ex.message))
+                        continue
+                    except Exception as ex:  # noqa: BLE001
+                        res.features.append(FeatureResult(fid, ftype, False, f'Il kernel CAD non è riuscito a fare la '
+                                                          f'lavorazione ({type(ex).__name__}). Segnalalo con il file.'))
+                        continue
+                    res.rebuilt += 1
+                    from_cache = False
+                nuova_cache[h] = nuova
+                st_hash[f['structure']] = h
+                res.structures[k] = nuova
                 res.features.append(FeatureResult(fid, ftype, True, '', from_cache))
                 continue
             if f.get('disattiva'):
@@ -376,9 +419,20 @@ class Document:
                 nomi |= names_in(c.get('gap'))
         return {n: params.get(n) for n in sorted(nomi)}
 
-    def _plane(self, sk: Sketch, body: NamedShape | None):
+    def _plane(self, sk: Sketch, body: NamedShape | None, structures=None):
         if isinstance(sk.plane, str):
             return profile_mod.PLANES[sk.plane]
+        if sk.plane.get('tube'):
+            # sulla faccia di un'asta: zero sulla testa del tubo e sul bordo della faccia
+            from .structures import lavorazioni
+            if structures is None:              # chiamato da fuori della ricostruzione: le strutture dell'ultima
+                structures = self.last.structures if self.last else []
+            st = next((s for s in structures if s.id == sk.plane['tube']), None)
+            m = next((x for x in st.members if x.id == sk.plane.get('member')), None) if st else None
+            if m is None:
+                raise SketchError(f'Lo sketch "{sk.label()}" sta su un tubo che non c’è più '
+                                  f'({sk.plane["tube"]}/{sk.plane.get("member")}).')
+            return lavorazioni.face_plane(m, sk.plane.get('side', 'y+'))
         nome = sk.plane.get('face')
         if body is None:
             raise SketchError(f'Lo sketch "{sk.label()}" sta su una faccia, ma in quel punto il pezzo non esiste.')

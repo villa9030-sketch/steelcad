@@ -16,13 +16,13 @@ def cut_list(structures) -> dict:
     for st in structures:
         for m in st.members:
             tagli = tuple(sorted(round(a, 1) for a in m.cuts))
-            key = (m.profile.name, m.material, round(m.length, 1), tagli)
+            key = (m.profile.name, m.material, round(m.length, 1), tagli, m.lavorazioni)
             r = righe.get(key)
             if r is None:
                 r = righe[key] = {
                     'profile': m.profile.name, 'description': m.profile.description, 'material': m.material,
                     'length_mm': round(m.length, 1), 'cuts': [describe_cut(a) for a in tagli],
-                    'qty': 0, 'members': [], 'kg_each': m.kg(), 'groups': [],
+                    'qty': 0, 'members': [], 'kg_each': m.kg(), 'groups': [], 'lavorata': bool(m.lavorazioni),
                 }
             r['qty'] += 1
             r['members'].append(f'{st.id}/{m.id}')
@@ -52,6 +52,6 @@ def as_text(cl: dict) -> str:
             if (r['profile'], r['material']) != (t['profile'], t['material']):
                 continue
             tagli = '/'.join(r['cuts'])
-            out.append(f'  {r["qty"]} × {r["length_mm"]:g} mm   tagli {tagli}')
+            out.append(f'  {r["qty"]} × {r["length_mm"]:g} mm   tagli {tagli}' + ('   con lavorazioni' if r.get('lavorata') else ''))
         out.append(f'  totale {t["pieces"]} pezzi, {t["total_length_mm"] / 1000:.3f} m, {t["kg"]:.2f} kg')
     return '\n'.join(out).replace('.', ',')

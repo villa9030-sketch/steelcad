@@ -55,6 +55,8 @@ class Member:
     cuts: tuple = (0.0, 0.0)    # angolo di taglio all'inizio e alla fine (0 = dritto)
     length: float = 0.0         # lunghezza di taglio (massimo ingombro lungo l'asse)
     ruolo: str = ''             # 'collega' = traverso tra due ripetizioni di uno scheletro (batte contro le spalle)
+    testa: float = 0.0          # dove comincia il materiale lungo l'asse, dalla partenza: lo zero delle lavorazioni
+    lavorazioni: tuple = ()     # le lavorazioni fatte sull'asta (firme): aste lavorate diverse = righe diverse
 
     @property
     def w(self) -> bd.Vector:
@@ -243,11 +245,11 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         if hit is None:
             solid, cuts = _member_solid(m, nodes, by_id, fid)
             m.solid, m.cuts = solid, cuts
-            hit = (solid, cuts, _extent(m))
+            hit = (solid, cuts) + _extent(m)
             if len(_CACHE) > 2000:
                 _CACHE.clear()
             _CACHE[key] = hit
-        m.solid, m.cuts, m.length = hit
+        m.solid, m.cuts, m.length, m.testa = hit
     legati = set()
     for (mid, _), (kind, _, info) in nodes.items():
         altri = [info[0]] if kind == 'miter' else ([o for o, _ in info] if kind == 'extend' else
@@ -565,12 +567,13 @@ def _envelope_solid(o: Member) -> bd.Solid:
     return s if isinstance(s, bd.Solid) else s.solids()[0]
 
 
-def _extent(m: Member) -> float:
-    """Lunghezza di taglio: l'ingombro esatto dell'asta lungo il suo asse (punte dei 45° comprese)."""
+def _extent(m: Member) -> tuple:
+    """Lunghezza di taglio (l'ingombro esatto dell'asta lungo il suo asse, punte dei 45° comprese) e dove comincia
+    il materiale lungo l'asse (la testa, lo zero delle lavorazioni)."""
     from ..features.measure_util import bbox
     local = bd.Plane(origin=m.start, x_dir=m.x, z_dir=m.w).to_local_coords(m.solid)
     (_, _, z0), (_, _, z1) = bbox(local.wrapped)
-    return z1 - z0
+    return z1 - z0, z0
 
 
 def describe_cut(angle: float) -> str:

@@ -30,6 +30,7 @@ from app import sketch_edit, sketch_more, sketch_ops, sketch_trim  # noqa: E402
 from app.assembly_service import AssemblyMixin  # noqa: E402
 from app.drawings_service import DrawingsMixin  # noqa: E402
 from app.import_service import ImportMixin  # noqa: E402
+from app.tubi_service import TubiMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_mm  # noqa: E402
@@ -65,7 +66,7 @@ def _err(ex: Exception):
             'code': 'interno'}
 
 
-class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))
