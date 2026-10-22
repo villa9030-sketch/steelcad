@@ -161,6 +161,9 @@ class Api:
     def viti_dal_pezzo(self, nome, centro, asse, d, tipo, misura, lunghezza=None):
         return self._call(self._svc.viti_dal_pezzo, nome, centro, asse, d, tipo, misura, lunghezza)
 
+    def gradino(self, fid, flid, altezza, angolo=45, lunghezza=20, verso='dentro'):
+        return self._call(self._svc.gradino, fid, flid, altezza, angolo, lunghezza, verso)
+
     def tree_menu(self, kind, ref):
         return self._call(self._svc.tree_menu, kind, ref)
 

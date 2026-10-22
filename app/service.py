@@ -1257,6 +1257,89 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin):
         e0, e1 = max(0.0, p.u0 - min(us)), max(0.0, max(us) - p.u1)
         return [round(e0, 3) if e0 > 1e-3 else 0, round(e1, 3) if e1 > 1e-3 else 0]
 
+    def gradino(self, fid: str, flid: str, altezza, angolo=45, lunghezza=20, verso: str = 'dentro') -> dict:
+        """Gradino (joggle) sulla punta della parete flid: un tratto inclinato e una parete che torna parallela, spostata
+        di «altezza» verso dentro o fuori (per sovrapporre due lamiere a filo, 22/10). La lunghezza del tratto inclinato
+        si trova provando sul pezzo vero (lo spostamento misurato tra le due facce dalla stessa parte)."""
+        import copy as _copy
+
+        import build123d as bd
+        import numpy as np
+        try:
+            h, ang, L = _numero(altezza, 'l’altezza del gradino'), _numero(angolo, 'l’angolo'), _numero(lunghezza, 'la lunghezza dopo il gradino')
+            if h <= 0 or not 0 < ang < 90 or L <= 0:
+                raise SteelCADError('Il gradino vuole un’altezza maggiore di zero, un angolo tra 1 e 89° e una lunghezza.', code='gradino')
+            sm = self._sheet_def(fid)
+            if sm is None or not any(x['id'] == flid for x in sm.get('flanges') or []):
+                raise SteelCADError('Il gradino si fa sulla punta di una piega.', code='gradino')
+            if any(x.get('parent') == flid for x in sm['flanges']):
+                raise SteelCADError(f'Sulla punta di {flid} c’è già una piega.', code='gradino')
+        except SteelCADError as ex:
+            return _err(ex)
+        par = self.doc.resolved_parameters()
+
+        def costruisci(lung_a, dA, dB):
+            """Le due pieghe nel progetto copiato: lo spostamento con segno (+ verso fuori) o None se non torna parallela."""
+            d = _copy.deepcopy(self.doc.to_dict())
+            f = next(x for x in d['features'] if x.get('id') == fid)
+            usati = {x['id'] for x in f['flanges']} | {x['id'] for x in f.get('folds') or []}
+            ida = next(f'FL{n}' for n in range(1, 999) if f'FL{n}' not in usati)
+            idb = next(f'FL{n}' for n in range(1, 999) if f'FL{n}' not in usati | {ida})
+            f['flanges'] += [{'id': ida, 'parent': flid, 'length': lung_a, 'angle': ang, 'direction': dA, 'position': 'inside'},
+                             {'id': idb, 'parent': ida, 'length': L, 'angle': ang, 'direction': dB, 'position': 'inside'}]
+            try:
+                doc2 = Document.from_dict(d)
+                r = doc2.rebuild()
+            except Exception:  # noqa: BLE001
+                return None, (ida, idb)
+            if r.body is None or any(not x.ok for x in r.features):
+                return None, (ida, idb)
+            g = {x.fid: x for x in r.body.sheet.flanges}
+            if abs(abs(g[idb].frame()[0].dot(g[flid].frame()[0])) - 1) > 1e-6:
+                return None, (ida, idb)
+            fa = bd.Face(r.body.names[f'{fid}/{flid}/esterno'][0])
+            na = fa.normal_at(fa.center())
+            for nome in (f'{fid}/{idb}/esterno', f'{fid}/{idb}/interno'):
+                fb = bd.Face(r.body.names[nome][0])
+                if fb.normal_at(fb.center()).dot(na) > 0.999:          # la faccia dalla stessa parte
+                    return (fb.center() - fa.center()).dot(na), (ida, idb)
+            return None, (ida, idb)
+        voluto = h if verso == 'fuori' else -h
+        scelta = None
+        for dA, dB in (('up', 'down'), ('down', 'up'), ('down', 'down'), ('up', 'up')):
+            la = h / math.sin(math.radians(ang)) + 4 * self.result.body.sheet.thickness
+            s0, _ = costruisci(la, dA, dB)
+            if s0 is not None and np.sign(s0) == np.sign(voluto):
+                scelta = (dA, dB, la, s0)
+                break
+        if scelta is None:
+            return {'ok': False, 'message': 'Il gradino non viene: prova un angolo diverso o una parete più lunga.'}
+        dA, dB, la, s0 = scelta
+        la1 = la + 2.0
+        s1, _ = costruisci(la1, dA, dB)
+        for _ in range(6):                                       # secanti: lo spostamento cresce dritto col tratto
+            if s1 is None or abs(s1 - s0) < 1e-9:
+                break
+            la, s0, la1 = la1, s1, la1 + (voluto - s1) * (la1 - la) / (s1 - s0)
+            s1, _ = costruisci(la1, dA, dB)
+            if s1 is not None and abs(s1 - voluto) < 1e-4:
+                break
+        if s1 is None or abs(s1 - voluto) > 1e-3:
+            return {'ok': False, 'message': 'Il gradino non viene con queste misure: prova un angolo più aperto o un gradino più alto.'}
+        lung_a = round(la1, 4)
+
+        def fn(sm_):
+            usati = {x['id'] for x in sm_['flanges']} | {x['id'] for x in sm_.get('folds') or []}
+            ida = next(f'FL{n}' for n in range(1, 999) if f'FL{n}' not in usati)
+            idb = next(f'FL{n}' for n in range(1, 999) if f'FL{n}' not in usati | {ida})
+            sm_['flanges'] += [{'id': ida, 'parent': flid, 'length': lung_a, 'angle': ang, 'direction': dA, 'position': 'inside'},
+                               {'id': idb, 'parent': ida, 'length': L, 'angle': ang, 'direction': dB, 'position': 'inside'}]
+        r = self._edit_sheet(fid, f'Gradino {fmt_mm(h)} mm sulla punta di {flid}', fn)
+        if r.get('ok'):
+            r['message'] = (f'Gradino di {fmt_mm(h)} mm verso {verso}: tratto inclinato {fmt_mm(round(lung_a, 2))} mm a {fmt_mm(ang)}°, '
+                            f'poi {fmt_mm(L)} mm. Sono due pieghe sulla punta: si cambiano come le altre.')
+        return r
+
     def extend_over_tab(self, fid: str, flid: str) -> dict:
         """La flangia sulla punta continua sopra la linguetta attaccata alla parete madre (per un bordo unico)."""
         sm = self._sheet_def(fid)

@@ -1732,7 +1732,8 @@ function flangePanel(s) {
     <p class="hint">Una flangia sul bordo libero di ${esc(s.flange)}: bordo di scatola, omega, Z…</p>
     ${flangeFields(ultimaPunta, VERSI_PUNTA, POS_UI, 't')}
     <div class="row-btns"><button class="btn primary" id="t-add">Aggiungi sulla punta</button>
-      <button class="btn" id="t-orlo" title="Risvolto a 180° (orlo): la parete resta lunga fino al bordo esterno della piega">Orlo 180°</button></div></details>`;
+      <button class="btn" id="t-orlo" title="Risvolto a 180° (orlo): la parete resta lunga fino al bordo esterno della piega">Orlo 180°</button>
+      <button class="btn" id="t-gradino" title="Gradino (joggle): la parete si sposta di poco e continua parallela, per sovrapporre due lamiere a filo">Gradino…</button></div></details>`;
   const sezIncastri = s.tip_contact ? `<details class="fsec" open id="f-incastri"><summary>Incastri sulla punta</summary>
     <p class="hint">La punta di ${esc(s.flange)} appoggia su ${esc(s.tip_contact)}: linguette sulla punta e asole sull’altra faccia.</p>
     <div class="ff"><label>Quante<span class="inp"><input class="field" id="i-n" value="3"></span></label>
@@ -2344,6 +2345,23 @@ function wireFlange(s) {
     };
     $('#t-add').onclick = punta;
     $('#t-orlo').onclick = () => { $('#t-ang').value = '180'; if (!$('#t-len').value.trim() || $('#t-len').value === '20') $('#t-len').value = '10'; punta(); };
+    $('#t-gradino').onclick = () => {
+      const sp = String(S?.sheet?.data?.thickness ?? 2).replace('.', ',');
+      modal(`<h3>Gradino sulla punta di ${esc(s.flange)}</h3>
+        <p class="hint">La parete si sposta di poco e continua parallela: due lamiere si sovrappongono a filo (di solito il gradino è lo spessore).</p>
+        <div class="form"><label>Di quanto si sposta<span class="inp"><input class="field" id="g-h" value="${sp}"><i>mm</i></span></label>
+          <label>Verso<select class="field" id="g-v"><option value="dentro">verso dentro</option><option value="fuori">verso fuori</option></select></label>
+          <label>Angolo del tratto inclinato<span class="inp"><input class="field" id="g-a" value="45"><i>°</i></span></label>
+          <label>Lunghezza dopo il gradino<span class="inp"><input class="field" id="g-l" value="20"><i>mm</i></span></label></div>
+        <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai il gradino</button></div>`, close => {
+        $('#m-no').onclick = close;
+        $('#m-ok').onclick = () => {
+          const v = ['#g-h', '#g-a', '#g-l'].map(q => $(q).value.trim()), verso = $('#g-v').value;
+          close();
+          inCoda(async () => { const r = await call('gradino', s.feature, s.flange, v[0], v[1], v[2], verso); if (await apply(r, r.message)) await refreshSel(); });
+        };
+      });
+    };
     ['#t-len', '#t-ang'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') punta(); }; });
     if (s.tip_form) $('#t-len').focus();          // hai cliccato la punta: si parte da lì
   }
