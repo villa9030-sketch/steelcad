@@ -7,3 +7,5 @@ __pycache__/
 *.bak
 out/
 app/ui/icons_nuove/
+build/
+dist/

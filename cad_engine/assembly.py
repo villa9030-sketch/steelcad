@@ -143,9 +143,9 @@ class Assembly:
     @classmethod
     def from_dict(cls, d: dict, path: Path | None = None) -> 'Assembly':
         if d.get('format') != 'steelcad-asm':
-            raise ProjectFileError('Questo file non è un assieme SteelCAD.')
+            raise ProjectFileError('Questo file non è un assieme Radius.')
         if d.get('version', 0) > FORMAT_VERSION:
-            raise ProjectFileError('L’assieme è stato salvato da una versione più nuova di SteelCAD.')
+            raise ProjectFileError('L’assieme è stato salvato da una versione più nuova di Radius.')
         a = cls(d.get('name') or 'Assieme', copy.deepcopy(d.get('instances') or []), copy.deepcopy(d.get('mates') or []), path)
         base = path.parent if path else Path.cwd()
         for i in a.instances:

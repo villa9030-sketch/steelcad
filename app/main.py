@@ -1,4 +1,4 @@
-"""SteelCAD: la finestra desktop.
+"""Radius (ex SteelCAD): la finestra desktop.
 
     .venv\\Scripts\\python.exe app\\main.py [progetto.steelcad]
 
@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.service import Service  # noqa: E402
 
 UI = Path(__file__).resolve().parent / 'ui' / 'index.html'
-FILTRO_PROGETTO = ('Progetto SteelCAD (*.steelcad;*.steelcad-asm)', 'Pezzo (*.steelcad)', 'Assieme (*.steelcad-asm)')
-FILTRO_PEZZO = ('Pezzo SteelCAD (*.steelcad)',)
-FILTRO_ASSIEME = ('Assieme SteelCAD (*.steelcad-asm)',)
+FILTRO_PROGETTO = ('Progetto Radius (*.steelcad;*.steelcad-asm)', 'Pezzo (*.steelcad)', 'Assieme (*.steelcad-asm)')
+FILTRO_PEZZO = ('Pezzo Radius (*.steelcad)',)
+FILTRO_ASSIEME = ('Assieme Radius (*.steelcad-asm)',)
 FILTRO_DISEGNO = ('Disegno (*.dxf;*.dwg)', 'DXF (*.dxf)', 'DWG (*.dwg)')
 
 
@@ -513,6 +513,23 @@ class Api:
     def asm_back(self):
         return self._call(self._svc.asm_back)
 
+    # aggiornamenti (solo Radius installato)
+    def update_check(self):
+        from app import aggiorna
+        from cad_engine import __version__
+        return aggiorna.controlla(__version__)
+
+    def update_install(self, url):
+        from app import aggiorna
+        try:
+            self._call(self._svc.autosave)          # il Setup chiude Radius: prima un salvataggio automatico
+        except Exception:  # noqa: BLE001
+            pass
+        r = aggiorna.installa(url)
+        if r.get('ok') and self._window is not None:
+            threading.Timer(1.5, lambda: self._window.destroy()).start()
+        return r
+
     def set_titlebar(self, colore):
         _barra_titolo(getattr(self, '_window', None), colore if isinstance(colore, str) and len(colore) == 7 else '#101215')
         return {'ok': True}
@@ -573,7 +590,7 @@ class Api:
         return self._call(fn, p)
 
 
-ICONA = Path(__file__).resolve().parent / 'ui' / 'img' / 'steelcad.ico'
+ICONA = Path(__file__).resolve().parent / 'ui' / 'img' / 'radius.ico'
 
 
 def _app_windows():
@@ -583,7 +600,7 @@ def _app_windows():
         return
     try:
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('SteelCAD.App')
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('Radius.App')
     except Exception:  # noqa: BLE001 - è solo l'aspetto nella barra
         pass
 
@@ -622,7 +639,7 @@ def main():
         r = api.open_path(file[0])
         if not r['ok']:
             print(r['message'])
-    w = webview.create_window('SteelCAD', str(UI), js_api=api, width=1440, height=900, min_size=(1024, 640),
+    w = webview.create_window('Radius', str(UI), js_api=api, width=1440, height=900, min_size=(1024, 640),
                               background_color='#16191D')
     api._window = w
 
@@ -631,7 +648,7 @@ def main():
             return True
         api.autosave()
         return w.create_confirmation_dialog(
-            'SteelCAD', 'Ci sono modifiche non salvate (c’è comunque il salvataggio automatico). Chiudere?')
+            'Radius', 'Ci sono modifiche non salvate (c’è comunque il salvataggio automatico). Chiudere?')
 
     w.events.closing += chiusura
     w.events.shown += lambda: _barra_titolo(w)

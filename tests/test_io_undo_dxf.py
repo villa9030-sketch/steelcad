@@ -51,7 +51,7 @@ def test_file_rovinato_messaggio_chiaro(tmp):
     with pytest.raises(ProjectFileError, match='rovinato'):
         project_io.load(p)
     p.write_text('{"format": "altro"}', encoding='utf-8')
-    with pytest.raises(SteelCADError, match='non è un progetto SteelCAD'):
+    with pytest.raises(SteelCADError, match='non è un progetto Radius'):
         project_io.load(p)
     p.write_text('{"format": "steelcad", "version": 99}', encoding='utf-8')
     with pytest.raises(SteelCADError, match='versione più nuova'):

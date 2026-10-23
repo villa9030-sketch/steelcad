@@ -713,11 +713,13 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
   animation: introTraccia 1s cubic-bezier(.6, 0, .3, 1) forwards, introRiempi .55s ease forwards; }
 .intro-pezzo .f1 { animation-delay: 0s, .85s; } .intro-pezzo .f2 { animation-delay: .1s, .92s; } .intro-pezzo .f3 { animation-delay: .18s, .98s; }
 .intro-pezzo .f4 { animation-delay: .28s, 1.05s; } .intro-pezzo .f5 { animation-delay: .36s, 1.12s; }
+.intro-segno { width: min(210px, 28vw); }
+.intro-segno .f { stroke-width: 6; stroke-dasharray: 2700; stroke-dashoffset: 2700; }
 .intro-pezzo .pg { stroke: #ff8a3d; stroke-width: 1.8; stroke-dasharray: 9 6; opacity: 0; animation: introPiega .5s ease forwards; }
 .intro-pezzo .pg1 { animation-delay: 1.15s; } .intro-pezzo .pg2 { animation-delay: 1.22s; } .intro-pezzo .pg3 { animation-delay: 1.29s; } .intro-pezzo .pg4 { animation-delay: 1.36s; }
 .intro-nome { margin-top: 26px; font-size: 46px; letter-spacing: .02em; opacity: 0; transform: translateY(8px);
   animation: introSu .7s cubic-bezier(.2, .7, .2, 1) .55s forwards; position: relative; overflow: hidden; padding: 0 4px; }
-.intro-nome span { font-weight: 300; color: #c9d4df; }
+.intro-nome span { font-weight: 600; color: #e6edf4; letter-spacing: .06em; }
 .intro-nome b { font-weight: 800; color: #5aa9ff; }
 .intro-nome::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; left: -60%;
   background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .35), transparent); animation: introLuce .9s ease 1.35s forwards; }

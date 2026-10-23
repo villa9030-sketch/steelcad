@@ -9,4 +9,4 @@ from .commands import History  # noqa: F401
 from .document import Document  # noqa: F401
 from .errors import SteelCADError  # noqa: F401
 
-__version__ = '0.1.0'
+__version__ = '0.9.0'

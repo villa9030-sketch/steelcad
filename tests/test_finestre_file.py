@@ -11,4 +11,4 @@ def test_filtri_dei_file_validi_anche_col_trattino():
         for f in filtri:
             assert webview.window.parse_file_type(f)
             assert webview.util.parse_file_type(f)
-    assert webview.window.parse_file_type(main.FILTRO_PROGETTO[0]) == ('Progetto SteelCAD', '*.steelcad;*.steelcad-asm')
+    assert webview.window.parse_file_type(main.FILTRO_PROGETTO[0]) == ('Progetto Radius', '*.steelcad;*.steelcad-asm')

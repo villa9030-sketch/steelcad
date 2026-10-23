@@ -51,13 +51,13 @@ def load(path) -> Document:
         raise ProjectFileError(f'Il file {path.name} è rovinato e non si può leggere. Prova la copia '
                                f'{path.name}.bak o il recupero automatico.') from None
     if not isinstance(d, dict) or not isinstance(d.get('features', []), list):
-        raise ProjectFileError(f'Il file {path.name} non è un progetto SteelCAD.')
+        raise ProjectFileError(f'Il file {path.name} non è un progetto Radius.')
     try:
         return Document.from_dict(d)
     except SteelCADError:
         raise
     except Exception:  # noqa: BLE001 - un progetto scritto male (a mano o da un'altra versione)
-        raise ProjectFileError(f'Il file {path.name} non è un progetto SteelCAD valido (forse di una versione '
+        raise ProjectFileError(f'Il file {path.name} non è un progetto Radius valido (forse di una versione '
                                f'diversa). Prova la copia {path.name}.bak.') from None
 
 

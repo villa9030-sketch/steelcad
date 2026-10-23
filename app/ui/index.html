@@ -2,8 +2,8 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>SteelCAD</title>
-<link rel="icon" href="img/steelcad.png">
+<title>Radius</title>
+<link rel="icon" href="img/radius.png">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
 </head>
@@ -11,24 +11,12 @@
 <div id="intro" aria-hidden="true">
   <div class="intro-griglia"></div>
   <div class="intro-centro">
-    <svg class="intro-pezzo" viewBox="-130 -100 360 300">
-      <defs>
-        <linearGradient id="ig-base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a4a60"/><stop offset="1" stop-color="#26313f"/></linearGradient>
-        <linearGradient id="ig-parete" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fa3b8"/><stop offset="1" stop-color="#5b6d82"/></linearGradient>
-        <linearGradient id="ig-dentro" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4c5d72"/><stop offset="1" stop-color="#33414f"/></linearGradient>
-        <linearGradient id="ig-ritorno" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b9c7d6"/><stop offset="1" stop-color="#8396ab"/></linearGradient>
-      </defs>
-      <polygon class="f f1" fill="url(#ig-dentro)" points="0,0 207.8,120 207.8,42 0,-78"/>
-      <polygon class="f f2" fill="url(#ig-ritorno)" points="0,-78 207.8,42 187.1,54 -20.8,-66"/>
-      <polygon class="f f3" fill="url(#ig-base)" points="0,0 207.8,120 95.3,185 -112.6,65"/>
-      <polygon class="f f4" fill="url(#ig-parete)" points="-112.6,65 95.3,185 95.3,107 -112.6,-13"/>
-      <polygon class="f f5" fill="url(#ig-ritorno)" points="-112.6,-13 95.3,107 116,95 -91.8,-25"/>
-      <line class="pg pg1" x1="0" y1="0" x2="207.8" y2="120"/>
-      <line class="pg pg2" x1="-112.6" y1="65" x2="95.3" y2="185"/>
-      <line class="pg pg3" x1="0" y1="-78" x2="207.8" y2="42"/>
-      <line class="pg pg4" x1="-112.6" y1="-13" x2="95.3" y2="107"/>
+    <svg class="intro-pezzo intro-segno" viewBox="300 230 654 823">
+      <defs><linearGradient id="ig-segno" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4F86FF"/><stop offset=".6" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0B3191"/></linearGradient></defs>
+      <path class="f f1" fill="url(#ig-segno)" d="M336 265 H918 A703 703 0 0 0 336 662 Z"/>
+      <path class="f f3" fill="url(#ig-segno)" d="M473 1018 V780 C473 590 678 443 918 443 V619 H729 A90 90 0 0 0 639 709 V1018 Z"/>
     </svg>
-    <div class="intro-nome"><span>Steel</span><b>CAD</b></div>
+    <div class="intro-nome"><span>Radius</span></div>
     <div class="intro-motto">Lamiera piegata · strutture · tramogge — dal disegno al taglio</div>
   </div>
   <div class="intro-piede">
@@ -38,7 +26,7 @@
   <div class="intro-versione"></div>
 </div>
 <header id="top">
-  <button class="brand" data-cmd="home" title="Pagina iniziale"><img src="icons/box.svg" alt="">SteelCAD</button>
+  <button class="brand" data-cmd="home" title="Pagina iniziale"><img src="img/radius_app.svg" alt="">Radius</button>
   <div class="menu-item"><button class="tbtn" title="File"><img src="icons/open.svg" alt=""><span>File</span></button>
     <div class="drop">
       <button data-cmd="new">Nuovo pezzo…<kbd>Ctrl+N</kbd></button>

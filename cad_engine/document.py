@@ -495,9 +495,9 @@ class Document:
     @classmethod
     def from_dict(cls, d: dict) -> 'Document':
         if d.get('format') != 'steelcad':
-            raise SteelCADError('Questo file non è un progetto SteelCAD.', code='file_progetto')
+            raise SteelCADError('Questo file non è un progetto Radius.', code='file_progetto')
         if d.get('version', 0) > FORMAT_VERSION:
-            raise SteelCADError('Il progetto è stato salvato da una versione più nuova di SteelCAD: aggiorna il '
+            raise SteelCADError('Il progetto è stato salvato da una versione più nuova di Radius: aggiorna il '
                                 'programma per aprirlo.', code='file_progetto')
         doc = cls(d.get('meta', {}).get('name', 'Parte'), d.get('material', 'S235'))
         doc.meta.update(d.get('meta') or {})

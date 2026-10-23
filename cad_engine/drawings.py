@@ -29,6 +29,7 @@ class Foglio:
     cerchi: list = field(default_factory=list)      # (layer, (x, y), r)
     testi: list = field(default_factory=list)       # (layer, (x, y), testo, altezza, allineamento 'l'|'c'|'r')
     pieni: list = field(default_factory=list)       # (layer, [(x, y), ...]) triangoli pieni (frecce)
+    ombre: list = field(default_factory=list)       # ((r, g, b), [(x, y), ...]) facce ombreggiate, sotto le linee
     i_scala: int = -1                               # la scritta della scala nel cartiglio (si riscrive scalando)
 
     @property
@@ -333,6 +334,77 @@ def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', t
     f.text('quote', m, scritta, h, 'c')
     if abs(uy) > 0.5:                                      # quota verticale: testo ruotato nei formati che lo sanno fare
         f.testi[-1] = ('quote', m, scritta, h, 'cv')
+
+
+_OMBRE: dict = {}
+
+
+def ombre_iso(shape) -> list:
+    """Le facce del pezzo per l'isometrica ombreggiata (23/10, «polish» delle tavole): triangoli visti, dal più
+    lontano al più vicino, colorati con la luce dall'alto (acciaio chiaro, come le icone). Coordinate della vista
+    'iso' di proietta. Si rendono [((r, g, b), [(x, y)] * 3)]."""
+    import numpy as np
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.BRep import BRep_Tool
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+    chiave = hash(shape)
+    gia = _OMBRE.get(chiave)
+    if gia is not None and gia[0].IsEqual(shape):
+        return gia[1]
+    d = np.array(VISTE['iso'][0], dtype=float)
+    d /= np.linalg.norm(d)
+    upd = _up_iso(VISTE['iso'][0])
+    up = np.array([upd.X(), upd.Y(), upd.Z()])
+    xd = np.cross(up, d)
+    luce = d * 0.9 + np.array([0, 0, 1.0]) * 1.1 - xd * 0.45
+    luce /= np.linalg.norm(luce)
+    scuro, chiaro = np.array([0.50, 0.55, 0.61]), np.array([0.96, 0.97, 0.98])
+    scatola = Bnd_Box()
+    BRepBndLib.Add_s(shape, scatola)
+    diag = math.sqrt(scatola.SquareExtent()) if not scatola.IsVoid() else 100.0
+    BRepMesh_IncrementalMesh(shape, max(diag / 600, 0.05), False, 0.35, True)
+    tri = []
+    ex = TopExp_Explorer(shape, TopAbs_FACE)
+    while ex.More():
+        fa = TopoDS.Face(ex.Current())
+        ex.Next()
+        loc = TopLoc_Location()
+        t = BRep_Tool.Triangulation_s(fa, loc)
+        if t is None:
+            continue
+        tr = loc.Transformation()
+        P = np.array([[q.X(), q.Y(), q.Z()] for q in (t.Node(i).Transformed(tr) for i in range(1, t.NbNodes() + 1))])
+        idx = np.array([t.Triangle(i).Get() for i in range(1, t.NbTriangles() + 1)]) - 1
+        if fa.Orientation() == TopAbs_REVERSED:
+            idx = idx[:, [0, 2, 1]]
+        A, B, C = P[idx[:, 0]], P[idx[:, 1]], P[idx[:, 2]]
+        n = np.cross(B - A, C - A)
+        ln = np.linalg.norm(n, axis=1)
+        ok = (ln > 1e-12)
+        n[ok] /= ln[ok, None]
+        vis = ok & (n @ d > 1e-4)                         # solo quelli girati verso chi guarda
+        lum = np.clip(n @ luce, 0, 1) * 0.75 + 0.25
+        prof = (A + B + C) @ d / 3
+        for i in np.nonzero(vis)[0]:
+            col = tuple(float(x) for x in scuro + (chiaro - scuro) * lum[i])
+            pts = [(float(q @ xd), float(q @ up)) for q in (A[i], B[i], C[i])]
+            tri.append((float(prof[i]), col, pts))
+    tri.sort(key=lambda x: x[0])
+    res = [(c, p) for _, c, p in tri]
+    if len(_OMBRE) > 50:
+        _OMBRE.pop(next(iter(_OMBRE)))
+    _OMBRE[chiave] = (shape, res)
+    return res
+
+
+def _metti_ombre(f: 'Foglio', ombre: list, T):
+    """Le facce ombreggiate nella vista già messa (T: la stessa trasformazione delle sue linee)."""
+    f.ombre.extend((c, [T(p) for p in pts]) for c, pts in ombre)
 
 
 def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=True, valori=None):
@@ -704,8 +776,12 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     xi0, yi0, xi1, yi1 = max(candidati, key=scala_in)
     si = scala_in((xi0, yi0, xi1, yi1))
     if si > 0 and min(wi, hi) * si > 15:              # un'isometrica minuscola non serve: meglio niente
-        _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
-                     quote_su=False)
+        TI, _, _ = _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
+                                quote_su=False)
+        try:
+            _metti_ombre(f, ombre_iso(shape), TI)
+        except Exception:  # noqa: BLE001 - l'ombra è un abbellimento: senza, la tavola resta giusta
+            pass
         f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
     return f
 
@@ -958,6 +1034,10 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     si = min((xi1 - xi0 - 20) / max(wi, 1e-6), (yi1 - yi0 - 20) / max(hi, 1e-6))
     oxi, oyi = xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - hi * si) / 2
     TI, _, _ = _metti_vista(f, {**vI, 'nascosti': []}, si, oxi, oyi, quote_su=False)
+    try:
+        _metti_ombre(f, ombre_iso(tutto), TI)
+    except Exception:  # noqa: BLE001 - l'ombra è un abbellimento
+        pass
     import numpy as np
     d = np.array(VISTE['iso'][0], dtype=float)
     d /= np.linalg.norm(d)
@@ -1164,6 +1244,7 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
     g.linee = [(l, [S(p) for p in pts]) for l, pts in f.linee]
     g.cerchi = [(l, S(c), r * k) for l, c, r in f.cerchi]
     g.pieni = [(l, [S(p) for p in pts]) for l, pts in f.pieni]
+    g.ombre = [(c, [S(p) for p in pts]) for c, pts in f.ombre]
     g.testi = [(l, S(p), t, h * k, al) for l, p, t, h, al in f.testi]
     g.i_scala = f.i_scala
     if 0 <= f.i_scala < len(g.testi):
@@ -1237,6 +1318,11 @@ def to_pdf(fogli: list, path):
     for f in fogli:
         W, H = f.size
         c = ['1 J 1 j']
+        if f.ombre:
+            c.append(f'{0.12 * k:.3f} w')
+            for (r, g, b), pts in f.ombre:
+                c.append(f'{r:.3f} {g:.3f} {b:.3f} rg {r:.3f} {g:.3f} {b:.3f} RG '
+                         + ' '.join(f'{p[0] * k:.2f} {p[1] * k:.2f} {"m" if i == 0 else "l"}' for i, p in enumerate(pts)) + ' h B')
         attuale = None
         for layer, pts in f.linee:
             if layer != attuale:
@@ -1297,7 +1383,12 @@ def to_svg(f: Foglio) -> str:
              'quote': 'stroke="#2B5BA0" stroke-width="0.16"', 'cornice': 'stroke="#111" stroke-width="0.5"',
              'cartiglio': 'stroke="#111" stroke-width="0.25"', 'tabella': 'stroke="#111" stroke-width="0.2"', 'testo': 'stroke="#111"'}
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}mm" height="{H}mm">',
-           f'<rect width="{W}" height="{H}" fill="#fff"/>', '<g fill="none" stroke-linecap="round" stroke-linejoin="round">']
+           f'<rect width="{W}" height="{H}" fill="#fff"/>']
+    for (r, g, b), pts in f.ombre:
+        col = '#%02X%02X%02X' % (round(r * 255), round(g * 255), round(b * 255))
+        out.append(f'<polygon fill="{col}" stroke="{col}" stroke-width="0.12" stroke-linejoin="round" '
+                   f'points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
+    out.append('<g fill="none" stroke-linecap="round" stroke-linejoin="round">')
     for layer, pts in f.linee:
         out.append(f'<polyline {stile.get(layer, stile["contorno"])} points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
     for layer, (x, y), r in f.cerchi:

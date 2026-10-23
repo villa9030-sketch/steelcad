@@ -3045,7 +3045,7 @@ document.querySelector('.tabs').addEventListener('click', ev => {
 // ===================================================================== comandi
 // le notifiche (23/10, polish): un'icona per tipo (errore, fatto, informazione), e se serve un pulsante (Annulla)
 const ICONE_TOAST = { err: '!', ok: '✓', '': 'i' };
-function toast(msg, kind = '', azione = null) {
+function toast(msg, kind = '', azione = null, durata = 0) {
   const t = document.createElement('div');
   if (!kind && /^(fatto|salvat|tavole salvate|quota tolta|aggiunt|creat|esportat)/i.test(String(msg))) kind = 'ok';
   t.className = 'toast ' + kind;
@@ -3060,7 +3060,26 @@ function toast(msg, kind = '', azione = null) {
   $('#toasts').appendChild(t);
   while ($('#toasts').children.length > 3) $('#toasts').firstChild.remove();
   const via = () => { t.classList.add('via'); setTimeout(() => t.remove(), 220); };
-  setTimeout(via, kind === 'err' ? 7000 : azione ? 6000 : 3500);
+  setTimeout(via, durata || (kind === 'err' ? 7000 : azione ? 6000 : 3500));
+}
+
+// aggiornamenti (23/10): Radius installato guarda se su GitHub c'è una versione nuova; «Aggiorna» la scarica e la
+// installa (Radius si chiude e si riapre da solo)
+async function controllaAggiornamenti() {
+  if (DEV) return;
+  let r;
+  try { r = await call('update_check'); } catch { return; }
+  if (!r?.ok || !r.nuova) return;
+  toast(`È uscita Radius ${r.nuova}${r.mb ? ` (${r.mb} MB)` : ''}.`, '', {
+    label: 'Aggiorna',
+    fn: async () => {
+      const sporco = S?.dirty;
+      if (sporco && !confirm('Ci sono modifiche non salvate: Radius le mette nel salvataggio automatico e si chiude per aggiornarsi. Continuare?')) return;
+      toast('Scarico l’aggiornamento…', '', null, 60000);
+      const x = await call('update_install', r.url);
+      toast(x?.message || 'Aggiornamento non riuscito.', x?.ok ? 'ok' : 'err');
+    },
+  }, 30000);
 }
 
 // ------------------------------------------------------------- anteprima dei comandi (22/10)
@@ -5631,6 +5650,7 @@ async function start() {
   renderPanels();
   await loadScene();
   setInterval(() => call('autosave'), 60000);
+  setTimeout(controllaAggiornamenti, 5000);
   const casa = await call('home_info');
   if (casa.ok && casa.show) await showHome(casa);
   introStato('Pronto', 0.95);
