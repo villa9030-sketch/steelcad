@@ -12,7 +12,35 @@ import sys
 import threading
 from pathlib import Path
 
-import webview
+# Una finestra sola per i file (23/10): il doppio clic su un .steelcad con Radius già aperto non apre una seconda finestra,
+# il file va a quella aperta (che viene davanti). Il canale è locale (127.0.0.1) e ha una chiave; la porta dipende dalla
+# cartella del programma, così Radius installato e quello di sviluppo non si mandano i file a vicenda.
+_CHIAVE = b'radius-apri-file'
+
+
+def _indirizzo():
+    import hashlib
+    n = int(hashlib.sha1(str(Path(__file__).resolve().parent).lower().encode()).hexdigest()[:6], 16)
+    return ('127.0.0.1', 41000 + n % 2000)
+
+
+def _alla_finestra_aperta(path: str) -> bool:
+    from multiprocessing.connection import Client
+    try:
+        with Client(_indirizzo(), authkey=_CHIAVE) as c:
+            c.send(str(Path(path).resolve()))
+            return c.recv() == 'ok'
+    except Exception:  # noqa: BLE001 - nessuna finestra aperta (o non risponde): se ne apre una nuova
+        return False
+
+
+# il file va alla finestra già aperta prima di caricare il motore CAD (qualche secondo): così arriva subito
+if __name__ == '__main__':
+    _file = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if _file and _alla_finestra_aperta(_file[0]):
+        sys.exit(0)
+
+import webview  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -421,6 +449,21 @@ class Api:
     def new_assembly(self, name='Assieme'):
         return self._call(self._svc.new_assembly, name)
 
+    def asm_ritrova(self, vecchio):
+        p = self._dialog(webview.OPEN_DIALOG, FILTRO_PEZZO)
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.asm_ritrova_in, vecchio, p)
+
+    def asm_ritrova_in(self, vecchio, nuovo):
+        return self._call(self._svc.asm_ritrova_in, vecchio, nuovo)
+
+    def recent_ritrova(self, vecchio):
+        p = self._dialog(webview.OPEN_DIALOG, FILTRO_ASSIEME if str(vecchio).endswith('.steelcad-asm') else FILTRO_PEZZO)
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.recent_ritrovato, vecchio, p)
+
     def new_assembly_con_pezzi(self, name, pezzi):
         return self._call(self._svc.new_assembly_con_pezzi, name, pezzi)
 
@@ -432,6 +475,24 @@ class Api:
 
     def impostazioni(self):
         return self._call(self._svc.impostazioni)
+
+    def set_impostazioni(self, valori):
+        return self._call(self._svc.set_impostazioni, valori)
+
+    def tavola_ritocchi(self, chiave, ritocchi, campi=None):
+        return self._call(self._svc.tavola_ritocchi, chiave, ritocchi, campi)
+
+    def scegli_logo(self):
+        p = self._dialog(webview.OPEN_DIALOG, ('Immagine (*.png;*.jpg;*.jpeg)',))
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.set_logo, p)
+
+    def set_logo(self, path):
+        return self._call(self._svc.set_logo, path)
+
+    def set_material(self, code):
+        return self._call(self._svc.set_material, code)
 
     def set_cartiglio(self, valori):
         return self._call(self._svc.set_cartiglio, valori)
@@ -631,16 +692,42 @@ def _barra_titolo(window, colore: str = '#101215'):
         pass
 
 
+def _ascolta(w):
+    import json
+    from multiprocessing.connection import Listener
+    try:
+        ascolto = Listener(_indirizzo(), authkey=_CHIAVE)
+    except OSError:
+        return                                     # porta occupata (un'altra finestra): niente, funziona come prima
+
+    def giro():
+        while True:
+            try:
+                with ascolto.accept() as c:
+                    p = c.recv()
+                    c.send('ok')
+                w.evaluate_js(f'window.__apriDaFuori && window.__apriDaFuori({json.dumps(str(p))})')
+                try:                               # davanti a tutto, un attimo: Windows non lascia rubare il fuoco
+                    w.restore()
+                    w.on_top = True
+                    w.on_top = False
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001 - una chiamata andata male non ferma l'ascolto
+                continue
+    threading.Thread(target=giro, daemon=True).start()
+
+
 def main():
     _app_windows()
-    api = Api()
     file = [a for a in sys.argv[1:] if not a.startswith('--')]
+    api = Api()
     if file:
         r = api.open_path(file[0])
         if not r['ok']:
             print(r['message'])
     w = webview.create_window('Radius', str(UI), js_api=api, width=1440, height=900, min_size=(1024, 640),
-                              background_color='#16191D')
+                              background_color='#16191D', maximized=True)     # si apre ingrandita (23/10)
     api._window = w
 
     def chiusura():
@@ -652,6 +739,7 @@ def main():
 
     w.events.closing += chiusura
     w.events.shown += lambda: _barra_titolo(w)
+    _ascolta(w)
     webview.start(http_server=True, debug='--debug' in sys.argv, icon=str(ICONA) if ICONA.is_file() else None)
 
 

@@ -563,7 +563,11 @@ DIVISIONI = {'auto': 'automatica (meno saldature)', 'verticali': 'pieghe sugli s
 def _forzati_divisione(G: Guscio, divisione: str) -> dict:
     """La strategia di divisione come scelte forzate: quali spigoli d'angolo restano saldati."""
     salda = {'verticali': ('tramoggia',), 'tramoggia': ('cassone',), 'lati': ('tramoggia', 'cassone')}.get(divisione, ())
-    return {k: 'saldatura' for k in G.spigoli if k.startswith('lato:') and k.split(':')[1] in salda}
+    lati = [k for k in G.spigoli if k.startswith('lato:')]
+    n = 1 + max((int(k.split(':')[2]) for k in lati), default=0)
+    # angoli smussati (8 facce per giro, le smussature in posizione pari): ogni smussatura resta piegata sul lato dopo e
+    # si salda solo al lato prima. Saldando tutto, le smussature diventavano pezzi a sé, strisce di 2 mm (23/10)
+    return {k: 'saldatura' for k in lati if k.split(':')[1] in salda and (n != 8 or int(k.split(':')[2]) % 2 == 1)}
 
 
 def _superficie_media(G: Guscio, t: float, rif: str) -> Facce:

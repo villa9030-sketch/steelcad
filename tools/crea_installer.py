@@ -25,8 +25,25 @@ STAGE = BUILD / 'Radius'
 DIST = ROOT / 'dist'
 VENV = ROOT / '.venv'
 ISCC = Path.home() / 'AppData/Local/Programs/Inno Setup 6/ISCC.exe'
-# le librerie che servono solo per i test o per installare pacchetti
-FUORI = re.compile(r'^(pip|pytest|_pytest|pluggy|iniconfig|py\.py)([-_.].*)?$', re.I)
+# le librerie che servono solo per i test o per installare pacchetti; jedi e parso (5.600 file: il completamento del
+# codice di IPython, a Radius non serve) e playwright con le sue (le prove nel browser): l'installazione era 9 minuti
+FUORI = re.compile(r'^(pip|pytest|_pytest|pluggy|iniconfig|py\.py|jedi|parso|playwright|pyee|greenlet)([-_.].*)?$', re.I)
+
+# la prova vera col Python impacchettato: una lamiera con una piega, il 3D, il DXF di taglio
+PROVA = '''
+import sys, tempfile, pathlib, os
+os.environ['STEELCAD_HOME'] = tempfile.mkdtemp()
+sys.path[:0] = ['.', 'app']
+from app.service import Service
+s = Service()
+assert s.new_project('lamiera', {'name': 'Prova', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 2, 'k': 0.4})['ok']
+assert s.add_flange('SM1', 'L1', {'length': '40'})['ok']
+assert s.scene()['objects'][0]['positions']
+d = pathlib.Path(tempfile.mkdtemp())
+r = s.export_dxf(str(d / 'p.dxf'))
+assert r['ok'], r
+print('pezzo, 3D e DXF ok')
+'''
 
 
 def versione_python() -> str:
@@ -152,6 +169,11 @@ def main():
     print(r.stdout.strip() or r.stderr.strip()[-2000:])
     if r.returncode:
         raise SystemExit('il Python impacchettato non trova le librerie')
+    r = subprocess.run([str(STAGE / 'python' / 'python.exe'), '-c', PROVA], capture_output=True, text=True, cwd=str(STAGE))
+    print(r.stdout.strip() or r.stderr.strip()[-2000:])
+    if r.returncode:
+        raise SystemExit('il Python impacchettato non fa un pezzo')
+    print('file da installare:', sum(1 for x in STAGE.rglob('*') if x.is_file()))
     DIST.mkdir(exist_ok=True)
     iss = BUILD / 'radius.iss'
     iss.write_text(ISS.format(ver=ver, dist=DIST, stage=STAGE), encoding='utf-8-sig')

@@ -35,15 +35,25 @@ def _scrivi_fissi(d: dict):
         pass
 
 
+def _logo() -> str | None:
+    """Il logo dell'azienda per il cartiglio (Impostazioni → Tavole), se c'è ancora."""
+    from app.service import _leggi_impostazioni
+    p = _leggi_impostazioni().get('logo')
+    return p if p and Path(p).is_file() else None
+
+
 class DrawingsMixin:
     def drawing_fields(self) -> dict:
         """I campi del cartiglio da proporre: i fissi ricordati + quelli del progetto."""
         out = {'azienda': '', 'disegnatore': '', 'numero': '', 'revisione': 'A', 'note': '', 'formato': 'A3',
-               'scala_fissa': 'auto', 'quote_fori': 'sì'}
+               'scala_fissa': 'auto', 'quote_fori': 'sì', 'cliente': '', 'commessa': '', 'tolleranze': '', 'finitura': '',
+               'mostra': None}
         out.update(_leggi_fissi())
         if self.asm is None:
             out.update({k: v for k, v in (self.doc.meta.get('disegno') or {}).items() if k in out})
-        return {'ok': True, 'fields': out, 'assembly': self.asm is not None}
+        from cad_engine.drawings import CAMPI_CARTIGLIO, NUOVI_CARTIGLIO
+        return {'ok': True, 'fields': out, 'assembly': self.asm is not None,
+                'campi_cartiglio': [[k, et, k in NUOVI_CARTIGLIO] for k, et in CAMPI_CARTIGLIO], 'logo': _logo()}
 
     def _campi_pezzo(self, doc, result, campi: dict, n: int, tot: int) -> dict:
         from cad_engine.analysis import properties
@@ -102,10 +112,12 @@ class DrawingsMixin:
         tot = tot or ((2 if sheet else 1) + (1 if sezione else 0))
         fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato,
                                 quote_mano=doc.meta.get('quote') or [])]
+        fogli[0].chiave = 'pezzo'
         if sezione:
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sezione A-A'
             fogli.append(D.tavola_sezione(result.body.shape, c, sezione, formato))
+            fogli[-1].chiave = 'sezione'
             n0 += 1
         if sheet is not None and getattr(sheet, 'bend_rows', None) is not None:
             r_, k_ = sheet.tech.get('radius'), sheet.tech.get('k')
@@ -115,27 +127,69 @@ class DrawingsMixin:
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sviluppo'
             fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
+            fogli[-1].chiave = 'sviluppo'
         elif sheet is not None:
             pieg = [[str(i), g.fid, D.fmt(g.length), f'{D.fmt(g.bend.angle)}°', 'su' if g.direction == 'up' else 'giù',
                      D.fmt(g.bend.r), D.fmt(round(g.bend.k, 3)), D.fmt(round(g.u1 - g.u0, 2))] for i, g in enumerate(sheet.in_ordine(), 1)]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sviluppo'
             fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
+            fogli[-1].chiave = 'sviluppo'
         return fogli
 
     def _fogli(self, campi: dict, tutte: bool = False) -> list:
         """Le tavole; le stesse (progetto non cambiato, stessi campi) si ricordano: l'anteprima e poi il salvataggio
         le facevano due volte (22/10: «perché ci vuole così tanto a crearle»)."""
+        campi = {**campi, 'logo': _logo()}
+        ritocchi = self._ritocchi_tavole()
         chiave = (getattr(self, 'scene_version', 0), id(getattr(self, 'asm', None)), id(getattr(self, 'result', None)),
-                  json.dumps(campi, sort_keys=True, default=str), bool(tutte))
+                  json.dumps(campi, sort_keys=True, default=str), bool(tutte), json.dumps(ritocchi, sort_keys=True, default=str))
         gia = getattr(self, '_tavole_fatte', None)
         if gia is not None and gia[0] == chiave:
             return gia[1]
         # impaginate sempre in A2 e poi scalate tali e quali sul foglio scelto
         formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
         fogli = [D.in_formato(f, formato) for f in self._fogli_nuovi({**campi, 'formato': 'A2'}, tutte)]
+        from cad_engine.tavole_ritocchi import ritocca
+        for i, f in enumerate(fogli):
+            f.chiave = f.chiave or f'foglio{i + 1}'
+            if f.chiave in ritocchi:
+                ritocca(f, ritocchi[f.chiave])
         self._tavole_fatte = (chiave, fogli)
         return fogli
+
+    def _ritocchi_tavole(self) -> dict:
+        """I ritocchi a mano delle tavole: nel progetto del pezzo (negli assiemi non ancora)."""
+        if self.asm is not None:
+            return {}
+        return dict(self.doc.meta.get('tavole') or {})
+
+    def tavola_ritocchi(self, chiave: str, ritocchi: dict, campi: dict | None = None) -> dict:
+        """I ritocchi di un foglio (tutti insieme: l'editor li tiene e li manda a ogni cambio). Si salvano nel
+        progetto, con Annulla; vuoti = la tavola torna automatica."""
+        if self.asm is not None:
+            return {'ok': False, 'message': 'Le tavole degli assiemi non si ritoccano ancora: si fa dal pezzo.'}
+        chiave = str(chiave or '')
+        if not chiave:
+            return {'ok': False, 'message': 'Quale foglio?'}
+        pulito = {k: v for k, v in (ritocchi or {}).items() if v}
+
+        def fn():
+            tav = dict(self.doc.meta.get('tavole') or {})
+            if pulito:
+                tav[chiave] = pulito
+            else:
+                tav.pop(chiave, None)
+            if tav:
+                self.doc.meta['tavole'] = tav
+            else:
+                self.doc.meta.pop('tavole', None)
+        r = self._change('Ritocco della tavola', fn)
+        if not r.get('ok'):
+            return r
+        p = self.drawing_preview(campi or self.drawing_fields()['fields'])
+        p['state'] = r.get('state')
+        return p
 
     def _fogli_nuovi(self, campi: dict, tutte: bool = False) -> list:
         formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
@@ -328,8 +382,12 @@ class DrawingsMixin:
 
     def drawing_preview(self, campi: dict | None = None, tutte: bool = False) -> dict:
         try:
+            from cad_engine.tavole_ritocchi import oggetti
             fogli = self._fogli(campi or self.drawing_fields()['fields'], tutte)
-            return {'ok': True, 'sheets': [{'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size} for f in fogli]}
+            rit = self._ritocchi_tavole()
+            return {'ok': True, 'modificabili': self.asm is None,
+                    'sheets': [{'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave,
+                                'oggetti': oggetti(f), 'ritocchi': rit.get(f.chiave) or {}} for f in fogli]}
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}
         except Exception as ex:  # noqa: BLE001
@@ -349,7 +407,10 @@ class DrawingsMixin:
                 D.to_pdf(fogli, p)
             _scrivi_fissi(campi)
             if self.asm is None:
-                self.doc.meta['disegno'] = {k: campi.get(k, '') for k in ('numero', 'revisione', 'note', 'formato')}
+                self.doc.meta['disegno'] = {k: campi.get(k, '') for k in ('numero', 'revisione', 'note', 'formato', 'cliente',
+                                                                          'commessa', 'tolleranze', 'finitura')}
+                if campi.get('mostra') is not None:
+                    self.doc.meta['disegno']['mostra'] = list(campi['mostra'])
             return {'ok': True, 'path': str(p), 'message': f'Tavole salvate: {len(fogli)} fogli in {p.name}.'}
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}

@@ -1370,7 +1370,18 @@ $('#tree').addEventListener('click', ev => {
 // le misure del progetto: la sigla (W, sp…) con il nome in chiaro. Se il progetto nasce da un modello
 // (cancello, cono…) le misure si cambiano dal riquadro del modello a destra: qui restano tra le avanzate.
 let eraModello = null;
+function renderMateriale() {
+  const box = $('#mat-riga');
+  if (!box) return;
+  const lst = S?.materiali || [];
+  box.hidden = !lst.length || S.mode === 'assembly';
+  if (box.hidden) return;
+  box.innerHTML = `<label>Materiale<select class="field" id="mat-sel">${lst.map(m =>
+    `<option value="${esc(m.code)}"${m.code === S.materiale ? ' selected' : ''}>${esc(m.nome)}</option>`).join('')}</select></label>`;
+  $('#mat-sel').onchange = () => inCoda(async () => { const r = await call('set_material', $('#mat-sel').value); await apply(r, r.message); });
+}
 function renderParams() {
+  renderMateriale();
   const righe = S.parameters.map(p => {
     const espr = typeof p.value === 'string';
     const nome = p.label && p.label.toLowerCase() !== p.name.toLowerCase() ? `<small>${esc(p.label)}</small>` : '';
@@ -2601,51 +2612,316 @@ document.addEventListener('keydown', ev => {
 }, true);
 
 // ===================================================================== tavole
+// ------------------------------------------------------------- tavole: l'editor (23/10)
+// La tavola nasce automatica; qui la ritocchi col mouse: sposti le viste, clicchi una quota per spostarla, cambiarne il
+// testo o nasconderla, aggiungi quote (due punti) e note, scegli l'altezza dei testi e cosa va nel cartiglio. I ritocchi
+// si salvano nel progetto (con Annulla) e restano anche se il pezzo cambia.
 async function drawingsDialog() {
   const r = await call('drawing_fields');
   if (!r.ok) { toast(r.message, 'err'); return; }
   const c = r.fields;
-  const campo = (k, l, w = '') => `<label${w}>${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
-  modal(`<div class="tav"><div class="tav-side"><h3>Tavole</h3>
-      <div class="form">${campo('azienda', 'Azienda', ' style="grid-column:1/-1"')}${campo('disegnatore', 'Disegnatore')}${campo('numero', 'N. disegno')}
-      ${campo('revisione', 'Revisione')}<label>Formato<select class="field" data-c="formato">${['A4', 'A3', 'A2'].map(f => `<option${c.formato === f ? ' selected' : ''}>${f}</option>`).join('')}</select></label>
-      <label>Scala<select class="field" data-c="scala_fissa">${['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:20'].map(x => `<option${(c.scala_fissa || 'auto') === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
-      <label>Quote dei fori<select class="field" data-c="quote_fori">${['sì', 'no'].map(x => `<option${(c.quote_fori || 'sì') === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
-      <label>Sezione<select class="field" data-c="sezione">${[['', 'nessuna'], ['X', 'A-A lungo la larghezza'], ['Y', 'A-A lungo la profondità']].map(([k, l]) => `<option value="${k}"${(c.sezione || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-      ${campo('note', 'Note', ' style="grid-column:1/-1"')}</div>
-      ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi (con gli sviluppi)</label>' : ''}
-      <p class="hint">Azienda e disegnatore si ricordano per le prossime tavole. Viste in proiezione europea, quote d’ingombro e note dei fori automatiche. Le quote che metti col tasto Quota sul pezzo vanno anche qui, nella vista dove si vedono vere.</p>
-      <div class="acts"><button class="btn" id="tav-agg">Aggiorna anteprima</button></div>
-      <div class="acts"><button class="btn" id="m-no">Chiudi</button><button class="btn" id="tav-dxf">Esporta DXF</button><button class="btn primary" id="tav-pdf">Esporta PDF</button></div></div>
-      <div class="tav-main"><div class="tav-tabs" id="tav-tabs"></div><div class="tav-view" id="tav-view"><p class="hint">Preparo l’anteprima…</p></div></div></div>`, close => {
-    const leggi = () => { const o = {}; document.querySelectorAll('#modal-box [data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); }); return o; };
-    const tutte = () => !!$('#tav-tutte')?.checked;
-    let fogli = [];
-    const mostra = k => {
-      $('#tav-view').innerHTML = fogli[k] ? fogli[k].svg.replace(/width="[\d.]+mm" height="[\d.]+mm"/, 'width="100%" height="100%"') : '';
-      document.querySelectorAll('#tav-tabs button').forEach((b, i) => b.classList.toggle('on', i === k));
-    };
-    const anteprima = () => inCoda(async () => {
-      $('#tav-view').innerHTML = '<p class="hint">Preparo l’anteprima…</p>';
-      const p = await call('drawing_preview', leggi(), tutte());
-      if (!p.ok) { $('#tav-view').innerHTML = `<div class="msg err">${esc(p.message)}</div>`; return; }
-      fogli = p.sheets;
-      $('#tav-tabs').innerHTML = fogli.map((f, i) => `<button data-i="${i}">${i + 1}. ${esc(f.title)}</button>`).join('');
-      document.querySelectorAll('#tav-tabs button').forEach(b => { b.onclick = () => mostra(+b.dataset.i); });
-      mostra(0);
+  const ED = { fogli: [], k: 0, sel: null, strumento: 'sel', punto1: null, modificabili: true };
+  const box = document.createElement('div');
+  box.id = 'tav-ed';
+  const campo = (k, l) => `<label class="te-riga">${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
+  const scelta = (k, l, opz) => `<label class="te-riga">${l}<select class="field" data-c="${k}">${opz.map(([v, t]) =>
+    `<option value="${esc(v)}"${String(c[k] ?? opz[0][0]) === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+  const mostraDi = c.mostra || r.campi_cartiglio.filter(([k, , nuovo]) => !nuovo || String(c[k] || '').trim()).map(([k]) => k);
+  box.innerHTML = `<header class="te-testa"><b>Tavole — ${esc(S?.name || '')}</b><div class="te-tabs" id="te-tabs"></div><span class="te-spazio"></span>
+      <button class="btn" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)">Annulla</button>
+      <button class="btn" id="te-dxf">Esporta DXF</button><button class="btn primary" id="te-pdf">Esporta PDF</button>
+      <button class="btn" id="te-chiudi">Chiudi</button></header>
+    <div class="te-corpo">
+      <nav class="te-strumenti" aria-label="Strumenti">
+        <button data-str="sel" class="on" title="Clicca una vista, una quota o una nota; trascina per spostarla"><img src="icons/select.svg" alt=""><span>Seleziona</span></button>
+        <button data-str="quota" title="Una quota nuova: clicca due punti della stessa vista (si agganciano agli spigoli). Maiusc = inclinata"><img src="icons/dimension.svg" alt=""><span>Quota</span></button>
+        <button data-str="nota" title="Una nota: clicca dove va e scrivi"><img src="icons/text.svg" alt=""><span>Nota</span></button>
+      </nav>
+      <main class="te-foglio" id="te-foglio"><p class="hint">Preparo la tavola…</p></main>
+      <aside class="te-lato">
+        <section id="te-sel" hidden></section>
+        <details class="te-sez" open><summary>Foglio</summary>
+          ${scelta('formato', 'Formato', [['A4', 'A4'], ['A3', 'A3'], ['A2', 'A2']])}
+          ${scelta('scala_fissa', 'Scala', ['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:20'].map(x => [x, x === 'auto' ? 'automatica' : x]))}
+          ${scelta('quote_fori', 'Quote dei fori', [['sì', 'sì'], ['no', 'no']])}
+          ${scelta('sezione', 'Sezione', [['', 'nessuna'], ['X', 'A-A lungo la larghezza'], ['Y', 'A-A lungo la profondità']])}
+          ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi</label>' : ''}
+        </details>
+        <details class="te-sez"><summary>Altezza dei testi</summary>
+          <label class="te-riga">Quote<span class="te-mm"><input class="field" data-t="quote" placeholder="2,8"><i>mm</i></span></label>
+          <label class="te-riga">Note<span class="te-mm"><input class="field" data-t="note" placeholder="3,5"><i>mm</i></span></label>
+          <label class="te-riga">Titoli delle viste<span class="te-mm"><input class="field" data-t="titoli" placeholder="2,5"><i>mm</i></span></label>
+        </details>
+        <details class="te-sez"><summary>Cartiglio</summary>
+          ${campo('azienda', 'Azienda')}${campo('disegnatore', 'Disegnatore')}${campo('numero', 'N. disegno')}${campo('revisione', 'Revisione')}
+          ${campo('cliente', 'Cliente')}${campo('commessa', 'Commessa')}${campo('tolleranze', 'Tolleranze generali')}${campo('finitura', 'Trattamento / finitura')}
+          ${campo('note', 'Note')}
+          <div class="te-mostra"><span class="hint">Cosa si vede nel cartiglio</span>${r.campi_cartiglio.map(([k, et]) =>
+            `<label class="check"><input type="checkbox" data-mostra="${k}"${mostraDi.includes(k) ? ' checked' : ''}> ${esc(et)}</label>`).join('')}</div>
+          <p class="hint">${r.logo ? 'Il logo dell’azienda è nel cartiglio.' : 'Il logo dell’azienda si mette in Impostazioni → Tavole e cartiglio.'}</p>
+        </details>
+        <details class="te-sez" open><summary>I tuoi ritocchi</summary><div id="te-rit"></div>
+          <button class="btn" id="te-auto" title="Toglie tutti i ritocchi di questo foglio: torna come la fa il programma">Rimetti automatico</button></details>
+      </aside>
+    </div>`;
+  document.body.appendChild(box);
+  const chiudi = () => { box.remove(); document.removeEventListener('keydown', tasti, true); };
+  const leggi = () => {
+    const o = {};
+    box.querySelectorAll('[data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); });
+    o.mostra = [...box.querySelectorAll('[data-mostra]')].filter(i => i.checked).map(i => i.dataset.mostra);
+    return o;
+  };
+  const tutte = () => !!box.querySelector('#tav-tutte')?.checked;
+  const foglio = () => ED.fogli[ED.k];
+  const rit = () => JSON.parse(JSON.stringify(foglio()?.ritocchi || {}));
+  const num = v => { const x = parseFloat(String(v).replace(',', '.')); return isFinite(x) ? x : null; };
+
+  // ---- disegno del foglio e selezione
+  const svgDi = () => box.querySelector('#te-foglio svg');
+  const H = () => foglio().size[1];
+  const aFoglio = ev => {                          // dal mouse al foglio: mm, y in su
+    const svg = svgDi(), p = svg.createSVGPoint();
+    p.x = ev.clientX; p.y = ev.clientY;
+    const q = p.matrixTransform(svg.getScreenCTM().inverse());
+    return [q.x, H() - q.y];
+  };
+  const oggettoDi = tag => {                       // il più preciso tra gli oggetti che contengono quel pezzo di disegno
+    if (!tag) return null;
+    let best = null;
+    for (const o of foglio().oggetti) if ((tag === o.id || tag.startsWith(o.id + '/')) && (!best || o.id.length > best.id.length)) best = o;
+    return best;
+  };
+  const evidenzia = () => {
+    const svg = svgDi();
+    if (!svg) return;
+    svg.querySelectorAll('.te-evid').forEach(e => e.remove());
+    const o = ED.sel && foglio().oggetti.find(x => x.id === ED.sel);
+    if (!o) return;
+    const [x0, y0, x1, y1] = o.bbox, m = 1.2;
+    const r_ = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r_.setAttribute('class', 'te-evid'); r_.setAttribute('x', x0 - m); r_.setAttribute('y', H() - y1 - m);
+    r_.setAttribute('width', x1 - x0 + 2 * m); r_.setAttribute('height', y1 - y0 + 2 * m);
+    svg.appendChild(r_);
+  };
+  const disegna = () => {
+    const f = foglio();
+    if (!f) return;
+    box.querySelector('#te-foglio').innerHTML = f.svg.replace(/width="[\d.]+mm" height="[\d.]+mm"/, 'width="100%" height="100%"');
+    box.querySelectorAll('#te-tabs button').forEach((b, i) => b.classList.toggle('on', i === ED.k));
+    const t = f.ritocchi?.testi || {};
+    box.querySelectorAll('[data-t]').forEach(i => { if (document.activeElement !== i) i.value = t[i.dataset.t] != null ? String(t[i.dataset.t]).replace('.', ',') : ''; });
+    evidenzia(); pannelloSel(); elencoRitocchi();
+  };
+  const carica = p => {
+    if (!p.ok) { box.querySelector('#te-foglio').innerHTML = `<div class="msg err">${esc(p.message)}</div>`; return; }
+    ED.fogli = p.sheets; ED.modificabili = p.modificabili !== false;
+    if (ED.k >= ED.fogli.length) ED.k = 0;
+    box.querySelector('#te-tabs').innerHTML = ED.fogli.map((f, i) => `<button data-i="${i}">${i + 1} · ${esc(f.title)}</button>`).join('');
+    box.querySelectorAll('#te-tabs button').forEach(b => { b.onclick = () => { ED.k = +b.dataset.i; ED.sel = null; disegna(); }; });
+    if (ED.sel && !foglio().oggetti.some(o => o.id === ED.sel)) ED.sel = null;
+    disegna();
+  };
+  const aggiorna = () => inCoda(async () => carica(await call('drawing_preview', leggi(), tutte())));
+  const salva = nuovi => {                          // i ritocchi del foglio aperto, tutti insieme
+    if (!ED.modificabili) { toast('Le tavole degli assiemi non si ritoccano ancora: aprile dal pezzo.', 'err'); return; }
+    const ch = foglio().chiave;
+    inCoda(async () => {
+      const p = await call('tavola_ritocchi', ch, nuovi, leggi());
+      if (p.state) { S = p.state; renderPanels(); }
+      carica(p);
     });
-    const esporta = fmt => inCoda(async () => { const x = await call('export_drawings_dialog', fmt, leggi(), tutte()); if (!x.cancelled) toast(x.message, x.ok ? '' : 'err'); });
-    $('#m-no').onclick = close;
-    $('#tav-agg').onclick = anteprima;
-    $('#tav-pdf').onclick = () => esporta('pdf');
-    $('#tav-dxf').onclick = () => esporta('dxf');
-    if ($('#tav-tutte')) $('#tav-tutte').onchange = anteprima;
-    // il formato cambia l'impaginazione: l'anteprima si rifà subito, così il PDF è uguale a quello che vedi
-    document.querySelector('#modal-box [data-c="formato"]')?.addEventListener('change', anteprima);
-    document.querySelector('#modal-box [data-c="sezione"]')?.addEventListener('change', anteprima);
-    anteprima();
+  };
+
+  // ---- il pannello dell'oggetto selezionato
+  function pannelloSel() {
+    const sez = box.querySelector('#te-sel');
+    const o = ED.sel && foglio()?.oggetti.find(x => x.id === ED.sel);
+    sez.hidden = !o;
+    if (!o) return;
+    const R_ = rit();
+    if (o.kind === 'quota') {
+      const q = (R_.quote || {})[o.id] || {};
+      const agg = o.aggiunta != null;
+      sez.innerHTML = `<h4>${esc(o.label)}</h4>
+        <label class="te-riga">Testo<input class="field" id="ts-testo" value="${esc(q.testo || '')}" placeholder="${esc(o.testo)}"></label>
+        <label class="te-riga">Altezza<span class="te-mm"><input class="field" id="ts-h" value="${q.h ? String(q.h).replace('.', ',') : ''}" placeholder="${String(Math.round(o.h * 10) / 10).replace('.', ',')}"><i>mm</i></span></label>
+        <p class="hint">Trascinala per allontanarla o avvicinarla al pezzo.</p>
+        <div class="te-bott">${agg ? '<button class="btn danger" id="ts-via">Togli questa quota</button>' : '<button class="btn" id="ts-via">Nascondi</button>'}
+          ${!agg && (R_.quote || {})[o.id] ? '<button class="btn" id="ts-rimetti">Rimetti com’era</button>' : ''}</div>`;
+      const cambia = () => { const n = rit(); n.quote = n.quote || {}; const m = n.quote[o.id] || {};
+        const t = $('#ts-testo').value.trim(), h = num($('#ts-h').value);
+        if (t) m.testo = t; else delete m.testo;
+        if (h) m.h = h; else delete m.h;
+        n.quote[o.id] = m; salva(n); };
+      $('#ts-testo').onchange = cambia; $('#ts-h').onchange = cambia;
+      $('#ts-via').onclick = () => { const n = rit();
+        if (agg) n.aggiunte.splice(o.aggiunta, 1); else { n.quote = n.quote || {}; n.quote[o.id] = { ...(n.quote[o.id] || {}), via: true }; }
+        ED.sel = null; salva(n); };
+      if ($('#ts-rimetti')) $('#ts-rimetti').onclick = () => { const n = rit(); delete n.quote[o.id]; salva(n); };
+    } else if (o.kind === 'vista') {
+      const sp = (R_.viste || {})[o.id];
+      sez.innerHTML = `<h4>${esc(o.label)}</h4><p class="hint">Trascinala dove vuoi: le sue quote vengono con lei.</p>
+        ${sp ? '<div class="te-bott"><button class="btn" id="ts-rimetti">Rimetti al suo posto</button></div>' : ''}`;
+      if ($('#ts-rimetti')) $('#ts-rimetti').onclick = () => { const n = rit(); delete n.viste[o.id]; salva(n); };
+    } else if (o.kind === 'nota') {
+      const nt = (R_.note || [])[o.indice] || {};
+      sez.innerHTML = `<h4>Nota</h4><label class="te-riga te-alto">Testo<textarea class="field" id="ts-nota" rows="3">${esc(nt.testo || '')}</textarea></label>
+        <label class="te-riga">Altezza<span class="te-mm"><input class="field" id="ts-h" value="${nt.h ? String(nt.h).replace('.', ',') : ''}" placeholder="3,5"><i>mm</i></span></label>
+        <div class="te-bott"><button class="btn danger" id="ts-via">Togli la nota</button></div>`;
+      const cambia = () => { const n = rit(); const m = n.note[o.indice]; m.testo = $('#ts-nota').value; const h = num($('#ts-h').value); if (h) m.h = h; else delete m.h; salva(n); };
+      $('#ts-nota').onchange = cambia; $('#ts-h').onchange = cambia;
+      $('#ts-via').onclick = () => { const n = rit(); n.note.splice(o.indice, 1); ED.sel = null; salva(n); };
+    } else if (o.kind === 'cartiglio') {
+      sez.innerHTML = `<h4>Cartiglio</h4><p class="hint">I campi e cosa si vede stanno qui sotto, in «Cartiglio».</p>`;
+      const d = box.querySelectorAll('.te-sez')[2]; if (d) d.open = true;
+    }
+  }
+  // ---- l'elenco dei ritocchi, ognuno con ×
+  function elencoRitocchi() {
+    const R_ = foglio()?.ritocchi || {}, nomi = Object.fromEntries((foglio()?.oggetti || []).map(o => [o.id, o.label]));
+    const righe = [];
+    for (const v of Object.keys(R_.viste || {})) righe.push([`${nomi[v] || v} spostata`, n => { delete n.viste[v]; }]);
+    for (const [q, m] of Object.entries(R_.quote || {})) {
+      const cosa = m.via ? 'nascosta' : [m.testo ? `testo «${m.testo}»` : '', m.d ? 'spostata' : '', m.h ? `altezza ${m.h}` : ''].filter(Boolean).join(', ');
+      righe.push([`${nomi[q] || 'Quota'}: ${cosa || 'cambiata'}`, n => { delete n.quote[q]; }]);
+    }
+    (R_.aggiunte || []).forEach((a, i) => righe.push([`Quota aggiunta (${a.vista.replace('vista:', '')})`, n => { n.aggiunte.splice(i, 1); }]));
+    (R_.note || []).forEach((a, i) => righe.push([`Nota «${String(a.testo).slice(0, 24)}»`, n => { n.note.splice(i, 1); }]));
+    for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`Testi delle ${k}: ${String(v).replace('.', ',')} mm`, n => { delete n.testi[k]; }]);
+    const el = box.querySelector('#te-rit');
+    el.innerHTML = righe.length ? righe.map(([t], i) => `<div class="te-r"><span>${esc(t)}</span><button class="btn" data-ri="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')
+      : '<p class="hint">Nessun ritocco: la tavola è come la fa il programma.</p>';
+    el.querySelectorAll('[data-ri]').forEach(b => { b.onclick = () => { const n = rit(); righe[+b.dataset.ri][1](n); salva(n); }; });
+  }
+
+  // ---- mouse: seleziona e trascina, quota nuova (due punti), nota
+  let tiro = null;
+  const foglioEl = box.querySelector('#te-foglio');
+  const aggancia = (p, vista = null) => {          // il punto di una vista più vicino al mouse (entro 4 mm)
+    let best = null;
+    for (const o of foglio().oggetti) {
+      if (o.kind !== 'vista' || o.id === 'vista:iso' || (vista && o.id !== vista)) continue;
+      for (const q of o.punti) { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < 4 && (!best || d < best.d)) best = { d, p: q, vista: o }; }
+    }
+    return best;
+  };
+  const segno = (p, cls = 'te-aggancio') => {
+    const svg = svgDi(); svg.querySelectorAll('.' + cls).forEach(e => e.remove());
+    if (!p) return;
+    const c_ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c_.setAttribute('class', cls); c_.setAttribute('cx', p[0]); c_.setAttribute('cy', H() - p[1]); c_.setAttribute('r', 1.4);
+    svg.appendChild(c_);
+  };
+  foglioEl.addEventListener('mousedown', ev => {
+    if (!svgDi() || ev.button !== 0) return;
+    const p = aFoglio(ev);
+    if (ED.strumento === 'quota') {
+      const a = aggancia(p, ED.punto1?.vista.id);
+      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
+      if (!ED.punto1) { ED.punto1 = a; segno(a.p, 'te-p1'); return; }
+      const v = a.vista, [s, tx, ty] = v.T, inV = q => [(q[0] - tx) / s, (q[1] - ty) / s];
+      const A = ED.punto1.p, B = a.p, dx = Math.abs(B[0] - A[0]), dy = Math.abs(B[1] - A[1]);
+      ED.punto1 = null; segno(null, 'te-p1');
+      if (Math.hypot(dx, dy) < 0.5) return;
+      const dir = ev.shiftKey ? 'a' : dx >= dy ? 'h' : 'v';
+      // la quota va dalla parte di fuori della vista, non dentro il disegno
+      const B2 = dir === 'h' ? [B[0], A[1]] : dir === 'v' ? [A[0], B[1]] : B, L = Math.hypot(B2[0] - A[0], B2[1] - A[1]) || 1;
+      const nx = -(B2[1] - A[1]) / L, ny = (B2[0] - A[0]) / L, [x0, y0, x1, y1] = v.bbox;
+      const fuori = ((A[0] + B2[0]) / 2 - (x0 + x1) / 2) * nx + ((A[1] + B2[1]) / 2 - (y0 + y1) / 2) * ny >= 0 ? 1 : -1;
+      // e non sopra un'altra quota: si allontana finché trova posto libero
+      const mx = (A[0] + B2[0]) / 2, my = (A[1] + B2[1]) / 2, quote = foglio().oggetti.filter(o => o.kind === 'quota');
+      let d = 8;
+      while (d < 60 && quote.some(o => { const [a0, b0, a1, b1] = o.bbox, x = mx + nx * d * fuori, y = my + ny * d * fuori;
+        return x > a0 - 2 && x < a1 + 2 && y > b0 - 2 && y < b1 + 2; })) d += 6;
+      const n = rit(); n.aggiunte = n.aggiunte || [];
+      n.aggiunte.push({ vista: v.id, a: inV(A), b: inV(B), dir, d: d * fuori });
+      salva(n); return;
+    }
+    if (ED.strumento === 'nota') {
+      modal(`<h3>Nota sulla tavola</h3><label style="display:block">Testo<textarea class="field" id="nt-t" rows="3" style="width:100%"></textarea></label>
+        <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la nota</button></div>`, close => {
+        $('#m-no').onclick = close;
+        $('#m-ok').onclick = () => { const t = $('#nt-t').value.trim(); close(); if (!t) return;
+          const n = rit(); n.note = n.note || []; n.note.push({ x: p[0], y: p[1], testo: t }); salva(n); };
+        setTimeout(() => $('#nt-t').focus(), 30);
+      });
+      return;
+    }
+    const o = oggettoDi(ev.target.closest('[data-el]')?.getAttribute('data-el'));
+    ED.sel = o?.id || null;
+    evidenzia(); pannelloSel();
+    if (o && ['vista', 'quota', 'nota'].includes(o.kind)) tiro = { o, da: p, ora: p };
   });
-  $('#modal-box').classList.add('wide');
+  foglioEl.addEventListener('mousemove', ev => {
+    if (!svgDi()) return;
+    const p = aFoglio(ev);
+    if (ED.strumento === 'quota') { const a = aggancia(p, ED.punto1?.vista.id); segno(a?.p || null); return; }
+    if (!tiro) return;
+    tiro.ora = p;
+    const dx = p[0] - tiro.da[0], dy = p[1] - tiro.da[1];
+    // durante il trascinamento si sposta solo il disegno a video; il ritocco si salva quando lasci
+    svgDi().querySelectorAll('[data-el]').forEach(e => {
+      const t = e.getAttribute('data-el');
+      const dentro = tiro.o.kind === 'vista' ? (t === tiro.o.id || t.startsWith(tiro.o.id + '/')) : t === tiro.o.id;
+      if (e.dataset.t0 === undefined) e.dataset.t0 = e.getAttribute('transform') || '';   // i testi in verticale hanno già il loro
+      if (dentro && tiro.o.kind !== 'quota') e.setAttribute('transform', `translate(${dx} ${-dy}) ` + e.dataset.t0);
+    });
+    if (tiro.o.kind === 'quota') {                  // la quota si muove solo di traverso
+      const [ax, ay] = tiro.o.a, [bx, by] = tiro.o.b, L = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / L, ny = (bx - ax) / L;
+      const k = dx * nx + dy * ny;
+      svgDi().querySelectorAll(`[data-el="${CSS.escape(tiro.o.id)}"]`).forEach(e => e.setAttribute('transform', `translate(${k * nx} ${-k * ny}) ` + (e.dataset.t0 || '')));
+    }
+  });
+  const lascia = () => {
+    if (!tiro) return;
+    const { o, da, ora } = tiro; tiro = null;
+    const dx = ora[0] - da[0], dy = ora[1] - da[1];
+    if (Math.hypot(dx, dy) < 0.4) return;            // era un clic, non un trascinamento
+    const n = rit();
+    if (o.kind === 'vista') { n.viste = n.viste || {}; const v = n.viste[o.id] || [0, 0]; n.viste[o.id] = [v[0] + dx, v[1] + dy]; }
+    else if (o.kind === 'nota') { const m = n.note[o.indice]; m.x += dx; m.y += dy; }
+    else if (o.kind === 'quota') {
+      const [ax, ay] = o.a, [bx, by] = o.b, L = Math.hypot(bx - ax, by - ay) || 1;
+      const k = dx * (-(by - ay) / L) + dy * ((bx - ax) / L);
+      if (o.aggiunta != null) n.aggiunte[o.aggiunta].d = (n.aggiunte[o.aggiunta].d || 8) + k;
+      else { n.quote = n.quote || {}; const m = n.quote[o.id] || {}; m.d = (m.d || 0) + k; n.quote[o.id] = m; }
+    }
+    salva(n);
+  };
+  foglioEl.addEventListener('mouseup', lascia);
+  foglioEl.addEventListener('mouseleave', lascia);
+
+  // ---- strumenti, testi, campi, esporta
+  box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => {
+    ED.strumento = b.dataset.str; ED.punto1 = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
+    box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x === b));
+    foglioEl.dataset.strumento = ED.strumento;
+  }; });
+  box.querySelectorAll('[data-t]').forEach(i => { i.onchange = () => {
+    const n = rit(); n.testi = n.testi || {}; const v = num(i.value);
+    if (v) n.testi[i.dataset.t] = v; else delete n.testi[i.dataset.t];
+    salva(n);
+  }; });
+  let attesa = null;
+  box.querySelectorAll('[data-c], [data-mostra]').forEach(i => i.addEventListener('change', () => { clearTimeout(attesa); attesa = setTimeout(aggiorna, 250); }));
+  if (box.querySelector('#tav-tutte')) box.querySelector('#tav-tutte').onchange = aggiorna;
+  box.querySelector('#te-auto').onclick = () => { ED.sel = null; salva({}); };
+  box.querySelector('#te-undo').onclick = () => inCoda(async () => { const u = await call('undo'); if (u.state) { S = u.state; renderPanels(); } carica(await call('drawing_preview', leggi(), tutte())); });
+  const esporta = fmt => inCoda(async () => { const x = await call('export_drawings_dialog', fmt, leggi(), tutte()); if (!x.cancelled) toast(x.message, x.ok ? '' : 'err'); });
+  box.querySelector('#te-pdf').onclick = () => esporta('pdf');
+  box.querySelector('#te-dxf').onclick = () => esporta('dxf');
+  box.querySelector('#te-chiudi').onclick = chiudi;
+  function tasti(ev) {
+    if (!document.body.contains(box) || !$('#modal').hidden) return;
+    if (ev.key === 'Escape') { if (ED.punto1) { ED.punto1 = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
+    if ((ev.key === 'Delete' || ev.key === 'Backspace') && ED.sel && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      $('#ts-via')?.click(); ev.preventDefault(); ev.stopPropagation();
+    }
+    if (ev.ctrlKey && ev.key.toLowerCase() === 'z' && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) { box.querySelector('#te-undo').click(); ev.preventDefault(); ev.stopPropagation(); }
+  }
+  document.addEventListener('keydown', tasti, true);
+  aggiorna();
 }
 
 async function newAssemblyDialog() {
@@ -2712,44 +2988,61 @@ async function impostazioniDialog(sezione = 'piegatrice') {
       <td style="text-align:right">${n(x.radius)}</td><td style="text-align:right">${metodo(x)}</td>
       <td style="text-align:right"><button class="btn" data-rule-del="${esc(x.name)}" title="Elimina la regola">×</button></td></tr>`).join('')
     || '<tr><td colspan="6" class="hint">Ancora nessuna regola. Con una lamiera aperta: «Regole piega» → «Salva regola».</td></tr>';
+  const scuro = r.tema !== 'chiaro';
   const corpi = {
     piegatrice: `<h4>Piegatrice</h4>
       <p class="hint">Raggio e K per ogni lamiera nuova, quando non scrivi niente.</p>
       <div class="imp-riga"><span>Raggio interno</span><span class="imp-campo"><input class="field corto" id="i-r" value="${n(r.bend_default?.radius)}"><i>mm</i></span><span></span></div>
       <div class="imp-riga"><span>Fattore K</span><span class="imp-campo"><input class="field corto" id="i-k" value="${n(r.bend_default?.k)}"></span><span></span></div>
-      <div class="imp-riga"><span></span><span><button class="btn" id="i-pieg">Salva come predefinito</button></span><span></span></div>
       <h4 style="margin-top:10px">Regole salvate</h4>
       <table class="grid imp-regole"><tr class="hint"><th style="text-align:left">Nome</th><th style="text-align:left">Materiale</th><th style="text-align:right">Spessore</th><th style="text-align:right">Raggio</th><th style="text-align:right">K</th><th></th></tr>${regole}</table>`,
+    materiali: `<h4>Materiali</h4>
+      <p class="hint">Il materiale dei pezzi nuovi. Ogni pezzo lo cambi poi a sinistra, sotto «Misure».</p>
+      <div class="imp-riga"><span>Materiale predefinito</span><select class="field medio" id="i-mat">${r.materiali.map(m =>
+        `<option value="${esc(m.code)}"${m.code === r.materiale ? ' selected' : ''}>${esc(m.nome)}</option>`).join('')}</select><span></span></div>`,
     tavole: `<h4>Tavole e cartiglio</h4>
       <p class="hint">Vanno nel cartiglio di ogni tavola.</p>
       <div class="imp-riga"><span>Azienda</span><input class="field medio" id="i-az" value="${esc(r.cartiglio.azienda || '')}"><span></span></div>
       <div class="imp-riga"><span>Disegnatore</span><input class="field medio" id="i-dis" value="${esc(r.cartiglio.disegnatore || '')}"><span></span></div>
-      <div class="imp-riga"><span></span><span><button class="btn" id="i-cart">Salva</button></span><span></span></div>`,
+      <div class="imp-riga"><span>Logo</span><span class="imp-percorso" id="i-logo">${r.logo ? esc(r.logo.split(/[\\/]/).pop()) : 'nessuno'}</span>
+        <span class="imp-bott"><button class="btn" id="i-logo-sc" title="Un’immagine PNG o JPG: va nel cartiglio, accanto al nome dell’azienda">Scegli immagine…</button>
+        <button class="btn" id="i-logo-via"${r.logo ? '' : ' hidden'}>Togli</button></span></div>`,
     cartelle: `<h4>Cartelle</h4>
       <div class="imp-riga"><span>Lavori</span><span class="imp-percorso" title="${esc(r.cartelle.lavori)}">${esc(r.cartelle.lavori)}</span><button class="btn" data-apri="${esc(r.cartelle.lavori)}">Apri cartella</button></div>
       <div class="imp-riga"><span>Viti e bulloni</span><span class="imp-percorso" title="${esc(r.cartelle.libreria)}">${esc(r.cartelle.libreria)}</span><button class="btn" data-apri="${esc(r.cartelle.libreria)}">Apri cartella</button></div>`,
     aspetto: `<h4>Aspetto</h4>
       <div class="imp-riga"><span>Tema</span><div class="seg" id="i-tema">${[['scuro', 'Scuro'], ['chiaro', 'Chiaro']].map(([k, t]) =>
-        `<button type="button" data-v="${k}" class="${document.body.classList.contains('dark') === (k === 'scuro') ? 'on' : ''}">${t}</button>`).join('')}</div><span></span></div>`,
+        `<button type="button" data-v="${k}" class="${scuro === (k === 'scuro') ? 'on' : ''}">${t}</button>`).join('')}</div><span></span></div>`,
   };
-  const voci = [['piegatrice', 'Piegatrice'], ['tavole', 'Tavole e cartiglio'], ['cartelle', 'Cartelle'], ['aspetto', 'Aspetto']];
+  const voci = [['piegatrice', 'Piegatrice'], ['materiali', 'Materiali'], ['tavole', 'Tavole e cartiglio'], ['cartelle', 'Cartelle'], ['aspetto', 'Aspetto']];
   modal(`<div class="imp-box"><nav class="imp-nav"><h3>Impostazioni</h3>${voci.map(([k, t]) => `<button data-sez="${k}" class="${k === sezione ? 'on' : ''}">${t}</button>`).join('')}</nav>
-    <div class="imp-corpo">${corpi[sezione]}<div class="imp-spazio" style="flex:1"></div><div class="imp-acts"><button class="btn" id="m-no">Chiudi</button></div></div></div>`, close => {
+    <div class="imp-corpo">${voci.map(([k]) => `<section data-corpo="${k}"${k === sezione ? '' : ' hidden'}>${corpi[k]}</section>`).join('')}
+      <div class="imp-spazio" style="flex:1"></div>
+      <div class="imp-acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="i-ok">Applica</button></div></div></div>`, close => {
     $('#m-no').onclick = close;
-    $('#modal-box').querySelectorAll('[data-sez]').forEach(b => { b.onclick = () => { close(); impostazioniDialog(b.dataset.sez); }; });
-    if ($('#i-pieg')) $('#i-pieg').onclick = () => inCoda(async () => {
-      const x = await call('set_bend_default', { radius: $('#i-r').value.trim(), method: 'k', k: $('#i-k').value.trim() });
-      toast(x.message, x.ok ? '' : 'err');
-      if (x.ok && S) S.bend_default = x.default;
-    });
+    // le sezioni sono tutte nella finestra: cambiando sezione quello che hai scritto resta, e Applica salva tutto
+    $('#modal-box').querySelectorAll('[data-sez]').forEach(b => { b.onclick = () => {
+      $('#modal-box').querySelectorAll('[data-sez]').forEach(x => x.classList.toggle('on', x === b));
+      $('#modal-box').querySelectorAll('[data-corpo]').forEach(x => { x.hidden = x.dataset.corpo !== b.dataset.sez; });
+    }; });
+    $('#i-tema').querySelectorAll('button').forEach(b => { b.onclick = () => $('#i-tema').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
     $('#modal-box').querySelectorAll('[data-rule-del]').forEach(b => { b.onclick = () => inCoda(async () => { await call('delete_sheet_rule', b.dataset.ruleDel); close(); impostazioniDialog('piegatrice'); }); });
-    if ($('#i-cart')) $('#i-cart').onclick = () => inCoda(async () => {
-      const x = await call('set_cartiglio', { azienda: $('#i-az').value, disegnatore: $('#i-dis').value });
-      toast(x.message, x.ok ? '' : 'err');
-    });
     $('#modal-box').querySelectorAll('[data-apri]').forEach(b => { b.onclick = () => call('apri_cartella', b.dataset.apri); });
-    if ($('#i-tema')) $('#i-tema').querySelectorAll('button').forEach(b => { b.onclick = () => {
-      $('#i-tema').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); applyTheme(b.dataset.v === 'scuro'); }; });
+    // il logo si mette subito (è un file): Annulla non lo toglie, lo toglie «Togli»
+    const logo = x => { if (x.cancelled) return; toast(x.message, x.ok ? '' : 'err'); if (!x.ok) return;
+      $('#i-logo').textContent = x.logo ? x.logo.split(/[\\/]/).pop() : 'nessuno'; $('#i-logo-via').hidden = !x.logo; };
+    $('#i-logo-sc').onclick = () => inCoda(async () => logo(await call('scegli_logo')));
+    $('#i-logo-via').onclick = () => inCoda(async () => logo(await call('set_logo', null)));
+    $('#i-ok').onclick = () => inCoda(async () => {
+      const tema = $('#i-tema .on')?.dataset.v || 'scuro';
+      const x = await call('set_impostazioni', { radius: $('#i-r').value.trim(), k: $('#i-k').value.trim(), materiale: $('#i-mat').value,
+        azienda: $('#i-az').value, disegnatore: $('#i-dis').value, tema });
+      if (!x.ok) { toast(x.message, 'err'); return; }
+      applyTheme(tema === 'scuro');
+      if (S && x.bend_default) S.bend_default = x.bend_default;
+      close();
+      toast(x.message);
+    });
   });
   $('#modal-box').classList.add('imp-dlg');
 }
@@ -2974,7 +3267,32 @@ function wireNode(s) {
   };
 }
 // --------------------------------------------------------------- distinta, cut list, info
+// pezzi dell'assieme che non sono dove li aveva lasciati (23/10): quelli ritrovati da soli si dicono una volta,
+// quelli che mancano restano in una striscia sopra il disegno finché non li indichi con «Cerca…»
+let ritrovatiDetti = '';
+function renderMancanti() {
+  let bar = document.getElementById('mancanti');
+  const lst = S?.mode === 'assembly' ? (S.mancanti || []) : [];
+  const rit = S?.mode === 'assembly' ? (S.ritrovati || []) : [];
+  const chiave = JSON.stringify(rit);
+  if (rit.length && chiave !== ritrovatiDetti) {
+    ritrovatiDetti = chiave;
+    toast(`Ritrovat${rit.length === 1 ? 'o' : 'i'} da solo: ${rit.map(x => `${x.name} (in ${x.folder})`).join(', ')}. Salva l’assieme per ricordarlo.`);
+  }
+  if (!lst.length) { if (bar) bar.hidden = true; return; }
+  if (!bar) { bar = document.createElement('div'); bar.id = 'mancanti'; document.getElementById('view').appendChild(bar); }
+  bar.hidden = false;
+  bar.innerHTML = `<b>${lst.length === 1 ? 'Un pezzo non si trova' : lst.length + ' pezzi non si trovano'}</b>
+    <span>Spostati o cancellati: li ho cercati accanto all’assieme e in Documenti\\SteelCAD.</span>
+    ${lst.map(x => `<span class="manca-riga"><span title="${esc(x.file)}">${esc(x.name)}${x.n > 1 ? ` (${x.n} volte)` : ''}</span><button class="btn" data-cerca-pezzo="${esc(x.file)}">Cerca…</button></span>`).join('')}`;
+  bar.querySelectorAll('[data-cerca-pezzo]').forEach(b => { b.onclick = () => inCoda(async () => {
+    const r = await call('asm_ritrova', b.dataset.cercaPezzo);
+    if (r.cancelled) return;
+    await apply(r, r.message);
+  }); });
+}
 function renderBottom() {
+  renderMancanti();
   const b = S.bom;
   $('#tab-bom').innerHTML = b.length ? `<table class="grid"><thead><tr><th>Codice</th><th>Descrizione</th><th class="n">Q.tà</th>
     <th>Materiale</th><th>Profilo / spessore</th><th class="n">Peso cad. kg</th><th class="n">Peso tot. kg</th></tr></thead><tbody>
@@ -3088,14 +3406,16 @@ async function controllaAggiornamenti() {
 const ANT_MAT = new THREE.MeshStandardMaterial({ color: 0x5FA8F5, metalness: 0.1, roughness: 0.6, transparent: true, opacity: 0.75,
   polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 const ANT_EDGE = new THREE.LineBasicMaterial({ color: 0x8CC0FF });
-let antGruppo = null, antTimer = null, antN = 0, antCamera = null, antUltimi = '';
+let antGruppo = null, antTimer = null, antN = 0, antCamera = null, antUltimi = '', antNascosto = false;
 function anteprimaVia() {
   clearTimeout(antTimer); antN++; antUltimi = '';
   if (camera.view?.enabled) { camera.clearViewOffset(); ridisegna(); }
   if (antCamera) {                                  // la vista torna com'era prima della finestra
     camera.position.copy(antCamera.pos); controls.target.copy(antCamera.target); controls.update(); antCamera = null; ridisegna();
   }
-  model.visible = true; overlay.visible = true;
+  // il pezzo si rimostra solo se l'aveva nascosto l'anteprima: guardando lo sviluppo deve restare nascosto (23/10:
+  // dopo Spiega, una finestra aperta e chiusa rimetteva il pezzo piegato sopra lo sviluppo)
+  if (antNascosto) { model.visible = true; overlay.visible = true; antNascosto = false; }
   if (!antGruppo) return;
   scene.remove(antGruppo);
   antGruppo.traverse(o => o.geometry?.dispose());
@@ -3136,12 +3456,12 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     if (n !== antN) return;                       // nel frattempo hai cambiato un valore: vale l'ultima
     if (antGruppo) { scene.remove(antGruppo); antGruppo.traverse(o => o.geometry?.dispose()); antGruppo = null; }
     if (!r.ok) {
-      model.visible = true; overlay.visible = true;
+      if (antNascosto) { model.visible = true; overlay.visible = true; antNascosto = false; }
       if (stato) { stato.className = 'ant-stato no'; stato.textContent = r.message || 'Così non si può fare.'; }
       paint();
       return;
     }
-    model.visible = false; overlay.visible = false;   // al posto del pezzo di adesso si vede quello che verrà
+    if (model.visible) { model.visible = false; overlay.visible = false; antNascosto = true; }   // al posto del pezzo di adesso, quello che verrà
     antGruppo = new THREE.Group();
     for (const d of r.objects) {
       const g = new THREE.BufferGeometry();
@@ -3446,6 +3766,18 @@ async function rulesDialog() {
   });
 }
 
+// un file aperto col doppio clic mentre Radius è già aperto: arriva qui (main.py). Se il lavoro aperto ha modifiche
+// non salvate si chiede prima (restano comunque nel salvataggio automatico)
+window.__apriDaFuori = percorso => {
+  const nome = String(percorso).split(/[\\/]/).pop();
+  if (!S?.dirty) { inCoda(() => openProject(percorso)); return; }
+  modal(`<h3>Aprire ${esc(nome)}?</h3><p>Il lavoro aperto adesso ha modifiche non salvate. Se apri l’altro, le modifiche restano nel salvataggio automatico.</p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn" id="m-salva">Salva e apri</button><button class="btn primary" id="m-ok">Apri</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => { close(); inCoda(() => openProject(percorso)); };
+    $('#m-salva').onclick = () => { close(); inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) await openProject(percorso); }); };
+  });
+};
 async function openProject(percorso) {
   const r = percorso ? await call('open_recent', percorso) : await call('open_dialog');
   if (r.recovery) {
@@ -3570,13 +3902,21 @@ async function showHome(info) {
   const disegnaRecenti = () => {
     const q = norm($('#home-cerca').value.trim());
     const lst = tutti.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
-    $('#home-recent').innerHTML = lst.map(x => `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
+    $('#home-recent').innerHTML = lst.map(x => x.manca ? `<div class="home-rec manca" title="${esc(x.path)}">
+        <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
+        <div class="testo"><b>${esc(x.name)}</b><small>Spostato o cancellato: non è più in ${esc(x.folder)}</small>
+          <span class="rec-azioni"><button class="btn" data-ritrova="${esc(x.path)}">Cerca…</button><button class="btn" data-forget="${esc(x.path)}">Togli</button></span></div></div>`
+      : `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
         <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
         ${x.assembly ? '<span class="tipo">ASSIEME</span>' : ''}
         <div class="testo"><b>${esc(x.name)}</b><small>${esc(x.when)}</small></div>
         <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti" aria-label="Togli dai recenti">×</button></div>`).join('')
       || `<p class="home-vuoto">${tutti.length ? 'Nessun lavoro con questo nome.' : 'Ancora nessun lavoro. Quelli che apri o salvi compaiono qui, con l’anteprima.'}</p>`;
-    $('#home').querySelectorAll('.home-rec').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
+    $('#home').querySelectorAll('.home-rec:not(.manca)').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
+    $('#home').querySelectorAll('[data-ritrova]').forEach(b => { b.onclick = () => inCoda(async () => {
+      const r = await call('recent_ritrova', b.dataset.ritrova);
+      if (r.ok) showHome(r); else if (!r.cancelled) toast(r.message, 'err');
+    }); });
     $('#home').querySelectorAll('[data-forget]').forEach(b => { b.onclick = () => inCoda(async () => showHome(await call('forget_recent', b.dataset.forget))); });
   };
   $('#home-filtro').innerHTML = [['tutti', 'Tutti'], ['pezzi', 'Pezzi'], ['assiemi', 'Assiemi']]
@@ -3735,7 +4075,10 @@ const CMDS = [
   { id: 'view_right', label: 'Vista da destra', keys: '3', run: () => goTo(VISTE.view_right) },
   { id: 'fit', label: 'Adatta alla finestra', keys: 'F', run: () => (SK ? fitSketch() : goTo(null, true)) },
   { id: 'toggle_dims', label: 'Mostra/nascondi quote', keys: 'Q', run: () => { showDims = !showDims; buildDims(); } },
-  { id: 'toggle_theme', label: 'Tema scuro / chiaro', run: () => applyTheme(!document.body.classList.contains('dark')) },
+  { id: 'toggle_theme', label: 'Tema scuro / chiaro', run: () => {
+    const scuro = !document.body.classList.contains('dark');
+    applyTheme(scuro); call('set_impostazioni', { tema: scuro ? 'scuro' : 'chiaro' });
+  } },
   { id: 'unfold', label: 'Spiega / ripiega la lamiera', keys: 'U', run: () => toggleFlat() },
   { id: 'misura', label: 'Quota: misura tra due punti, diametro di un foro', keys: 'M', run: () => (MIS ? misStop() : misStart()) },
   { id: 'misura_via', label: 'Togli tutte le quote misurate', run: () => misTogliTutte() },
@@ -5642,6 +5985,7 @@ async function introFine() {
 async function start() {
   let tema = 'scuro';                              // scuro di partenza: pesa meno sugli occhi
   try { tema = localStorage.getItem('steelcad.tema') || 'scuro'; } catch { /* va bene il predefinito */ }
+  try { const imp = await call('impostazioni'); if (imp?.ok && imp.tema) tema = imp.tema; } catch { /* resta quello di prima */ }
   applyTheme(tema === 'scuro');
   introStato('Collego il motore geometrico…', 0.45);
   S = await call('state');

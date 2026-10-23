@@ -9,6 +9,7 @@ fori (raggruppati per diametro, con filettature, svasature e inserti presi dagli
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import math
 from dataclasses import dataclass, field
@@ -21,6 +22,33 @@ LAYER = {'contorno': (7, 0.5), 'nascoste': (8, 0.25), 'tangenti': (8, 0.18), 'pi
          'testo': (7, 0.25), 'cornice': (7, 0.5), 'cartiglio': (7, 0.25), 'tabella': (7, 0.25)}
 
 
+class _Strato(list):
+    """Una lista di primitive che ricorda di quale «oggetto» della tavola è ognuna (vista di fronte, una quota, il
+    cartiglio…): così i ritocchi a mano (sposta, nascondi, cambia) prendono proprio quelle (23/10)."""
+    def __init__(self, foglio, items=(), tag=None):
+        super().__init__(items)
+        self._f = foglio
+        self.tag = list(tag) if tag is not None else [getattr(foglio, 'gruppo', '')] * len(self)
+
+    def append(self, x):
+        super().append(x)
+        self.tag.append(self._f.gruppo)
+
+    def extend(self, xs):
+        xs = list(xs)
+        super().extend(xs)
+        self.tag.extend([self._f.gruppo] * len(xs))
+
+    def tieni(self, ok):
+        """Solo le primitive per cui ok(tag) è vero."""
+        coppie = [(x, t) for x, t in zip(self, self.tag) if ok(t)]
+        self[:] = [x for x, _ in coppie]
+        self.tag = [t for _, t in coppie]
+
+
+STRATI = ('linee', 'cerchi', 'testi', 'pieni', 'ombre')
+
+
 @dataclass
 class Foglio:
     formato: str = 'A3'
@@ -31,6 +59,24 @@ class Foglio:
     pieni: list = field(default_factory=list)       # (layer, [(x, y), ...]) triangoli pieni (frecce)
     ombre: list = field(default_factory=list)       # ((r, g, b), [(x, y), ...]) facce ombreggiate, sotto le linee
     i_scala: int = -1                               # la scritta della scala nel cartiglio (si riscrive scalando)
+    gruppo: str = ''                                # l'oggetto che si sta disegnando (vista:fronte, cartiglio…)
+    elementi: dict = field(default_factory=dict)    # id → cosa è (quota coi suoi dati, vista con la sua scala…)
+    immagini: list = field(default_factory=list)    # (percorso, x, y, w, h): il logo nel cartiglio
+    chiave: str = ''                                # quale tavola è (pezzo, sviluppo…): i ritocchi stanno lì
+
+    def __setattr__(self, nome, valore):
+        if nome in STRATI and not isinstance(valore, _Strato):
+            valore = _Strato(self, valore)
+        object.__setattr__(self, nome, valore)
+
+    @contextlib.contextmanager
+    def oggetto(self, nome: str):
+        prima = self.gruppo
+        self.gruppo = nome
+        try:
+            yield
+        finally:
+            self.gruppo = prima
 
     @property
     def size(self):
@@ -263,38 +309,65 @@ def _up_iso(d):
 
 
 # ------------------------------------------------------------------------------------------ foglio base
+# i campi del cartiglio: chiave, etichetta. In ordine: le righe da tre caselle dal basso, poi titolo e azienda
+CAMPI_CARTIGLIO = [('revisione', 'Revisione'), ('foglio', 'Foglio'), ('proiezione', 'Proiezione'),
+                   ('disegnatore', 'Disegnatore'), ('data', 'Data'), ('scala', 'Scala'),
+                   ('numero', 'N. disegno'), ('materiale', 'Materiale'), ('spessore_massa', 'Spessore / massa'),
+                   ('cliente', 'Cliente'), ('commessa', 'Commessa'), ('tolleranze', 'Tolleranze generali'),
+                   ('finitura', 'Trattamento / finitura')]
+NUOVI_CARTIGLIO = ('cliente', 'commessa', 'tolleranze', 'finitura')     # si vedono se scritti (o se li spunti)
+
+
 def _cornice(f: Foglio, campi: dict):
+    with f.oggetto('cartiglio'):
+        return _cornice_(f, campi)
+
+
+def _cornice_(f: Foglio, campi: dict):
+    """La cornice e il cartiglio in basso a destra, 180 mm di larghezza: righe da tre caselle con i campi da mostrare,
+    sopra il titolo e l'azienda (col logo, se c'è). campi['mostra']: i campi da vedere (23/10: si scelgono nella tavola)."""
     W, H = f.size
-    f.line('cornice', (20, 10), (W - 10, 10), (W - 10, H - 10), (20, H - 10), (20, 10))
-    # cartiglio in basso a destra: 180 × 50
-    x0, y0, x1, y1 = W - 190, 10, W - 10, 60
+    with f.oggetto('cornice'):
+        f.line('cornice', (20, 10), (W - 10, 10), (W - 10, H - 10), (20, H - 10), (20, 10))
     L = 'cartiglio'
+    valori = {**campi, 'proiezione': 'europea (ISO E)'}
+    mostra = campi.get('mostra')
+    if mostra is None:
+        mostra = [k for k, _ in CAMPI_CARTIGLIO if k not in NUOVI_CARTIGLIO or str(campi.get(k) or '').strip()]
+    celle = [(k, et) for k, et in CAMPI_CARTIGLIO if k in mostra]
+    righe = [celle[i:i + 3] for i in range(0, len(celle), 3)]
+    logo = campi.get('logo')
+    alto_az = 18 if logo else 10
+    x0, x1, y0 = W - 190, W - 10, 10
+    y1 = y0 + 10 * len(righe) + 10 + alto_az
     f.line(L, (x0, y0), (x0, y1), (x1, y1))
-    righe = [y0 + 10, y0 + 20, y0 + 30, y0 + 40]
-    for y in righe:
-        f.line(L, (x0, y), (x1, y))
-    for x in (x0 + 60, x0 + 120):
-        f.line(L, (x, y0), (x, y0 + 30))
-    celle = [
-        (x0, y0 + 40, 180, 'Azienda', campi.get('azienda', '')),
-        (x0, y0 + 30, 180, 'Titolo', campi.get('titolo', '')),
-        (x0, y0 + 20, 60, 'N. disegno', campi.get('numero', '')),
-        (x0 + 60, y0 + 20, 60, 'Materiale', campi.get('materiale', '')),
-        (x0 + 120, y0 + 20, 60, 'Spessore / massa', campi.get('spessore_massa', '')),
-        (x0, y0 + 10, 60, 'Disegnatore', campi.get('disegnatore', '')),
-        (x0 + 60, y0 + 10, 60, 'Data', campi.get('data', '')),
-        (x0 + 120, y0 + 10, 60, 'Scala', campi.get('scala', '')),
-        (x0, y0, 60, 'Revisione', campi.get('revisione', '')),
-        (x0 + 60, y0, 60, 'Foglio', campi.get('foglio', '')),
-        (x0 + 120, y0, 60, 'Proiezione', 'europea (ISO E)'),
-    ]
-    for x, y, w, et, val in celle:
-        f.text(L, (x + 1.5, y + 7.2), et, 1.8)
-        if et == 'Scala':
-            f.i_scala = len(f.testi)
-        f.text(L, (x + 1.5, y + 2), _taglia(val, w, 3.2 if w > 100 else 2.8), 3.2 if w > 100 else 2.8)
+    y = y0
+    for riga in righe:
+        f.line(L, (x0, y + 10), (x1, y + 10))
+        w = 180 / len(riga)
+        for i, (k, et) in enumerate(riga):
+            x = x0 + i * w
+            if i:
+                f.line(L, (x, y), (x, y + 10))
+            f.text(L, (x + 1.5, y + 7.2), et, 1.8)
+            if k == 'scala':
+                f.i_scala = len(f.testi)
+            f.text(L, (x + 1.5, y + 2), _taglia(str(valori.get(k, '') or ''), w, 2.8), 2.8)
+        y += 10
+    f.text(L, (x0 + 1.5, y + 7.2), 'Titolo', 1.8)
+    f.text(L, (x0 + 1.5, y + 2), _taglia(str(campi.get('titolo', '')), 180, 3.2), 3.2)
+    y += 10
+    f.line(L, (x0, y), (x1, y))
+    xa = x0
+    if logo:
+        f.immagini.append((logo, x0 + 1.5, y + 1.5, 50, alto_az - 3))
+        f.line(L, (x0 + 53, y), (x0 + 53, y1))
+        xa = x0 + 53
+    f.text(L, (xa + 1.5, y + alto_az - 2.8), 'Azienda', 1.8)
+    f.text(L, (xa + 1.5, y + 2), _taglia(str(campi.get('azienda', '')), x1 - xa, 3.2), 3.2)
     if campi.get('note'):
-        f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5), 2.5)   # non sotto il cartiglio
+        with f.oggetto('note_cartiglio'):
+            f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5), 2.5)   # non sotto il cartiglio
     return (20 + 5, 10 + 5, W - 10 - 5, H - 10 - 5), (x0, y0, x1, y1)
 
 
@@ -313,8 +386,20 @@ def _freccia(f: Foglio, p, verso, layer='quote', L=2.5):
     f.pieni.append((layer, [p, a, b]))
 
 
-def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None):
-    """Quota lineare tra a e b (foglio), spostata di "distanza" a sinistra di a→b; scrive il valore vero."""
+def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None, nome=None):
+    """Quota lineare tra a e b (foglio), spostata di "distanza" a sinistra di a→b; scrive il valore vero. Ha un nome
+    (quello dato, se no l'oggetto in cui sta + un numero) e si ricorda i suoi dati: la si può ritoccare dopo."""
+    if nome is None:
+        conta = f.__dict__.setdefault('_nq', {})
+        conta[f.gruppo] = conta.get(f.gruppo, 0) + 1
+        nome = f'{f.gruppo or "foglio"}/q{conta[f.gruppo]}'
+    f.elementi[nome] = {'kind': 'quota', 'a': list(map(float, a)), 'b': list(map(float, b)), 'distanza': float(distanza),
+                        'valore': float(valore), 'h': float(h), 'prefisso': prefisso, 'testo': testo, 'padre': f.gruppo}
+    with f.oggetto(nome):
+        _disegna_quota(f, a, b, distanza, valore, h, prefisso, testo)
+
+
+def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None):
     ax, ay = a
     bx, by = b
     dx, dy = bx - ax, by - ay
@@ -411,6 +496,8 @@ def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=Tr
     """Disegna la vista con scala s, con l'angolo in basso a sinistra del suo ingombro in (ox, oy)."""
     x0, y0, x1, y1 = v['bbox']
     T = lambda p: (ox + (p[0] - x0) * s, oy + (p[1] - y0) * s)  # noqa: E731
+    if f.gruppo.startswith('vista:'):
+        f.elementi[f.gruppo] = {'kind': 'vista', 'T': [s, ox - x0 * s, oy - y0 * s], 'label': ETICHETTE_VISTE.get(f.gruppo, f.gruppo)}
     for k, layer in (('visti', 'contorno'), ('tangenti', 'tangenti'), ('nascosti', 'nascoste')):
         for pl in v[k]:
             f.line(layer, *[T(p) for p in pl])
@@ -421,6 +508,9 @@ def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=Tr
         quota(f, (ox, oy), (ox, oy + h), 7, vh)                  # altezza a sinistra
     return T, w, h
 
+
+ETICHETTE_VISTE = {'vista:fronte': 'Vista di fronte', 'vista:alto': 'Vista dall’alto', 'vista:sinistra': 'Vista da sinistra',
+                   'vista:iso': 'Isometrica'}
 
 MAX_RICHIAMI = 5          # più tipi di foro di così: lettere sui fori e tabella fori (i richiami si accavallano)
 
@@ -722,25 +812,32 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     campi = {**campi, 'scala': scala_testo(s)}
     f.testi = []
     f.linee, f.cerchi, f.pieni = [], [], []
+    f.elementi, f.immagini = {}, []
+    f.__dict__.pop('_nq', None)
     area, cart = _cornice(f, campi)
     ox = zona[0] + gL
     oyT = zona[1] + gT
     oyF = oyT + hT * s + gF
-    TF, _, _ = _metti_vista(f, v['fronte'], s, ox, oyF)
-    if file_passo:
-        catene_di_passo(f, v['fronte'], s, TF, file_passo)
-    TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
-    if quote_fori:
-        _catene_fori(f, v['alto'], TT, fx, fy)
+    with f.oggetto('vista:fronte'):
+        TF, _, _ = _metti_vista(f, v['fronte'], s, ox, oyF)
+        if file_passo:
+            catene_di_passo(f, v['fronte'], s, TF, file_passo)
+    with f.oggetto('vista:alto'):
+        TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
+        if quote_fori:
+            _catene_fori(f, v['alto'], TT, fx, fy)
     xL = ox + wF * s + gS
-    TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF)
-    for nome, (x, y) in (('VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
-                         ('VISTA DA SINISTRA', (xL, oyF + hL * s + 4))):
-        f.text('testo', (x, y), nome, 2.5)
+    with f.oggetto('vista:sinistra'):
+        TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF)
+    for vista, nome, (x, y) in (('fronte', 'VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('alto', 'VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
+                                ('sinistra', 'VISTA DA SINISTRA', (xL, oyF + hL * s + 4))):
+        with f.oggetto(f'vista:{vista}/titolo'):
+            f.text('testo', (x, y), nome, 2.5)
     if quote_mano:
-        _quote_a_mano(f, quote_mano, {'fronte': (TF, (ox + wF * s / 2, oyF + hF * s / 2)),
-                                      'alto': (TT, (ox + wF * s / 2, oyT + hT * s / 2)),
-                                      'sinistra': (TL, (xL + wL * s / 2, oyF + hL * s / 2))})
+        with f.oggetto('quote3d'):
+            _quote_a_mano(f, quote_mano, {'fronte': (TF, (ox + wF * s / 2, oyF + hF * s / 2)),
+                                          'alto': (TT, (ox + wF * s / 2, oyT + hT * s / 2)),
+                                          'sinistra': (TL, (xL + wL * s / 2, oyF + hL * s / 2))})
     gia: set = set()
     et = etichette or {}
     # tanti tipi di foro: una lettera su ogni foro e la tabella sopra il cartiglio (se lì non ci sono le viste)
@@ -756,13 +853,15 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     alto_tab = ((len(tutti) + n_col - 1) // n_col + 1) * 5.0 + 6
     tabella_ok = len(tutti) > MAX_RICHIAMI and cart[3] + 8 + alto_tab <= sotto_viste
     if tabella_ok:
-        righe = _fori_a_lettere(f, tutti, s, et, 0)
-        cima = _tabella_fori(f, righe, cart[0], cart[3] + 8, area[2])
+        with f.oggetto('fori'):
+            righe = _fori_a_lettere(f, tutti, s, et, 0)
+        with f.oggetto('tabella_fori'):
+            cima = _tabella_fori(f, righe, cart[0], cart[3] + 8, area[2])
         cart = (cart[0], cart[1], cart[2], cima)         # l'isometrica non ci va sopra
     else:
-        _fori(f, v['alto'], TT, s, et, gia)
-        _fori(f, v['fronte'], TF, s, et, gia)
-        _fori(f, v['sinistra'], TL, s, et, gia)
+        for vista, T in (('alto', TT), ('fronte', TF), ('sinistra', TL)):
+            with f.oggetto(f'vista:{vista}/fori'):
+                _fori(f, v[vista], T, s, et, gia)
     # isometrica nello spazio libero più grande che resta: a destra delle viste o sopra, mai nel cartiglio
     vi = v['iso']
     wi, hi = vi['bbox'][2] - vi['bbox'][0], vi['bbox'][3] - vi['bbox'][1]
@@ -776,13 +875,15 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     xi0, yi0, xi1, yi1 = max(candidati, key=scala_in)
     si = scala_in((xi0, yi0, xi1, yi1))
     if si > 0 and min(wi, hi) * si > 15:              # un'isometrica minuscola non serve: meglio niente
-        TI, _, _ = _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
-                                quote_su=False)
-        try:
-            _metti_ombre(f, ombre_iso(shape), TI)
-        except Exception:  # noqa: BLE001 - l'ombra è un abbellimento: senza, la tavola resta giusta
-            pass
-        f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
+        with f.oggetto('vista:iso'):
+            TI, _, _ = _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
+                                    quote_su=False)
+            try:
+                _metti_ombre(f, ombre_iso(shape), TI)
+            except Exception:  # noqa: BLE001 - l'ombra è un abbellimento: senza, la tavola resta giusta
+                pass
+        with f.oggetto('vista:iso/titolo'):
+            f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
     return f
 
 
@@ -1241,12 +1342,21 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
     k = FORMATI[formato][0] / FORMATI[f.formato][0]
     S = lambda p: (p[0] * k, p[1] * k)  # noqa: E731
     g = Foglio(formato, f.titolo)
-    g.linee = [(l, [S(p) for p in pts]) for l, pts in f.linee]
-    g.cerchi = [(l, S(c), r * k) for l, c, r in f.cerchi]
-    g.pieni = [(l, [S(p) for p in pts]) for l, pts in f.pieni]
-    g.ombre = [(c, [S(p) for p in pts]) for c, pts in f.ombre]
-    g.testi = [(l, S(p), t, h * k, al) for l, p, t, h, al in f.testi]
+    g.linee = _Strato(g, [(l, [S(p) for p in pts]) for l, pts in f.linee], f.linee.tag)
+    g.cerchi = _Strato(g, [(l, S(c), r * k) for l, c, r in f.cerchi], f.cerchi.tag)
+    g.pieni = _Strato(g, [(l, [S(p) for p in pts]) for l, pts in f.pieni], f.pieni.tag)
+    g.ombre = _Strato(g, [(c, [S(p) for p in pts]) for c, pts in f.ombre], f.ombre.tag)
+    g.testi = _Strato(g, [(l, S(p), t, h * k, al) for l, p, t, h, al in f.testi], f.testi.tag)
     g.i_scala = f.i_scala
+    g.chiave = f.chiave
+    g.immagini = [(p, x * k, y * k, w * k, h * k) for p, x, y, w, h in f.immagini]
+    for nome, e in f.elementi.items():
+        e = dict(e)
+        if e['kind'] == 'quota':
+            e.update(a=list(S(e['a'])), b=list(S(e['b'])), distanza=e['distanza'] * k, h=e['h'] * k)
+        elif e['kind'] == 'vista':
+            e['T'] = [e['T'][0] * k, e['T'][1] * k, e['T'][2] * k]
+        g.elementi[nome] = e
     if 0 <= f.i_scala < len(g.testi):
         l, p, t, h, al = g.testi[f.i_scala]
         sc = _scala_da_testo(t)
@@ -1315,9 +1425,34 @@ def to_pdf(fogli: list, path):
     font = obj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
     pagine = []
     kids_pos = None
+    loghi: dict = {}
     for f in fogli:
         W, H = f.size
         c = ['1 J 1 j']
+        imm_pag = {}
+        for p, x, y, w, h in f.immagini:
+            if str(p) not in loghi:
+                d = _immagine_pdf(p)
+                if d is None:
+                    loghi[str(p)] = None
+                    continue
+                iw, ih, rgb, alfa = d
+                sm = ''
+                if alfa is not None:
+                    m = obj(f'<< /Type /XObject /Subtype /Image /Width {iw} /Height {ih} /ColorSpace /DeviceGray /BitsPerComponent 8 '
+                            f'/Filter /FlateDecode /Length {len(alfa)} >>\nstream\n'.encode('latin-1') + alfa + b'\nendstream')
+                    sm = f' /SMask {m} 0 R'
+                n = obj(f'<< /Type /XObject /Subtype /Image /Width {iw} /Height {ih} /ColorSpace /DeviceRGB /BitsPerComponent 8 '
+                        f'/Filter /FlateDecode{sm} /Length {len(rgb)} >>\nstream\n'.encode('latin-1') + rgb + b'\nendstream')
+                loghi[str(p)] = (n, iw, ih)
+            if loghi[str(p)] is None:
+                continue
+            n, iw, ih = loghi[str(p)]
+            sc = min(w / iw, h / ih)                         # dentro il riquadro, senza deformarlo
+            dw, dh = iw * sc, ih * sc
+            nome = f'Im{n}'
+            imm_pag[nome] = n
+            c.append(f'q {dw * k:.2f} 0 0 {dh * k:.2f} {(x + (w - dw) / 2) * k:.2f} {(y + (h - dh) / 2) * k:.2f} cm /{nome} Do Q')
         if f.ombre:
             c.append(f'{0.12 * k:.3f} w')
             for (r, g, b), pts in f.ombre:
@@ -1351,12 +1486,13 @@ def to_pdf(fogli: list, path):
             c.append(f'BT {rgb} /F1 {h * k:.2f} Tf {(x + dx) * k:.2f} {y * k:.2f} Td ({_pdf_testo(t)}) Tj ET')
         stream = '\n'.join(c).encode('latin-1')
         cont = obj(f'<< /Length {len(stream)} >>\nstream\n'.encode('latin-1') + stream + b'\nendstream')
-        pagine.append((cont, W * k, H * k))
+        pagine.append((cont, W * k, H * k, imm_pag))
     kids_pos = len(oggetti) + 1 + len(pagine)
     ids = []
-    for cont, w, h in pagine:
+    for cont, w, h, imm_pag in pagine:
+        xo = (' /XObject << ' + ' '.join(f'/{nm} {n} 0 R' for nm, n in imm_pag.items()) + ' >>') if imm_pag else ''
         ids.append(obj(f'<< /Type /Page /Parent {kids_pos} 0 R /MediaBox [0 0 {w:.2f} {h:.2f}] /Contents {cont} 0 R '
-                       f'/Resources << /Font << /F1 {font} 0 R >> >> >>'))
+                       f'/Resources << /Font << /F1 {font} 0 R >>{xo} >> >>'))
     pages = obj(f'<< /Type /Pages /Kids [{" ".join(f"{i} 0 R" for i in ids)}] /Count {len(ids)} >>')
     assert pages == kids_pos
     cat = obj(f'<< /Type /Catalog /Pages {pages} 0 R >>')
@@ -1384,27 +1520,62 @@ def to_svg(f: Foglio) -> str:
              'cartiglio': 'stroke="#111" stroke-width="0.25"', 'tabella': 'stroke="#111" stroke-width="0.2"', 'testo': 'stroke="#111"'}
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}mm" height="{H}mm">',
            f'<rect width="{W}" height="{H}" fill="#fff"/>']
-    for (r, g, b), pts in f.ombre:
-        col = '#%02X%02X%02X' % (round(r * 255), round(g * 255), round(b * 255))
-        out.append(f'<polygon fill="{col}" stroke="{col}" stroke-width="0.12" stroke-linejoin="round" '
-                   f'points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
-    out.append('<g fill="none" stroke-linecap="round" stroke-linejoin="round">')
-    for layer, pts in f.linee:
-        out.append(f'<polyline {stile.get(layer, stile["contorno"])} points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
-    for layer, (x, y), r in f.cerchi:
-        out.append(f'<circle {stile["quote"]} cx="{x:.2f}" cy="{Y(y):.2f}" r="{r:.2f}"/>')
-    out.append('</g>')
-    for layer, pts in f.pieni:
-        out.append(f'<polygon fill="#2B5BA0" points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
     import html
-    for layer, (x, y), t, h, al in f.testi:
+    el = lambda t: f' data-el="{html.escape(t)}"' if t else ''  # noqa: E731
+    tag = lambda strato, i: strato.tag[i] if isinstance(strato, _Strato) and i < len(strato.tag) else ''  # noqa: E731
+    for i, ((r, g, b), pts) in enumerate(f.ombre):
+        col = '#%02X%02X%02X' % (round(r * 255), round(g * 255), round(b * 255))
+        out.append(f'<polygon{el(tag(f.ombre, i))} fill="{col}" stroke="{col}" stroke-width="0.12" stroke-linejoin="round" '
+                   f'points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
+    for p, x, y, w, h in f.immagini:
+        dati = _immagine_base64(p)
+        if dati:
+            out.append(f'<image data-el="cartiglio" x="{x:.2f}" y="{Y(y + h):.2f}" width="{w:.2f}" height="{h:.2f}" '
+                       f'preserveAspectRatio="xMidYMid meet" href="{dati}"/>')
+    out.append('<g fill="none" stroke-linecap="round" stroke-linejoin="round">')
+    for i, (layer, pts) in enumerate(f.linee):
+        out.append(f'<polyline{el(tag(f.linee, i))} {stile.get(layer, stile["contorno"])} points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
+    for i, (layer, (x, y), r) in enumerate(f.cerchi):
+        out.append(f'<circle{el(tag(f.cerchi, i))} {stile["quote"]} cx="{x:.2f}" cy="{Y(y):.2f}" r="{r:.2f}"/>')
+    out.append('</g>')
+    for i, (layer, pts) in enumerate(f.pieni):
+        out.append(f'<polygon{el(tag(f.pieni, i))} fill="#2B5BA0" points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
+    for i, (layer, (x, y), t, h, al) in enumerate(f.testi):
         col = '#2B5BA0' if layer == 'quote' else '#C0392B' if layer == 'piega' else '#111'
         anchor = {'l': 'start', 'c': 'middle', 'r': 'end', 'cv': 'middle'}[al]
         rot = f' transform="rotate(-90 {x:.2f} {Y(y):.2f})"' if al == 'cv' else ''
-        out.append(f'<text x="{x:.2f}" y="{Y(y):.2f}" font-family="Helvetica,Arial,sans-serif" font-size="{h:.2f}" '
+        out.append(f'<text{el(tag(f.testi, i))} x="{x:.2f}" y="{Y(y):.2f}" font-family="Helvetica,Arial,sans-serif" font-size="{h:.2f}" '
                    f'fill="{col}" text-anchor="{anchor}"{rot}>{html.escape(t)}</text>')
     out.append('</svg>')
     return '\n'.join(out)
+
+
+def _immagine_base64(path) -> str | None:
+    import base64
+    from pathlib import Path
+    p = Path(path)
+    try:
+        tipo = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}[p.suffix.lower()]
+        return f'data:{tipo};base64,' + base64.b64encode(p.read_bytes()).decode('ascii')
+    except (KeyError, OSError):
+        return None
+
+
+def _immagine_pdf(path):
+    """Il logo per il PDF: (larghezza, altezza, dati RGB compressi, maschera alfa compressa o None)."""
+    import zlib
+    try:
+        from PIL import Image
+        im = Image.open(path)
+        im.load()
+    except Exception:  # noqa: BLE001 - un logo che non si legge: la tavola esce lo stesso, senza
+        return None
+    alfa = None
+    if im.mode in ('RGBA', 'LA', 'P'):
+        im = im.convert('RGBA')
+        alfa = zlib.compress(im.getchannel('A').tobytes())
+    rgb = im.convert('RGB')
+    return rgb.width, rgb.height, zlib.compress(rgb.tobytes()), alfa
 
 
 def oggi() -> str:

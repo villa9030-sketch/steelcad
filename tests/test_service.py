@@ -29,8 +29,9 @@ def test_si_parte_dalla_pagina_iniziale_e_i_recenti(tmp_path):
     s2 = Service()
     assert s2.open(str(a))['ok']
     assert [r['name'] for r in s2.home_info()['recent']][:2] == ['a', 'b']
-    b.unlink()
-    assert [r['name'] for r in s2.home_info()['recent']] == ['a']
+    b.unlink()                                  # spostato o cancellato: resta, segnato, con Cerca… e Togli (23/10)
+    assert [(r['name'], bool(r.get('manca'))) for r in s2.home_info()['recent']] == [('a', False), ('b', True)]
+    assert [r['name'] for r in s2.forget_recent(str(b))['recent']] == ['a']
     assert s2.forget_recent(str(a))['recent'] == []
 
 

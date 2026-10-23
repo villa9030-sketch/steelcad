@@ -35,6 +35,9 @@ class ApiProva(Api):
         if 'dxf' in filtri[0].lower() and not nome:
             dis = sorted(self._dir.glob('*.dxf')) + sorted(self._dir.glob('*.dwg'))
             return str(dis[0]) if dis else None
+        if 'png' in filtri[0].lower() and not nome:     # il logo delle tavole
+            img = sorted(self._dir.glob('*.png'))
+            return str(img[0]) if img else None
         return str(self._dir / nome)
 
     def scegli_cartella(self):

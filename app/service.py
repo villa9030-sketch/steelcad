@@ -162,6 +162,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
             'bend_default': self.bend_default(), 'from_template': bool(self._modelli()),
+            'materiale': doc.material, 'materiali': _materiali(),
         }
 
     def _parameters(self):
@@ -3482,12 +3483,20 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         values = {k: _number(v) for k, v in (values or {}).items()}
         if kind not in self.TIPI_PROGETTO:
             raise SteelCADError(f'Tipo di progetto "{kind}" sconosciuto.', code='tipo')
-        return {'telaio': templates.telaio, 'piastra': templates.piastra,
-                'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
-                'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
-                'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
-                'cono': templates.cono, 'tramoggia': templates.tramoggia,
-                'tramoggia_cassone': templates.tramoggia_cassone}[kind](**values)
+        doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
+               'vuoto': templates.struttura_vuota, 'lamiera': templates.lamiera,
+               'zero': templates.da_zero, 'scaffale': templates.scaffale, 'armadio': templates.armadio,
+               'cancello': templates.cancello, 'disegno': templates.struttura_disegno,
+               'cono': templates.cono, 'tramoggia': templates.tramoggia,
+               'tramoggia_cassone': templates.tramoggia_cassone}[kind](**values)
+        # il materiale dei pezzi nuovi: quello scelto nelle Impostazioni (se no S235)
+        mat = values.get('material') or _leggi_impostazioni().get('materiale')
+        if mat and mat in {m['code'] for m in _materiali()}:
+            doc.material = mat
+            for f in doc.features:
+                if not isinstance(f, Sketch) and f.get('type') == 'structure':
+                    f['material'] = mat
+        return doc
 
     def new_project_preview(self, kind: str, values: dict | None = None) -> dict:
         """Mentre si scrivono le misure di un pezzo nuovo: cosa viene fuori, a parole (quante sbarre e che luce,
@@ -3562,6 +3571,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 recenti.append({'path': str(q), 'name': q.stem, 'folder': str(q.parent),
                                 'assembly': q.suffix == '.steelcad-asm',
                                 'when': _quando(q.stat().st_mtime), 'thumb': _anteprima(q)})
+            else:                               # spostato o cancellato: resta in elenco, si ritrova con «Cerca…» (23/10)
+                recenti.append({'path': str(q), 'name': q.stem, 'folder': str(q.parent),
+                                'assembly': q.suffix == '.steelcad-asm', 'manca': True, 'when': 'spostato o cancellato',
+                                'thumb': _anteprima(q)})
         auto = project_io.autosave_path(_UNSAVED)
         nonsalvato = None
         if auto.exists():
@@ -3569,13 +3582,82 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato)
 
     def impostazioni(self) -> dict:
-        """Le impostazioni che c'erano già, sparse (piegatrice, cartiglio, cartelle), lette in un colpo per la loro
-        finestra (22/10)."""
+        """Le impostazioni in un colpo per la loro finestra: piegatrice, materiale predefinito, cartiglio, cartelle, tema."""
         from app.drawings_service import _leggi_fissi
         cartella = Path.home() / 'Documents' / 'SteelCAD'
         r = self.sheet_rules()
+        imp = _leggi_impostazioni()
         return _ok(bend_default=self.bend_default(), rules=r.get('rules', []), cartiglio=_leggi_fissi(),
-                   cartelle={'lavori': str(cartella), 'libreria': str(cartella / 'Libreria')})
+                   cartelle={'lavori': str(cartella), 'libreria': str(cartella / 'Libreria')},
+                   tema=imp.get('tema', 'scuro'), materiale=imp.get('materiale', 'S235'), materiali=_materiali(),
+                   logo=imp.get('logo') if imp.get('logo') and Path(imp['logo']).is_file() else None)
+
+    def set_impostazioni(self, valori: dict) -> dict:
+        """«Applica» delle Impostazioni (23/10): tutto insieme. Si scrive solo quello che arriva."""
+        from app.drawings_service import FISSI, _leggi_fissi, _scrivi_fissi
+        v = dict(valori or {})
+        imp = _leggi_impostazioni()
+        if 'tema' in v:
+            if v['tema'] not in ('scuro', 'chiaro'):
+                return {'ok': False, 'message': 'Il tema è scuro o chiaro.'}
+            imp['tema'] = v['tema']
+        if 'materiale' in v:
+            if v['materiale'] not in {m['code'] for m in _materiali()}:
+                return {'ok': False, 'message': f'Materiale «{v["materiale"]}» sconosciuto.'}
+            imp['materiale'] = v['materiale']
+        if any(str(v.get(k, '')).strip() for k in ('radius', 'k')):
+            r = self.set_bend_default({'radius': v.get('radius', ''), 'method': 'k', 'k': v.get('k', '')})
+            if not r.get('ok'):
+                return r
+        if any(k in v for k in FISSI):
+            c = _leggi_fissi()
+            c.update({k: str(v[k] or '').strip() for k in FISSI if k in v})
+            _scrivi_fissi(c)
+        try:
+            _scrivi_impostazioni(imp)
+        except OSError as ex:
+            return {'ok': False, 'message': f'Non riesco a salvare le impostazioni: {ex}'}
+        return {'ok': True, 'message': 'Impostazioni salvate.', 'bend_default': self.bend_default()}
+
+    def set_logo(self, path: str | None) -> dict:
+        """Il logo dell'azienda nel cartiglio (PNG o JPG): se ne tiene una copia accanto alle impostazioni, così il
+        file originale si può spostare. None = toglilo."""
+        import shutil
+        imp = _leggi_impostazioni()
+        if not path:
+            imp.pop('logo', None)
+            _scrivi_impostazioni(imp)
+            return {'ok': True, 'message': 'Logo tolto dalle tavole.', 'logo': None}
+        p = Path(path)
+        if p.suffix.lower() not in ('.png', '.jpg', '.jpeg'):
+            return {'ok': False, 'message': 'Il logo va in PNG o JPG.'}
+        try:
+            from PIL import Image
+            with Image.open(p) as im:
+                im.verify()
+        except Exception:  # noqa: BLE001
+            return {'ok': False, 'message': f'{p.name} non si legge come immagine.'}
+        dest = _file_impostazioni().with_name('logo' + p.suffix.lower())
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, dest)
+        imp['logo'] = str(dest)
+        _scrivi_impostazioni(imp)
+        return {'ok': True, 'message': 'Logo messo: compare nel cartiglio di ogni tavola.', 'logo': str(dest)}
+
+    def set_material(self, code: str) -> dict:
+        """Il materiale del pezzo (lamiera e tubi): cambia peso, distinta, cartiglio, nome nel DXF."""
+        if code not in {m['code'] for m in _materiali()}:
+            return {'ok': False, 'message': f'Materiale «{code}» sconosciuto.'}
+
+        def fn():
+            self.doc.material = code
+            for f in self.doc.features:
+                if not isinstance(f, Sketch) and f.get('type') == 'structure':
+                    f['material'] = code
+        r = self._change(f'Materiale {NOMI_MATERIALI.get(code, code)}', fn)
+        if r.get('ok'):
+            r['message'] = f'Materiale: {NOMI_MATERIALI.get(code, code)}.'
+        return r
 
     def set_cartiglio(self, valori: dict) -> dict:
         from app.drawings_service import FISSI, _scrivi_fissi
@@ -3642,6 +3724,18 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return _ok(state=self.state())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+    def recent_ritrovato(self, vecchio: str, nuovo: str) -> dict:
+        """Un lavoro dei recenti spostato: al suo posto nell'elenco va il file indicato."""
+        q = Path(nuovo).resolve()
+        _write_recent([str(q) if p == str(Path(vecchio)) else p for p in _read_recent() if p != str(q)])
+        try:
+            vecchia, nuova = _file_anteprima(Path(vecchio)), _file_anteprima(q)
+            if vecchia.exists() and not nuova.exists():
+                nuova.write_bytes(vecchia.read_bytes())
+        except OSError:
+            pass
+        return self.home_info()
 
     def forget_recent(self, path: str) -> dict:
         _write_recent([p for p in _read_recent() if p != str(Path(path))])
@@ -3942,6 +4036,40 @@ def _read_recent() -> list:
         return [str(x) for x in v if isinstance(x, str)]
     except (OSError, ValueError):
         return []
+
+
+# i nomi dei materiali come si dicono in officina (23/10: ogni pezzo nasceva S235 e non si poteva cambiare)
+NOMI_MATERIALI = {'S235': 'Ferro S235', 'S275': 'Ferro S275', 'S355': 'Ferro S355', 'DC01': 'Ferro DC01 (laminato a freddo)',
+                  'DX51D': 'Zincato DX51D', 'AISI304': 'Inox 304', 'AISI316L': 'Inox 316L', 'AL6082': 'Alluminio 6082',
+                  'AL5754': 'Alluminio 5754'}
+
+
+def _materiali() -> list:
+    from cad_engine import materials
+    return [{'code': c, 'nome': NOMI_MATERIALI.get(c, m.description), 'densita': m.density_g_cm3}
+            for c, m in materials.CATALOG.items()]
+
+
+def _file_impostazioni() -> Path:
+    return _recent_file().with_name('impostazioni.json')
+
+
+def _leggi_impostazioni() -> dict:
+    """Tema e materiale predefinito: in un file accanto ai recenti. La memoria della finestra si svuota a ogni avvio
+    di Radius installato (23/10: il tema chiaro tornava scuro)."""
+    import json
+    try:
+        d = json.loads(_file_impostazioni().read_text(encoding='utf-8'))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _scrivi_impostazioni(d: dict) -> None:
+    import json
+    f = _file_impostazioni()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding='utf-8')
 
 
 def _write_recent(lista: list) -> None:

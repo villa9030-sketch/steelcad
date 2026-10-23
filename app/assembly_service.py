@@ -46,13 +46,60 @@ class AssemblyMixin:
         self._asm_ritorno = None
         self.path = Path(path) if path else None
         self.blank = False
+        self.asm_ritrovati, self._asm_cercati = [], set()
         self._asm_reload()
         self.scene_version += 1
+
+    def _ritrova_pezzo(self, vecchio: str, cartelle_prima=()) -> str | None:
+        """Un pezzo che non è più dove l'assieme l'aveva lasciato (spostato a mano, 23/10): lo si cerca per nome
+        nelle cartelle dove ne sono già stati ritrovati altri, accanto all'assieme e sotto, poi in Documenti\\SteelCAD.
+        Se ce n'è più d'uno con quel nome non si tira a indovinare."""
+        nome = Path(vecchio).name
+        luoghi = [Path(c) for c in cartelle_prima]
+        if self.path:
+            luoghi.append(Path(self.path).parent)
+        luoghi.append(Path.home() / 'Documents' / 'SteelCAD')
+        visti = set()
+        for base in luoghi:
+            try:
+                if not base.is_dir() or str(base) in visti:
+                    continue
+                visti.add(str(base))
+                if (base / nome).is_file():
+                    return str((base / nome).resolve())
+                trovati = {str(x.resolve()) for _, x in zip(range(50), base.rglob(nome)) if x.is_file()}
+            except OSError:
+                continue
+            if len(trovati) == 1:
+                return trovati.pop()
+            if len(trovati) > 1:
+                return None
+        return None
+
+    def _sposta_pezzo(self, vecchio: str, nuovo: str):
+        for i in self.asm.instances:
+            if i['file'] == vecchio:
+                i['file'] = nuovo
+        self.asm_ritrovati = list(getattr(self, 'asm_ritrovati', [])) + [{'name': Path(nuovo).stem, 'folder': str(Path(nuovo).parent)}]
+        self.asm_dirty = True
 
     def _asm_reload(self):
         """Rilegge i pezzi (solo quelli cambiati) e rimette a posto le istanze."""
         t0 = time.perf_counter()
         self.asm_errors = []
+        # i pezzi spostati si ritrovano da soli; quelli che non si trovano restano in elenco, con «Cerca…»
+        cercati = getattr(self, '_asm_cercati', set())
+        cartelle = []
+        for f in dict.fromkeys(i['file'] for i in self.asm.instances):
+            if Path(f).exists() or f in cercati:
+                continue
+            nuovo = self._ritrova_pezzo(f, cartelle)
+            if nuovo:
+                self._sposta_pezzo(f, nuovo)
+                cartelle.insert(0, str(Path(nuovo).parent))
+            else:
+                cercati.add(f)
+        self._asm_cercati = cercati
         parti = {}
         for i in self.asm.instances:
             if i['file'] in parti:
@@ -71,6 +118,27 @@ class AssemblyMixin:
 
     def _asm_ids(self, parti):
         return {i['id'] for i in self.asm.instances if i['file'] in parti}
+
+    def asm_ritrova_in(self, vecchio: str, nuovo: str) -> dict:
+        """Il pezzo mancante indicato a mano (Cerca…): si usa quel file, e gli altri mancanti si cercano per nome nella
+        stessa cartella (di solito sono stati spostati tutti insieme)."""
+        q = Path(nuovo)
+        if not q.is_file():
+            return {'ok': False, 'message': f'{q.name} non c’è.'}
+        self.asm_ritrovati = []
+        self._sposta_pezzo(vecchio, str(q.resolve()))
+        for f in dict.fromkeys(i['file'] for i in self.asm.instances):
+            if not Path(f).exists() and (q.parent / Path(f).name).is_file():
+                self._sposta_pezzo(f, str((q.parent / Path(f).name).resolve()))
+        self._asm_cercati = set()
+        self._asm_reload()
+        self.scene_version += 1
+        n = len(self.asm_ritrovati)
+        self.asm_ritrovati = []                     # li hai indicati tu: non sono «ritrovati da solo»
+        r = _ok(state=self.state())
+        r['message'] = (f'Ritrovat{"o" if n == 1 else "i"} {n} pezz{"o" if n == 1 else "i"}: salva l’assieme per ricordare '
+                        'dove stanno adesso.')
+        return r
 
     def new_assembly(self, name: str = 'Assieme') -> dict:
         self._asm_set(A.Assembly(name or 'Assieme'))
@@ -1035,6 +1103,9 @@ class AssemblyMixin:
                 'geo': forma, 'poses': pose,
                 'dirty': self.asm_dirty, 'undo': [x[0] for x in self.asm_undo[-1:]], 'redo': [x[0] for x in self.asm_redo[-1:]],
                 'tree': tree, 'parameters': [], 'errors': self.asm_errors, 'warnings': avvisi,
+                'mancanti': [{'file': f, 'name': Path(f).stem, 'n': sum(1 for i in asm.instances if i['file'] == f)}
+                             for f in dict.fromkeys(i['file'] for i in asm.instances) if f not in self.asm_parts],
+                'ritrovati': list(getattr(self, 'asm_ritrovati', [])),
                 'bom': bom, 'bom_kg': totale, 'cutlist': {'rows': [], 'totals': [], 'pieces': 0, 'kg': 0},
                 'info': {'rebuild_ms': round(getattr(self, 'asm_ms', 0), 1), 'rebuilt': len(self.asm_parts), 'cached': 0,
                          'material': '—'},
