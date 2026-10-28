@@ -5,6 +5,8 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 import { Line2 } from './vendor/lines/Line2.js';
 import { LineGeometry } from './vendor/lines/LineGeometry.js';
 import { LineMaterial } from './vendor/lines/LineMaterial.js';
+import { LineSegments2 } from './vendor/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from './vendor/lines/LineSegmentsGeometry.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -195,6 +197,7 @@ function buildScene(sc) {
   for (const g of ctxGeo) g.dispose();
   ctxGeo = [];
   model.clear(); objs.clear();
+  if (saldGroup) model.add(saldGroup);             // le saldature restano sul pezzo
   for (const d of sc.objects) {
     if (d.kind === 'context') {
       const g = new THREE.BufferGeometry();
@@ -348,9 +351,9 @@ function dressTool(kind) {
   paint();
 }
 function dressHelp() {
-  const n = DRESS.scelti.length, nome = DRESS.kind === 'fillet' ? 'Raccordo' : 'Smusso';
-  setHelp(`${nome}: clic sugli spigoli da ${DRESS.kind === 'fillet' ? 'arrotondare' : 'smussare'} (si accendono)` +
-    (n ? ` · ${n} scelt${n === 1 ? 'o' : 'i'}: Invio per la misura` : '') + ' · Esc annulla');
+  const n = DRESS.scelti.length, nome = { fillet: 'Raccordo', chamfer: 'Smusso', weld: 'Saldatura' }[DRESS.kind];
+  setHelp(`${nome}: clic sugli spigoli da ${{ fillet: 'arrotondare', chamfer: 'smussare', weld: 'saldare' }[DRESS.kind]} (si accendono)` +
+    (n ? ` · ${n} scelt${n === 1 ? 'o' : 'i'}: Invio per ${DRESS.kind === 'weld' ? 'tipo e misura' : 'la misura'}` : '') + ' · Esc annulla');
 }
 function pickBodyEdge(ev) {                          // lo spigolo del pezzo sotto il mouse, e il punto più vicino
   const o = objs.get('body');
@@ -398,8 +401,28 @@ function dressClick(ev) {
   if (i >= 0) DRESS.scelti.splice(i, 1); else DRESS.scelti.push(h);
   dressHelp(); dressDraw();
 }
+let ultimaSaldatura = { tipo: 'angolo', a: '4' };
 function dressFine() {
   if (!DRESS?.scelti.length) { toast('Scegli almeno uno spigolo.', 'err'); return; }
+  if (DRESS.kind === 'weld') {                     // saldatura: tipo e misura, poi sul pezzo e in distinta
+    const punti = DRESS.scelti.map(c => c.p), q = ultimaSaldatura;
+    modal(`<h3>Saldatura su ${punti.length} spigol${punti.length === 1 ? 'o' : 'i'}</h3>
+      <div class="form"><label>Tipo<select class="field" id="sw-tipo">${[['angolo', 'D’angolo (a gola)'], ['V', 'Di testa a V'], ['I', 'Di testa a I']].map(([v, t]) =>
+        `<option value="${v}"${q.tipo === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Misura<span class="inp"><input class="field" id="sw-a" value="${esc(q.a)}" placeholder="es. 4"><i>mm</i></span></label></div>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div>`, close => {
+      $('#m-no').onclick = close;
+      const vai = () => {
+        ultimaSaldatura = { tipo: $('#sw-tipo').value, a: $('#sw-a').value.trim() };
+        close(); dressTool(null);
+        inCoda(async () => { const r = await call('add_saldatura', punti, ultimaSaldatura); await apply(r, r.message); });
+      };
+      $('#m-ok').onclick = vai;
+      $('#sw-a').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+      $('#sw-a').select();
+    });
+    return;
+  }
   const kind = DRESS.kind, punti = DRESS.scelti.map(c => c.p), ultimo = DRESS.ultimo || (kind === 'fillet' ? '5' : '1');
   modal(`<h3>${kind === 'fillet' ? 'Raccordo' : 'Smusso'} su ${punti.length} spigol${punti.length === 1 ? 'o' : 'i'}</h3>
     <div class="form"><label>${kind === 'fillet' ? 'Raggio' : 'Misura (a 45°)'}<span class="inp"><input class="field" id="dr-v" value="${esc(ultimo)}"><i>mm</i></span></label><span></span></div>
@@ -963,7 +986,8 @@ function buildDims() {
   dimEls = [];
   if (!showDims || !S) return;
   // con uno sketch aperto si vedono solo le sue quote, sfalsate nel suo piano (non verso di te)
-  const lista = S.dimensions.filter(d => (SK ? d.sketch === SK.sid : !d.local));
+  // le quote ripetute (le copie di una serie) una volta sola: «10 ×300»
+  const lista = S.dimensions.filter(d => (SK ? d.sketch === SK.sid : !d.local) && !d.in_gruppo);
   const box = new THREE.Box3();
   if (SK) SK.v.points.filter(p => p.id !== 'O').forEach(p => box.expandByPoint(v3(p.xyz)));
   if (box.isEmpty()) box.setFromObject(model);
@@ -987,9 +1011,10 @@ function buildDims() {
     }
     const el = document.createElement('div');
     el.className = 'dim' + (d.type === 'diameter' || d.type === 'radius' ? ' dia' : '') + (d.driven ? ' rif' : '');
-    el.innerHTML = (d.param ? `<span class="p">${esc(d.param)}</span>` : '') + esc(d.label);
+    el.innerHTML = (d.param ? `<span class="p">${esc(d.param)}</span>` : '') + esc(d.label) + (d.gruppo ? `<span class="n">×${d.gruppo.length}</span>` : '');
     el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
-      : d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla` : 'Clicca per cambiare la quota';
+      : d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla`
+      : d.gruppo ? `La stessa quota su ${d.gruppo.length} elementi uguali: cambiandola si cambiano tutti` : 'Clicca per cambiare la quota';
     el.addEventListener('click', ev => { ev.stopPropagation(); if (d.driven) toast(el.title); else editDim(el, d); });
     // tasto destro: la quota si toglie (la misura torna libera, il disegno resta dov'è)
     el.title += ' · tasto destro: togli la quota';
@@ -1040,14 +1065,31 @@ function quoteIngombro() {
     dimEls.push({ el, d: null, at: pa.clone().add(pb).multiplyScalar(0.5) });
   }
 }
+// 24/10: le etichette si spostano con «translate» (lo fa la scheda video, senza rifare l'impaginazione della pagina)
+// e solo se si sono mosse; con tante quote (una serie di 300 fori: 600 etichette) mentre giri la vista si nascondono
+// e tornano appena ti fermi
+let inMoto = false;
+controls.addEventListener('start', () => { inMoto = true; });
+controls.addEventListener('end', () => { inMoto = false; ridisegna(); });
+const _pv = new THREE.Vector3();
 function placeDims() {
   const w = view.clientWidth, h = view.clientHeight;
-  for (const { el, at } of [...dimEls, ...nodeEls, ...(misEls || [])]) {
-    const p = at.clone().project(camera);
+  const tante = dimEls.length + nodeEls.length + (misEls?.length || 0) > 150;
+  const via = inMoto && tante;
+  // i contenitori presi così: placeDims può girare prima che il resto del file abbia dichiarato nodesBox e misBox
+  for (const box of [dimsBox, $('#nodes'), $('#mis-box')]) if (box) box.style.visibility = via ? 'hidden' : '';
+  if (via) return;
+  for (const o of [...dimEls, ...nodeEls, ...(misEls || [])]) {
+    const p = _pv.copy(o.at).project(camera), el = o.el;
     const fuori = p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1;
-    el.style.display = fuori ? 'none' : '';
-    el.style.left = ((p.x + 1) / 2 * w) + 'px';
-    el.style.top = ((1 - p.y) / 2 * h) + 'px';
+    if (o.fuori !== fuori) { el.style.display = fuori ? 'none' : ''; o.fuori = fuori; }
+    if (fuori) continue;
+    const x = Math.round((p.x + 1) / 2 * w * 2) / 2, y = Math.round((1 - p.y) / 2 * h * 2) / 2;
+    if (o.x !== x || o.y !== y) {
+      if (o.x === undefined) { el.style.left = '0px'; el.style.top = '0px'; }
+      el.style.translate = `${x}px ${y}px`;
+      o.x = x; o.y = y;
+    }
   }
   // le frecce: a 70 px dal pallino, nella direzione in cui va il tubo vista sullo schermo
   for (const { el, at, v } of frecceEls) {
@@ -1528,6 +1570,7 @@ function azione(id) {
     case 'sagoma': inCoda(sagomaNuova); return;
     case 'raccordo3d': dressTool('fillet'); return;
     case 'smusso3d': dressTool('chamfer'); return;
+    case 'saldatura3d': dressTool('weld'); return;
     default: return;
   }
 }
@@ -2509,16 +2552,20 @@ function misCandidati() {
   }
   return out;
 }
-function misStart() {
+// angolo (24/10): tre clic, un punto su un lato, il vertice, un punto sull'altro lato
+const gradiTra = (a, v, b) => THREE.MathUtils.radToDeg(a.clone().sub(v).angleTo(b.clone().sub(v)));
+function misStart(angolo = false) {
   if (SK) { toast('Nel disegno c’è già la Quota del disegno (tasto D).'); return; }
-  MIS = { a: null, cand: misCandidati(), hover: null };
-  document.querySelectorAll('[data-cmd="misura"]').forEach(b => b.classList.add('on'));
-  setHelp('Quota: clic sul primo punto (vertice, metà, centro) e sul secondo · clic sul bordo di un foro = diametro · tasto destro su una quota per toglierla · Esc finisce');
+  if (MIS) misStop();
+  MIS = { a: null, cand: misCandidati(), hover: null, angolo, pts: [] };
+  document.querySelectorAll(`[data-cmd="${angolo ? 'misura_angolo' : 'misura'}"]`).forEach(b => b.classList.add('on'));
+  setHelp(angolo ? 'Angolo: clic su un punto del primo lato, poi sul vertice, poi su un punto dell’altro lato · tasto destro su una misura per toglierla · Esc finisce'
+    : 'Quota: clic sul primo punto (vertice, metà, centro) e sul secondo · clic sul bordo di un foro = diametro · tasto destro su una quota per toglierla · Esc finisce');
   $('#sk-foot').hidden = false;
 }
 function misStop() {
   MIS = null;
-  document.querySelectorAll('[data-cmd="misura"]').forEach(b => b.classList.remove('on'));
+  document.querySelectorAll('[data-cmd="misura"], [data-cmd="misura_angolo"]').forEach(b => b.classList.remove('on'));
   misSnap.style.display = 'none';
   setHelp(''); if (!SK && !DRESS) $('#sk-foot').hidden = true;
   disegnaMisure();
@@ -2560,7 +2607,9 @@ function misMove(ev) {
     misSnap.style.display = 'block';
     misSnap.style.left = ((q.x + 1) / 2 * r.width) + 'px'; misSnap.style.top = ((1 - q.y) / 2 * r.height) + 'px';
     misSnap.className = 'mis-' + (h.tipo === 'metà' ? 'meta' : h.tipo);
-    tip.textContent = MIS.a ? `${num(MIS.a.p.distanceTo(h.p), 2)} mm · ${NOMI_AGGANCIO[h.tipo]}` : NOMI_AGGANCIO[h.tipo];
+    tip.textContent = MIS.angolo ? (MIS.pts.length === 2 ? `${num(gradiTra(MIS.pts[0], MIS.pts[1], h.p), 1)}° · ${NOMI_AGGANCIO[h.tipo]}`
+        : `${['primo lato', 'vertice'][MIS.pts.length]} · ${NOMI_AGGANCIO[h.tipo]}`)
+      : MIS.a ? `${num(MIS.a.p.distanceTo(h.p), 2)} mm · ${NOMI_AGGANCIO[h.tipo]}` : NOMI_AGGANCIO[h.tipo];
     tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 14) + 'px'; tip.style.display = 'block';
   } else { misSnap.style.display = 'none'; tip.style.display = 'none'; }
   disegnaMisure();
@@ -2568,6 +2617,17 @@ function misMove(ev) {
 function misClick(ev) {
   const h = MIS.hover || misTrova(ev);
   if (!h) return;
+  if (MIS.angolo) {
+    if (MIS.pts.length && h.p.distanceTo(MIS.pts[MIS.pts.length - 1]) < 1e-6) return;
+    MIS.pts.push(h.p.clone());
+    if (MIS.pts.length === 3) {
+      const [a, v, b] = MIS.pts;
+      quoteDi().push({ a: a.toArray(), v: v.toArray(), b: b.toArray(), testo: num(gradiTra(a, v, b), 1) + '°' });
+      salvaQuote();
+      MIS.pts = [];
+    }
+    disegnaMisure(); return;
+  }
   if (h.tipo === 'cerchio' && !MIS.a) {
     const lontano = h.giro.reduce((m, q) => (q.distanceTo(h.giro[0]) > m.distanceTo(h.giro[0]) ? q : m), h.giro[0]);
     quoteDi().push({ a: h.giro[0].toArray(), b: lontano.toArray(), testo: 'Ø' + num(2 * h.r, 2) });
@@ -2587,9 +2647,9 @@ function disegnaMisure() {
   misBox.innerHTML = ''; misEls = [];
   const lista = SK ? [] : quoteDi();
   lista.forEach((q, k) => {
-    const a = new THREE.Vector3(...q.a), b = new THREE.Vector3(...q.b);
-    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), MIS_MAT); l.renderOrder = 30; misGroup.add(l);
-    for (const p of [a, b]) {
+    const a = new THREE.Vector3(...q.a), b = new THREE.Vector3(...q.b), v = q.v ? new THREE.Vector3(...q.v) : null;
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(v ? [a, v, b] : [a, b]), MIS_MAT); l.renderOrder = 30; misGroup.add(l);
+    for (const p of v ? [a, v, b] : [a, b]) {
       const g = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.6, modelRadius * 0.004), 10, 8), new THREE.MeshBasicMaterial({ color: 0xFFB000, depthTest: false }));
       g.position.copy(p); g.renderOrder = 30; misGroup.add(g);
     }
@@ -2597,8 +2657,15 @@ function disegnaMisure() {
     el.className = 'dim mis'; el.textContent = q.testo; el.title = (q.dett ? q.dett + '\n' : '') + 'Tasto destro: togli questa quota';
     el.oncontextmenu = ev => { ev.preventDefault(); quoteDi().splice(k, 1); salvaQuote(); disegnaMisure(); };
     misBox.appendChild(el);
-    misEls.push({ el, at: a.clone().add(b).multiplyScalar(0.5) });
+    // l'angolo: la scritta sulla bisettrice, vicino al vertice
+    const at = v ? v.clone().addScaledVector(a.clone().sub(v).normalize().add(b.clone().sub(v).normalize()).normalize(),
+      Math.min(a.distanceTo(v), b.distanceTo(v)) * 0.35) : a.clone().add(b).multiplyScalar(0.5);
+    misEls.push({ el, at });
   });
+  if (MIS?.angolo && MIS.pts.length && MIS.hover) {
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([...MIS.pts, MIS.hover.p]), MIS_RUB);
+    l.computeLineDistances(); l.renderOrder = 30; misGroup.add(l);
+  }
   if (MIS?.a && MIS.hover) {
     const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([MIS.a.p, MIS.hover.p]), MIS_RUB);
     l.computeLineDistances(); l.renderOrder = 30; misGroup.add(l);
@@ -2608,7 +2675,7 @@ function disegnaMisure() {
 function misTogliTutte() { quoteDi().length = 0; salvaQuote(); disegnaMisure(); }
 document.addEventListener('keydown', ev => {
   if (!MIS || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
-  if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); if (MIS.a) { MIS.a = null; disegnaMisure(); } else misStop(); }
+  if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); if (MIS.a || MIS.pts?.length) { MIS.a = null; MIS.pts = []; disegnaMisure(); } else misStop(); }
 }, true);
 
 // ===================================================================== tavole
@@ -2616,11 +2683,31 @@ document.addEventListener('keydown', ev => {
 // La tavola nasce automatica; qui la ritocchi col mouse: sposti le viste, clicchi una quota per spostarla, cambiarne il
 // testo o nasconderla, aggiungi quote (due punti) e note, scegli l'altezza dei testi e cosa va nel cartiglio. I ritocchi
 // si salvano nel progetto (con Annulla) e restano anche se il pezzo cambia.
+// il simbolo di saldatura: tipo, misura, lunghezza, lato, tutto intorno, in opera (ISO 2553)
+function saldaturaDialog(q, fatto) {
+  const tipi = [['angolo', 'D’angolo (a gola)'], ['V', 'Di testa a V'], ['I', 'Di testa a I (lembi dritti)']];
+  modal(`<h3>Saldatura</h3>
+    <label class="te-riga">Tipo<select class="field" id="sd-tipo">${tipi.map(([v, t]) => `<option value="${v}"${q.tipo === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label class="te-riga">Misura<span class="te-mm"><input class="field" id="sd-a" value="${esc(q.a || '')}" placeholder="a gola, es. 4"><i>mm</i></span></label>
+    <label class="te-riga">Lunghezza<input class="field" id="sd-l" value="${esc(q.l || '')}" placeholder="vuoto = tutto il giunto"></label>
+    <label class="te-riga">Lato<select class="field" id="sd-lato"><option value="freccia"${q.lato !== 'altro' ? ' selected' : ''}>dalla parte della freccia</option><option value="altro"${q.lato === 'altro' ? ' selected' : ''}>dalla parte opposta</option></select></label>
+    <label class="check"><input type="checkbox" id="sd-giro"${q.giro ? ' checked' : ''}> Tutto intorno</label>
+    <label class="check"><input type="checkbox" id="sd-opera"${q.opera ? ' checked' : ''}> In opera (in cantiere)</label>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti</button></div>`, close => {
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const r = { tipo: $('#sd-tipo').value, a: $('#sd-a').value.trim(), l: $('#sd-l').value.trim(), lato: $('#sd-lato').value,
+        giro: $('#sd-giro').checked, opera: $('#sd-opera').checked };
+      close(); fatto(r);
+    };
+    setTimeout(() => $('#sd-a').focus(), 30);
+  });
+}
 async function drawingsDialog() {
   const r = await call('drawing_fields');
   if (!r.ok) { toast(r.message, 'err'); return; }
   const c = r.fields;
-  const ED = { fogli: [], k: 0, sel: null, strumento: 'sel', punto1: null, modificabili: true };
+  const ED = { fogli: [], k: 0, sel: null, strumento: 'sel', punto1: null, modificabili: true, vb: null, ang: [], sald: null };
   const box = document.createElement('div');
   box.id = 'tav-ed';
   const campo = (k, l) => `<label class="te-riga">${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
@@ -2628,6 +2715,8 @@ async function drawingsDialog() {
     `<option value="${esc(v)}"${String(c[k] ?? opz[0][0]) === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
   const mostraDi = c.mostra || r.campi_cartiglio.filter(([k, , nuovo]) => !nuovo || String(c[k] || '').trim()).map(([k]) => k);
   box.innerHTML = `<header class="te-testa"><b>Tavole — ${esc(S?.name || '')}</b><div class="te-tabs" id="te-tabs"></div><span class="te-spazio"></span>
+      <span class="hint te-zoom-aiuto">Rotella: zoom · tasto centrale: sposta</span>
+      <button class="btn" id="te-adatta" title="Il foglio intero">Adatta</button>
       <button class="btn" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)">Annulla</button>
       <button class="btn" id="te-dxf">Esporta DXF</button><button class="btn primary" id="te-pdf">Esporta PDF</button>
       <button class="btn" id="te-chiudi">Chiudi</button></header>
@@ -2636,6 +2725,9 @@ async function drawingsDialog() {
         <button data-str="sel" class="on" title="Clicca una vista, una quota o una nota; trascina per spostarla"><img src="icons/select.svg" alt=""><span>Seleziona</span></button>
         <button data-str="quota" title="Una quota nuova: clicca due punti della stessa vista (si agganciano agli spigoli). Maiusc = inclinata"><img src="icons/dimension.svg" alt=""><span>Quota</span></button>
         <button data-str="nota" title="Una nota: clicca dove va e scrivi"><img src="icons/text.svg" alt=""><span>Nota</span></button>
+        <button data-str="diametro" title="Diametro o raggio: clicca un cerchio o un arco di una vista, dove vuoi la scritta"><img src="icons/hole.svg" alt=""><span>Ø / R</span></button>
+        <button data-str="angolo" title="Angolo: clicca un punto su un lato, il vertice, un punto sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button>
+        <button data-str="saldatura" title="Saldatura: clicca il giunto (la punta della freccia), poi dove va il simbolo"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button>
       </nav>
       <main class="te-foglio" id="te-foglio"><p class="hint">Preparo la tavola…</p></main>
       <aside class="te-lato">
@@ -2648,9 +2740,11 @@ async function drawingsDialog() {
           ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi</label>' : ''}
         </details>
         <details class="te-sez"><summary>Altezza dei testi</summary>
-          <label class="te-riga">Quote<span class="te-mm"><input class="field" data-t="quote" placeholder="2,8"><i>mm</i></span></label>
-          <label class="te-riga">Note<span class="te-mm"><input class="field" data-t="note" placeholder="3,5"><i>mm</i></span></label>
-          <label class="te-riga">Titoli delle viste<span class="te-mm"><input class="field" data-t="titoli" placeholder="2,5"><i>mm</i></span></label>
+          <label class="te-riga">Quote<span class="te-mm"><input class="field" data-t="quote"><i>mm</i></span></label>
+          <label class="te-riga">Frecce delle quote<span class="te-mm"><input class="field" data-t="frecce"><i>mm</i></span></label>
+          <label class="te-riga">Note<span class="te-mm"><input class="field" data-t="note"><i>mm</i></span></label>
+          <label class="te-riga">Titoli delle viste<span class="te-mm"><input class="field" data-t="titoli"><i>mm</i></span></label>
+          <p class="hint">Vuoto = come la fa il programma. Le frecce seguono il testo, se non scrivi niente.</p>
         </details>
         <details class="te-sez"><summary>Cartiglio</summary>
           ${campo('azienda', 'Azienda')}${campo('disegnatore', 'Disegnatore')}${campo('numero', 'N. disegno')}${campo('revisione', 'Revisione')}
@@ -2674,8 +2768,10 @@ async function drawingsDialog() {
   };
   const tutte = () => !!box.querySelector('#tav-tutte')?.checked;
   const foglio = () => ED.fogli[ED.k];
+  window.__tavole = { ED, foglio };                 // per le prove automatiche
   const rit = () => JSON.parse(JSON.stringify(foglio()?.ritocchi || {}));
   const num = v => { const x = parseFloat(String(v).replace(',', '.')); return isFinite(x) ? x : null; };
+  const mm = v => String(Math.round(v * 10) / 10).replace('.', ',');
 
   // ---- disegno del foglio e selezione
   const svgDi = () => box.querySelector('#te-foglio svg');
@@ -2708,9 +2804,13 @@ async function drawingsDialog() {
     const f = foglio();
     if (!f) return;
     box.querySelector('#te-foglio').innerHTML = f.svg.replace(/width="[\d.]+mm" height="[\d.]+mm"/, 'width="100%" height="100%"');
+    if (ED.vb && ED.vbFoglio === ED.k) svgDi().setAttribute('viewBox', ED.vb.join(' ')); else ED.vb = null;
     box.querySelectorAll('#te-tabs button').forEach((b, i) => b.classList.toggle('on', i === ED.k));
-    const t = f.ritocchi?.testi || {};
-    box.querySelectorAll('[data-t]').forEach(i => { if (document.activeElement !== i) i.value = t[i.dataset.t] != null ? String(t[i.dataset.t]).replace('.', ',') : ''; });
+    const t = f.ritocchi?.testi || {}, k = f.fattore || 1, base = { quote: 2.8, frecce: 2.5, note: 3.5, titoli: 2.5 };
+    box.querySelectorAll('[data-t]').forEach(i => {
+      i.placeholder = mm(base[i.dataset.t] * k * (i.dataset.t === 'frecce' && t.quote ? t.quote / (2.8 * k) : 1));
+      if (document.activeElement !== i) i.value = t[i.dataset.t] != null ? String(t[i.dataset.t]).replace('.', ',') : '';
+    });
     evidenzia(); pannelloSel(); elencoRitocchi();
   };
   const carica = p => {
@@ -2745,16 +2845,18 @@ async function drawingsDialog() {
       const agg = o.aggiunta != null;
       sez.innerHTML = `<h4>${esc(o.label)}</h4>
         <label class="te-riga">Testo<input class="field" id="ts-testo" value="${esc(q.testo || '')}" placeholder="${esc(o.testo)}"></label>
-        <label class="te-riga">Altezza<span class="te-mm"><input class="field" id="ts-h" value="${q.h ? String(q.h).replace('.', ',') : ''}" placeholder="${String(Math.round(o.h * 10) / 10).replace('.', ',')}"><i>mm</i></span></label>
+        <label class="te-riga">Altezza<span class="te-mm"><input class="field" id="ts-h" value="${q.h ? String(q.h).replace('.', ',') : ''}" placeholder="${mm(o.h)}"><i>mm</i></span></label>
+        <label class="te-riga">Frecce<span class="te-mm"><input class="field" id="ts-fr" value="${q.freccia ? String(q.freccia).replace('.', ',') : ''}" placeholder="${mm(o.freccia)}"><i>mm</i></span></label>
         <p class="hint">Trascinala per allontanarla o avvicinarla al pezzo.</p>
         <div class="te-bott">${agg ? '<button class="btn danger" id="ts-via">Togli questa quota</button>' : '<button class="btn" id="ts-via">Nascondi</button>'}
           ${!agg && (R_.quote || {})[o.id] ? '<button class="btn" id="ts-rimetti">Rimetti com’era</button>' : ''}</div>`;
       const cambia = () => { const n = rit(); n.quote = n.quote || {}; const m = n.quote[o.id] || {};
-        const t = $('#ts-testo').value.trim(), h = num($('#ts-h').value);
+        const t = $('#ts-testo').value.trim(), h = num($('#ts-h').value), fr = num($('#ts-fr').value);
         if (t) m.testo = t; else delete m.testo;
         if (h) m.h = h; else delete m.h;
+        if (fr) m.freccia = fr; else delete m.freccia;
         n.quote[o.id] = m; salva(n); };
-      $('#ts-testo').onchange = cambia; $('#ts-h').onchange = cambia;
+      $('#ts-testo').onchange = cambia; $('#ts-h').onchange = cambia; $('#ts-fr').onchange = cambia;
       $('#ts-via').onclick = () => { const n = rit();
         if (agg) n.aggiunte.splice(o.aggiunta, 1); else { n.quote = n.quote || {}; n.quote[o.id] = { ...(n.quote[o.id] || {}), via: true }; }
         ED.sel = null; salva(n); };
@@ -2767,11 +2869,23 @@ async function drawingsDialog() {
     } else if (o.kind === 'nota') {
       const nt = (R_.note || [])[o.indice] || {};
       sez.innerHTML = `<h4>Nota</h4><label class="te-riga te-alto">Testo<textarea class="field" id="ts-nota" rows="3">${esc(nt.testo || '')}</textarea></label>
-        <label class="te-riga">Altezza<span class="te-mm"><input class="field" id="ts-h" value="${nt.h ? String(nt.h).replace('.', ',') : ''}" placeholder="3,5"><i>mm</i></span></label>
+        <label class="te-riga">Altezza<span class="te-mm"><input class="field" id="ts-h" value="${nt.h ? String(nt.h).replace('.', ',') : ''}" placeholder="${mm(o.h)}"><i>mm</i></span></label>
         <div class="te-bott"><button class="btn danger" id="ts-via">Togli la nota</button></div>`;
       const cambia = () => { const n = rit(); const m = n.note[o.indice]; m.testo = $('#ts-nota').value; const h = num($('#ts-h').value); if (h) m.h = h; else delete m.h; salva(n); };
       $('#ts-nota').onchange = cambia; $('#ts-h').onchange = cambia;
       $('#ts-via').onclick = () => { const n = rit(); n.note.splice(o.indice, 1); ED.sel = null; salva(n); };
+    } else if (['diametro', 'angolo', 'saldatura'].includes(o.kind)) {
+      const lista = { diametro: 'diametri', angolo: 'angoli', saldatura: 'saldature' }[o.kind], m = (R_[lista] || [])[o.indice] || {};
+      sez.innerHTML = `<h4>${esc(o.label)}</h4>
+        ${o.kind === 'diametro' ? `<div class="seg" id="ts-tipo">${[['Ø', 'Diametro'], ['R', 'Raggio']].map(([v, t]) => `<button type="button" data-v="${v}" class="${(m.tipo || 'Ø') === v ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+        ${o.kind !== 'saldatura' ? `<label class="te-riga">Testo<input class="field" id="ts-testo" value="${esc(m.testo || '')}" placeholder="automatico"></label>` : ''}
+        <p class="hint">${o.kind === 'saldatura' ? 'Trascinalo per spostare il simbolo (la freccia resta sul giunto).' : 'Trascinala per spostarla.'}</p>
+        <div class="te-bott">${o.kind === 'saldatura' ? '<button class="btn" id="ts-modifica">Cambia…</button>' : ''}<button class="btn danger" id="ts-via">Togli</button></div>`;
+      const cambia = f => { const n = rit(); f(n[lista][o.indice]); salva(n); };
+      if ($('#ts-tipo')) $('#ts-tipo').querySelectorAll('button').forEach(b => { b.onclick = () => cambia(x => { x.tipo = b.dataset.v; }); });
+      if ($('#ts-testo')) $('#ts-testo').onchange = () => cambia(x => { const t = $('#ts-testo').value.trim(); if (t) x.testo = t; else delete x.testo; });
+      if ($('#ts-modifica')) $('#ts-modifica').onclick = () => saldaturaDialog(m, q => cambia(x => Object.assign(x, q)));
+      $('#ts-via').onclick = () => { const n = rit(); n[lista].splice(o.indice, 1); ED.sel = null; salva(n); };
     } else if (o.kind === 'cartiglio') {
       sez.innerHTML = `<h4>Cartiglio</h4><p class="hint">I campi e cosa si vede stanno qui sotto, in «Cartiglio».</p>`;
       const d = box.querySelectorAll('.te-sez')[2]; if (d) d.open = true;
@@ -2783,12 +2897,17 @@ async function drawingsDialog() {
     const righe = [];
     for (const v of Object.keys(R_.viste || {})) righe.push([`${nomi[v] || v} spostata`, n => { delete n.viste[v]; }]);
     for (const [q, m] of Object.entries(R_.quote || {})) {
-      const cosa = m.via ? 'nascosta' : [m.testo ? `testo «${m.testo}»` : '', m.d ? 'spostata' : '', m.h ? `altezza ${m.h}` : ''].filter(Boolean).join(', ');
+      const cosa = m.via ? 'nascosta' : [m.testo ? `testo «${m.testo}»` : '', m.d ? 'spostata' : '', m.h ? `altezza ${mm(m.h)}` : '',
+        m.freccia ? `frecce ${mm(m.freccia)}` : ''].filter(Boolean).join(', ');
       righe.push([`${nomi[q] || 'Quota'}: ${cosa || 'cambiata'}`, n => { delete n.quote[q]; }]);
     }
     (R_.aggiunte || []).forEach((a, i) => righe.push([`Quota aggiunta (${a.vista.replace('vista:', '')})`, n => { n.aggiunte.splice(i, 1); }]));
     (R_.note || []).forEach((a, i) => righe.push([`Nota «${String(a.testo).slice(0, 24)}»`, n => { n.note.splice(i, 1); }]));
-    for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`Testi delle ${k}: ${String(v).replace('.', ',')} mm`, n => { delete n.testi[k]; }]);
+    (R_.diametri || []).forEach((a, i) => righe.push([`${a.tipo === 'R' ? 'Raggio' : 'Diametro'} (${a.vista.replace('vista:', '')})`, n => { n.diametri.splice(i, 1); }]));
+    (R_.angoli || []).forEach((a, i) => righe.push([`Angolo (${a.vista.replace('vista:', '')})`, n => { n.angoli.splice(i, 1); }]));
+    (R_.saldature || []).forEach((a, i) => righe.push([`Saldatura ${a.tipo === 'angolo' ? 'd’angolo' : a.tipo}${a.a ? ' ' + a.a : ''}`, n => { n.saldature.splice(i, 1); }]));
+    const NOMI_T = { quote: 'Testi delle quote', frecce: 'Frecce delle quote', note: 'Testi delle note', titoli: 'Titoli delle viste' };
+    for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`${NOMI_T[k] || k}: ${mm(v)} mm`, n => { delete n.testi[k]; }]);
     const el = box.querySelector('#te-rit');
     el.innerHTML = righe.length ? righe.map(([t], i) => `<div class="te-r"><span>${esc(t)}</span><button class="btn" data-ri="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')
       : '<p class="hint">Nessun ritocco: la tavola è come la fa il programma.</p>';
@@ -2813,9 +2932,69 @@ async function drawingsDialog() {
     c_.setAttribute('class', cls); c_.setAttribute('cx', p[0]); c_.setAttribute('cy', H() - p[1]); c_.setAttribute('r', 1.4);
     svg.appendChild(c_);
   };
+  // zoom e spostamento (24/10): la rotella ingrandisce dove sta il mouse, il tasto centrale sposta il foglio
+  const vbAttuale = () => { const v = svgDi().viewBox.baseVal; return [v.x, v.y, v.width, v.height]; };
+  const vbMetti = vb => { ED.vb = vb; ED.vbFoglio = ED.k; svgDi().setAttribute('viewBox', vb.join(' ')); };
+  let pan = null;
+  foglioEl.addEventListener('wheel', ev => {
+    if (!svgDi()) return;
+    ev.preventDefault();
+    const svg = svgDi(), pt = svg.createSVGPoint();
+    pt.x = ev.clientX; pt.y = ev.clientY;
+    const q = pt.matrixTransform(svg.getScreenCTM().inverse()), [x, y, w, h] = vbAttuale(), W = foglio().size[0];
+    const k = ev.deltaY > 0 ? 1.18 : 1 / 1.18, nw = Math.min(W * 1.6, Math.max(W / 25, w * k)), kk = nw / w;
+    vbMetti([q.x - (q.x - x) * kk, q.y - (q.y - y) * kk, w * kk, h * kk]);
+  }, { passive: false });
+  foglioEl.addEventListener('auxclick', ev => { if (ev.button === 1) ev.preventDefault(); });
   foglioEl.addEventListener('mousedown', ev => {
-    if (!svgDi() || ev.button !== 0) return;
+    if (!svgDi()) return;
+    if (ev.button === 1) { ev.preventDefault(); pan = { x: ev.clientX, y: ev.clientY, vb: vbAttuale(), s: svgDi().getScreenCTM().a }; return; }
+    if (ev.button !== 0) return;
     const p = aFoglio(ev);
+    const kf = foglio().fattore || 1;
+    const inVista = (v, q) => { const [s_, tx, ty] = v.T; return [(q[0] - tx) / s_, (q[1] - ty) / s_]; };
+    if (ED.strumento === 'diametro') {
+      let best = null;
+      for (const v of foglio().oggetti) {
+        if (v.kind !== 'vista' || v.id === 'vista:iso') continue;
+        for (const c of v.cerchi || []) {
+          const d = Math.abs(Math.hypot(p[0] - c.c[0], p[1] - c.c[1]) - c.r);
+          if (d < 3 && (!best || d < best.d)) best = { d, c, v };
+        }
+      }
+      if (!best) { toast('Clicca sul bordo di un cerchio o di un arco di una vista.'); return; }
+      const s_ = best.v.T[0], ang = Math.atan2(p[1] - best.c.c[1], p[0] - best.c.c[0]) * 180 / Math.PI;
+      const n = rit(); n.diametri = n.diametri || [];
+      n.diametri.push({ vista: best.v.id, c: inVista(best.v, best.c.c), r: best.c.r / s_, tipo: best.c.chiuso ? 'Ø' : 'R', ang, d: 10 * kf });
+      salva(n); return;
+    }
+    if (ED.strumento === 'angolo') {
+      const a = aggancia(p, ED.ang[0]?.vista.id);
+      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
+      ED.ang.push(a); segno(a.p, 'te-p1');
+      if (ED.ang.length < 3) return;
+      const [A, V, B] = ED.ang, v = V.vista;
+      ED.ang = []; segno(null, 'te-p1');
+      const n = rit(); n.angoli = n.angoli || [];
+      n.angoli.push({ vista: v.id, a: inVista(v, A.p), v: inVista(v, V.p), b: inVista(v, B.p), r: 15 * kf });
+      salva(n); return;
+    }
+    if (ED.strumento === 'saldatura') {
+      if (!ED.sald) {
+        const a = aggancia(p) || (() => {                 // anche un punto qualsiasi dentro una vista
+          const v = foglio().oggetti.find(o => o.kind === 'vista' && p[0] >= o.bbox[0] && p[0] <= o.bbox[2] && p[1] >= o.bbox[1] && p[1] <= o.bbox[3]);
+          return v ? { p, vista: v } : null; })();
+        if (!a) { toast('Clicca il giunto dentro una vista: lì va la punta della freccia.'); return; }
+        ED.sald = a; segno(a.p, 'te-p1'); return;
+      }
+      const a = ED.sald; ED.sald = null; segno(null, 'te-p1');
+      saldaturaDialog({ tipo: 'angolo', a: '', l: '', lato: 'freccia', giro: false, opera: false }, q => {
+        const n = rit(); n.saldature = n.saldature || [];
+        n.saldature.push({ vista: a.vista.id, p: inVista(a.vista, a.p), dx: p[0] - a.p[0], dy: p[1] - a.p[1], ...q });
+        salva(n);
+      });
+      return;
+    }
     if (ED.strumento === 'quota') {
       const a = aggancia(p, ED.punto1?.vista.id);
       if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
@@ -2831,9 +3010,10 @@ async function drawingsDialog() {
       const fuori = ((A[0] + B2[0]) / 2 - (x0 + x1) / 2) * nx + ((A[1] + B2[1]) / 2 - (y0 + y1) / 2) * ny >= 0 ? 1 : -1;
       // e non sopra un'altra quota: si allontana finché trova posto libero
       const mx = (A[0] + B2[0]) / 2, my = (A[1] + B2[1]) / 2, quote = foglio().oggetti.filter(o => o.kind === 'quota');
-      let d = 8;
-      while (d < 60 && quote.some(o => { const [a0, b0, a1, b1] = o.bbox, x = mx + nx * d * fuori, y = my + ny * d * fuori;
-        return x > a0 - 2 && x < a1 + 2 && y > b0 - 2 && y < b1 + 2; })) d += 6;
+      const kf = foglio().fattore || 1;
+      let d = 8 * kf;
+      while (d < 60 * kf && quote.some(o => { const [a0, b0, a1, b1] = o.bbox, x = mx + nx * d * fuori, y = my + ny * d * fuori;
+        return x > a0 - 2 * kf && x < a1 + 2 * kf && y > b0 - 2 * kf && y < b1 + 2 * kf; })) d += 6 * kf;
       const n = rit(); n.aggiunte = n.aggiunte || [];
       n.aggiunte.push({ vista: v.id, a: inV(A), b: inV(B), dir, d: d * fuori });
       salva(n); return;
@@ -2851,12 +3031,19 @@ async function drawingsDialog() {
     const o = oggettoDi(ev.target.closest('[data-el]')?.getAttribute('data-el'));
     ED.sel = o?.id || null;
     evidenzia(); pannelloSel();
-    if (o && ['vista', 'quota', 'nota'].includes(o.kind)) tiro = { o, da: p, ora: p };
+    if (o && ['vista', 'quota', 'nota', 'diametro', 'angolo', 'saldatura'].includes(o.kind)) tiro = { o, da: p, ora: p };
   });
   foglioEl.addEventListener('mousemove', ev => {
     if (!svgDi()) return;
+    if (pan) {
+      const [x, y, w, h] = pan.vb;
+      vbMetti([x - (ev.clientX - pan.x) / pan.s, y - (ev.clientY - pan.y) / pan.s, w, h]);
+      return;
+    }
     const p = aFoglio(ev);
     if (ED.strumento === 'quota') { const a = aggancia(p, ED.punto1?.vista.id); segno(a?.p || null); return; }
+    if (ED.strumento === 'angolo') { const a = aggancia(p, ED.ang[0]?.vista.id); segno(a?.p || null); return; }
+    if (ED.strumento === 'saldatura' && !ED.sald) { const a = aggancia(p); segno(a?.p || null); return; }
     if (!tiro) return;
     tiro.ora = p;
     const dx = p[0] - tiro.da[0], dy = p[1] - tiro.da[1];
@@ -2874,6 +3061,7 @@ async function drawingsDialog() {
     }
   });
   const lascia = () => {
+    pan = null;
     if (!tiro) return;
     const { o, da, ora } = tiro; tiro = null;
     const dx = ora[0] - da[0], dy = ora[1] - da[1];
@@ -2881,6 +3069,15 @@ async function drawingsDialog() {
     const n = rit();
     if (o.kind === 'vista') { n.viste = n.viste || {}; const v = n.viste[o.id] || [0, 0]; n.viste[o.id] = [v[0] + dx, v[1] + dy]; }
     else if (o.kind === 'nota') { const m = n.note[o.indice]; m.x += dx; m.y += dy; }
+    else if (o.kind === 'saldatura') { const m = n.saldature[o.indice]; m.dx += dx; m.dy += dy; }   // si sposta il simbolo, la punta resta
+    else if (o.kind === 'diametro') {                // la scritta va dove lasci il mouse
+      const m = n.diametri[o.indice], [cx, cy] = o.C;
+      m.ang = Math.atan2(ora[1] - cy, ora[0] - cx) * 180 / Math.PI;
+      m.d = Math.max(2, Math.hypot(ora[0] - cx, ora[1] - cy) - o.R);
+    }
+    else if (o.kind === 'angolo') { const m = n.angoli[o.indice], vv = foglio().oggetti.find(x => x.id === m.vista);
+      const [s_, tx, ty] = vv.T, V = [m.v[0] * s_ + tx, m.v[1] * s_ + ty];
+      m.r = Math.max(3, Math.hypot(ora[0] - V[0], ora[1] - V[1])); }
     else if (o.kind === 'quota') {
       const [ax, ay] = o.a, [bx, by] = o.b, L = Math.hypot(bx - ax, by - ay) || 1;
       const k = dx * (-(by - ay) / L) + dy * ((bx - ax) / L);
@@ -2894,7 +3091,7 @@ async function drawingsDialog() {
 
   // ---- strumenti, testi, campi, esporta
   box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => {
-    ED.strumento = b.dataset.str; ED.punto1 = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
+    ED.strumento = b.dataset.str; ED.punto1 = null; ED.ang = []; ED.sald = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
     box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x === b));
     foglioEl.dataset.strumento = ED.strumento;
   }; });
@@ -2912,9 +3109,10 @@ async function drawingsDialog() {
   box.querySelector('#te-pdf').onclick = () => esporta('pdf');
   box.querySelector('#te-dxf').onclick = () => esporta('dxf');
   box.querySelector('#te-chiudi').onclick = chiudi;
+  box.querySelector('#te-adatta').onclick = () => { ED.vb = null; if (svgDi()) svgDi().setAttribute('viewBox', `0 0 ${foglio().size[0]} ${foglio().size[1]}`); };
   function tasti(ev) {
     if (!document.body.contains(box) || !$('#modal').hidden) return;
-    if (ev.key === 'Escape') { if (ED.punto1) { ED.punto1 = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
+    if (ev.key === 'Escape') { if (ED.punto1 || ED.ang.length || ED.sald) { ED.punto1 = null; ED.ang = []; ED.sald = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && ED.sel && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       $('#ts-via')?.click(); ev.preventDefault(); ev.stopPropagation();
     }
@@ -3291,8 +3489,26 @@ function renderMancanti() {
     await apply(r, r.message);
   }); });
 }
+// le saldature segnate sul pezzo: un cordone arancio sugli spigoli (24/10)
+// var: buildScene (più su) li usa, e il file può girare prima di arrivare qui
+var SALD_MAT = new THREE.LineBasicMaterial({ color: 0xE8890C, depthTest: false, transparent: true });
+var saldGroup = new THREE.Group();
+function disegnaSaldature() {
+  SPESSORE.set(SALD_MAT, 5);
+  if (saldGroup.parent !== model) model.add(saldGroup);
+  saldGroup.traverse(x => x.geometry?.dispose()); saldGroup.clear();
+  const tratti = [];
+  for (const w of S?.saldature || []) for (const l of w.linee) {
+    const pts = [];
+    for (let i = 0; i + 2 < l.length; i += 3) pts.push(new THREE.Vector3(l[i], l[i + 1], l[i + 2]));
+    tratti.push([pts, SALD_MAT]);
+  }
+  lineeInBlocco(saldGroup, tratti, 20);
+  ridisegna();
+}
 function renderBottom() {
   renderMancanti();
+  disegnaSaldature();
   const b = S.bom;
   $('#tab-bom').innerHTML = b.length ? `<table class="grid"><thead><tr><th>Codice</th><th>Descrizione</th><th class="n">Q.tà</th>
     <th>Materiale</th><th>Profilo / spessore</th><th class="n">Peso cad. kg</th><th class="n">Peso tot. kg</th></tr></thead><tbody>
@@ -3301,6 +3517,17 @@ function renderBottom() {
       <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
     <tr class="tot"><td colspan="6">Totale</td><td class="n">${kg(S.bom_kg)}</td></tr></tbody></table>`
     : '<p class="empty">Il progetto è vuoto.</p>';
+  const sw = S.saldature || [];
+  if (sw.length) {                                 // le saldature: per tipo e misura, coi metri
+    const nome = w => w.tipo === 'angolo' ? `d’angolo${w.a ? ' a' + w.a : ''}` : `di testa a ${w.tipo}${w.a ? ' s' + w.a : ''}`;
+    const tot = {};
+    for (const w of sw) tot[nome(w)] = (tot[nome(w)] || 0) + w.m;
+    $('#tab-bom').insertAdjacentHTML('beforeend', `<h4 style="margin:12px 0 4px">Saldature</h4><table class="grid"><thead><tr><th>Tipo</th><th class="n">Spigoli</th><th class="n">Metri</th><th></th></tr></thead><tbody>
+      ${sw.map(w => `<tr${w.persa ? ' class="warn"' : ''}><td>${esc(nome(w))}${w.persa ? ' · <b>uno spigolo non c’è più</b>' : ''}</td><td class="n">${w.spigoli}</td>
+        <td class="n">${num(w.m, 2)}</td><td class="n"><button class="btn" data-sald-via="${w.i}" title="Togli questa saldatura">×</button></td></tr>`).join('')}
+      ${Object.entries(tot).map(([k, m]) => `<tr class="tot"><td colspan="2">Totale ${esc(k)}</td><td class="n">${num(m, 2)} m</td><td></td></tr>`).join('')}</tbody></table>`);
+    $('#tab-bom').querySelectorAll('[data-sald-via]').forEach(b => { b.onclick = () => inCoda(async () => apply(await call('del_saldatura', +b.dataset.saldVia))); });
+  }
 
   const c = S.cutlist;
   $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols"><table class="grid"><thead><tr><th>Profilo</th><th class="n">Lunghezza mm</th>
@@ -3919,6 +4146,14 @@ async function showHome(info) {
     }); });
     $('#home').querySelectorAll('[data-forget]').forEach(b => { b.onclick = () => inCoda(async () => showHome(await call('forget_recent', b.dataset.forget))); });
   };
+  // esempi pronti (24/10): un clic e si apre un pezzo vero da guardare e cambiare
+  $('#home-esempi').hidden = !(info.esempi || []).length;
+  $('#home-esempi-riga').innerHTML = (info.esempi || []).map(e => `<button class="home-esempio" data-esempio="${esc(e.id)}" title="Si apre come lavoro nuovo: cambialo come vuoi">
+      <span class="pic"><img src="img/modelli/${esc(e.img)}" alt=""></span><span><b>${esc(e.nome)}</b><small>${esc(e.testo)}</small></span></button>`).join('');
+  $('#home-esempi-riga').querySelectorAll('[data-esempio]').forEach(b => { b.onclick = () => inCoda(async () => {
+    const r = await call('esempio', b.dataset.esempio);
+    if (await apply(r)) { hideHome(); toast(r.avviso || 'Esempio aperto: cambia le misure a sinistra o clicca il pezzo. Per tenerlo, Salva.'); }
+  }); });
   $('#home-filtro').innerHTML = [['tutti', 'Tutti'], ['pezzi', 'Pezzi'], ['assiemi', 'Assiemi']]
     .map(([k, t]) => `<button data-filtro="${k}" class="${homeFiltro === k ? 'on' : ''}">${t}<i>${conta[k]}</i></button>`).join('');
   $('#home-filtro').querySelectorAll('button').forEach(b => { b.onclick = () => { homeFiltro = b.dataset.filtro; showHome(info); }; });
@@ -4080,7 +4315,8 @@ const CMDS = [
     applyTheme(scuro); call('set_impostazioni', { tema: scuro ? 'scuro' : 'chiaro' });
   } },
   { id: 'unfold', label: 'Spiega / ripiega la lamiera', keys: 'U', run: () => toggleFlat() },
-  { id: 'misura', label: 'Quota: misura tra due punti, diametro di un foro', keys: 'M', run: () => (MIS ? misStop() : misStart()) },
+  { id: 'misura', label: 'Quota: misura tra due punti, diametro di un foro', keys: 'M', run: () => (MIS && !MIS.angolo ? misStop() : misStart()) },
+  { id: 'misura_angolo', label: 'Angolo: misura l’angolo tra due lati (tre clic)', run: () => (MIS?.angolo ? misStop() : misStart(true)) },
   { id: 'misura_via', label: 'Togli tutte le quote misurate', run: () => misTogliTutte() },
   { id: 'view_back', label: 'Vista da dietro', run: () => goTo(VISTE.view_back) },
   { id: 'view_left', label: 'Vista da sinistra', run: () => goTo(VISTE.view_left) },
@@ -4228,7 +4464,9 @@ let aggancioGriglia = true;            // F9: aggancio alla griglia sì/no (si r
 const skGroup = new THREE.Group();
 const skGrid = new THREE.Group();
 const skRubber = new THREE.Group();
-scene.add(skGroup, skGrid, skRubber);
+const skOver = new THREE.Group();      // sopra lo sketch: solo gli elementi selezionati o sotto il mouse
+scene.add(skGroup, skGrid, skRubber, skOver);
+let skBase = null;                     // per quale vista dello sketch è fatto il disegno di base (si rifà solo se cambia)
 const SK_LINE = new THREE.LineBasicMaterial({ color: 0x1F5FBF });
 const SK_SEL = new THREE.LineBasicMaterial({ color: 0xE09A00 });
 const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
@@ -4392,7 +4630,9 @@ function exitSketch() {
   $('#sk-cmd').hidden = true;
   $('#sk-tip').style.display = 'none';
   $('#sk-snap').style.display = 'none';
-  for (const g of [skGroup, skGrid, skRubber]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
+  for (const g of [skGroup, skGrid, skRubber, skOver]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
+  skBase = null;
+  chiudiOrigine();
   goTo(VISTE.view_iso);
   renderTree();
   buildDims();
@@ -4447,19 +4687,60 @@ function setHelp(t) { $('#sk-help').textContent = t; }
 
 // le linee del disegno spesse (le linee normali di WebGL sono sempre di 1 pixel: sullo sfondo scuro si vedevano poco,
 // 21/10). Ogni linea diventa una Line2 con lo stesso colore e tratteggio; lo spessore in pixel per tipo di linea.
+function grosso(m, w, h) {
+  let g = GROSSI.get(m);
+  if (!g) {
+    g = new LineMaterial({ linewidth: SPESSORE.get(m) ?? 2.6, dashed: !!m.isLineDashedMaterial, dashSize: m.dashSize ?? 3,
+      gapSize: m.gapSize ?? 1, depthTest: m.depthTest, transparent: m.transparent, opacity: m.opacity ?? 1 });
+    GROSSI.set(m, g);
+  }
+  g.color.copy(m.color);
+  g.resolution.set(w, h);
+  return g;
+}
+// 24/10: lo sketch in pochi oggetti, uno per colore. Uno per linea erano 1.600 oggetti da disegnare a ogni
+// fotogramma (e da rifare a ogni passaggio del mouse): girare la vista e disegnare diventavano lenti
+function lineeInBlocco(gruppo, tratti, ordine = 0) {           // tratti: [[punti 3D], materiale]
+  const per = new Map();
+  for (const [pts, mat] of tratti) {
+    let b = per.get(mat);
+    if (!b) per.set(mat, b = { xyz: [], dist: [] });
+    let d = 0;                                          // il tratteggio riparte a ogni linea, come prima
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], c = pts[i], L = a.distanceTo(c);
+      b.xyz.push(a.x, a.y, a.z, c.x, c.y, c.z);
+      b.dist.push(d, d + L);
+      d += L;
+    }
+  }
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (const [mat, { xyz, dist }] of per) {
+    if (!xyz.length) continue;
+    let o;
+    if (lineeSpesse) {
+      const g = grosso(mat, w, h), geo = new LineSegmentsGeometry();
+      geo.setPositions(xyz);
+      if (g.dashed) {
+        const buf = new THREE.InstancedInterleavedBuffer(new Float32Array(dist), 2, 1);
+        geo.setAttribute('instanceDistanceStart', new THREE.InterleavedBufferAttribute(buf, 1, 0));
+        geo.setAttribute('instanceDistanceEnd', new THREE.InterleavedBufferAttribute(buf, 1, 1));
+      }
+      o = new LineSegments2(geo, g);
+    } else {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(xyz, 3));
+      if (mat.isLineDashedMaterial) geo.setAttribute('lineDistance', new THREE.Float32BufferAttribute(dist, 1));
+      o = new THREE.LineSegments(geo, mat);
+    }
+    o.renderOrder = ordine;
+    gruppo.add(o);
+  }
+}
 function ingrossa(gruppo) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   for (const ln of [...gruppo.children]) {
     if (!ln.isLine || ln.isLine2) continue;
-    const m = ln.material;
-    let g = GROSSI.get(m);
-    if (!g) {
-      g = new LineMaterial({ linewidth: SPESSORE.get(m) ?? 2.6, dashed: !!m.isLineDashedMaterial, dashSize: m.dashSize ?? 3,
-        gapSize: m.gapSize ?? 1, depthTest: m.depthTest, transparent: m.transparent, opacity: m.opacity ?? 1 });
-      GROSSI.set(m, g);
-    }
-    g.color.copy(m.color);
-    g.resolution.set(w, h);
+    const g = grosso(ln.material, w, h);
     const p = ln.geometry.getAttribute('position'), xyz = [];
     for (let i = 0; i < p.count; i++) xyz.push(p.getX(i), p.getY(i), p.getZ(i));
     const geo = new LineGeometry(); geo.setPositions(xyz);
@@ -4470,9 +4751,34 @@ function ingrossa(gruppo) {
     gruppo.add(l2);
   }
 }
+// i punti di un elemento dello sketch, come polilinee 3D
+function skPolilinee(tipo, e, v) {
+  if (tipo === 'line') return [[v3(e.pa), v3(e.pb)]];
+  if (tipo === 'text') return e.strokes.map(s => s.map(q => v3(q)));
+  const ctr = v3(e.center), x = v3(v.x_dir), y = v3(v.y_dir), pts = [];
+  if (tipo === 'circle') for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push(ctr.clone().addScaledVector(x, e.r * Math.cos(a)).addScaledVector(y, e.r * Math.sin(a))); }
+  else for (let i = 0; i <= 64; i++) { const t = e.a0 + (e.a1 - e.a0) * i / 64; pts.push(ctr.clone().addScaledVector(x, e.r * Math.cos(t)).addScaledVector(y, e.r * Math.sin(t))); }
+  return [pts];
+}
 function drawSketch() {
+  const v = SK.v, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!skBase || skBase.v !== v || skBase.spesse !== lineeSpesse || skBase.w !== w || skBase.h !== h) disegnaBaseSketch(v, w, h);
+  // sopra: selezionati e sotto il mouse (pochi, si rifà a ogni passaggio del mouse senza toccare il resto)
+  skOver.traverse(x => x.geometry?.dispose()); skOver.clear();
+  const sopra = [];
+  for (const id of new Set([...SK.sel, ...(SK.hover ? [SK.hover] : [])])) {
+    const el = skBase.idx.get(id);
+    if (!el) continue;
+    const [tipo, e] = el, sel = SK.sel.has(id);
+    const mat = tipo === 'line' ? (sel ? (e.construction && !e.ref ? SK_CONSTR_SEL : SK_SEL) : SK_HOV) : sel ? SK_SEL : SK_HOV;
+    for (const pts of skPolilinee(tipo, e, v)) sopra.push([pts, mat]);
+  }
+  lineeInBlocco(skOver, sopra, 3);
+  skOver.position.copy(skGroup.position);
+  statoSketch(v);
+}
+function disegnaBaseSketch(v, w, h) {
   for (const g of [skGroup, skGrid]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
-  const v = SK.v;
   // griglia: 10 mm chiara, 100 mm più scura, assi dall'origine; grande quanto serve al disegno
   let ext = 300;
   for (const p of v.points) ext = Math.max(ext, Math.abs(p.xy[0]), Math.abs(p.xy[1]));
@@ -4488,47 +4794,66 @@ function drawSketch() {
   skGrid.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([skToWorld([0, 0]), skToWorld([0, lim])]), new THREE.LineBasicMaterial({ color: 0x2E8B57 })));
   skGrid.position.copy(v3(v.z_dir).multiplyScalar(-0.05));
   skGrid.children.forEach(c => { c.renderOrder = -1; c.material.depthWrite = false; });   // prima di tutto, sotto al pezzo
+  const sciolte = new Set(v.sciolte || []), idx = new Map(), tratti = [];
   for (const l of v.lines) {
-    const mat = SK.sel.has(l.id) ? (l.construction && !l.ref ? SK_CONSTR_SEL : SK_SEL) : SK.hover === l.id ? SK_HOV
-      : l.xray ? SK_XRAY : l.piega ? (l.piega === 'centro' ? SK_PIEGA : SK_PIEGA_BORDO) : l.ref ? SK_REF : l.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(l.id) ? SK_SCIOLTA : SK_LINE;
-    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v3(l.pa), v3(l.pb)]), mat);
-    if ((l.construction && !l.ref) || l.xray || l.piega) ln.computeLineDistances();
-    skGroup.add(ln);
+    idx.set(l.id, ['line', l]);
+    const mat = l.xray ? SK_XRAY : l.piega ? (l.piega === 'centro' ? SK_PIEGA : SK_PIEGA_BORDO) : l.ref ? SK_REF
+      : l.construction ? SK_CONSTR : sciolte.has(l.id) ? SK_SCIOLTA : SK_LINE;
+    tratti.push([[v3(l.pa), v3(l.pb)], mat]);
   }
   for (const t of v.texts || []) {                  // testi da marcare: i tratti delle lettere
-    const mat = SK.sel.has(t.id) ? SK_SEL : SK.hover === t.id ? SK_HOV : SK_TESTO;
-    for (const s of t.strokes) skGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(s.map(q => v3(q))), mat));
+    idx.set(t.id, ['text', t]);
+    for (const pts of skPolilinee('text', t, v)) tratti.push([pts, SK_TESTO]);
   }
   for (const c of v.circles) {
-    const pts = [];
-    const ctr = v3(c.center), x = v3(v.x_dir), y = v3(v.y_dir);
-    for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push(ctr.clone().addScaledVector(x, c.r * Math.cos(a)).addScaledVector(y, c.r * Math.sin(a))); }
-    const mat = SK.sel.has(c.id) ? SK_SEL : SK.hover === c.id ? SK_HOV : c.xray ? SK_XRAY : c.ref ? SK_REF : c.construction ? SK_CONSTR : SK_LINE;
-    const cl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
-    if ((c.construction && !c.ref) || c.xray) cl.computeLineDistances();
-    skGroup.add(cl);
+    idx.set(c.id, ['circle', c]);
+    tratti.push([skPolilinee('circle', c, v)[0], c.xray ? SK_XRAY : c.ref ? SK_REF : c.construction ? SK_CONSTR : SK_LINE]);
     const fuori = c.hole?.tipo === 'filettato' ? ({ M3: 3, M4: 4, M5: 5, M6: 6, M8: 8, M10: 10, M12: 12, M16: 16 }[c.hole.M] || 0) / 2
       : c.hole?.tipo === 'svasato' ? Number(c.hole.D) / 2 : 0;
-    if (fuori > c.r) {                                // filettatura o svasatura: un cerchio tratteggiato attorno
-      const p2 = [];
-      for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; p2.push(ctr.clone().addScaledVector(x, fuori * Math.cos(a)).addScaledVector(y, fuori * Math.sin(a))); }
-      const ex = new THREE.Line(new THREE.BufferGeometry().setFromPoints(p2), SK_CONSTR);
-      ex.computeLineDistances();
-      skGroup.add(ex);
-    }
+    if (fuori > c.r) tratti.push([skPolilinee('circle', { ...c, r: fuori }, v)[0], SK_CONSTR]);   // filettatura o svasatura: tratteggiato attorno
   }
   for (const a of v.arcs || []) {
-    const pts = [], ctr = v3(a.center), x = v3(v.x_dir), y = v3(v.y_dir);
-    for (let i = 0; i <= 64; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 64; pts.push(ctr.clone().addScaledVector(x, a.r * Math.cos(t)).addScaledVector(y, a.r * Math.sin(t))); }
-    const mat = SK.sel.has(a.id) ? SK_SEL : SK.hover === a.id ? SK_HOV : a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : (SK.v.sciolte || []).includes(a.id) ? SK_SCIOLTA : SK_LINE;
-    const al = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
-    if ((a.construction && !a.ref) || a.xray) al.computeLineDistances();
-    skGroup.add(al);
+    idx.set(a.id, ['arc', a]);
+    tratti.push([skPolilinee('arc', a, v)[0], a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : sciolte.has(a.id) ? SK_SCIOLTA : SK_LINE]);
   }
-  if (lineeSpesse) ingrossa(skGroup);
+  lineeInBlocco(skGroup, tratti);
   const pg = new THREE.BufferGeometry().setFromPoints(v.points.map(p => v3(p.xyz)));
   skGroup.add(new THREE.Points(pg, SK_PTS));
   skGroup.position.copy(v3(v.z_dir).multiplyScalar(0.05));
+  skBase = { v, spesse: lineeSpesse, w, h, idx };
+}
+// Elimina nello sketch (24/10): i bordi arancio sono il pezzo; se vengono da un taglio fatto prima, invece del «non si
+// cancellano» si dice da quale taglio vengono e si può toglierli da lì, aprire quel disegno o togliere tutto il taglio
+function eliminaNelloSketch(ids) {
+  const arancio = id => !!skBase?.idx.get(id)?.[1]?.ref;
+  const propri = ids.filter(id => !arancio(id)), bordi = ids.filter(arancio);
+  if (propri.length) inCoda(async () => { await apply(await call('sketch_delete', SK.sid, propri)); });
+  else if (bordi.length) inCoda(() => origineBordi(bordi));
+}
+function chiudiOrigine() { $('#sk-origine')?.remove(); }
+async function origineBordi(ids) {
+  chiudiOrigine();
+  const sid = SK?.sid;
+  const r = await call('origine_bordi', sid, ids);
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  const box = document.createElement('div');
+  box.id = 'sk-origine';
+  const quanti = r.fori ? (r.tutti ? `tutti i suoi ${r.totale} ${r.totale === 1 ? 'contorno' : 'contorni'}` : `${r.fori} ${r.fori === 1 ? 'foro' : 'fori'} dei suoi ${r.totale}`) : '';
+  box.innerHTML = `<div class="or-testo">Questi bordi arancio sono ${r.fori === 1 ? 'un foro' : 'fori'} già fatti da <b>${esc(r.nome)}</b> (${esc(r.feature)})${quanti ? ': ' + quanti : ''}.
+      ${r.altri ? `<span class="hint">${r.altri} ${r.altri === 1 ? 'bordo scelto viene' : 'bordi scelti vengono'} da un altro taglio: rifalli dopo.</span>` : ''}
+      ${!r.eids.length ? '<span class="hint">Il taglio è disegnato sullo sviluppo: i fori si tolgono dal suo disegno.</span>' : ''}</div>
+    <div class="or-bott">
+      ${r.eids.length && !r.tutti ? `<button class="btn primary" id="or-togli">Togli ${r.fori === 1 ? 'questo foro' : `questi ${r.fori} fori`}</button>` : ''}
+      <button class="btn" id="or-apri">Apri il disegno di ${esc(r.feature)}</button>
+      <button class="btn danger" id="or-tutto">Togli tutto il taglio</button>
+      <button class="btn" id="or-chiudi" aria-label="Chiudi">×</button></div>`;
+  document.body.appendChild(box);
+  $('#or-chiudi').onclick = chiudiOrigine;
+  if ($('#or-togli')) $('#or-togli').onclick = () => { chiudiOrigine(); inCoda(async () => { const x = await call('togli_fori_da_taglio', sid, ids); await apply(x, x.message); }); };
+  $('#or-apri').onclick = () => { chiudiOrigine(); exitSketch(); inCoda(() => enterSketch(r.sketch)); };
+  $('#or-tutto').onclick = () => { chiudiOrigine(); confermaElimina('feature', r.feature, `${r.nome} (${r.feature}): tutti i suoi fori e tagli`); };
+}
+function statoSketch(v) {
   // in alto nel pannello: dove sei e cosa fare adesso, in parole semplici
   const libero = !v.used_by.length, suPezzo = !!(v.on_face || v.on_flat), pronto = v.ok && v.profiles > 0;
   let cls = 'todo', testo;
@@ -5259,7 +5584,7 @@ function skKey(ev) {
   }
   if (k === 'Delete' && SK.sel.size) {
     const ids = [...SK.sel]; SK.sel.clear();
-    inCoda(async () => { await apply(await call('sketch_delete', SK.sid, ids)); });
+    eliminaNelloSketch(ids);
     return true;
   }
   const tasti = { l: 'line', r: 'rect', c: 'circle', k: 'slot', p: 'polygon', s: 'select', d: 'dim', t: 'trim', a: 'extend' };
@@ -5457,7 +5782,7 @@ function skAction(act) {
   const ids = [...SK.sel];
   if (!ids.length) { toast('Seleziona prima qualcosa (strumento Seleziona).', 'err'); return; }
   const sid = SK.sid;
-  if (act === 'delete') { SK.sel.clear(); inCoda(async () => { await apply(await call('sketch_delete', sid, ids)); }); return; }
+  if (act === 'delete') { SK.sel.clear(); eliminaNelloSketch(ids); return; }
   if (act === 'constr') {
     const tutte = ids.every(id => (SK.v.lines.find(l => l.id === id) || SK.v.circles.find(c => c.id === id))?.construction);
     inCoda(async () => { await apply(await call('sketch_construction', sid, ids, !tutte)); });
@@ -5817,7 +6142,7 @@ const VOCI_ESPORTA = [['drawings', 'Tavole PDF con cartiglio…'], ['export_dxf'
   ['export_bendtable', 'Tabella pieghe (per la piegatrice)…'], ['export_step', 'STEP (modello 3D)…'],
   ['export_bom', 'Distinta materiali (Excel)…']];
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => g.insertAdjacentHTML('beforebegin',
-  `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button></div><div class="rname">Misura</div></div>`));
+  `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" data-cmd="misura_angolo" title="Angolo: clic su un lato, sul vertice e sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button><button class="rb" data-azione="saldatura3d" title="Saldatura: clicca gli spigoli da saldare (si accendono), poi Invio: tipo e misura; i metri vanno in distinta"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button></div><div class="rname">Misura</div></div>`));
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
   g.innerHTML = `<div class="rbtns"><div class="menu-item rmenu"><button class="rb rb-export" title="Esporta: tavole, DXF di taglio, tabella pieghe, STEP">
     <img src="icons/export.svg" alt=""><span>Esporta ▾</span></button><div class="drop">${VOCI_ESPORTA.map(([c, l]) =>

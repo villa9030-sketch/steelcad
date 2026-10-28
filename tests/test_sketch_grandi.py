@@ -90,3 +90,24 @@ def test_sketch_grande_non_del_tutto_vincolato_si_risolve_sempre_uguale():
         uscite.append(subprocess.run([sys.executable, '-c', codice], capture_output=True, text=True, env=env,
                                      timeout=300).stdout)
     assert uscite[0] and uscite[0] == uscite[1]
+
+
+def test_quote_ripetute_una_volta_e_cambiate_insieme():
+    """24/10: le copie di una serie hanno le stesse quote (300 quadrati = 600 quote «10» a video): se ne mostra una
+    per gruppo («×N») e cambiarla le cambia tutte, con un Annulla solo."""
+    s, sid, _ = _lamiera_con_asole(4, 2)
+    dims = [d for d in s.state()['dimensions'] if d['sketch'] == sid]
+    capi = [d for d in dims if d.get('gruppo')]
+    assert capi, [(d['type'], d['expr']) for d in dims]
+    capo = max(capi, key=lambda d: len(d['gruppo']))
+    assert len(capo['gruppo']) >= 8
+    nascoste = [d for d in dims if d.get('in_gruppo') == capo['dim']]
+    assert len(nascoste) == len(capo['gruppo']) - 1
+    nuovo = (capo['value'] or 0) + 2
+    r = s.set_dimension(sid, capo['dim'], nuovo)
+    assert r['ok'], r
+    sk = s.doc.sketch(sid)
+    assert all(abs(float(sk.constraints[k]['value']) - nuovo) < 1e-9 for k in capo['gruppo'])
+    s.undo()
+    sk = s.doc.sketch(sid)
+    assert all(abs(float(sk.constraints[k]['value']) - capo['value']) < 1e-9 for k in capo['gruppo'])

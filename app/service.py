@@ -149,6 +149,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         avvisi = [w for st in r.structures for w in (st.warnings or [])]
         sd = getattr(r.body, 'sheet', None) if r.body is not None else None
         avvisi += list(getattr(sd, 'warnings', None) or [])
+        n_perse = sum(1 for w in self._saldature() if w['persa'])
+        if n_perse:
+            avvisi.append(f'{n_perse} saldatur{"a ha" if n_perse == 1 else "e hanno"} perso uno spigolo dopo una modifica: '
+                          'guarda in Distinta e rifalla.')
+        if sd is not None:                          # fattibilità: flange corte, fori vicino alle pieghe, raggi, U strette
+            from cad_engine.sheetmetal.fattibilita import controlla
+            avvisi += controlla(sd, doc.material)
         sheet = self._sheet_state()
         return {
             'version': _VERSIONE,
@@ -161,6 +168,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
+            'saldature': self._saldature(),
             'bend_default': self.bend_default(), 'from_template': bool(self._modelli()),
             'materiale': doc.material, 'materiali': _materiali(),
         }
@@ -218,10 +226,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             except SteelCADError:
                 continue
             visti = set()
+            linee_di = _linee_per_punto(f)
             for did, c in f.constraints.items():
                 if c['type'] not in ('length', 'distance', 'diameter', 'radius', 'hdistance', 'vdistance', 'pldistance'):
                     continue
-                if not c.get('driven') and _guida_secondaria(f, c):
+                if not c.get('driven') and _guida_secondaria(f, c, linee_di):
                     continue                    # delle linee di costruzione si mostra solo la distanza che conta
                 # offset e serie: la stessa misura su tanti tratti/copie si mostra una volta sola
                 expr = c['value']
@@ -276,7 +285,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 ga, gb = pl.from_local_coords(pa), pl.from_local_coords(pb)
                 v = ss.values.get(did)
                 rif = bool(c.get('driven'))
-                out.append({'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'], 'driven': rif,
+                if c['type'] in ('length', 'distance', 'pldistance'):
+                    dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+                    verso = 'h' if abs(dy) < 1e-6 else 'v' if abs(dx) < 1e-6 else round(math.degrees(math.atan2(dy, dx)) % 180)
+                else:
+                    verso = ''
+                out.append({'_gruppo': (c['type'], str(c['value']), rif, verso) if not param else None,
+                            'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'], 'driven': rif,
                             'local': not isinstance(f.plane, str),
                             'param': param,
                             # le distanze orizzontali/verticali "all'indietro" si leggono senza il meno: il verso
@@ -285,6 +300,20 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                             'label': ('(' if rif else '') + ({'diameter': 'Ø', 'radius': 'R'}.get(c['type'], ''))
                             + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0)) + (')' if rif else ''),
                             'a': [ga.X, ga.Y, ga.Z], 'b': [gb.X, gb.Y, gb.Z]})
+        # 24/10: la stessa quota ripetuta (le copie di una serie: 300 quadrati da 10 × 10 = 600 quote «10» che
+        # coprivano il disegno) si mostra una volta, «10 ×300»; cambiarla cambia tutto il gruppo. Le altre restano
+        # nell'elenco, segnate: chi le cerca le trova
+        gruppi: dict = {}
+        for d in out:
+            k = d.pop('_gruppo')
+            if k is not None:
+                gruppi.setdefault((d['sketch'],) + k, []).append(d)
+        for lista in gruppi.values():
+            if len(lista) >= 4:
+                capo = lista[0]
+                capo['gruppo'] = [d['dim'] for d in lista]
+                for d in lista[1:]:
+                    d['in_gruppo'] = capo['dim']
         return out
 
     def scene(self) -> dict:
@@ -2253,6 +2282,54 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                 'Per cambiarla cambia la misura del pezzo (fuori dallo sketch, clic sulla sua quota).')
         return r
 
+    # ------------------------------------------------------------ bordi arancio: da quale taglio vengono (24/10)
+    def origine_bordi(self, sid: str, eids: list) -> dict:
+        """I bordi arancio scelti nello sketch: quale taglio li ha fatti e quali suoi contorni (per toglierli)."""
+        from app import origine_bordi
+        try:
+            return _ok(**origine_bordi.trova(self, sid, list(eids or [])))
+        except SteelCADError as ex:
+            return _err(ex)
+
+    def togli_fori_da_taglio(self, sid: str, eids: list) -> dict:
+        """Toglie dal disegno del taglio che li ha fatti i contorni dei bordi arancio scelti: i fori spariscono dal
+        pezzo (con Annulla) e i bordi arancio dello sketch aperto si rifanno."""
+        import build123d as bd
+
+        from app import origine_bordi
+        from cad_engine.sketch.face_plane import plane_of
+        try:
+            info = origine_bordi.trova(self, sid, list(eids or []))
+            if not info['eids']:
+                raise SteelCADError(f'Questi fori vengono da {info["nome"]}, ma non riesco a dire quali contorni del suo '
+                                    'disegno sono: apri il suo disegno e toglili da lì.', code='origine')
+            if info['tutti']:
+                raise SteelCADError(f'Sono tutti i fori di {info["nome"]}: usa «Togli tutto il taglio».', code='origine')
+        except SteelCADError as ex:
+            return _err(ex)
+        sk = self.doc.sketch(sid)
+        nome = sk.plane.get('face') if isinstance(sk.plane, dict) else None
+
+        def fn():
+            sketch_ops.delete(self.doc, info['sketch'], info['eids'])
+            body = self.doc.rebuild().body                 # il pezzo senza quei fori: i bordi arancio si rifanno
+            if nome and body is not None and nome in body.names:
+                sketch_ops.refresh_reference_edges(sk, bd.Face(body.face(nome)[0]), plane_of(body, nome, sk), body.shape)
+                # i punti arancio dei fori tolti (i centri): via, se nessun disegno ci è attaccato
+                usati = {e[k] for e in sk.entities.values() for k in ('a', 'b', 'center', 'start', 'end') if k in e}
+                usati |= {r for c in sk.constraints.values() if c['type'] != 'fix' for r in c['refs']}
+                soli = [k for k, e in sk.entities.items() if e['kind'] == 'point' and e.get('ref') and k not in usati]
+                for k in soli:
+                    del sk.entities[k]
+                for k, c in list(sk.constraints.items()):
+                    if any(x not in sk.entities for x in c['refs'] if x != 'O'):
+                        del sk.constraints[k]
+        r = self._change(f'Togli {info["fori"]} fori da {info["feature"]}', fn)
+        if r.get('ok'):
+            r['message'] = (f'Tolt{"o" if info["fori"] == 1 else "i"} {info["fori"]} {"foro" if info["fori"] == 1 else "fori"} '
+                            f'da {info["nome"]}. Annulla (Ctrl+Z) li rimette.')
+        return r
+
     def sketch_delete(self, sid: str, eids: list) -> dict:
         return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
 
@@ -2992,7 +3069,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         for q in quote or []:
             try:
                 pulite.append({'a': [float(x) for x in q['a']][:3], 'b': [float(x) for x in q['b']][:3],
-                               'testo': str(q.get('testo', ''))[:40], **({'dett': str(q['dett'])[:80]} if q.get('dett') else {})})
+                               'testo': str(q.get('testo', ''))[:40], **({'dett': str(q['dett'])[:80]} if q.get('dett') else {}),
+                               **({'v': [float(x) for x in q['v']][:3]} if q.get('v') else {})})   # angolo: il vertice
             except (KeyError, TypeError, ValueError):
                 continue
         if pulite != (self.doc.meta.get('quote') or []):
@@ -3091,13 +3169,96 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 {'new': '.', 'add': ', aggiunta al pezzo.', 'cut': ', tolta dal pezzo.'}[op]
         return r
 
-    def add_edge_dress(self, tipo: str, punti: list, valore) -> dict:
-        """Raccordo o smusso sugli spigoli del pezzo: punti cliccati sugli spigoli (x, y, z), uno per spigolo."""
+    def _spigoli_cliccati(self, punti: list) -> list:
+        """Dai punti cliccati sugli spigoli ai riferimenti stabili (le due facce con nome): restano anche se il pezzo
+        cambia."""
         from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
         from OCP.BRepExtrema import BRepExtrema_DistShapeShape
         from OCP.gp import gp_Pnt
 
         from cad_engine.topology.naming import _edges_of
+        body = self.result.body
+        refs = []
+        spigoli = list(_edges_of(body.shape))
+        for p in punti or []:
+            v = BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(c) for c in p])).Vertex()
+            migliore = None
+            for e in spigoli:
+                dd = BRepExtrema_DistShapeShape(v, e)
+                if dd.IsDone() and (migliore is None or dd.Value() < migliore[0]):
+                    migliore = (dd.Value(), e)
+            if migliore is None or migliore[0] > 1.0:
+                raise SteelCADError('Clicca proprio sullo spigolo (si accende).', code='spigolo')
+            ref = body.edge_ref(migliore[1])
+            if ref not in refs:
+                refs.append(ref)
+        if not refs:
+            raise SteelCADError('Scegli almeno uno spigolo.', code='spigolo')
+        return refs
+
+    # ------------------------------------------------------------ saldature sul pezzo (24/10)
+    def add_saldatura(self, punti: list, spec: dict) -> dict:
+        """Le saldature segnate sugli spigoli del pezzo: tipo (d'angolo, V, I) e misura. Si vedono sul pezzo e i metri
+        vanno nella distinta. Restano legate agli spigoli (le due facce) anche se il pezzo cambia."""
+        if self.asm is not None:
+            return {'ok': False, 'message': 'Le saldature si segnano sul pezzo: aprilo dall’assieme.'}
+        if self.result.body is None:
+            return {'ok': False, 'message': 'Prima serve un pezzo.'}
+        try:
+            refs = self._spigoli_cliccati(punti)
+        except SteelCADError as ex:
+            return _err(ex)
+        tipo = (spec or {}).get('tipo') if (spec or {}).get('tipo') in ('angolo', 'V', 'I') else 'angolo'
+        a = str((spec or {}).get('a') or '').strip().replace(',', '.')[:10]
+        voce = {'refs': refs, 'tipo': tipo, 'a': a}
+
+        def fn():
+            self.doc.meta['saldature'] = list(self.doc.meta.get('saldature') or []) + [voce]
+        nome = f'Saldatura {"a" + a if tipo == "angolo" and a else tipo}'.strip()
+        r = self._change(nome, fn)
+        if r.get('ok'):
+            r['message'] = f'{nome} su {len(refs)} {"spigolo" if len(refs) == 1 else "spigoli"}: i metri sono nella distinta.'
+        return r
+
+    def del_saldatura(self, i: int) -> dict:
+        lista = list(self.doc.meta.get('saldature') or [])
+        if not 0 <= int(i) < len(lista):
+            return {'ok': False, 'message': 'Saldatura non trovata.'}
+
+        def fn():
+            lista.pop(int(i))
+            if lista:
+                self.doc.meta['saldature'] = lista
+            else:
+                self.doc.meta.pop('saldature', None)
+        return self._change('Togli saldatura', fn)
+
+    def _saldature(self) -> list:
+        """Le saldature col loro tratto sul pezzo (per vederle) e i metri. «persa»: gli spigoli non ci sono più."""
+        import build123d as bd
+        body = self.result.body
+        out = []
+        for i, w in enumerate(self.doc.meta.get('saldature') or []):
+            linee, lung, persa = [], 0.0, False
+            for ref in w.get('refs') or []:
+                try:
+                    es = body.edges(ref) if body is not None else []
+                except Exception:  # noqa: BLE001 - spigolo sparito dopo una modifica
+                    es = []
+                if not es:
+                    persa = True
+                    continue
+                for e in es:
+                    be = bd.Edge(e)
+                    lung += be.length
+                    n = 2 if be.geom_type == bd.GeomType.LINE else 24
+                    linee.append([c for p in be.positions([k / (n - 1) for k in range(n)]) for c in (p.X, p.Y, p.Z)])
+            out.append({'i': i, 'tipo': w.get('tipo', 'angolo'), 'a': w.get('a', ''), 'm': lung / 1000, 'linee': linee,
+                        'persa': persa, 'spigoli': len(w.get('refs') or [])})
+        return out
+
+    def add_edge_dress(self, tipo: str, punti: list, valore) -> dict:
+        """Raccordo o smusso sugli spigoli del pezzo: punti cliccati sugli spigoli (x, y, z), uno per spigolo."""
         if tipo not in ('fillet', 'chamfer'):
             return {'ok': False, 'message': f'Lavorazione «{tipo}» sconosciuta.'}
         body = self.result.body
@@ -3108,22 +3269,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     '(Raccordo dello sketch sull’angolo del contorno): così vanno anche nello sviluppo.'}
         try:
             val = _numero(valore, 'il raggio' if tipo == 'fillet' else 'la misura')
-            refs = []
-            spigoli = list(_edges_of(body.shape))
-            for p in punti or []:
-                v = BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(c) for c in p])).Vertex()
-                migliore = None
-                for e in spigoli:
-                    dd = BRepExtrema_DistShapeShape(v, e)
-                    if dd.IsDone() and (migliore is None or dd.Value() < migliore[0]):
-                        migliore = (dd.Value(), e)
-                if migliore is None or migliore[0] > 1.0:
-                    raise SteelCADError('Clicca proprio sullo spigolo (si accende).', code='spigolo')
-                ref = body.edge_ref(migliore[1])
-                if ref not in refs:
-                    refs.append(ref)
-            if not refs:
-                raise SteelCADError('Scegli almeno uno spigolo.', code='spigolo')
+            refs = self._spigoli_cliccati(punti)
         except SteelCADError as ex:
             return _err(ex)
         nome = f'Raccordo R{fmt_mm(val)}' if tipo == 'fillet' else f'Smusso {fmt_mm(val)} mm'
@@ -3219,7 +3365,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         out = ['30x30x2', '40x40x3', '50x50x3', '60x60x3', '70x70x4', '80x80x4', '60x40x3', '80x40x3',
                '100x50x4', 'Ø33.7x2.6', 'Ø48.3x3.2', 'Ø60.3x3', 'piatto 40x5', 'piatto 50x8']
         cat = catalog()
-        out += [f'L {k}' for k in cat['L']] + [f'{fam} {k}' for fam in ('IPE', 'HEA', 'HEB') for k in cat[fam]]
+        out += [f'L {k}' for k in cat['L']] + [f'{fam} {k}' for fam in ('IPE', 'HEA', 'HEB', 'UPN') for k in cat[fam]]
         return out
 
     # ================================================================ modifiche
@@ -3240,6 +3386,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                       code='quota'))
         if d and d['param']:
             return self.set_parameter(d['param'], v)
+        if d and d.get('gruppo'):                   # la quota che vale per tutte le copie: si cambiano tutte insieme
+            def tutte():
+                sk = self.doc.sketch(sketch_id)
+                for did in d['gruppo']:
+                    sk.set_value(did, v)
+            r = self._change(f'Quote ×{len(d["gruppo"])} = {value}', tutte)
+            if r.get('ok'):
+                r['message'] = f'Cambiate tutte le {len(d["gruppo"])} quote uguali.'
+            return r
         return self._change(f'Quota {value}', lambda: self.doc.sketch(sketch_id).set_value(dim_id, v))
 
     def edit_member(self, obj_id: str, fields: dict, whole_group: bool = False) -> dict:
@@ -3562,6 +3717,18 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return _err(ex)
 
     # ================================================================ pagina iniziale
+    def esempio(self, eid: str) -> dict:
+        """Apre un esempio pronto (pagina iniziale) come lavoro nuovo, non salvato."""
+        from app import esempi
+        try:
+            avviso = esempi.crea(self, eid)
+            self.blank = False
+            self.asm = None
+            self._asm_ritorno = None
+            return _ok(state=self.state(), **({'avviso': avviso} if avviso else {}))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
     def home_info(self) -> dict:
         """Per la pagina iniziale: i progetti recenti (quelli che esistono ancora) e il lavoro non salvato."""
         recenti = []
@@ -3579,7 +3746,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         nonsalvato = None
         if auto.exists():
             nonsalvato = {'when': _quando(auto.stat().st_mtime)}
-        return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato)
+        from app.esempi import ESEMPI
+        return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato, esempi=ESEMPI)
 
     def impostazioni(self) -> dict:
         """Le impostazioni in un colpo per la loro finestra: piegatrice, materiale predefinito, cartiglio, cartelle, tema."""
@@ -3938,7 +4106,20 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return _err(ex)
 
 
-def _guida_secondaria(sk, c) -> bool:
+def _linee_per_punto(sk) -> dict:
+    """punto → le linee che ci arrivano, nell'ordine del disegno (per non scorrere tutto lo sketch a ogni quota)."""
+    out: dict = {}
+    for e in sk.entities.values():
+        if e['kind'] == 'line':
+            for k in ('a', 'b'):
+                if e.get(k) is not None:
+                    lst = out.setdefault(e[k], [])
+                    if not lst or lst[-1] is not e:
+                        lst.append(e)
+    return out
+
+
+def _guida_secondaria(sk, c, linee_di: dict | None = None) -> bool:
     """Quote "di servizio" delle linee di costruzione: la lunghezza e la coordinata lungo la guida.
     Di una guida verticale conta solo quanto dista dall'origine in orizzontale (e viceversa)."""
     ent = sk.entities
@@ -3949,7 +4130,8 @@ def _guida_secondaria(sk, c) -> bool:
     if c['type'] not in ('hdistance', 'vdistance') or len(c['refs']) != 2:
         return False
     p = c['refs'][1]
-    linee = [e for e in ent.values() if e['kind'] == 'line' and p in (e.get('a'), e.get('b'))]
+    linee = (linee_di.get(p, []) if linee_di is not None
+             else [e for e in ent.values() if e['kind'] == 'line' and p in (e.get('a'), e.get('b'))])
     if not linee or not all(e.get('construction') for e in linee):
         return False
     for l in linee:

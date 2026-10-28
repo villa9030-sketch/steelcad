@@ -479,6 +479,21 @@ class Api:
     def set_impostazioni(self, valori):
         return self._call(self._svc.set_impostazioni, valori)
 
+    def add_saldatura(self, punti, spec):
+        return self._call(self._svc.add_saldatura, punti, spec)
+
+    def del_saldatura(self, i):
+        return self._call(self._svc.del_saldatura, i)
+
+    def origine_bordi(self, sid, eids):
+        return self._call(self._svc.origine_bordi, sid, eids)
+
+    def togli_fori_da_taglio(self, sid, eids):
+        return self._call(self._svc.togli_fori_da_taglio, sid, eids)
+
+    def esempio(self, eid):
+        return self._call(self._svc.esempio, eid)
+
     def tavola_ritocchi(self, chiave, ritocchi, campi=None):
         return self._call(self._svc.tavola_ritocchi, chiave, ritocchi, campi)
 

@@ -206,3 +206,13 @@ def test_aste_che_si_compenetrano_segnalate():
                    [{'id': 'M1', 'from': 'A', 'to': 'B', 'profile': '40x40x3', 'anchor': 'bottom'},
                     {'id': 'M2', 'from': 'C', 'to': 'D', 'profile': '40x40x3', 'anchor': 'bottom'}])
     assert any('si compenetrano' in w for w in r.warnings)
+
+
+@pytest.mark.parametrize('nome, kg_m', [('UPN 50', 5.59), ('UPN 100', 10.6), ('UPN 200', 25.3), ('UPN 300', 46.2)])
+def test_upn_dal_catalogo(nome, kg_m):
+    """24/10: gli UPN (EN 10279), ali inclinate dell'8%: dalle misure nominali il peso viene entro il 2% della tabella
+    commerciale (che arrotonda le misure diversamente)."""
+    p = parse(nome)
+    assert p.family == 'UPN' and p.description.startswith('Profilato UPN')
+    assert p.kg_m(7.85) == pytest.approx(kg_m, rel=0.02)
+    assert p.section().is_valid

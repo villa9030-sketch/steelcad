@@ -48,10 +48,21 @@ def bordo_sulla_faccia(facce, a0: bd.Vector, b0: bd.Vector):
 
 def mappa_spigoli(shape) -> dict:
     """spigolo -> facce che lo toccano (una volta per pezzo)."""
+    # con OCP diretto: le facce e gli spigoli di ognuna senza i passaggi di build123d (0,3 s con 300 fori, 24/10);
+    # stesse facce, stessi spigoli, nello stesso ordine (mappe indicizzate come fa build123d)
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp
+    from OCP.TopoDS import TopoDS
+    from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as Mappa
     d: dict = {}
-    for f in bd.Shape.cast(shape).faces():
-        for e in f.edges():
-            d.setdefault(e, []).append(f)
+    mf = Mappa()
+    TopExp.MapShapes_s(shape.wrapped if hasattr(shape, 'wrapped') else shape, TopAbs_FACE, mf)
+    for i in range(1, mf.Extent() + 1):
+        f = bd.Face(TopoDS.Face(mf(i)))
+        me = Mappa()
+        TopExp.MapShapes_s(f.wrapped, TopAbs_EDGE, me)
+        for j in range(1, me.Extent() + 1):
+            d.setdefault(bd.Edge(TopoDS.Edge(me(j))), []).append(f)
     return d
 
 

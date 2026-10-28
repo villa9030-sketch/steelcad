@@ -5,6 +5,7 @@ a un `SolvedSketch` (coordinate risolte + stato). La definizione non cambia.
 """
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
 
@@ -69,6 +70,12 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
         chiave = None
     if chiave is not None and chiave in _MEMORIA:
         return dataclasses.replace(_MEMORIA[chiave], sketch=sk)
+    grande = chiave is not None and len(sk.constraints) > 400
+    if grande:                                  # uno sketch grande già risolto un'altra volta (24/10: aprire il file)
+        dal_disco = _dal_disco(chiave)
+        if dal_disco is not None:
+            _MEMORIA[chiave] = dal_disco
+            return dataclasses.replace(dal_disco, sketch=sk)
     rif = {k: c for k, c in sk.constraints.items() if c.get('driven')}
     if rif:                                     # le quote di riferimento: si risolve senza, poi si misurano
         senza = dataclasses.replace(sk, constraints={k: c for k, c in sk.constraints.items() if k not in rif})
@@ -90,7 +97,52 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
         if len(_MEMORIA) > 64:
             _MEMORIA.pop(next(iter(_MEMORIA)))
         _MEMORIA[chiave] = out
+        if grande:
+            _sul_disco(chiave, out)
     return out
+
+
+# ============================================================================ sul disco
+# Le soluzioni degli sketch grandi (centinaia di vincoli) si tengono anche su disco, col nome dato dal contenuto
+# esatto dello sketch: riaprendo il file non si risolve da capo (un secondo con una serie di 300 fori). Se lo sketch
+# cambia anche di un decimale il nome è un altro: una soluzione vecchia non si usa mai.
+def _cartella_soluzioni():
+    import os
+    from pathlib import Path
+    base = os.environ.get('STEELCAD_HOME') or os.path.join(os.environ.get('APPDATA') or str(Path.home()), 'SteelCAD')
+    return Path(base) / 'soluzioni-sketch'
+
+
+def _nome_soluzione(chiave: str) -> str:
+    import hashlib
+    return hashlib.sha256(chiave.encode('utf-8')).hexdigest() + '.pkl'
+
+
+def _dal_disco(chiave: str):
+    import pickle
+    try:
+        p = _cartella_soluzioni() / _nome_soluzione(chiave)
+        if not p.is_file():
+            return None
+        dato = pickle.loads(p.read_bytes())
+        return dato['soluzione'] if dato.get('chiave') == chiave else None
+    except Exception:  # noqa: BLE001 - un file rovinato: si risolve e basta
+        return None
+
+
+def _sul_disco(chiave: str, out) -> None:
+    import dataclasses
+    import pickle
+    try:
+        cart = _cartella_soluzioni()
+        cart.mkdir(parents=True, exist_ok=True)
+        dato = pickle.dumps({'chiave': chiave, 'soluzione': dataclasses.replace(out, sketch=None)})
+        (cart / _nome_soluzione(chiave)).write_bytes(dato)
+        file = sorted(cart.glob('*.pkl'), key=lambda x: x.stat().st_mtime)
+        for vecchio in file[:-150]:                   # le ultime 150 bastano
+            vecchio.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001 - se non si riesce a scrivere, pazienza
+        pass
 
 
 def misura(ss: 'SolvedSketch', c: dict) -> float:
@@ -127,6 +179,7 @@ def misura(ss: 'SolvedSketch', c: dict) -> float:
 # aggancio già risolti tenuti fissi. Se ogni blocco è pulito (niente vincoli doppi o in conflitto) il risultato è
 # lo stesso del calcolo intero; altrimenti si rifà il calcolo intero, che dà i messaggi giusti.
 _SOGLIA_BLOCCHI = 60
+_MEMO_BLOCCHI: dict = {}                    # blocco (json) → la sua soluzione
 
 
 def _fissi_di(sk: Sketch) -> set:
@@ -294,6 +347,7 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
         return sum(1 for c in blocchi[i][1] for r in sk.constraints[c]['refs'] if r in fissi)
 
     pos = {e: k for k, e in enumerate(sk.entities)}
+    pos_c = {c: k for k, c in enumerate(sk.constraints)}
     sorgenti = sorted((i for i in range(len(blocchi)) if ancorato(i)), key=lambda i: -ancorato(i))
     ordine, visti, coda = [], set(sorgenti), list(sorgenti)
     while len(ordine) < len(blocchi):
@@ -318,8 +372,9 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
             usati.update(r for r in sk.constraints[c]['refs'] if r in sk.entities)
         for e in list(usati):                              # i punti delle linee e degli archi citati dai vincoli
             usati.update(_riferimenti(sk, sk.entities[e]))
-        entita, vincoli = {}, {c: v for c, v in sk.constraints.items() if c in vinc}
-        for e in (x for x in sk.entities if x in usati):
+        # nell'ordine del disegno, ma senza scorrere tutto lo sketch per ogni blocco (1.500 blocchi × 4.000 entità)
+        entita, vincoli = {}, {c: sk.constraints[c] for c in sorted(vinc, key=pos_c.get)}
+        for e in sorted((x for x in usati if x in pos), key=pos.get):
             d = dict(sk.entities[e])
             if d['kind'] == 'point' and e != ORIGIN and (e in fissi or e in punti or e not in ents):
                 if e in punti:                               # già risolto in un blocco prima: qui è fisso
@@ -327,10 +382,22 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
                 vincoli[f'_fisso_{e}'] = {'type': 'fix', 'refs': [e]}
             entita[e] = d
         sub = Sketch(sk.id, sk.name, sk.plane, entita, vincoli)
+        # 24/10: un blocco uguale (stessa geometria, stessi vincoli, stessi punti di aggancio) ha la stessa
+        # soluzione: la si ricorda, così una modifica rifà solo i blocchi toccati e non tutti i 1.500
         try:
-            r = _solve(sub, params)
-        except SketchError:
-            return None                                      # il calcolo intero dirà l'errore giusto
+            chiave = json.dumps([sk.plane, entita, vincoli, params], sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            chiave = None
+        r = _MEMO_BLOCCHI.get(chiave) if chiave is not None else None
+        if r is None:
+            try:
+                r = _solve(sub, params)
+            except SketchError:
+                return None                                  # il calcolo intero dirà l'errore giusto
+            if chiave is not None:
+                if len(_MEMO_BLOCCHI) > 40000:
+                    _MEMO_BLOCCHI.clear()
+                _MEMO_BLOCCHI[chiave] = r
         if r.status.state in (OVER, REDUNDANT):
             return i
         if r.status.state not in (FULLY, UNDER):

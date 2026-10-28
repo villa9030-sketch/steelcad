@@ -63,6 +63,8 @@ class Foglio:
     elementi: dict = field(default_factory=dict)    # id → cosa è (quota coi suoi dati, vista con la sua scala…)
     immagini: list = field(default_factory=list)    # (percorso, x, y, w, h): il logo nel cartiglio
     chiave: str = ''                                # quale tavola è (pezzo, sviluppo…): i ritocchi stanno lì
+    scala: float = 0.0                              # mm sul foglio per mm veri delle viste (0 = nessuna): per il DXF 1:1
+    fattore: float = 1.0                            # quanto è stata rimpicciolita dal foglio dove è impaginata (A2)
 
     def __setattr__(self, nome, valore):
         if nome in STRATI and not isinstance(valore, _Strato):
@@ -331,6 +333,7 @@ def _cornice_(f: Foglio, campi: dict):
         f.line('cornice', (20, 10), (W - 10, 10), (W - 10, H - 10), (20, H - 10), (20, 10))
     L = 'cartiglio'
     valori = {**campi, 'proiezione': 'europea (ISO E)'}
+    f.scala = float(campi.get('_s') or 0)
     mostra = campi.get('mostra')
     if mostra is None:
         mostra = [k for k, _ in CAMPI_CARTIGLIO if k not in NUOVI_CARTIGLIO or str(campi.get(k) or '').strip()]
@@ -399,7 +402,12 @@ def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', t
         _disegna_quota(f, a, b, distanza, valore, h, prefisso, testo)
 
 
-def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None):
+def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None, freccia=None):
+    """Tutto in proporzione al testo (h 2,8 → frecce 2,5): ingrandendo il testo crescono anche frecce e staccate;
+    «freccia» = la lunghezza delle frecce, se la vuoi diversa (24/10). Quota corta: frecce fuori che puntano dentro
+    e, se il numero non ci sta, il numero di fianco, come in ogni CAD."""
+    u = h / 2.8
+    Lf = float(freccia) if freccia else 2.5 * u
     ax, ay = a
     bx, by = b
     dx, dy = bx - ax, by - ay
@@ -408,14 +416,26 @@ def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefi
     nx, ny = -uy, ux
     A = (ax + nx * distanza, ay + ny * distanza)
     B = (bx + nx * distanza, by + ny * distanza)
-    s = 1.5 if distanza > 0 else -1.5
+    s = 1.5 * u if distanza > 0 else -1.5 * u
     f.line('quote', (ax + nx * s * 0.6, ay + ny * s * 0.6), (A[0] + nx * s, A[1] + ny * s))
     f.line('quote', (bx + nx * s * 0.6, by + ny * s * 0.6), (B[0] + nx * s, B[1] + ny * s))
-    f.line('quote', A, B)
-    _freccia(f, A, (-ux, -uy))
-    _freccia(f, B, (ux, uy))
-    m = ((A[0] + B[0]) / 2 + nx * 1.2 * (1 if distanza > 0 else -2.2), (A[1] + B[1]) / 2 + ny * 1.2 * (1 if distanza > 0 else -2.2))
     scritta = testo if testo is not None else prefisso + fmt(valore)
+    fuori = L < 2 * Lf + u                             # le frecce non ci stanno dentro: fuori, puntate verso dentro
+    if fuori:
+        e = Lf + 2 * u
+        f.line('quote', (A[0] - ux * e, A[1] - uy * e), (B[0] + ux * e, B[1] + uy * e))
+        _freccia(f, A, (ux, uy), L=Lf)
+        _freccia(f, B, (-ux, -uy), L=Lf)
+    else:
+        f.line('quote', A, B)
+        _freccia(f, A, (-ux, -uy), L=Lf)
+        _freccia(f, B, (ux, uy), L=Lf)
+    lato = 1.2 * u * (1 if distanza > 0 else -2.2)
+    c = 0.0
+    w = len(scritta) * h * 0.55
+    if L < w + 2 * u:                                  # il numero non ci sta tra le linee: di fianco, dopo B
+        c = L / 2 + (Lf + 2 * u if fuori else 0) + u + w / 2
+    m = ((A[0] + B[0]) / 2 + ux * c + nx * lato, (A[1] + B[1]) / 2 + uy * c + ny * lato)
     f.text('quote', m, scritta, h, 'c')
     if abs(uy) > 0.5:                                      # quota verticale: testo ruotato nei formati che lo sanno fare
         f.testi[-1] = ('quote', m, scritta, h, 'cv')
@@ -739,8 +759,8 @@ def _quote_a_mano(f: Foglio, quote: list, viste: dict):
     """Le quote messe col tasto Quota sul pezzo (22/10): ognuna nella prima vista (fronte, alto, sinistra) dove il
     tratto si vede in vera lunghezza, staccata dal pezzo verso fuori, oltre le quote automatiche. viste: nome -> (T, centro della vista sul foglio)."""
     for q in quote or []:
-        if str(q.get('testo', '')).startswith('Ø'):
-            continue                                        # i fori hanno già le loro note
+        if str(q.get('testo', '')).startswith('Ø') or q.get('v'):
+            continue                                        # i fori hanno già le loro note; gli angoli si misurano a video
         a, b = q.get('a'), q.get('b')
         if not a or not b:
             continue
@@ -809,7 +829,7 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     fissa = _scala_scelta(campi.get('scala_fissa'))
     if fissa:                                         # scelta a mano (se non entra nel foglio, resta quella)
         s = fissa / FATTORE_USCITA               # la scala vale sul foglio stampato
-    campi = {**campi, 'scala': scala_testo(s)}
+    campi = {**campi, 'scala': scala_testo(s), '_s': s}
     f.testi = []
     f.linee, f.cerchi, f.pieni = [], [], []
     f.elementi, f.immagini = {}, []
@@ -941,6 +961,7 @@ def tavola_sezione(shape, campi: dict, asse: str = 'X', formato: str = 'A3') -> 
     if fissa:
         s = fissa / FATTORE_USCITA
     campi['scala'] = scala_testo(s)
+    campi['_s'] = s
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     area, cart = _cornice(f, campi)
     ox = zona[0] + 20 + (aw - wv * s) / 2
@@ -1014,7 +1035,7 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     zona = max(zone, key=scala_zona)
     s = scala_zona(zona) or SCALE[-1]
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
-    campi = {**campi, 'scala': scala_testo(s)}
+    campi = {**campi, 'scala': scala_testo(s), '_s': s}
     area, cart = _cornice(f, campi)
     ox, oy = zona[0] + gq, zona[1] + gq
     T = lambda p: (ox + (p[0] - x0) * s, oy + (p[1] - y0) * s)  # noqa: E731
@@ -1112,7 +1133,7 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     larg_viste = min((W - 40) * 0.5, cart[0] - 10 - area[0])           # a sinistra del cartiglio, sempre
     s = _scegli_scala((wF, hF + hT), larg_viste - g - 6, (area[3] - area[1]) - 2 * g - 10)
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
-    campi = {**campi, 'scala': scala_testo(s)}
+    campi = {**campi, 'scala': scala_testo(s), '_s': s}
     area, cart = _cornice(f, campi)
     # le due viste in alto a sinistra, una sotto l'altra (in basso resta posto per le note)
     ox = area[0] + g
@@ -1349,6 +1370,7 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
     g.testi = _Strato(g, [(l, S(p), t, h * k, al) for l, p, t, h, al in f.testi], f.testi.tag)
     g.i_scala = f.i_scala
     g.chiave = f.chiave
+    g.scala, g.fattore = f.scala * k, f.fattore * k
     g.immagini = [(p, x * k, y * k, w * k, h * k) for p, x, y, w, h in f.immagini]
     for nome, e in f.elementi.items():
         e = dict(e)
@@ -1367,7 +1389,10 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
 
 # ------------------------------------------------------------------------------------------ uscite
 def to_dxf(fogli: list, path):
-    """Un DXF per foglio (più fogli: uno di fianco all'altro nello stesso file, distanziati)."""
+    """Le tavole in DXF (24/10: «sempre in scala 1:1»): nel modello ogni foglio è ingrandito della sua scala, così le
+    viste sono a misura vera (misurando trovi 420 dove la quota dice 420), con cornice, cartiglio e quote in
+    proporzione; più fogli uno di fianco all'altro. Per stampare c'è un layout per foglio, del formato giusto, che
+    mostra il modello alla scala della tavola."""
     import ezdxf
     doc = ezdxf.new('R2010', setup=True)
     doc.units = ezdxf.units.MM
@@ -1377,25 +1402,37 @@ def to_dxf(fogli: list, path):
     doc.layers.get('nascoste').dxf.linetype = 'DASHED'
     doc.layers.get('piega').dxf.linetype = 'DASHDOT'
     msp = doc.modelspace()
+    from ezdxf.enums import TextEntityAlignment
     dx = 0.0
-    for f in fogli:
-        o = lambda p: (p[0] + dx, p[1])  # noqa: E731
+    nomi = set()
+    for i, f in enumerate(fogli):
+        z = 1 / f.scala if f.scala > 0 else 1.0
+        o = lambda p, z=z, dx=dx: (p[0] * z + dx, p[1] * z)  # noqa: E731
         for layer, pts in f.linee:
             if len(pts) == 2:
                 msp.add_line(o(pts[0]), o(pts[1]), dxfattribs={'layer': layer})
             else:
                 msp.add_lwpolyline([o(p) for p in pts], dxfattribs={'layer': layer})
         for layer, c, r in f.cerchi:
-            msp.add_circle(o(c), r, dxfattribs={'layer': layer})
+            msp.add_circle(o(c), r * z, dxfattribs={'layer': layer})
         for layer, pts in f.pieni:
             msp.add_solid([o(p) for p in pts], dxfattribs={'layer': layer})
         for layer, p, t, h, al in f.testi:
-            from ezdxf.enums import TextEntityAlignment
-            e = msp.add_text(t, height=h, dxfattribs={'layer': layer, 'rotation': 90 if al == 'cv' else 0, 'style': 'OpenSans'})
+            e = msp.add_text(t, height=h * z, dxfattribs={'layer': layer, 'rotation': 90 if al == 'cv' else 0, 'style': 'OpenSans'})
             a = {'l': TextEntityAlignment.BOTTOM_LEFT, 'c': TextEntityAlignment.BOTTOM_CENTER,
                  'r': TextEntityAlignment.BOTTOM_RIGHT, 'cv': TextEntityAlignment.BOTTOM_CENTER}[al]
             e.set_placement(o(p), align=a)
-        dx += f.size[0] + 50
+        W, H = f.size
+        nome = ''.join(c for c in f'{i + 1} {f.titolo}' if c not in '<>/\\":;?*|=`,')[:60].strip() or f'Foglio {i + 1}'
+        while nome in nomi:
+            nome += ' bis'
+        nomi.add(nome)
+        lay = doc.layouts.new(nome)
+        lay.page_setup(size=(W, H), margins=(0, 0, 0, 0), units='mm', scale=1)
+        lay.add_viewport(center=(W / 2, H / 2), size=(W, H), view_center_point=(dx + W * z / 2, H * z / 2), view_height=H * z)
+        dx += (W + 50) * z
+    if 'Layout1' in doc.layouts and len(fogli):
+        doc.layouts.delete('Layout1')
     doc.saveas(str(path))
 
 

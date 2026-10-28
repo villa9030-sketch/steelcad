@@ -8,6 +8,7 @@ Come si scrive un profilo (come lo direbbe l'officina):
     "piatto 50x5"        piatto 50 x 5
     "L 40x40x4"          angolare laminato (da catalogo)
     "IPE 100", "HEA 120", "HEB 200"   (da catalogo)
+    "UPN 100"            U laminata (da catalogo, ali col loro spessore medio)
     "U 80x40x3"          U piegata a freddo (h x b x spessore), raggio interno = spessore
     "C 100x50x20x2"      C piegata con risvolto (h x b x risvolto x spessore)
 
@@ -34,7 +35,7 @@ CATALOGO = Path(__file__).with_name('catalog.json')
 
 @dataclass(frozen=True)
 class Profile:
-    family: str                  # SHS RHS CHS FLAT L IPE HEA HEB U C
+    family: str                  # SHS RHS CHS FLAT L IPE HEA HEB UPN U C
     name: str                    # come si mostra: "40×40×3", "IPE 100"
     dims: tuple                  # misure principali, per il confronto
     width: float                 # ingombro X
@@ -44,7 +45,7 @@ class Profile:
     @property
     def description(self) -> str:
         nomi = {'SHS': 'Tubolare quadro', 'RHS': 'Tubolare rettangolare', 'CHS': 'Tubo tondo', 'FLAT': 'Piatto',
-                'L': 'Angolare', 'IPE': 'Trave', 'HEA': 'Trave', 'HEB': 'Trave',
+                'L': 'Angolare', 'IPE': 'Trave', 'HEA': 'Trave', 'HEB': 'Trave', 'UPN': 'Profilato',
                 'U': 'U piegata', 'C': 'C piegata'}
         return f'{nomi[self.family]} {self.name}'      # "Trave IPE 100", non "Trave IPE IPE 100"
 
@@ -83,6 +84,13 @@ def parse(text: str) -> Profile:
                                 code='profilo_sconosciuto')
         return Profile(fam, f'{fam} {size}', (voce['h'], voce['b'], voce['tw'], voce['tf'], voce['r']),
                        voce['b'], voce['h'], dict(voce))
+    m = re.fullmatch(r'upn\s*(\d+)', low)
+    if m:
+        voce = catalog()['UPN'].get(m.group(1))
+        if not voce:
+            raise SteelCADError(f'UPN {m.group(1)} non è nel catalogo. Misure disponibili: {", ".join(catalog()["UPN"])}.',
+                                code='profilo_sconosciuto')
+        return Profile('UPN', f'UPN {m.group(1)}', (voce['h'], voce['b'], voce['tw'], voce['tf']), voce['b'], voce['h'], dict(voce))
     m = re.fullmatch(r'l\s*([\d.,]+)x([\d.,]+)x([\d.,]+)', low)
     if m:
         chiave = 'x'.join(fmt_mm(_num(g)).replace(',', '.') for g in m.groups())
@@ -130,7 +138,7 @@ def parse(text: str) -> Profile:
         return Profile(fam, f'{fmt_mm(h)}×{fmt_mm(b)}×{fmt_mm(s)}', (h, b, s), b, h,
                        {'h': h, 'b': b, 't': s, 'ro': ro, 'ri': ro - s})
     raise SteelCADError(f'Non capisco il profilo "{text}". Esempi: 40x40x3, 60x40x3, Ø48.3x3.2, piatto 50x5, '
-                        'L 40x40x4, IPE 100, HEA 120, U 80x40x3.', code='profilo_sconosciuto')
+                        'L 40x40x4, IPE 100, HEA 120, UPN 100, U 80x40x3.', code='profilo_sconosciuto')
 
 
 def _pos(text, *vals):
@@ -175,6 +183,16 @@ def _section(p: Profile) -> bd.Face:
                (-tw / 2, -h / 2 + tf), (-b / 2, -h / 2 + tf)]
         inner = [(s1 * tw / 2, s2 * (h / 2 - tf)) for s1 in (-1, 1) for s2 in (-1, 1)]
         return _corners(_poly(pts), inner, r)
+    if f == 'UPN':                         # la U laminata: anima a sinistra, ali verso destra
+        # ali inclinate dell'8% (EN 10279), lo spessore tf a metà dell'ala: più spesse verso l'anima
+        h, b, tw, tf = q['h'], q['b'], q['tw'], q['tf']
+        xm = tw + (b - tw) / 2
+        sp = lambda x: tf + 0.08 * (xm - x)  # noqa: E731
+        pts = [(0, 0), (b, 0), (b, sp(b)), (tw, sp(tw)), (tw, h - sp(tw)), (b, h - sp(b)), (b, h), (0, h)]
+        cx, cy = b / 2, h / 2
+        face = _poly([(x - cx, y - cy) for x, y in pts])
+        face = _corners(face, [(tw - cx, sp(tw) - cy), (tw - cx, h - sp(tw) - cy)], q['r1'])
+        return _corners(face, [(b - cx, sp(b) - cy), (b - cx, h - sp(b) - cy)], q['r2'])
     if f == 'L':
         a, b, t, r1, r2 = q['a'], q['b'], q['t'], q['r1'], q['r2']
         cx, cy = b / 2, a / 2

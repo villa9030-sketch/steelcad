@@ -83,3 +83,61 @@ def test_cartiglio_campi_e_logo(monkeypatch, tmp_path):
     assert s.export_drawings(str(tmp_path / 'l.pdf'), campi)['ok']
     assert b'/Subtype /Image' in (tmp_path / 'l.pdf').read_bytes()
     assert s.set_logo(None)['ok'] and s.drawing_fields()['logo'] is None
+
+
+def test_dxf_sempre_1_a_1(monkeypatch, tmp_path):
+    """24/10: «l'esportazione dei DXF deve essere sempre in scala 1:1» — su ogni formato le viste e lo sviluppo
+    misurano quanto il pezzo; un layout per foglio per stamparlo in scala."""
+    import ezdxf
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path))
+    s = _cassa()
+    for fmt in ('A4', 'A3', 'A2'):
+        campi = {**s.drawing_fields()['fields'], 'formato': fmt}
+        assert s.export_drawings(str(tmp_path / f'{fmt}.dxf'), campi)['ok']
+        d = ezdxf.readfile(str(tmp_path / f'{fmt}.dxf'))
+        lun = {round(abs(e.dxf.end.x - e.dxf.start.x), 3) for e in d.modelspace() if e.dxftype() == 'LINE' and e.dxf.layer == 'contorno'}
+        assert 420.0 in lun, (fmt, sorted(lun)[-4:])
+        sv = [e for e in d.modelspace() if e.dxftype() == 'LWPOLYLINE' and e.dxf.layer == 'contorno']
+        xs = [p[0] for e in sv for p in e.get_points()]
+        assert abs(max(xs) - min(xs) - 420) < 0.01                     # lo sviluppo, anche lui a misura vera
+        assert [l.name for l in d.layouts if l.name != 'Model'] == ['1 Cassa', '2 Cassa — sviluppo']
+
+
+def _frecce(svg, nome):
+    """Le frecce (triangoli) di una quota nello SVG: la loro lunghezza."""
+    import re
+    out = []
+    for m in re.finditer(r'<polygon[^>]*data-el="' + re.escape(nome) + r'"[^>]*>', svg):
+        pts = [tuple(map(float, p.split(','))) for p in re.search(r'points="([^"]+)"', m.group(0)).group(1).split()]
+        out.append(max(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 for a in pts for b in pts))
+    return out
+
+
+def test_quote_aggiunte_come_le_altre_e_frecce(monkeypatch, tmp_path):
+    monkeypatch.setenv('STEELCAD_HOME', str(tmp_path))
+    s = _cassa()
+    campi = {**s.drawing_fields()['fields'], 'formato': 'A4'}
+    f = _foglio(s, campi)
+    assert abs(f['fattore'] - 0.5) < 1e-9
+    auto = next(o for o in f['oggetti'] if o['kind'] == 'quota' and o['testo'] == '420')
+    p = s.tavola_ritocchi('pezzo', {'aggiunte': [{'vista': 'vista:alto', 'a': [0, 0], 'b': [100, 0], 'dir': 'h', 'd': -20}]}, campi)
+    f = p['sheets'][0]
+    agg = next(o for o in f['oggetti'] if o.get('aggiunta') is not None)
+    assert abs(agg['h'] - auto['h']) < 1e-6 and abs(agg['freccia'] - auto['freccia']) < 1e-6   # uguale alle altre
+    assert _frecce(f['svg'], agg['id']) and all(abs(x - _frecce(f['svg'], auto['id'])[0]) < 0.05 for x in _frecce(f['svg'], agg['id']))
+    # frecce più grandi per tutta la tavola e per una quota sola
+    f = s.tavola_ritocchi('pezzo', {'testi': {'frecce': 4}, 'quote': {auto['id']: {'freccia': 6}}}, campi)['sheets'][0]
+    altra = next(o for o in f['oggetti'] if o['kind'] == 'quota' and o['testo'] == '260')
+    assert _frecce(f['svg'], altra['id']) and all(abs(x - 4) < 0.3 for x in _frecce(f['svg'], altra['id']))
+    assert all(abs(x - 6) < 0.3 for x in _frecce(f['svg'], auto['id']))
+
+
+def test_quota_corta_frecce_fuori():
+    from cad_engine import drawings as D
+    f = D.Foglio('A3')
+    D.quota(f, (0, 0), (2, 0), 5, 2, nome='q')
+    (_, pts), = [(l, p) for (l, p), t in zip(f.pieni, f.pieni.tag) if t == 'q'][:1]
+    # la freccia in A sta fuori (x < 0), puntata verso dentro
+    assert min(p[0] for p in pts) < -1
+    (_, (x, y), testo, h, al), = [(l, p, tx, h, al) for (l, p, tx, h, al), t in zip(f.testi, f.testi.tag) if t == 'q']
+    assert testo == '2' and x > 2                                       # il numero di fianco, non sopra le frecce

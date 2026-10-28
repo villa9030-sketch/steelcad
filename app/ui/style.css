@@ -160,6 +160,7 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 #sk-box { position: absolute; border: 1px solid #1F5FBF; background: rgba(31, 95, 191, .08); pointer-events: none; display: none; }
 #sk-box.cross { border-style: dashed; background: rgba(46, 139, 87, .08); border-color: #2E8B57; }
 .dim .p { color: var(--ink-3); font-weight: 400; margin-right: 4px; }
+.dim .n { color: var(--ink-3); font-weight: 400; margin-left: 4px; }      /* quota ripetuta: ×300 */
 .dim input { width: 80px; border: 0; outline: 0; font: inherit; color: var(--ink); padding: 0; }
 .dim.edit { border-color: var(--hover); box-shadow: 0 0 0 2px rgba(78, 161, 255, .3); }
 
@@ -1055,3 +1056,23 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 .te-r span { flex: 1; }
 .te-r .btn { padding: 0 8px; }
 .imp-bott { display: flex; gap: 6px; }
+.te-zoom-aiuto { margin-right: 4px; }
+.te-foglio { overflow: hidden; }
+/* esempi pronti nella pagina iniziale (24/10) */
+.home-esempi { margin: 0 0 22px; }
+.home-esempi h2 { font-size: 12px; letter-spacing: .06em; color: var(--ink-3); margin: 0 0 8px; text-transform: uppercase; }
+.home-esempi-riga { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.home-esempio { display: flex; align-items: center; gap: 10px; padding: 8px; text-align: left; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; color: var(--ink); cursor: pointer; }
+.home-esempio:hover { border-color: var(--hover); }
+.home-esempio .pic { width: 44px; height: 44px; flex: none; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.home-esempio .pic img { width: 100%; height: 100%; object-fit: cover; }
+.home-esempio b { display: block; font-weight: 600; }
+.home-esempio small { color: var(--ink-3); }
+/* da quale taglio vengono i bordi arancio scelti (24/10) */
+#sk-origine { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 58; max-width: min(860px, 90vw);
+  display: flex; align-items: center; gap: 14px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid #E8890C; border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, .35); color: var(--ink); }
+#sk-origine .or-testo { flex: 1; line-height: 1.4; }
+#sk-origine .or-testo .hint { display: block; }
+#sk-origine .or-bott { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

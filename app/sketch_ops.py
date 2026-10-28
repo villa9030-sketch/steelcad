@@ -64,7 +64,10 @@ def view(doc, sid: str, body=None) -> dict:
             else:
                 stato = ('Profilo aperto: «Estrudi in lamiera» lo fa diventare lamiera piegata (gli archi a colpi), '
                          '«Crea struttura» lo fa in tubi. Per una lamiera piana o una piastra il contorno va chiuso.')
-    g = lambda p: [(q := pl.from_local_coords(p)).X, q.Y, q.Z]  # noqa: E731
+    # dal piano dello sketch al 3D con due prodotti: from_local_coords punto per punto costava 0,3 s con 4.000 punti
+    _o, _x, _y = pl.origin, pl.x_dir, pl.y_dir
+    ox, oy, oz, xx, xy, xz, yx, yy, yz = _o.X, _o.Y, _o.Z, _x.X, _x.Y, _x.Z, _y.X, _y.Y, _y.Z
+    g = lambda p: [ox + p[0] * xx + p[1] * yx, oy + p[0] * xy + p[1] * yy, oz + p[0] * xz + p[1] * yz]  # noqa: E731
     out = {'id': sid, 'name': sk.name, 'plane': sk.plane, 'status': stato, 'ok': bool(fr and fr.ok), 'open': aperto,
            'origin': g((0, 0)), 'x_dir': [pl.x_dir.X, pl.x_dir.Y, pl.x_dir.Z], 'y_dir': [pl.y_dir.X, pl.y_dir.Y, pl.y_dir.Z],
            'z_dir': [pl.z_dir.X, pl.z_dir.Y, pl.z_dir.Z],

@@ -22,6 +22,7 @@ try:
         pg.goto('http://127.0.0.1:5187/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
         api = lambda n, *a: pg.evaluate("async ([n, a]) => (await (await fetch('/api/' + n, {method: 'POST', body: JSON.stringify(a)})).json())", [n, list(a)])
         api('new_project', 'lamiera', {'name': 'Cassa', 'larghezza': 420, 'profondita': 260, 'spessore': 2})
+        sidc = api('sketch_on_face', 'SM1/sopra')['sketch']; api('sketch_add_circle', sidc, [300, 130], 20); api('create_from_sketch', sidc, 'cut', {})
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         # il logo dalle Impostazioni
@@ -51,12 +52,15 @@ try:
         q = next(t for t in ogg if '/q' in t)
         pg.locator(f'#te-foglio [data-el="{q}"]').first.click(force=True); time.sleep(0.4)
         chk('pannello della quota', pg.is_visible('#te-sel') and pg.is_visible('#ts-testo'))
+        chk('campo Frecce della quota', pg.is_visible('#ts-fr'))
         pg.fill('#ts-testo', '420 ±0,5'); pg.press('#ts-testo', 'Tab'); time.sleep(1.5)
         chk('testo della quota nel foglio', '420 ±0,5' in pg.inner_html('#te-foglio'))
         # testi più grandi
         pg.locator('summary', has_text='Altezza dei testi').click()
         pg.fill('[data-t="quote"]', '4'); pg.press('[data-t="quote"]', 'Tab'); time.sleep(1.5)
         chk('altezza quote salvata', api('drawing_preview', None)['sheets'][0]['ritocchi'].get('testi', {}).get('quote') == 4)
+        pg.fill('[data-t="frecce"]', '5'); pg.press('[data-t="frecce"]', 'Tab'); time.sleep(1.5)
+        chk('frecce della tavola salvate', api('drawing_preview', None)['sheets'][0]['ritocchi'].get('testi', {}).get('frecce') == 5)
         # quota nuova: due punti della stessa vista
         pg.click('[data-str="quota"]')
         o = next(o for o in api('drawing_preview', None)['sheets'][0]['oggetti'] if o['id'] == v)
@@ -84,9 +88,45 @@ try:
         pg.check('[data-mostra="cliente"]'); time.sleep(2)
         chk('cliente nel cartiglio', 'Officine Rossi' in pg.inner_html('#te-foglio'))
         pg.screenshot(path=str(OUT / '2_ritoccata.png'))
-        # Annulla toglie l'ultimo ritocco (la nota)
+        # diametro con un clic sul cerchio, angolo con tre clic, saldatura (punta + simbolo + finestra)
+        def schermo_f(pp):
+            return pg.evaluate("""([x, y]) => { const s = document.querySelector('#te-foglio svg'), H = s.viewBox.baseVal.height + s.viewBox.baseVal.y;
+                const pt = s.createSVGPoint(); pt.x = x; pt.y = %s - y; const q = pt.matrixTransform(s.getScreenCTM()); return [q.x, q.y]; }""" % 'window.__altezzaFoglio', pp)
+        pg.evaluate("window.__altezzaFoglio = 0")
+        alt = pg.evaluate("window.__tavole.foglio()")                  # il foglio com'è nell'editor (col cartiglio di adesso)
+        pg.evaluate(f"window.__altezzaFoglio = {alt['size'][1]}")
+        def clic_f(pp):
+            sx, sy = schermo_f(pp); pg.mouse.move(sx, sy); time.sleep(0.15); pg.mouse.down(); pg.mouse.up(); time.sleep(0.35)
+        va = next(o for o in alt['oggetti'] if o['id'] == 'vista:alto')
+        chk(f"cerchi riconosciuti nella vista: {len(va['cerchi'])}", len(va['cerchi']) >= 1)
+        c0 = va['cerchi'][0]
+        pg.click('[data-str="diametro"]'); clic_f([c0['c'][0] + c0['r'] * 0.707, c0['c'][1] + c0['r'] * 0.707]); time.sleep(1.2)
+        chk('diametro sul foglio', 'Ø40' in pg.inner_html('#te-foglio'))
+        pts = sorted(va['punti'], key=lambda q: (q[1], q[0]))
+        A = max((q for q in pts if abs(q[1] - pts[0][1]) < 0.01), key=lambda q: q[0]); V = pts[0]
+        B = max((q for q in pts if abs(q[0] - V[0]) < 0.01), key=lambda q: q[1])
+        pg.click('[data-str="angolo"]')
+        clic_f(A); clic_f(V); clic_f(B); time.sleep(1.2)
+        chk('angolo di 90° sul foglio', '90°' in pg.inner_html('#te-foglio'))
+        pg.click('[data-str="saldatura"]'); clic_f(V); clic_f([V[0] + 20, V[1] + 15]); time.sleep(0.5)
+        pg.fill('#sd-a', '4'); pg.check('#sd-giro'); pg.click('#m-ok'); time.sleep(1.5)
+        chk('saldatura a4 sul foglio', '>a4<' in pg.inner_html('#te-foglio'))
+        r = api('drawing_preview', None)['sheets'][0]['ritocchi']
+        chk('salvati: diametro, angolo, saldatura', len(r.get('diametri', [])) == 1 and len(r.get('angoli', [])) == 1 and len(r.get('saldature', [])) == 1)
+        # zoom con la rotella e Adatta
+        prima = pg.get_attribute('#te-foglio svg', 'viewBox')
+        fb = pg.locator('#te-foglio svg').bounding_box(); pg.mouse.move(fb['x'] + fb['width'] / 3, fb['y'] + fb['height'] / 2)
+        for _ in range(4): pg.mouse.wheel(0, -200); time.sleep(0.1)
+        dopo = pg.get_attribute('#te-foglio svg', 'viewBox')
+        chk(f'zoom: {prima} → {dopo}', prima != dopo and float(dopo.split()[2]) < float(prima.split()[2]))
+        pg.screenshot(path=str(OUT / '2b_zoom.png'))
+        pg.click('#te-adatta'); time.sleep(0.3)
+        chk('Adatta torna al foglio intero', [float(x) for x in pg.get_attribute('#te-foglio svg', 'viewBox').split()] == [float(x) for x in prima.split()])
+        pg.click('[data-str="sel"]')
+        pg.screenshot(path=str(OUT / '2c_simboli.png'))
+        # Annulla toglie l'ultimo ritocco
         pg.click('#te-undo'); time.sleep(1.5)
-        chk('Annulla toglie la nota', 'Sbavare tutti i bordi' not in pg.inner_html('#te-foglio'))
+        chk('Annulla toglie la saldatura', '>a4<' not in pg.inner_html('#te-foglio'))
         pg.click('#te-auto'); time.sleep(1.5)
         chk('Rimetti automatico', not api('drawing_preview', None)['sheets'][0]['ritocchi'])
         pg.screenshot(path=str(OUT / '3_automatica.png'))

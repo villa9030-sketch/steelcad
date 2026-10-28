@@ -386,7 +386,7 @@ class DrawingsMixin:
             fogli = self._fogli(campi or self.drawing_fields()['fields'], tutte)
             rit = self._ritocchi_tavole()
             return {'ok': True, 'modificabili': self.asm is None,
-                    'sheets': [{'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave,
+                    'sheets': [{'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave, 'fattore': f.fattore,
                                 'oggetti': oggetti(f), 'ritocchi': rit.get(f.chiave) or {}} for f in fogli]}
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}

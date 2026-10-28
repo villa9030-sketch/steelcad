@@ -63,8 +63,40 @@ def _same_key(a: tuple, b: tuple, tol: float = 1e-5) -> bool:
     return a[3] is None or math.dist(a[3], b[3]) <= tol
 
 
+# 24/10: i lati e le facce già costruiti si ricordano (stesse coordinate, stesso piano): a ogni modifica di uno sketch
+# da 300 fori si ricostruiva tutto, ora solo quello che è cambiato
+_LATI: dict = {}
+_FACCE: dict = {}
+
+
+def _ricorda(memo: dict, chiave, fa):
+    v = memo.get(chiave)
+    if v is None:
+        if len(memo) > 60000:
+            memo.clear()
+            _FACCE.clear()
+        v = memo[chiave] = fa()
+    return v
+
+
+def _faccia_ricordata(w) -> bd.Face:
+    """La faccia di un contorno fatto degli stessi lati (gli stessi lati del kernel, ricordati sopra) è la stessa."""
+    lati = [e.wrapped for e in w.edges()]
+    chiave = tuple(sorted(hash(x) for x in lati))
+    v = _FACCE.get(chiave)
+    if v is not None and len(v[0]) == len(lati) and all(any(a.IsSame(b) for b in v[0]) for a in lati):
+        return v[1]
+    f = bd.Face(w)
+    if len(_FACCE) > 60000:
+        _FACCE.clear()
+    _FACCE[chiave] = (lati, f)
+    return f
+
+
 def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
     sk = ss.sketch
+    o_, x_, z_ = plane.origin, plane.x_dir, plane.z_dir
+    chiave_piano = tuple(round(c, 12) for v in (o_, x_, z_) for c in (v.X, v.Y, v.Z))
     g = lambda pid: plane.from_local_coords(ss.points[pid])  # noqa: E731
 
     sources: list[SourceEdge] = []
@@ -75,7 +107,7 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
             continue
         if math.dist(ss.points[a], ss.points[b]) < 1e-6:
             continue                 # un tratto lungo zero tra due punti sovrapposti: nel contorno non conta
-        e = bd.Edge.make_line(g(a), g(b))
+        e = _ricorda(_LATI, (chiave_piano, 'L', ss.points[a], ss.points[b]), lambda: bd.Edge.make_line(g(a), g(b)))
         open_edges.append((eid, e, ss.points[a], ss.points[b]))
     for eid, (c, a, b, r) in ss.arcs.items():
         if sk.entities[eid].get('construction'):
@@ -86,14 +118,14 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
         while t1 <= t0:
             t1 += 2 * math.pi
         tm = (t0 + t1) / 2
-        mid = plane.from_local_coords((cx + r * math.cos(tm), cy + r * math.sin(tm)))
-        e = bd.Edge.make_three_point_arc(g(a), mid, g(b))
+        e = _ricorda(_LATI, (chiave_piano, 'A', ss.points[a], ss.points[b], ss.points[c], r), lambda: bd.Edge.make_three_point_arc(
+            g(a), plane.from_local_coords((cx + r * math.cos(tm), cy + r * math.sin(tm))), g(b)))
         open_edges.append((eid, e, ss.points[a], ss.points[b]))
     for eid, (c, r) in ss.circles.items():
         if sk.entities[eid].get('construction'):
             continue
-        pl = bd.Plane(origin=g(c), x_dir=plane.x_dir, z_dir=plane.z_dir)
-        circles.append((eid, bd.Edge.make_circle(r, pl)))
+        circles.append((eid, _ricorda(_LATI, (chiave_piano, 'C', ss.points[c], r), lambda: bd.Edge.make_circle(
+            r, bd.Plane(origin=g(c), x_dir=plane.x_dir, z_dir=plane.z_dir)))))
     for eid, e, *_ in open_edges:
         sources.append(SourceEdge(eid, e, sk.entities[eid]['kind'], _key(e)))
     for eid, e in circles:
@@ -216,7 +248,7 @@ def _faces(loops: list, plane: bd.Plane) -> list:
     info = []
     for w in loops:
         try:
-            f = bd.Face(w)
+            f = _faccia_ricordata(w)
         except ValueError:
             raise SketchError('Un contorno dello sketch non si chiude esattamente (due estremità vicine ma non '
                               'unite): unisci i punti con «coincidente».', code='profilo_aperto') from None
@@ -237,10 +269,12 @@ def _faces(loops: list, plane: bd.Plane) -> list:
 
     depth = []
     parent = []
+    xs = [(b.min.X, b.max.X) for b in box]
     for i, (w, f) in enumerate(info):
         p = w.edges()[0].position_at(0.5)
-        contenitori = [j for j, (w2, f2) in enumerate(info) if j != i and aree[j] > aree[i] and dentro_box(box[j], p)
-                       and _inside(f2, p)]
+        px = p.X
+        contenitori = [j for j in range(len(info)) if j != i and xs[j][0] - TOL <= px <= xs[j][1] + TOL
+                       and aree[j] > aree[i] and dentro_box(box[j], p) and _inside(info[j][1], p)]
         depth.append(len(contenitori))
         parent.append(min(contenitori, key=lambda j: aree[j]) if contenitori else None)
     faces = []
@@ -259,9 +293,15 @@ def _faces(loops: list, plane: bd.Plane) -> list:
         if face.normal_at().dot(plane.z_dir) < 0:
             face = -face
         faces.append(face)
-    for i in range(len(info)):
-        for j in range(i + 1, len(info)):
-            if depth[i] == depth[j] and toccano(box[i], box[j]) and _overlap(info[i][1], info[j][1]):
+    # le coppie che si toccano: in ordine di X, si guarda solo chi comincia prima che l'altro finisca (24/10: 300
+    # fori facevano 45.000 confronti a coppie a ogni modifica)
+    ordine = sorted(range(len(info)), key=lambda k: (box[k].min.X, k))
+    for n, i in enumerate(ordine):
+        for j in ordine[n + 1:]:
+            if box[j].min.X > box[i].max.X + TOL:
+                break
+            a_, b_ = min(i, j), max(i, j)
+            if depth[a_] == depth[b_] and toccano(box[a_], box[b_]) and _overlap(info[a_][1], info[b_][1]):
                 raise SketchError('Due contorni dello sketch si sovrappongono: il profilo non è chiaro.',
                                   code='profilo_sovrapposto')
     return faces

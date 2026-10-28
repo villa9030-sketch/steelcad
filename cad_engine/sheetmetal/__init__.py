@@ -2068,12 +2068,15 @@ def _attraverso_la_piega(f, data):
     sull'orlo, rimaneva la curva tra i due). Si lavora nello sviluppo: il lato del contorno sul bordo della striscia
     si allunga di tutta la striscia."""
     giunte = []
+    vs = [bd.Vector(v) for v in f.vertices()]              # gli estremi dei lati: una volta sola, non per ogni piega
     for g in data.flanges:
         s0, s1 = g.off, g.off + g.bend.ba
         if g.bend.ba < TOL:
             continue
-        vs = [v for e in f.edges() for v in (e.position_at(0), e.position_at(1))]
         ss = [(v - g.F0).dot(g.fn) for v in vs]
+        # 24/10: nessun vertice sul bordo della striscia = nessun lato ci appoggia (300 fori lontani: tutti qui)
+        if not any(abs(x - s0) < 0.01 or abs(x - s1) < 0.01 for x in ss):
+            continue
         for e in f.edges():
             if e.geom_type != bd.GeomType.LINE:
                 continue
@@ -2279,6 +2282,48 @@ def _in_striscia(x, g: FlangeGeo, data, bb=None) -> bool:
     return dentro
 
 
+def _dentro_contorno_2d(filo, piano, margine=0.05):
+    """Per sapere in fretta se dei punti stanno dentro un contorno piano (il bordo esterno dello sviluppo): il
+    contorno diventa un poligono fitto (archi a passi di 0,2 mm) e si conta in piano. Dà per ogni punto True/False,
+    o None se è troppo vicino al bordo per fidarsi del poligono (lì decide il kernel)."""
+    import numpy as np
+    o, ux, uy = piano.origin, piano.x_dir, piano.y_dir
+    loc = lambda p: ((p - o).dot(ux), (p - o).dot(uy))  # noqa: E731
+    segmenti, errore = [], 0.0
+    for e in filo.edges():                     # lato per lato: i segmenti non dipendono dall'ordine dei lati
+        if e.geom_type == bd.GeomType.LINE:
+            q = [e.position_at(0), e.position_at(1)]
+        else:
+            n = max(8, math.ceil(e.length / 0.2))
+            q = e.positions([i / n for i in range(n + 1)])
+            try:
+                errore = max(errore, (e.length / n) ** 2 / (8 * max(e.radius, 1e-3)))
+            except Exception:  # noqa: BLE001 - non è un arco: si tiene largo
+                errore = max(errore, 0.05)
+        q = [loc(p) for p in q]
+        segmenti.extend(zip(q[:-1], q[1:]))
+    S = np.array(segmenti, dtype=float)
+    A, B = S[:, 0], S[:, 1]
+    d = B - A
+    ll = np.maximum((d * d).sum(1), 1e-18)
+    soglia = margine + errore
+
+    O3 = np.array([o.X, o.Y, o.Z]); M = np.array([[ux.X, uy.X], [ux.Y, uy.Y], [ux.Z, uy.Z]])
+
+    def esito(pts):
+        Q = ((np.array([(p.X, p.Y, p.Z) for p in pts], dtype=float) - O3) @ M).reshape(-1, 1, 2)
+        # quanto ogni punto dista dal poligono
+        tt = np.clip((((Q - A) * d).sum(2)) / ll, 0, 1)
+        vic = np.sqrt((((A + tt[..., None] * d) - Q) ** 2).sum(2)).min(1)
+        # dentro/fuori a raggio orizzontale
+        y, x = Q[..., 1], Q[..., 0]
+        attr = ((A[:, 1] > y) != (B[:, 1] > y))
+        xi = A[:, 0] + (y - A[:, 1]) * d[:, 0] / np.where(d[:, 1] == 0, 1e-300, d[:, 1])
+        dentro = (attr & (x < xi)).sum(1) % 2 == 1
+        return [None if v < soglia else bool(k) for v, k in zip(vic, dentro)]
+    return esito
+
+
 def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     """Un taglio disegnato sullo sviluppo, anche attraverso le pieghe: i pezzi nei tratti piani vanno al loro posto
     nel pezzo piegato, quelli nelle strisce di piega si avvolgono sulla piega. Lo sviluppo perde il contorno intero."""
@@ -2303,6 +2348,8 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
         return not (b1.max.X < b2.min.X - TOL or b2.max.X < b1.min.X - TOL or b1.max.Y < b2.min.Y - TOL
                     or b2.max.Y < b1.min.Y - TOL or b1.max.Z < b2.min.Z - TOL or b2.max.Z < b1.min.Z - TOL)
 
+    dentro_2d = _dentro_contorno_2d(data.flat.outer_wire(), data.plane)
+
     def tutto_dentro(x, bx):
         if any(sovrappone(bx, b) for b in buchi):
             return False
@@ -2312,8 +2359,24 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
             pts = vs[::max(1, len(vs) // 24)]
         else:
             pts = [p for e in es for p in e.positions([0, 0.25, 0.5, 0.75])]
-        return all(esterno.is_inside(p) for p in pts)
+        # 24/10: prima il conto veloce in piano; il kernel solo per i punti a ridosso del bordo
+        esito = dentro_2d(pts)
+        return all(esterno.is_inside(p) if e is None else e for p, e in zip(pts, esito))
+    # 24/10: il lavoro su ogni contorno (pieghe attraversate, dentro o fuori, l'utensile) si ricorda: a una modifica
+    # si rifà solo per i contorni nuovi o cambiati, non per tutti i 300 fori della serie
+    base_memo = (fid, hash(data.flat.wrapped), round(t, 6))
+    memo = _CONTORNI_FATTI.get(base_memo)
+    if memo is None:
+        _CONTORNI_FATTI.clear()
+        memo = _CONTORNI_FATTI[base_memo] = {}
     for i, f in enumerate(contorni):
+        chiave = (_impronta_faccia(f), _impronta_ritorno(ritorni[i]) if ritorni else None)
+        if chiave in memo:
+            fatti, di_piu = memo[chiave]
+            attrezzi.extend(fatti)
+            atteso += di_piu
+            continue
+        n0, a0 = len(attrezzi), atteso
         resto = [f]
         bf = f.bounding_box()
         for g, rett, br in strisce:
@@ -2347,27 +2410,14 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
             v = bd.Vector(verso).normalized() * (t + 0.02)               # dalla faccia: sopra può appoggiare altro
             attrezzi.append(bd.Shape.cast(BRepPrimAPI_MakePrism(f3.wrapped, gp_Vec(v.X, v.Y, v.Z)).Shape()))
             atteso += dentro * t
+        memo[chiave] = (attrezzi[n0:], atteso - a0)
     if not attrezzi:
         raise FeatureError('Il contorno disegnato è fuori dallo sviluppo: non toglie niente.', feature=fid)
-    from OCP.collections import List_TopoDS_Shape
-    argomenti, utensili = List_TopoDS_Shape(), List_TopoDS_Shape()
-    argomenti.Append(body.shape)
-    for a in attrezzi:
-        for so in (a.solids() if hasattr(a, 'solids') else [a]):
-            utensili.Append(so.wrapped)
-    op = BRepAlgoAPI_Cut()
-    op.SetArguments(argomenti)
-    op.SetTools(utensili)
-    op.SetRunParallel(True)               # tanti fori: OCCT li interseca su più core
-    op.Build()
-    if not op.IsDone():
-        raise FeatureError('Il kernel non è riuscito a fare il taglio.', feature=fid)
-    nuovo = body.after(op, op.Shape())
+    solidi = [so for a in attrezzi for so in (a.solids() if hasattr(a, 'solids') else [a])]
+    nuovo, memo = _taglia_ricordando(fid, body, solidi)
     tolto = volume(body.shape) - volume(nuovo.shape)
     if tolto < 1e-6:
         raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
-    for f in nuovo.senza_nome():
-        nuovo.names.setdefault(f'{fid}/parete', []).append(f)
     flat = data.flat.cut(*contorni)                       # tutti i contorni in un colpo solo
     flat = flat.clean() if hasattr(flat, 'clean') else flat
     facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
@@ -2379,7 +2429,103 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
         raise FeatureError('Il taglio nel pezzo piegato non corrisponde allo sviluppo (tocca un’altra parte del '
                            'pezzo?): non lo applico.', feature=fid)
     nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area, flat_size=flat_size(facce[0], data.plane))
+    memo()
     return nuovo
+
+
+_CONTORNI_FATTI: dict = {}  # (taglio, sviluppo, spessore) → {impronta del contorno: (utensili, volume atteso)}
+
+
+def _impronta_faccia(f) -> tuple:
+    """Un contorno riconoscibile: vertici, area, tipo dei lati (arrotondati)."""
+    from OCP.BRep import BRep_Tool
+    from OCP.TopAbs import TopAbs_VERTEX
+    from OCP.TopExp import TopExp
+    from OCP.TopoDS import TopoDS
+    from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as Mappa
+    m = Mappa()
+    TopExp.MapShapes_s(f.wrapped, TopAbs_VERTEX, m)
+    pv = [BRep_Tool.Pnt_s(TopoDS.Vertex(m(i))) for i in range(1, m.Extent() + 1)]
+    vs = tuple(sorted((round(p.X(), 6), round(p.Y(), 6), round(p.Z(), 6)) for p in pv))
+    tipi = tuple(sorted(str(e.geom_type) for e in f.edges()))
+    return (vs, round(f.area, 6), tipi)
+
+
+def _impronta_ritorno(r) -> tuple:
+    """Dove torna un contorno disegnato su una faccia: la trasformazione, il verso, la flangia."""
+    loc, dentro, g = r
+    tr = loc.wrapped.Transformation()
+    mat = tuple(round(tr.Value(i, j), 9) for i in (1, 2, 3) for j in (1, 2, 3, 4))
+    d = bd.Vector(dentro)
+    return (mat, (round(d.X, 9), round(d.Y, 9), round(d.Z, 9)), getattr(g, 'fid', None))
+
+
+_TAGLI_FATTI: dict = {}     # taglio → (pezzo di partenza, impronte degli utensili, risultato): per i tagli a pezzi
+
+
+def _impronta_solido(so) -> tuple:
+    """Un utensile riconoscibile: volume, baricentro e vertici (arrotondati)."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_VERTEX
+    from OCP.TopExp import TopExp
+    from OCP.TopoDS import TopoDS
+    from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as Mappa
+    g = GProp_GProps()
+    BRepGProp.VolumeProperties_s(so.wrapped, g)
+    c = g.CentreOfMass()
+    m = Mappa()
+    TopExp.MapShapes_s(so.wrapped, TopAbs_VERTEX, m)
+    pv = [BRep_Tool.Pnt_s(TopoDS.Vertex(m(i))) for i in range(1, m.Extent() + 1)]
+    vs = tuple(sorted((round(p.X(), 5), round(p.Y(), 5), round(p.Z(), 5)) for p in pv))
+    return (round(g.Mass(), 5), round(c.X(), 5), round(c.Y(), 5), round(c.Z(), 5), vs)
+
+
+def _taglia_ricordando(fid, body, solidi):
+    """La sottrazione degli utensili dal pezzo, coi nomi delle pareti nuove. 24/10: con 300 fori costava un secondo
+    a ogni modifica. Se il pezzo di partenza è lo stesso e gli utensili sono quelli dell'ultima volta più qualcuno
+    (hai aggiunto un foro), si sottraggono solo i nuovi dal risultato di prima; altrimenti tutto da capo.
+    Dà (risultato, da chiamare a taglio riuscito per ricordarlo)."""
+    from collections import Counter
+
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.collections import List_TopoDS_Shape
+    firme = [_impronta_solido(so) for so in solidi]
+    conta = Counter(firme)
+    base, usati = body, solidi
+    prima = _TAGLI_FATTI.get(fid)
+    if prima is not None and prima[0].IsEqual(body.shape):
+        in_piu = conta - prima[1]
+        if not (prima[1] - conta) and 0 < sum(in_piu.values()) <= 30:
+            base = prima[2]
+            resto = Counter(in_piu)
+            usati = []
+            for so, k in zip(solidi, firme):
+                if resto[k] > 0:
+                    resto[k] -= 1
+                    usati.append(so)
+    argomenti, utensili = List_TopoDS_Shape(), List_TopoDS_Shape()
+    argomenti.Append(base.shape)
+    for so in usati:
+        utensili.Append(so.wrapped)
+    op = BRepAlgoAPI_Cut()
+    op.SetArguments(argomenti)
+    op.SetTools(utensili)
+    op.SetRunParallel(True)               # tanti fori: OCCT li interseca su più core
+    op.Build()
+    if not op.IsDone():
+        raise FeatureError('Il kernel non è riuscito a fare il taglio.', feature=fid)
+    nuovo = base.after(op, op.Shape())
+    for f in nuovo.senza_nome():
+        nuovo.names.setdefault(f'{fid}/parete', []).append(f)
+
+    def ricorda():
+        if len(_TAGLI_FATTI) > 8 and fid not in _TAGLI_FATTI:
+            _TAGLI_FATTI.pop(next(iter(_TAGLI_FATTI)))
+        _TAGLI_FATTI[fid] = (body.shape, conta,
+                             NamedShape(nuovo.shape, {k: list(v) for k, v in nuovo.names.items()}))
+    return nuovo, ricorda
 
 
 def _from_flat(f, data, fid, ritorno=False):

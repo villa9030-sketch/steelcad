@@ -109,7 +109,7 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     s, _, tab, zona = migliore
     s = s or SCALE[-1]
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
-    campi = {**campi, 'scala': scala_testo(s)}
+    campi = {**campi, 'scala': scala_testo(s), '_s': s}
     area, cart = _cornice(f, campi)
     # lo sviluppo centrato nella sua zona
     aw = (zona[2] - zona[0]) - m_sx - m_dx
