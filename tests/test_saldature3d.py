@@ -38,3 +38,18 @@ def test_saldatura_resta_se_il_pezzo_cambia():
     assert s.set_parameter(larg, 400)['ok']
     w = s.state()['saldature'][0]
     assert not w['persa'] and abs(w['m'] - 0.4) < 1e-6
+
+
+def test_saldature_e_angoli_del_3d_vanno_nella_tavola():
+    """28/10: prima i simboli nelle tavole si mettevano a mano."""
+    import build123d as bd
+    from app.service import Service
+    s = Service()
+    s.esempio('staffa')
+    es = [e for e in bd.Shape.cast(s.result.body.shape).edges()
+          if e.geom_type == bd.GeomType.LINE and abs(e.tangent_at(0.5).X) > 0.99]
+    c = max(es, key=lambda e: e.center().Z).center()
+    assert s.add_saldatura([[c.X, c.Y, c.Z]], {'tipo': 'angolo', 'a': '3'})['ok']
+    s.set_quote([{'a': [0, 30, 0], 'v': [0, 0, 0], 'b': [0, 0, 30], 'testo': '90°'}])
+    svg = s.drawing_preview({})['sheets'][0]['svg']
+    assert '>a3<' in svg and '>90°<' in svg

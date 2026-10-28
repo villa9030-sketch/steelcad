@@ -1076,3 +1076,7 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 #sk-origine .or-testo { flex: 1; line-height: 1.4; }
 #sk-origine .or-testo .hint { display: block; }
 #sk-origine .or-bott { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* 28/10: ritocchi delle tavole rimasti senza oggetto */
+#te-persi { border: 1px solid #b7791f; background: rgba(183, 121, 31, .12); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+#te-persi h4 { margin: 0 0 4px; color: #f0b44c; font-size: 13px; }

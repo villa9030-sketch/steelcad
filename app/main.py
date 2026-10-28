@@ -433,8 +433,14 @@ class Api:
             return {'ok': False, 'cancelled': True}
         return self._call(self._svc.import_step, p, k)
 
-    def import_step(self, path, k=None):
-        return self._call(self._svc.import_step, path, k)
+    def import_step(self, path, k=None, solido=None):
+        return self._call(self._svc.import_step, path, k, solido)
+
+    def step_dxf_tutti(self, path, k=None):
+        r = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if not r:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.step_dxf_tutti, path, r if isinstance(r, str) else r[0], k)
 
     def import_dxf(self, path):
         return self._call(self._svc.import_dxf, path)
@@ -490,6 +496,9 @@ class Api:
 
     def togli_fori_da_taglio(self, sid, eids):
         return self._call(self._svc.togli_fori_da_taglio, sid, eids)
+
+    def togli_dal_taglio(self, sid, eids):
+        return self._call(self._svc.togli_dal_taglio, sid, eids)
 
     def esempio(self, eid):
         return self._call(self._svc.esempio, eid)

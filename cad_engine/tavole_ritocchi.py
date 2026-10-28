@@ -12,7 +12,11 @@ cambia. Si salvano nel progetto (meta['tavole'][chiave del foglio]) come:
      'angoli': [{'vista': 'vista:fronte', 'a': [x, y], 'v': [x, y], 'b': [x, y], 'r': 15}],   tre punti nella vista
      'saldature': [{'vista': 'vista:fronte', 'p': [x, y], 'dx': 15, 'dy': 12, 'tipo': 'angolo'|'V'|'I', 'a': '4',
                     'l': '', 'giro': False, 'opera': False}],   la punta nella vista, il gomito spostato sul foglio
-     'testi':  {'quote': 3.5, 'note': 3.5, 'titoli': 5, 'frecce': 3}}   altezze (e frecce) in mm sul foglio stampato
+     'testi':  {'quote': 3.5, 'note': 3.5, 'titoli': 5, 'frecce': 3},   altezze (e frecce) in mm sul foglio stampato
+     'libere': ['vista:alto'],                                   viste non allineate alla fronte (28/10)
+     'tolte':  ['vista:iso'],                                    viste tolte dal foglio
+     'dettagli': [{'vista': 'vista:fronte', 'c': [x, y], 'r': 12, 'k': 2, 'p': [x, y], 'lettera': 'A'}]}
+                                                                centro e raggio nella vista, ingrandimento, centro sul foglio
 
 Una quota può avere anche 'freccia' (mm). Senza ritocchi testi e frecce sono quelli della tavola: impaginata in A2 e
 rimpicciolita sul foglio (f.fattore), così una quota aggiunta è uguale alle altre su ogni formato.
@@ -25,7 +29,7 @@ from __future__ import annotations
 
 import math
 
-from .drawings import STRATI, Foglio, _disegna_quota, _freccia, fmt
+from .drawings import STRATI, Foglio, _disegna_quota, _freccia, disegna_angolo, fmt, scala_testo
 
 
 def _dentro(tag: str, nome: str) -> bool:
@@ -51,8 +55,19 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
     saltano: la tavola esce comunque."""
     r = r or {}
     testi = r.get('testi') or {}
+    f.persi = persi(f, r)
+    # 0. viste tolte e dettagli ingranditi (28/10): prima degli spostamenti, così il cerchio del dettaglio segue la
+    # sua vista e il dettaglio si sposta per conto suo
+    for vista in r.get('tolte') or []:
+        if vista in f.elementi and f.elementi[vista]['kind'] == 'vista':
+            for st in STRATI:
+                getattr(f, st).tieni(lambda t, v=vista: not _dentro(t, v))
+            for nome in [n for n in f.elementi if _dentro(n, vista)]:
+                del f.elementi[nome]
+    for i, d in enumerate(r.get('dettagli') or []):
+        _dettaglio(f, d, i)
     # 1. le viste spostate, con tutto quello che sta dentro (quote, note dei fori, titolo)
-    for vista, (dx, dy) in (r.get('viste') or {}).items():
+    for vista, (dx, dy) in viste_allineate(r, f.elementi).items():
         if vista not in f.elementi:
             continue
         _trasla(f, lambda t, v=vista: _dentro(t, v), dx, dy)
@@ -160,28 +175,14 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
         A, V, B = P(q['a']), P(q['v']), P(q['b'])
         a1 = math.atan2(A[1] - V[1], A[0] - V[0])
         a2 = math.atan2(B[1] - V[1], B[0] - V[0])
-        da = (a2 - a1 + math.pi) % (2 * math.pi) - math.pi        # l'angolo più piccolo, col suo verso
+        da = (a2 - a1 + math.pi) % (2 * math.pi) - math.pi
         if abs(da) < 1e-6:
             continue
-        R = float(q.get('r', 15 * k))
-        n = max(8, int(abs(da) / math.radians(5)))
-        arco = [(V[0] + R * math.cos(a1 + da * j / n), V[1] + R * math.sin(a1 + da * j / n)) for j in range(n + 1)]
-        gradi = math.degrees(abs(da))
-        testo = q.get('testo') or (fmt(round(gradi, 1)) + '°')
+        testo = q.get('testo') or (fmt(round(math.degrees(abs(da)), 1)) + '°')
         nome = f'{q["vista"]}/ang{i + 1}'
         f.elementi[nome] = {'kind': 'angolo', 'indice': i, 'V': list(V), 'testo': testo}
-        sg = 1 if da > 0 else -1
         with f.oggetto(nome):
-            # le linee di richiamo, se l'arco va oltre i lati disegnati
-            for ang, P0 in ((a1, A), (a2, B)):
-                if math.dist(V, P0) < R:
-                    f.line('quote', P0, (V[0] + (R + 1.5 * k) * math.cos(ang), V[1] + (R + 1.5 * k) * math.sin(ang)))
-            f.line('quote', *arco)
-            _freccia(f, arco[0], (math.sin(a1) * sg, -math.cos(a1) * sg), L=frq)      # le punte verso fuori dall'arco
-            _freccia(f, arco[-1], (-math.sin(a2) * sg, math.cos(a2) * sg), L=frq)
-            am = a1 + da / 2
-            f.text('quote', (V[0] + (R + 1.2 * k) * math.cos(am), V[1] + (R + 1.2 * k) * math.sin(am)), testo, hq,
-                   'l' if math.cos(am) > 0.3 else 'r' if math.cos(am) < -0.3 else 'c')
+            disegna_angolo(f, A, V, B, float(q.get('r', 15 * k)), testo, k, hq, frq)
     for i, q in enumerate(r.get('saldature') or []):
         T = _trasformazione(f, q.get('vista'))
         if T is None:
@@ -197,6 +198,141 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
         with f.oggetto(nome):
             _saldatura(f, P0, K, Fn, verso, q, k, hq, frq)
     return f
+
+
+def _taglia_nel_cerchio(pts, C, R) -> list:
+    """I tratti della polilinea che stanno dentro il cerchio (C, R): una lista di polilinee."""
+    out, cur = [], []
+
+    def dentro(p):
+        return (p[0] - C[0]) ** 2 + (p[1] - C[1]) ** 2 <= R * R
+
+    def tagli(a, b):                          # i parametri 0..1 dove il tratto a-b passa il cerchio
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        fx, fy = a[0] - C[0], a[1] - C[1]
+        A = dx * dx + dy * dy
+        if A < 1e-18:
+            return []
+        B = 2 * (fx * dx + fy * dy)
+        D = B * B - 4 * A * (fx * fx + fy * fy - R * R)
+        if D <= 0:
+            return []
+        q = math.sqrt(D)
+        return sorted(t for t in ((-B - q) / (2 * A), (-B + q) / (2 * A)) if 0 < t < 1)
+    for a, b in zip(pts[:-1], pts[1:]):
+        ta = [0.0] + tagli(a, b) + [1.0]
+        for t0, t1 in zip(ta[:-1], ta[1:]):
+            m = (a[0] + (b[0] - a[0]) * (t0 + t1) / 2, a[1] + (b[1] - a[1]) * (t0 + t1) / 2)
+            p0 = (a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0)
+            p1 = (a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1)
+            if dentro(m):
+                if not cur:
+                    cur = [p0]
+                cur.append(p1)
+            elif cur:
+                out.append(cur)
+                cur = []
+    if cur:
+        out.append(cur)
+    return [x for x in out if len(x) > 1]
+
+
+def _dettaglio(f: Foglio, d: dict, i: int):
+    """La vista di dettaglio: quello che sta nel cerchio di una vista, ingrandito k volte con centro in d['p'] sul
+    foglio, col cerchio, la lettera e la scala. Sul foglio è una vista come le altre («dettaglio:A»): si sposta, ci si
+    mettono quote."""
+    v = f.elementi.get(d.get('vista'))
+    if not v or v['kind'] != 'vista':
+        return
+    s_, tx, ty = v['T']
+    C = (d['c'][0] * s_ + tx, d['c'][1] * s_ + ty)
+    R = float(d['r']) * s_
+    k = max(1.0, float(d.get('k') or 2))
+    P = (float(d['p'][0]), float(d['p'][1]))
+    lettera = str(d.get('lettera') or chr(65 + i))[:3]
+    kf = f.fattore
+    M = lambda q: (P[0] + (q[0] - C[0]) * k, P[1] + (q[1] - C[1]) * k)  # noqa: E731
+    linee = [(lay, pts) for (lay, pts), t in zip(f.linee, f.linee.tag) if t == d['vista'] and lay in ('contorno', 'nascoste', 'tangenti')]
+    for (lay, c, rr), t in zip(f.cerchi, f.cerchi.tag):
+        if t == d['vista']:
+            n = 72
+            linee.append((lay, [(c[0] + rr * math.cos(2 * math.pi * j / n), c[1] + rr * math.sin(2 * math.pi * j / n)) for j in range(n + 1)]))
+
+    def giro(c, r, n=96):
+        return [(c[0] + r * math.cos(2 * math.pi * j / n), c[1] + r * math.sin(2 * math.pi * j / n)) for j in range(n + 1)]
+    with f.oggetto(f'{d["vista"]}/det{lettera}'):          # il cerchio sulla vista, con la lettera
+        f.line('quote', *giro(C, R))
+        f.text('testo', (C[0] + R * 0.75, C[1] + R * 0.75), lettera, 3.5 * kf)
+    nome = f'dettaglio:{lettera}'
+    f.elementi[nome] = {'kind': 'vista', 'T': [s_ * k, P[0] + (tx - C[0]) * k, P[1] + (ty - C[1]) * k],
+                        'label': f'Dettaglio {lettera}', 'dettaglio': i}
+    with f.oggetto(nome):
+        for lay, pts in linee:
+            for tratto in _taglia_nel_cerchio(pts, C, R):
+                f.line(lay, *[M(q) for q in tratto])
+        f.line('tangenti', *giro(P, R * k))
+    scala = scala_testo(f.scala * k) if f.scala else f'× {fmt(k)}'
+    with f.oggetto(f'{nome}/titolo'):
+        f.text('testo', (P[0] - R * k, P[1] + R * k + 3 * kf), f'DETTAGLIO {lettera} ({scala})', 2.5 * kf)
+
+
+def persi(f: Foglio, r: dict) -> list:
+    """I ritocchi che non trovano più il loro oggetto (28/10): il pezzo è cambiato e la quota ritoccata non c'è più
+    (un foro tolto), la vista è sparita… La tavola esce lo stesso; questi si dicono, per toglierli o rifarli.
+    [{'tipo', 'chiave' (dove sta nei ritocchi), 'testo'}]"""
+    el = f.elementi
+    nomi_v = {'vista:fronte': 'vista di fronte', 'vista:alto': 'vista dall’alto', 'vista:sinistra': 'vista da sinistra',
+              'vista:destra': 'vista da destra', 'vista:iso': 'isometrica'}
+    dettagli = {f'dettaglio:{d.get("lettera")}' for d in r.get('dettagli') or []}
+    c_e = lambda v: v in el or v in dettagli  # noqa: E731
+    out = []
+    for q, m in (r.get('quote') or {}).items():
+        if q not in el:
+            out.append({'tipo': 'quote', 'chiave': q, 'testo': f'quota ritoccata{" «" + str(m.get("testo")) + "»" if m.get("testo") else ""} '
+                        f'della {nomi_v.get(q.split("/")[0], q.split("/")[0])}: non c’è più'})
+    for v in (r.get('viste') or {}):
+        if not c_e(v):
+            out.append({'tipo': 'viste', 'chiave': v, 'testo': f'{nomi_v.get(v, v)} spostata: la vista non c’è più'})
+    for tipo, cosa in (('aggiunte', 'quota aggiunta'), ('diametri', 'diametro'), ('angoli', 'angolo'),
+                       ('saldature', 'saldatura'), ('dettagli', 'dettaglio')):
+        for i, q in enumerate(r.get(tipo) or []):
+            if not c_e(q.get('vista')):
+                out.append({'tipo': tipo, 'chiave': i, 'testo': f'{cosa} sulla {nomi_v.get(q.get("vista"), q.get("vista"))}: la vista non c’è più'})
+    # le quote aggiunte che non stanno più sugli spigoli (il pezzo ha cambiato misura)
+    for i, q in enumerate(r.get('aggiunte') or []):
+        v = el.get(q.get('vista'))
+        if not v or v['kind'] != 'vista':
+            continue
+        s_, tx, ty = v['T']
+        estremi = [p for (lay, pts), t in zip(f.linee, f.linee.tag) if t == q['vista'] and lay in ('contorno', 'tangenti', 'nascoste')
+                   for p in (pts[0], pts[-1])]
+        estremi += [c for (lay, c, rr), t in zip(f.cerchi, f.cerchi.tag) if t == q['vista']]     # i centri dei fori
+        if not estremi:
+            continue
+        for punto in (q['a'], q['b']):
+            P = (punto[0] * s_ + tx, punto[1] * s_ + ty)
+            if min(math.dist(P, e) for e in estremi) > 0.05 * max(s_, 1):
+                out.append({'tipo': 'aggiunte', 'chiave': i, 'testo': f'quota aggiunta sulla {nomi_v.get(q["vista"], q["vista"])}: '
+                            'non è più attaccata agli spigoli (il pezzo è cambiato)'})
+                break
+    return out
+
+
+def viste_allineate(r: dict, elementi) -> dict:
+    """Gli spostamenti veri delle viste (28/10, viste allineate come in ogni CAD): la vista dall'alto resta sotto
+    quella di fronte (si sposta solo in su e in giù), quella da sinistra accanto (solo di lato), e tutte e due seguono
+    la vista di fronte. Quelle in r['libere'] si spostano libere."""
+    viste = {k: list(v) for k, v in (r.get('viste') or {}).items()}
+    libere = set(r.get('libere') or [])
+    if 'vista:fronte' not in elementi:
+        return viste
+    fx, fy = viste.get('vista:fronte', [0.0, 0.0])
+    if 'vista:alto' in elementi and 'vista:alto' not in libere:
+        viste['vista:alto'] = [fx, fy + viste.get('vista:alto', [0.0, 0.0])[1]]
+    for fianco in ('vista:sinistra', 'vista:destra'):
+        if fianco in elementi and fianco not in libere:
+            viste[fianco] = [fx + viste.get(fianco, [0.0, 0.0])[0], fy]
+    return {k: v for k, v in viste.items() if v[0] or v[1]}
 
 
 def _trasformazione(f: Foglio, vista):

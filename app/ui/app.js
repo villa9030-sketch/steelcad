@@ -70,6 +70,7 @@ const inCoda = fn => (coda = coda.then(fn).catch(e => toast(String(e), 'err')));
 let S = null;            // ultimo stato del progetto
 let sceneVersion = 0;
 let sel = null;          // { id, face, ids }
+let selForo = null;      // il foro o il taglio cliccato sul pezzo (dal pannello): Canc lo toglie
 let hover = null;        // { id, face }
 let showDims = true;
 let primaVolta = true;
@@ -1492,7 +1493,7 @@ function clearSelection() {
   selTok++; selGen++;
   togliAnteprimaForo();
   if ($('#modal').hidden) anteprimaVia();
-  sel = null; paint(); renderTree(); paintNodes();
+  sel = null; selForo = null; paint(); renderTree(); paintNodes();
   $('#props').innerHTML = '';
   aggiornaLayout();
 }
@@ -1500,7 +1501,9 @@ function clearSelection() {
 async function disegnaSopra(aiuto) {
   // la faccia di sopra del pezzo: lì si disegnano fori, tagli, persiane
   const facce = objs.get('body')?.data?.faces || [];
-  const f = facce.find(x => x.name === `${S.sheet?.feature}/sopra`) || facce.find(x => /\/fine$/.test(x.name || ''));
+  // la faccia cliccata, se c'è (sulla tramoggia non c'è un «sopra»: si lavora sulla parete scelta, 28/10)
+  const scelta = sel?.id === 'body' && sel.face != null ? facce.find(x => x.index === sel.face && x.name) : null;
+  const f = scelta || facce.find(x => x.name === `${S.sheet?.feature}/sopra`) || facce.find(x => /\/fine$/.test(x.name || ''));
   if (!f) { toast('Clicca la faccia su cui lavorare, poi «Disegna su questa faccia».'); return; }
   const r = await call('sketch_on_face', f.name);
   if (await apply(r)) { await enterSketch(r.sketch); if (aiuto) toast(aiuto); }
@@ -1621,6 +1624,7 @@ async function preparaDialog() {
 let profili = null;
 async function renderProps(s) {
   togliAnteprimaForo();
+  selForo = null;
   const tab = rows => `<table class="grid">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
   const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
@@ -1718,7 +1722,10 @@ async function renderProps(s) {
     $('#props').innerHTML = h + nodePanel(s);
     wireNode(s);
     return;
-  } else if (s.kind === 'body' && s.contorno) {
+  }
+  selForo = s.kind === 'body' && s.foro ? { sketch: s.foro.sketch, eids: [s.foro.cerchio], cosa: 'il foro' }
+    : s.kind === 'body' && s.contorno?.eids?.length ? { sketch: s.contorno.sketch, eids: s.contorno.eids, cosa: 'il taglio' } : null;
+  if (s.kind === 'body' && s.contorno) {
     $('#props').innerHTML = h + pannelloContorno(s.contorno);
     wireContorno(s.contorno);
     return;
@@ -1833,7 +1840,8 @@ function pannelloContorno(co) {
   const righe = co.campi.map((c, i) => `<label>${esc(c.label)}<span class="inp"><input class="field" data-ci="${i}" value="${esc(virgola(Math.round(c.value * 100) / 100))}"><i>${c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm'}</i></span></label>`).join('');
   return `<div class="ff">${righe}</div>
     <p class="hint">Cambia le misure e premi Applica: il taglio si rifà. La posizione è dall’origine del disegno (l’angolo del pezzo su cui hai disegnato).</p>
-    <div class="row-btns"><button class="btn primary" id="co-ok">Applica</button><button class="btn" id="co-sk">Modifica il disegno</button></div>`;
+    <div class="row-btns"><button class="btn primary" id="co-ok">Applica</button><button class="btn" id="co-sk">Modifica il disegno</button></div>
+    ${co.eids?.length ? '<div class="row-btns"><button class="btn danger" id="co-togli" title="Toglie questo taglio dal suo disegno (Canc); gli altri restano">Togli questo taglio</button></div>' : ''}`;
 }
 function wireContorno(co) {
   const vai = () => {
@@ -1849,6 +1857,18 @@ function wireContorno(co) {
   $('#co-ok').onclick = vai;
   document.querySelectorAll('[data-ci]').forEach(inp => { inp.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
   $('#co-sk').onclick = () => { clearSelection(); enterSketch(co.sketch); };
+  if ($('#co-togli')) $('#co-togli').onclick = () => togliDalTaglio(co.sketch, co.eids, 'il taglio');
+}
+// 28/10: il foro (o il taglio) cliccato sul pezzo si toglie da lì: dal disegno del suo taglio; se era l'unico
+// contorno, il taglio intero (con la conferma di sempre)
+function togliDalTaglio(sid, eids, cosa) {
+  if (!sid || !eids?.length) return;
+  clearSelection();
+  inCoda(async () => {
+    const r = await call('togli_dal_taglio', sid, eids);
+    if (!r.ok && r.code === 'ultimo') { confermaElimina('feature', r.feature, `${r.nome} (${r.feature}): era l’unico contorno, si toglie ${cosa} e il suo taglio`); return; }
+    await apply(r, r.message);
+  });
 }
 function foroPanel(fo) {
   const h = fo.hole || {}, tipo = h.tipo || 'semplice', n = fo.uguali.length;
@@ -1868,7 +1888,8 @@ function foroPanel(fo) {
     ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} di questo disegno</label>` : ''}
     <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button>
       <button class="btn" id="h-sk" title="Apre il disegno del foro: lo sposti, cambi le quote, ne aggiungi altri">Modifica il disegno</button></div>
-    <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button></div></div>`;
+    <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button>
+      <button class="btn danger" id="h-togli" title="Toglie questo foro dal disegno del suo taglio (Canc); gli altri restano">Togli questo foro</button></div></div>`;
 }
 // anteprima della svasatura sul pezzo mentre scrivi: il cono com'è, rosso se va più giù dello spessore (21/10)
 const anteprimaForo = new THREE.Group();
@@ -1967,6 +1988,7 @@ function wireForo(fo) {
   if ($('#h-tutti')) $('#h-tutti').onchange = vedi;
   vedi();
   $('#h-sk').onclick = () => { clearSelection(); enterSketch(fo.sketch); };
+  $('#h-togli').onclick = () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro');
   const vai = () => {
     const spec = tipo === 'svasato' ? { tipo, D: $('#h-D').value.trim(), angolo: $('#h-ang').value.trim() }
       : tipo === 'filettato' ? { tipo, M: $('#h-M').value }
@@ -1997,6 +2019,7 @@ document.addEventListener('click', ev => {
 });
 
 function deleteSelected() {
+  if (sel?.id === 'body' && selForo) { const x = selForo; selForo = null; togliDalTaglio(x.sketch, x.eids, x.cosa); return; }
   if (sel?.id?.startsWith('flange=') && sel.id.split('/').length === 3 || sel?.id?.startsWith('pb=')) {
     const kind = sel.id.startsWith('pb=') ? 'sheet_edge_flange' : 'flange', ref = sel.id.startsWith('pb=') ? sel.id.slice(3) : sel.id.slice(7);
     confermaElimina(kind, ref, 'Piega sul bordo');
@@ -2231,10 +2254,35 @@ function stepDialog() {
       inCoda(async () => {
         const r = await call('import_step_dialog', kk);
         if (r.cancelled) return;
+        if (r.code === 'assieme') { stepPezzi(r); return; }
         primaVolta = true; clearSelection();
         if (await apply(r, r.message)) hideHome();
       });
     };
+  });
+}
+// 28/10: lo STEP del cliente è un assieme: l'elenco dei pezzi, apri quello che serve o i DXF di tutte le lamiere
+function stepPezzi(r) {
+  const mm = v => String(v).replace('.', ',');
+  const righe = r.pezzi.map(x => `<tr><td>${x.i + 1}</td><td>${x.misure.map(mm).join(' × ')}</td>
+      <td>${x.lamiera ? `sp. ${mm(x.spessore)} · ${x.pieghe} ${x.pieghe === 1 ? 'piega' : 'pieghe'}` : `<span class="hint">${esc(x.perche || 'non è una lamiera')}</span>`}</td>
+      <td><button class="btn" data-sp="${x.i}">Apri</button></td></tr>`).join('');
+  const lam = r.pezzi.filter(x => x.lamiera).length;
+  modal(`<h3>Lo STEP ha ${r.pezzi.length} pezzi</h3>
+    <p class="hint">Apri il pezzo da guardare o modificare; oppure fai subito il DXF di sviluppo di tutte le lamiere (${lam}) in una cartella, con il K ${mm(r.k)}.</p>
+    <div class="tab-scroll"><table class="grid"><tr><th>N.</th><th>Misure (mm)</th><th>Lamiera</th><th></th></tr>${righe}</table></div>
+    <div class="acts"><button class="btn" id="m-no">Chiudi</button>${lam ? `<button class="btn primary" id="sp-tutti">DXF di tutte le lamiere…</button>` : ''}</div>`, close => {
+    $('#m-no').onclick = close;
+    document.querySelectorAll('[data-sp]').forEach(b => { b.onclick = () => { close(); inCoda(async () => {
+      const x = await call('import_step', r.path, r.k, +b.dataset.sp);
+      primaVolta = true; clearSelection();
+      if (await apply(x, x.message)) hideHome();
+    }); }; });
+    if ($('#sp-tutti')) $('#sp-tutti').onclick = () => { close(); inCoda(async () => {
+      const x = await call('step_dxf_tutti', r.path, r.k);
+      if (x.cancelled) return;
+      toast(x.message, x.ok ? '' : 'err');
+    }); };
   });
 }
 async function viteriaDialog() {
@@ -2728,14 +2776,18 @@ async function drawingsDialog() {
         <button data-str="diametro" title="Diametro o raggio: clicca un cerchio o un arco di una vista, dove vuoi la scritta"><img src="icons/hole.svg" alt=""><span>Ø / R</span></button>
         <button data-str="angolo" title="Angolo: clicca un punto su un lato, il vertice, un punto sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button>
         <button data-str="saldatura" title="Saldatura: clicca il giunto (la punta della freccia), poi dove va il simbolo"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button>
+        <button data-str="dettaglio" title="Dettaglio ingrandito: clicca il centro della zona su una vista, poi quanto è grande il cerchio"><img src="icons/zoom.svg" alt=""><span>Dettaglio</span></button>
       </nav>
       <main class="te-foglio" id="te-foglio"><p class="hint">Preparo la tavola…</p></main>
       <aside class="te-lato">
+        <section id="te-persi" hidden></section>
         <section id="te-sel" hidden></section>
         <details class="te-sez" open><summary>Foglio</summary>
           ${scelta('formato', 'Formato', [['A4', 'A4'], ['A3', 'A3'], ['A2', 'A2']])}
           ${scelta('scala_fissa', 'Scala', ['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:20'].map(x => [x, x === 'auto' ? 'automatica' : x]))}
           ${scelta('quote_fori', 'Quote dei fori', [['sì', 'sì'], ['no', 'no']])}
+          ${scelta('fianco', 'Vista di fianco', [['sinistra', 'da sinistra'], ['destra', 'da destra']])}
+          ${scelta('isometrica', 'Isometrica', [['sì', 'sì'], ['no', 'no']])}
           ${scelta('sezione', 'Sezione', [['', 'nessuna'], ['X', 'A-A lungo la larghezza'], ['Y', 'A-A lungo la profondità']])}
           ${r.assembly ? '<label class="check"><input type="checkbox" id="tav-tutte" checked> anche le tavole di tutti i pezzi</label>' : ''}
         </details>
@@ -2861,11 +2913,33 @@ async function drawingsDialog() {
         if (agg) n.aggiunte.splice(o.aggiunta, 1); else { n.quote = n.quote || {}; n.quote[o.id] = { ...(n.quote[o.id] || {}), via: true }; }
         ED.sel = null; salva(n); };
       if ($('#ts-rimetti')) $('#ts-rimetti').onclick = () => { const n = rit(); delete n.quote[o.id]; salva(n); };
+    } else if (o.kind === 'vista' && o.id.startsWith('dettaglio:')) {
+      const lettera = o.id.slice(10), i = (R_.dettagli || []).findIndex(d => d.lettera === lettera), d = (R_.dettagli || [])[i] || {};
+      sez.innerHTML = `<h4>${esc(o.label)}</h4><p class="hint">Trascinalo dove vuoi. Le quote si aggiungono anche qui, come sulle altre viste.</p>
+        <label class="te-riga">Ingrandimento<select class="field" id="ts-k">${[1.5, 2, 2.5, 3, 4, 5, 10].map(k => `<option value="${k}"${+d.k === k ? ' selected' : ''}>× ${String(k).replace('.', ',')}</option>`).join('')}</select></label>
+        <div class="te-bott"><button class="btn danger" id="ts-via">Togli il dettaglio</button></div>`;
+      $('#ts-k').onchange = () => {                  // cresce verso destra: il bordo sinistro resta dov'è
+        const n = rit(), dd = n.dettagli[i], vv = foglio().oggetti.find(x => x.id === dd.vista), k2 = +$('#ts-k').value;
+        if (vv) { const Rk = dd.r * vv.T[0] * k2, W = foglio().size[0];
+          dd.p[0] = Math.min(W - Rk - 12 * (foglio().fattore || 1), dd.p[0] + dd.r * vv.T[0] * (k2 - (dd.k || 2))); }   // dentro il foglio
+        dd.k = k2; salva(n); };
+      $('#ts-via').onclick = () => { const n = rit(); n.dettagli.splice(i, 1); if (n.viste) delete n.viste[o.id]; ED.sel = null; salva(n); };
     } else if (o.kind === 'vista') {
       const sp = (R_.viste || {})[o.id];
-      sez.innerHTML = `<h4>${esc(o.label)}</h4><p class="hint">Trascinala dove vuoi: le sue quote vengono con lei.</p>
-        ${sp ? '<div class="te-bott"><button class="btn" id="ts-rimetti">Rimetti al suo posto</button></div>' : ''}`;
+      const figlia = ['vista:alto', 'vista:sinistra', 'vista:destra'].includes(o.id) && foglio().oggetti.some(x => x.id === 'vista:fronte');
+      const libera = (R_.libere || []).includes(o.id);
+      const aiuto = o.id === 'vista:fronte' ? 'Trascinala dove vuoi: le sue quote e le viste allineate (dall’alto, da sinistra) vengono con lei.'
+        : figlia && !libera ? (o.id === 'vista:alto' ? 'Resta sotto la vista di fronte: si sposta solo in su e in giù.' : 'Resta accanto alla vista di fronte: si sposta solo di lato.')
+        : 'Trascinala dove vuoi: le sue quote vengono con lei.';
+      sez.innerHTML = `<h4>${esc(o.label)}</h4><p class="hint">${aiuto}</p>
+        ${figlia ? `<label class="check"><input type="checkbox" id="ts-allinea"${libera ? '' : ' checked'}> allineata alla vista di fronte</label>` : ''}
+        <div class="te-bott">${sp ? '<button class="btn" id="ts-rimetti">Rimetti al suo posto</button>' : ''}
+          ${o.id !== 'vista:fronte' ? '<button class="btn danger" id="ts-togli">Togli questa vista</button>' : ''}</div>`;
+      if ($('#ts-togli')) $('#ts-togli').onclick = () => { const n = rit(); n.tolte = [...new Set([...(n.tolte || []), o.id])]; ED.sel = null; salva(n); };
       if ($('#ts-rimetti')) $('#ts-rimetti').onclick = () => { const n = rit(); delete n.viste[o.id]; salva(n); };
+      if ($('#ts-allinea')) $('#ts-allinea').onchange = () => { const n = rit(); const l = new Set(n.libere || []);
+        if ($('#ts-allinea').checked) l.delete(o.id); else l.add(o.id);
+        n.libere = [...l]; if (!n.libere.length) delete n.libere; salva(n); };
     } else if (o.kind === 'nota') {
       const nt = (R_.note || [])[o.indice] || {};
       sez.innerHTML = `<h4>Nota</h4><label class="te-riga te-alto">Testo<textarea class="field" id="ts-nota" rows="3">${esc(nt.testo || '')}</textarea></label>
@@ -2892,6 +2966,8 @@ async function drawingsDialog() {
     }
   }
   // ---- l'elenco dei ritocchi, ognuno con ×
+  const ETICHETTE_TAV = { 'vista:fronte': 'Vista di fronte', 'vista:alto': 'Vista dall’alto', 'vista:sinistra': 'Vista da sinistra',
+    'vista:destra': 'Vista da destra', 'vista:iso': 'Isometrica' };
   function elencoRitocchi() {
     const R_ = foglio()?.ritocchi || {}, nomi = Object.fromEntries((foglio()?.oggetti || []).map(o => [o.id, o.label]));
     const righe = [];
@@ -2906,12 +2982,36 @@ async function drawingsDialog() {
     (R_.diametri || []).forEach((a, i) => righe.push([`${a.tipo === 'R' ? 'Raggio' : 'Diametro'} (${a.vista.replace('vista:', '')})`, n => { n.diametri.splice(i, 1); }]));
     (R_.angoli || []).forEach((a, i) => righe.push([`Angolo (${a.vista.replace('vista:', '')})`, n => { n.angoli.splice(i, 1); }]));
     (R_.saldature || []).forEach((a, i) => righe.push([`Saldatura ${a.tipo === 'angolo' ? 'd’angolo' : a.tipo}${a.a ? ' ' + a.a : ''}`, n => { n.saldature.splice(i, 1); }]));
+    (R_.dettagli || []).forEach((a, i) => righe.push([`Dettaglio ${a.lettera} (× ${String(a.k).replace('.', ',')})`, n => { n.dettagli.splice(i, 1); if (n.viste) delete n.viste['dettaglio:' + a.lettera]; }]));
+    (R_.tolte || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} tolta`, n => { n.tolte.splice(i, 1); }]));
+    (R_.libere || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} non allineata`, n => { n.libere.splice(i, 1); }]));
     const NOMI_T = { quote: 'Testi delle quote', frecce: 'Frecce delle quote', note: 'Testi delle note', titoli: 'Titoli delle viste' };
     for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`${NOMI_T[k] || k}: ${mm(v)} mm`, n => { delete n.testi[k]; }]);
     const el = box.querySelector('#te-rit');
     el.innerHTML = righe.length ? righe.map(([t], i) => `<div class="te-r"><span>${esc(t)}</span><button class="btn" data-ri="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')
       : '<p class="hint">Nessun ritocco: la tavola è come la fa il programma.</p>';
     el.querySelectorAll('[data-ri]').forEach(b => { b.onclick = () => { const n = rit(); righe[+b.dataset.ri][1](n); salva(n); }; });
+    avvisoPersi();
+  }
+  // 28/10: i ritocchi che il pezzo cambiato ha lasciato senza oggetto (una quota di un foro tolto…): si dicono, non spariscono zitti
+  function avvisoPersi() {
+    const el = box.querySelector('#te-persi'), persi = foglio()?.persi || [];
+    el.hidden = !persi.length;
+    if (!persi.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<h4>⚠ ${persi.length === 1 ? 'Un ritocco non trova più' : persi.length + ' ritocchi non trovano più'} il suo posto</h4>
+      <p class="hint">Il pezzo è cambiato. Toglili, o rifalli dove servono.</p>
+      ${persi.map((x, i) => `<div class="te-r"><span>${esc(x.testo)}</span><button class="btn" data-pi="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')}
+      ${persi.length > 1 ? '<div class="te-bott"><button class="btn" id="te-persi-tutti">Togli tutti</button></div>' : ''}`;
+    const togli = (n, lista) => {
+      // gli indici delle liste dal più alto: togliendo, quelli prima non cambiano
+      [...lista].sort((a, b) => (typeof b.chiave === 'number' ? b.chiave : 0) - (typeof a.chiave === 'number' ? a.chiave : 0)).forEach(x => {
+        if (typeof x.chiave === 'number') { if (n[x.tipo]) n[x.tipo].splice(x.chiave, 1); }
+        else if (n[x.tipo]) delete n[x.tipo][x.chiave];
+      });
+    };
+    el.querySelectorAll('[data-pi]').forEach(b => { b.onclick = () => { const n = rit(); togli(n, [persi[+b.dataset.pi]]); salva(n); }; });
+    if ($('#te-persi-tutti')) $('#te-persi-tutti').onclick = () => { const n = rit();
+      togli(n, persi.filter((x, i, a) => a.findIndex(y => y.tipo === x.tipo && y.chiave === x.chiave) === i)); salva(n); };
   }
 
   // ---- mouse: seleziona e trascina, quota nuova (due punti), nota
@@ -2967,6 +3067,23 @@ async function drawingsDialog() {
       const n = rit(); n.diametri = n.diametri || [];
       n.diametri.push({ vista: best.v.id, c: inVista(best.v, best.c.c), r: best.c.r / s_, tipo: best.c.chiuso ? 'Ø' : 'R', ang, d: 10 * kf });
       salva(n); return;
+    }
+    if (ED.strumento === 'dettaglio') {                // 28/10: centro, poi raggio; il dettaglio va a destra, lo sposti
+      if (!ED.det) {
+        const v = foglio().oggetti.find(o => o.kind === 'vista' && o.id.startsWith('vista:') && o.id !== 'vista:iso'
+          && p[0] >= o.bbox[0] && p[0] <= o.bbox[2] && p[1] >= o.bbox[1] && p[1] <= o.bbox[3]);
+        if (!v) { toast('Clicca il centro della zona da ingrandire, dentro una vista.'); return; }
+        ED.det = { v, c: p }; segno(p, 'te-p1'); return;
+      }
+      const { v, c } = ED.det; ED.det = null; segno(null, 'te-p1');
+      const R = Math.hypot(p[0] - c[0], p[1] - c[1]);
+      if (R < 1) { toast('Il cerchio del dettaglio è troppo piccolo: clicca più lontano dal centro.'); return; }
+      const n = rit(); n.dettagli = n.dettagli || [];
+      const usate = new Set(n.dettagli.map(d => d.lettera)); let lettera = 'A';
+      while (usate.has(lettera)) lettera = String.fromCharCode(lettera.charCodeAt(0) + 1);
+      const W = foglio().size[0], k = 2, px = Math.min(W - R * k - 15 * kf, c[0] + R + R * k + 20 * kf);
+      n.dettagli.push({ vista: v.id, c: inVista(v, c), r: R / v.T[0], k, p: [px, c[1]], lettera });
+      ED.sel = 'dettaglio:' + lettera; salva(n); return;
     }
     if (ED.strumento === 'angolo') {
       const a = aggancia(p, ED.ang[0]?.vista.id);
@@ -3048,11 +3165,14 @@ async function drawingsDialog() {
     tiro.ora = p;
     const dx = p[0] - tiro.da[0], dy = p[1] - tiro.da[1];
     // durante il trascinamento si sposta solo il disegno a video; il ritocco si salva quando lasci
+    const mosse = tiro.o.kind === 'vista' ? mosseViste(tiro.o.id, dx, dy) : null;
     svgDi().querySelectorAll('[data-el]').forEach(e => {
       const t = e.getAttribute('data-el');
-      const dentro = tiro.o.kind === 'vista' ? (t === tiro.o.id || t.startsWith(tiro.o.id + '/')) : t === tiro.o.id;
       if (e.dataset.t0 === undefined) e.dataset.t0 = e.getAttribute('transform') || '';   // i testi in verticale hanno già il loro
-      if (dentro && tiro.o.kind !== 'quota') e.setAttribute('transform', `translate(${dx} ${-dy}) ` + e.dataset.t0);
+      if (mosse) {
+        const v = Object.keys(mosse).find(id => t === id || t.startsWith(id + '/'));
+        e.setAttribute('transform', v ? `translate(${mosse[v][0]} ${-mosse[v][1]}) ` + e.dataset.t0 : e.dataset.t0);
+      } else if (t === tiro.o.id && tiro.o.kind !== 'quota') e.setAttribute('transform', `translate(${dx} ${-dy}) ` + e.dataset.t0);
     });
     if (tiro.o.kind === 'quota') {                  // la quota si muove solo di traverso
       const [ax, ay] = tiro.o.a, [bx, by] = tiro.o.b, L = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / L, ny = (bx - ax) / L;
@@ -3060,6 +3180,22 @@ async function drawingsDialog() {
       svgDi().querySelectorAll(`[data-el="${CSS.escape(tiro.o.id)}"]`).forEach(e => e.setAttribute('transform', `translate(${k * nx} ${-k * ny}) ` + (e.dataset.t0 || '')));
     }
   });
+  // 28/10: viste allineate come in ogni CAD: l'alto si sposta solo in su e in giù sotto la fronte, il fianco solo di
+  // lato, e seguono la fronte. Le «libere» (scelta nel pannello della vista) si spostano dove vuoi
+  function mosseViste(id, dx, dy) {
+    const R_ = foglio().ritocchi || {}, libere = new Set(R_.libere || []);
+    const c = id => !libere.has(id) && foglio().oggetti.some(o => o.id === id);
+    if (id === 'vista:fronte') {
+      const m = { [id]: [dx, dy] };
+      if (c('vista:alto')) m['vista:alto'] = [dx, dy];
+      if (c('vista:sinistra')) m['vista:sinistra'] = [dx, dy];
+      if (c('vista:destra')) m['vista:destra'] = [dx, dy];
+      return m;
+    }
+    if (id === 'vista:alto' && c('vista:alto') && c('vista:fronte')) return { [id]: [0, dy] };
+    if (['vista:sinistra', 'vista:destra'].includes(id) && c(id) && c('vista:fronte')) return { [id]: [dx, 0] };
+    return { [id]: [dx, dy] };
+  }
   const lascia = () => {
     pan = null;
     if (!tiro) return;
@@ -3067,7 +3203,7 @@ async function drawingsDialog() {
     const dx = ora[0] - da[0], dy = ora[1] - da[1];
     if (Math.hypot(dx, dy) < 0.4) return;            // era un clic, non un trascinamento
     const n = rit();
-    if (o.kind === 'vista') { n.viste = n.viste || {}; const v = n.viste[o.id] || [0, 0]; n.viste[o.id] = [v[0] + dx, v[1] + dy]; }
+    if (o.kind === 'vista') { n.viste = n.viste || {}; const v = n.viste[o.id] || [0, 0], m = mosseViste(o.id, dx, dy)[o.id]; n.viste[o.id] = [v[0] + m[0], v[1] + m[1]]; }
     else if (o.kind === 'nota') { const m = n.note[o.indice]; m.x += dx; m.y += dy; }
     else if (o.kind === 'saldatura') { const m = n.saldature[o.indice]; m.dx += dx; m.dy += dy; }   // si sposta il simbolo, la punta resta
     else if (o.kind === 'diametro') {                // la scritta va dove lasci il mouse
@@ -3091,7 +3227,7 @@ async function drawingsDialog() {
 
   // ---- strumenti, testi, campi, esporta
   box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => {
-    ED.strumento = b.dataset.str; ED.punto1 = null; ED.ang = []; ED.sald = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
+    ED.strumento = b.dataset.str; ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
     box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x === b));
     foglioEl.dataset.strumento = ED.strumento;
   }; });
@@ -3112,7 +3248,7 @@ async function drawingsDialog() {
   box.querySelector('#te-adatta').onclick = () => { ED.vb = null; if (svgDi()) svgDi().setAttribute('viewBox', `0 0 ${foglio().size[0]} ${foglio().size[1]}`); };
   function tasti(ev) {
     if (!document.body.contains(box) || !$('#modal').hidden) return;
-    if (ev.key === 'Escape') { if (ED.punto1 || ED.ang.length || ED.sald) { ED.punto1 = null; ED.ang = []; ED.sald = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
+    if (ev.key === 'Escape') { if (ED.punto1 || ED.ang.length || ED.sald || ED.det) { ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && ED.sel && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       $('#ts-via')?.click(); ev.preventDefault(); ev.stopPropagation();
     }
@@ -6167,18 +6303,22 @@ function motivoNo(cmd) {
 function aggiornaComandi() {
   const forma = !!S?.sheet?.shape;
   // profili a colpi e lamiere da STEP hanno le facce dei tratti: ci si disegna sopra (fori, tagli, marcature)
-  const conFacce = ['profilo', 'step'].includes(S?.sheet?.data?.shape_info?.kind);
+  const conFacce = ['profilo', 'step', 'sezioni'].includes(S?.sheet?.data?.shape_info?.kind);
+  // 28/10: una tramoggia (o un profilo, uno STEP) fatta è un pezzo come gli altri: si disegna sulle facce e sullo
+  // sviluppo, si fora, si taglia, si aggiunge una linguetta, si piega un bordo libero. Le pieghe della forma invece
+  // sono i suoi spigoli (orli, angoli, profilo piegato, persiane restano della lamiera disegnata)
+  const suForma = new Set(['face_help', 'flat_sketch', 'flange_help', 'taglia', 'linguetta', 'tipo_foro', 'contorno']);
   document.querySelectorAll('#ribbon .rb[data-cmd]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';
     const no = motivoNo(b.dataset.cmd);
     b.disabled = !!no;
     b.title = no ? `${b.dataset.title} · Non disponibile: ${no}` : b.dataset.title;
-    if (b.hasAttribute('data-no-shape')) b.hidden = forma && !(conFacce && b.dataset.cmd === 'face_help');
+    if (b.hasAttribute('data-no-shape')) b.hidden = forma && !(conFacce && suForma.has(b.dataset.cmd));
   });
   document.querySelectorAll('#ribbon .rb[data-serve="lam"]').forEach(b => {
     if (b.dataset.title === undefined) b.dataset.title = b.title || '';
     b.disabled = !S?.sheet?.data; b.title = b.disabled ? `${b.dataset.title} · Non disponibile: prima serve una lamiera` : b.dataset.title;
-    if (b.hasAttribute('data-no-shape')) b.hidden = forma;
+    if (b.hasAttribute('data-no-shape')) b.hidden = forma && !(conFacce && suForma.has(b.dataset.azione));
   });
   document.querySelectorAll('.rmenu .drop [data-cmd]').forEach(b => { b.hidden = !!motivoNo(b.dataset.cmd); });
   document.querySelectorAll('#top .drop [data-cmd^="export_"]').forEach(b => {

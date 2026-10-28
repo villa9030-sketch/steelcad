@@ -125,6 +125,7 @@ class Assembly:
     instances: list = field(default_factory=list)     # {'id','file','name','R':3x3,'T':[x,y,z],'fixed'}
     mates: list = field(default_factory=list)          # {'id','type','a':ref,'b':ref,'offset','flip'}
     path: Path | None = None
+    meta: dict = field(default_factory=dict)           # 28/10: dati dell'assieme (le tavole ritoccate…)
 
     def to_dict(self) -> dict:
         base = self.path.parent if self.path else None
@@ -137,8 +138,11 @@ class Assembly:
                 except ValueError:
                     d['file'] = str(Path(i['file']).resolve())
             ist.append(d)
-        return {'format': 'steelcad-asm', 'version': FORMAT_VERSION, 'name': self.name,
-                'instances': ist, 'mates': copy.deepcopy(self.mates)}
+        out = {'format': 'steelcad-asm', 'version': FORMAT_VERSION, 'name': self.name,
+               'instances': ist, 'mates': copy.deepcopy(self.mates)}
+        if self.meta:
+            out['meta'] = copy.deepcopy(self.meta)
+        return out
 
     @classmethod
     def from_dict(cls, d: dict, path: Path | None = None) -> 'Assembly':
@@ -146,7 +150,8 @@ class Assembly:
             raise ProjectFileError('Questo file non è un assieme Radius.')
         if d.get('version', 0) > FORMAT_VERSION:
             raise ProjectFileError('L’assieme è stato salvato da una versione più nuova di Radius.')
-        a = cls(d.get('name') or 'Assieme', copy.deepcopy(d.get('instances') or []), copy.deepcopy(d.get('mates') or []), path)
+        a = cls(d.get('name') or 'Assieme', copy.deepcopy(d.get('instances') or []), copy.deepcopy(d.get('mates') or []), path,
+                copy.deepcopy(d.get('meta') or {}))
         base = path.parent if path else Path.cwd()
         for i in a.instances:
             f = Path(i['file'])

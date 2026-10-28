@@ -180,6 +180,67 @@ def misura(ss: 'SolvedSketch', c: dict) -> float:
 # lo stesso del calcolo intero; altrimenti si rifà il calcolo intero, che dà i messaggi giusti.
 _SOGLIA_BLOCCHI = 60
 _MEMO_BLOCCHI: dict = {}                    # blocco (json) → la sua soluzione
+_MEMO_FORME: dict = {}                      # blocco a meno di nomi e posizione → la soluzione (nomi e posizione relativi)
+
+
+def _forma_del_blocco(piano, entita: dict, vincoli: dict, params: dict):
+    """28/10: 300 asole uguali in posti diversi sono lo stesso problema spostato. La chiave del blocco senza i nomi
+    (in ordine di disegno) e con le coordinate dal suo primo punto: (chiave, nomi, origine). None se il blocco tocca
+    l'origine dello sketch (lì la posizione conta)."""
+    if ORIGIN in entita:
+        return None
+    nomi = {e: f'e{i}' for i, e in enumerate(entita)}
+    nomi.update({c: f'c{i}' for i, c in enumerate(vincoli)})
+    o = next(((d['x'], d['y']) for d in entita.values() if d['kind'] == 'point'), None)
+    if o is None:
+        return None
+    ent = []
+    for d in entita.values():
+        x = {k: v for k, v in d.items() if k != 'label'}
+        for k in ('a', 'b', 'center', 'start', 'end'):
+            if k in x:
+                if x[k] not in nomi:
+                    return None
+                x[k] = nomi[x[k]]
+        if 'x' in x:
+            x['x'], x['y'] = round(x['x'] - o[0], 6), round(x['y'] - o[1], 6)
+        ent.append(x)
+    vin = []
+    for d in vincoli.values():
+        x = dict(d)
+        try:
+            x['refs'] = [nomi[r] for r in d['refs']]
+        except KeyError:
+            return None
+        vin.append(x)
+    try:
+        return json.dumps([piano, ent, vin, params], sort_keys=True, default=str), nomi, o
+    except (TypeError, ValueError):
+        return None
+
+
+def _in_forma(r, nomi: dict, o) -> tuple:
+    """La soluzione di un blocco con i nomi della sua forma e le coordinate dal suo primo punto."""
+    ox, oy = o
+    return ({nomi[k]: (v[0] - ox, v[1] - oy) for k, v in r.points.items() if k in nomi},
+            {nomi[k]: (nomi[c], rr) for k, (c, rr) in r.circles.items() if k in nomi and c in nomi},
+            {nomi[k]: (nomi[c], nomi[a], nomi[b], rr) for k, (c, a, b, rr) in r.arcs.items()
+             if k in nomi and c in nomi and a in nomi and b in nomi},
+            {nomi[k]: (nomi[a], nomi[b]) for k, (a, b) in r.lines.items() if k in nomi and a in nomi and b in nomi},
+            {nomi[k]: v for k, v in r.values.items() if k in nomi}, r.status)
+
+
+def _da_forma(f: tuple, nomi: dict, o):
+    """La soluzione ricordata, riportata sui nomi e sul posto di questo blocco."""
+    from types import SimpleNamespace
+    inv = {v: k for k, v in nomi.items()}
+    ox, oy = o
+    punti, cerchi, archi, linee, valori, stato = f
+    return SimpleNamespace(points={inv[k]: (x + ox, y + oy) for k, (x, y) in punti.items()},
+                           circles={inv[k]: (inv[c], rr) for k, (c, rr) in cerchi.items()},
+                           arcs={inv[k]: (inv[c], inv[a], inv[b], rr) for k, (c, a, b, rr) in archi.items()},
+                           lines={inv[k]: (inv[a], inv[b]) for k, (a, b) in linee.items()},
+                           values={inv[k]: v for k, v in valori.items()}, status=stato)
 
 
 def _fissi_di(sk: Sketch) -> set:
@@ -389,6 +450,12 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
         except (TypeError, ValueError):
             chiave = None
         r = _MEMO_BLOCCHI.get(chiave) if chiave is not None else None
+        forma = None
+        if r is None:
+            forma = _forma_del_blocco(sk.plane, entita, vincoli, params)
+            f_ = _MEMO_FORME.get(forma[0]) if forma is not None else None
+            if f_ is not None:
+                r = _da_forma(f_, forma[1], forma[2])           # lo stesso blocco già risolto altrove: spostato
         if r is None:
             try:
                 r = _solve(sub, params)
@@ -398,6 +465,10 @@ def _risolvi_blocchi(sk: Sketch, params: dict, blocchi: list, fissi: set):
                 if len(_MEMO_BLOCCHI) > 40000:
                     _MEMO_BLOCCHI.clear()
                 _MEMO_BLOCCHI[chiave] = r
+            if forma is not None and r.status.state in (FULLY, UNDER):
+                if len(_MEMO_FORME) > 20000:
+                    _MEMO_FORME.clear()
+                _MEMO_FORME[forma[0]] = _in_forma(r, forma[1], forma[2])
         if r.status.state in (OVER, REDUNDANT):
             return i
         if r.status.state not in (FULLY, UNDER):

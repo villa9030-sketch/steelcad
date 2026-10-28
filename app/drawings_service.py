@@ -46,7 +46,7 @@ class DrawingsMixin:
     def drawing_fields(self) -> dict:
         """I campi del cartiglio da proporre: i fissi ricordati + quelli del progetto."""
         out = {'azienda': '', 'disegnatore': '', 'numero': '', 'revisione': 'A', 'note': '', 'formato': 'A3',
-               'scala_fissa': 'auto', 'quote_fori': 'sì', 'cliente': '', 'commessa': '', 'tolleranze': '', 'finitura': '',
+               'scala_fissa': 'auto', 'quote_fori': 'sì', 'fianco': 'sinistra', 'isometrica': 'sì', 'cliente': '', 'commessa': '', 'tolleranze': '', 'finitura': '',
                'mostra': None}
         out.update(_leggi_fissi())
         if self.asm is None:
@@ -101,6 +101,28 @@ class DrawingsMixin:
                                       'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato))
         return fogli
 
+    @staticmethod
+    def _saldature_tavola(doc, result) -> list:
+        """Le saldature segnate sul pezzo, per la tavola: tipo, misura, il punto a metà del primo spigolo e la sua
+        direzione (per scegliere la vista dove non si vede di punta)."""
+        import build123d as bd
+        out = []
+        for w in doc.meta.get('saldature') or []:
+            for ref in w.get('refs') or []:
+                try:
+                    es = result.body.edges(ref)
+                except Exception:  # noqa: BLE001 - spigolo sparito dopo una modifica: lo dice già il pezzo
+                    es = []
+                if not es:
+                    continue
+                e = bd.Edge(es[0])
+                m = e.position_at(0.5)
+                t = e.tangent_at(0.5) if e.geom_type == bd.GeomType.LINE else None
+                out.append({'tipo': w.get('tipo', 'angolo'), 'a': w.get('a', ''), 'punto': [m.X, m.Y, m.Z],
+                            'dir': [t.X, t.Y, t.Z] if t is not None else None})
+                break                                   # un simbolo per saldatura, sul suo primo spigolo
+        return out
+
     def _fogli_pezzo(self, doc, result, campi: dict, formato: str, n0: int = 1, tot: int | None = None) -> list:
         if result.body is None and result.structures and any(st.members for st in result.structures):
             return self._fogli_struttura(doc, result, campi, formato, n0, tot)
@@ -111,7 +133,7 @@ class DrawingsMixin:
         sezione = sezione if sezione in ('X', 'Y') else ''
         tot = tot or ((2 if sheet else 1) + (1 if sezione else 0))
         fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato,
-                                quote_mano=doc.meta.get('quote') or [])]
+                                quote_mano=doc.meta.get('quote') or [], saldature=self._saldature_tavola(doc, result))]
         fogli[0].chiave = 'pezzo'
         if sezione:
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
@@ -159,32 +181,38 @@ class DrawingsMixin:
         return fogli
 
     def _ritocchi_tavole(self) -> dict:
-        """I ritocchi a mano delle tavole: nel progetto del pezzo (negli assiemi non ancora)."""
+        """I ritocchi a mano delle tavole: nel progetto del pezzo, o nel file dell'assieme (28/10)."""
         if self.asm is not None:
-            return {}
+            return dict(self.asm.meta.get('tavole') or {})
         return dict(self.doc.meta.get('tavole') or {})
 
     def tavola_ritocchi(self, chiave: str, ritocchi: dict, campi: dict | None = None) -> dict:
         """I ritocchi di un foglio (tutti insieme: l'editor li tiene e li manda a ogni cambio). Si salvano nel
         progetto, con Annulla; vuoti = la tavola torna automatica."""
-        if self.asm is not None:
-            return {'ok': False, 'message': 'Le tavole degli assiemi non si ritoccano ancora: si fa dal pezzo.'}
         chiave = str(chiave or '')
         if not chiave:
             return {'ok': False, 'message': 'Quale foglio?'}
         pulito = {k: v for k, v in (ritocchi or {}).items() if v}
 
-        def fn():
-            tav = dict(self.doc.meta.get('tavole') or {})
+        def fn(meta=None):
+            meta = self.doc.meta if meta is None else meta
+            tav = dict(meta.get('tavole') or {})
             if pulito:
                 tav[chiave] = pulito
             else:
                 tav.pop(chiave, None)
             if tav:
-                self.doc.meta['tavole'] = tav
+                meta['tavole'] = tav
             else:
-                self.doc.meta.pop('tavole', None)
-        r = self._change('Ritocco della tavola', fn)
+                meta.pop('tavole', None)
+        if self.asm is not None:                       # nell'assieme: nel suo file, con Annulla (senza ricaricare i pezzi)
+            self.asm_undo.append(('Ritocco della tavola', self.asm.to_dict()))
+            self.asm_redo.clear()
+            fn(self.asm.meta)
+            self.asm_dirty = True
+            r = {'ok': True, 'state': self.state()}
+        else:
+            r = self._change('Ritocco della tavola', fn)
         if not r.get('ok'):
             return r
         p = self.drawing_preview(campi or self.drawing_fields()['fields'])
@@ -229,6 +257,8 @@ class DrawingsMixin:
                 p = self.asm_parts[r['file']]
                 cp = {**campi, 'numero': f'{campi.get("numero") or self.asm.name}-{k + 1}'}
                 nuovi = self._fogli_pezzo(p.doc, p.result, cp, formato, n, tot)
+                for g in nuovi:                    # i ritocchi di ogni pezzo al suo posto (non tutti «pezzo»)
+                    g.chiave = f'{Path(r["file"]).stem}:{g.chiave}'
                 n += len(nuovi)
                 fogli += nuovi
         return fogli
@@ -385,9 +415,10 @@ class DrawingsMixin:
             from cad_engine.tavole_ritocchi import oggetti
             fogli = self._fogli(campi or self.drawing_fields()['fields'], tutte)
             rit = self._ritocchi_tavole()
-            return {'ok': True, 'modificabili': self.asm is None,
+            return {'ok': True, 'modificabili': True,
                     'sheets': [{'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave, 'fattore': f.fattore,
-                                'oggetti': oggetti(f), 'ritocchi': rit.get(f.chiave) or {}} for f in fogli]}
+                                'oggetti': oggetti(f), 'ritocchi': rit.get(f.chiave) or {},
+                                'persi': getattr(f, 'persi', None) or []} for f in fogli]}
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}
         except Exception as ex:  # noqa: BLE001

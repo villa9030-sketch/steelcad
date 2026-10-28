@@ -46,7 +46,8 @@ def test_ritocchi_salvati_con_annulla(monkeypatch, tmp_path):
     assert '420 ±0,5' in f2['svg'] and 'Sbavare tutti i bordi' in f2['svg']
     assert f2['ritocchi'] == rit and s.doc.meta['tavole']['pezzo'] == rit
     alto2 = next(o for o in f2['oggetti'] if o['id'] == 'vista:alto')
-    assert abs(alto2['T'][1] - tx - 10) < 1e-6 and abs(alto2['T'][2] - ty + 5) < 1e-6   # la vista si è spostata
+    # la vista si è spostata in giù; di lato no: resta sotto la fronte (viste allineate, 28/10)
+    assert abs(alto2['T'][1] - tx) < 1e-6 and abs(alto2['T'][2] - ty + 5) < 1e-6
     agg = [o for o in f2['oggetti'] if o.get('aggiunta') is not None]
     assert len(agg) == 1 and agg[0]['testo'] == '420' and agg[0]['h'] == 4
     # nascondere una quota
@@ -141,3 +142,61 @@ def test_quota_corta_frecce_fuori():
     assert min(p[0] for p in pts) < -1
     (_, (x, y), testo, h, al), = [(l, p, tx, h, al) for (l, p, tx, h, al), t in zip(f.testi, f.testi.tag) if t == 'q']
     assert testo == '2' and x > 2                                       # il numero di fianco, non sopra le frecce
+
+
+def _T(f, nome):
+    return next(o for o in f['oggetti'] if o['id'] == nome)['T']
+
+
+def test_viste_allineate_alla_fronte():
+    """28/10: l'alto resta sotto la fronte, il fianco accanto; la fronte se li porta dietro. «libere»: no."""
+    s = _cassa()
+    f0 = _foglio(s)
+    a = s.tavola_ritocchi('pezzo', {'viste': {'vista:alto': [40, -10], 'vista:sinistra': [15, 30]}})['sheets'][0]
+    assert _T(a, 'vista:alto')[1] == _T(f0, 'vista:alto')[1]                  # di lato non si sposta
+    assert abs(_T(a, 'vista:alto')[2] - _T(f0, 'vista:alto')[2] + 10) < 1e-6
+    assert _T(a, 'vista:sinistra')[2] == _T(f0, 'vista:sinistra')[2]          # in su e in giù no
+    b = s.tavola_ritocchi('pezzo', {'viste': {'vista:fronte': [20, 5]}})['sheets'][0]
+    for v in ('vista:fronte', 'vista:alto', 'vista:sinistra'):
+        assert abs(_T(b, v)[1] - _T(f0, v)[1] - 20) < 1e-6 and abs(_T(b, v)[2] - _T(f0, v)[2] - 5) < 1e-6
+    c = s.tavola_ritocchi('pezzo', {'viste': {'vista:alto': [40, 0]}, 'libere': ['vista:alto']})['sheets'][0]
+    assert abs(_T(c, 'vista:alto')[1] - _T(f0, 'vista:alto')[1] - 40) < 1e-6
+
+
+def test_fianco_da_destra_senza_isometrica_e_vista_tolta():
+    s = _cassa()
+    f = _foglio(s, {**s.drawing_fields()['fields'], 'fianco': 'destra', 'isometrica': 'no'})
+    ids = {o['id'] for o in f['oggetti']}
+    assert 'vista:destra' in ids and 'vista:sinistra' not in ids and 'vista:iso' not in ids
+    assert _T(f, 'vista:destra')[1] < _T(f, 'vista:fronte')[1]               # europea: a sinistra della fronte
+    assert 'VISTA DA DESTRA' in f['svg']
+    g = s.tavola_ritocchi('pezzo', {'tolte': ['vista:iso']})['sheets'][0]
+    assert 'vista:iso' not in {o['id'] for o in g['oggetti']} and 'ISOMETRICA' not in g['svg']
+
+
+def test_dettaglio_ingrandito():
+    s = _cassa()
+    f0 = _foglio(s)
+    s_, tx, ty = _T(f0, 'vista:fronte')
+    bb = next(o for o in f0['oggetti'] if o['id'] == 'vista:fronte')['bbox']
+    angolo = ((bb[2] - tx) / s_, (bb[3] - ty) / s_)                         # l'angolo in alto a destra della fronte
+    f = s.tavola_ritocchi('pezzo', {'dettagli': [{'vista': 'vista:fronte', 'c': list(angolo), 'r': 8, 'k': 3,
+                                                  'p': [bb[2] + 60, bb[3]], 'lettera': 'A'}]})['sheets'][0]
+    d = next(o for o in f['oggetti'] if o['id'] == 'dettaglio:A')
+    assert abs(d['T'][0] - 3 * s_) < 1e-9 and 'DETTAGLIO A (' in f['svg']
+    assert d['punti']                                                        # dentro ci sono spigoli (si quota)
+    assert not f['persi']
+
+
+def test_ritocchi_persi_si_dicono():
+    s = _cassa()
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    s.sketch_add_circle(sid, [300, 130], 20)
+    s.create_from_sketch(sid, 'cut', {})
+    f = _foglio(s)
+    q = next(o['id'] for o in f['oggetti'] if o['kind'] == 'quota' and o['id'].startswith('vista:alto/'))
+    s.tavola_ritocchi('pezzo', {'quote': {q: {'testo': 'XX'}, 'vista:alto/q99': {'testo': 'perso'}},
+                                'viste': {'vista:destra': [5, 5]}})
+    p = _foglio(s)
+    testi = ' | '.join(x['testo'] for x in p['persi'])
+    assert '«perso»' in testi and 'vista da destra' in testi and '«XX»' not in testi

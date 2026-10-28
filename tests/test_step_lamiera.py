@@ -44,3 +44,34 @@ def test_non_lamiera_si_rifiuta(tmp_path):
     assert s.export_step(str(p))['ok']
     r = Service().import_step(str(p))
     assert r['ok'] or 'lamiera' in r['message']
+
+
+def test_step_assieme_elenco_pezzo_scelto_e_dxf_di_tutti(tmp_path):
+    """28/10: lo STEP del cliente con più pezzi: l'elenco, si apre quello scelto, i DXF di tutte le lamiere."""
+    s1 = Service()
+    s1.esempio('staffa')
+    blocco = bd.Cylinder(20, 60).moved(bd.Location((0, 0, 500)))           # un pezzo che non è lamiera (un perno)
+    s0 = Service()
+    s0.new_project('lamiera', {'name': 'V', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 2, 'k': 0.33})
+    for e in ('L1', 'L2', 'L3', 'L4'):
+        s0.add_flange('SM1', e, {'length': 40})
+    a = bd.Shape.cast(s0.result.body.shape)
+    b = bd.Shape.cast(s1.result.body.shape).moved(bd.Location((0, 400, 0)))
+    p = tmp_path / 'assieme.step'
+    bd.export_step(bd.Compound(children=[a, b, blocco]), str(p))
+    s = Service()
+    r = s.import_step(str(p), 0.33)
+    assert not r['ok'] and r['code'] == 'assieme' and len(r['pezzi']) == 3
+    lam = [x for x in r['pezzi'] if x['lamiera']]
+    assert len(lam) == 2 and {x['pieghe'] for x in lam} == {4, 1}
+    assert any(not x['lamiera'] for x in r['pezzi'])
+    i = next(x['i'] for x in lam if x['pieghe'] == 1)
+    r = s.import_step(str(p), 0.33, i)
+    assert r['ok'], r.get('message')
+    assert len(s.result.body.sheet.bend_rows) == 1
+    assert s.save(str(tmp_path / 'scelto.steelcad'))['ok']               # si riapre con lo stesso pezzo
+    s2 = Service()
+    assert s2.open(str(tmp_path / 'scelto.steelcad'))['ok'] and len(s2.result.body.sheet.bend_rows) == 1
+    r = s.step_dxf_tutti(str(p), str(tmp_path / 'dxf'), 0.33)
+    assert r['ok'] and len(r['fatti']) == 2 and len(r['saltati']) == 1, r
+    assert all((tmp_path / 'dxf' / n).exists() for n in r['fatti'])

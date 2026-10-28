@@ -304,6 +304,14 @@ def _accorcia_saldature(G, p: Pezzo, pieghe: set, tec: Tecnologia):
             continue
         a, b = s['v']
         stessa = altra in p.facce
+        if stessa:
+            # il bordo dell'altra serve solo se nello sviluppo le due facce si toccano lì (stesso spigolo, avvicinato
+            # dalle pieghe). La giunzione che chiude un anello (falda davanti saldata alla sinistra, con le altre falde
+            # in mezzo) ha i due lati lontani: il semipiano dell'altra tagliava via metà faccia (28/10)
+            Ac, Bc = p.vertici[corta][a], p.vertici[corta][b]
+            Aa, Ba = p.vertici[altra][a], p.vertici[altra][b]
+            if math.dist(Ac, Aa) + math.dist(Bc, Ba) > 10 * tec.t + 20:
+                continue                                    # come prima, quando il semipiano non la toccava
         A, B = (p.vertici[altra][a], p.vertici[altra][b]) if stessa else (p.vertici[corta][a], p.vertici[corta][b])
         ex_, ey_ = B[0] - A[0], B[1] - A[1]
         ln = math.hypot(ex_, ey_)
@@ -595,6 +603,17 @@ def _superficie_media(G: Guscio, t: float, rif: str) -> Facce:
     return Facce([tuple(map(float, q)) for q in nuovi], G.facce)
 
 
+def _piani_medi(G: Guscio, t: float, rif: str) -> list:
+    """Per ogni faccia il suo piano in asse lamiera esatto: (normale, n·x)."""
+    sposta = {'esterno': -t / 2, 'interno': t / 2, 'asse': 0.0}.get(rif, -t / 2)
+    out = []
+    for f in G.facce:
+        n = _normale(G.punti, f)
+        q = G.punti[f[0]]
+        out.append((tuple(n), sum(n[k] * q[k] for k in range(3)) + sposta))
+    return out
+
+
 def _solido_a_facce(S: Facce, t: float):
     """Il solido faccia per faccia: ogni faccia (in asse lamiera) ispessita di t, poi tutte fuse. Più lento della
     cucitura delle pelli, ma regge i vertici dove si incontrano tante facce (angoli aperti, smussi, flange)."""
@@ -664,6 +683,7 @@ def costruisci(fdef: dict, valuta, t: float, r, k, fid: str):
     x = 0.0
     corr_tot = 0.0
     mappe = []
+    schegge, strette = [], []                    # pezzi e facce troppo stretti (smussi piccoli, 28/10)
     for p in ps:
         corto, lungo, ang = ingombro_minimo(p.punti())
         c, s = math.cos(math.radians(-ang)), math.sin(math.radians(-ang))
@@ -718,9 +738,35 @@ def costruisci(fdef: dict, valuta, t: float, r, k, fid: str):
         if sov > 1.0:
             avvisi.append(f'Nello sviluppo del pezzo {p.nome} delle facce si sovrappongono ({fmt_mm(round(sov))} mm²): '
                           'scegli un’altra saldatura.')
+        # 28/10: le schegge (smussi piccoli): un pezzo largo pochi mm non si taglia bene, una faccia stretta tra due
+        # pieghe non si piega (la cava della matrice è 8 volte lo spessore: servono almeno 4 spessori per lato)
+        minimo = 4 * t
+        if corto < minimo:
+            schegge.append((p.nome, corto))
+        else:
+            piegate: dict = {}
+            for qq in p.pieghe:
+                for ff in G.spigoli[qq['spigolo']]['facce']:
+                    piegate[ff] = piegate.get(ff, 0) + 1
+            for ff, n in piegate.items():
+                if n >= 2 and ff in p.poligoni and len(p.poligoni[ff]) >= 3:
+                    largo = ingombro_minimo(p.poligoni[ff])[0]
+                    if largo < minimo:
+                        strette.append((G.nomi[ff], largo))
         info_pezzi.append({'nome': p.nome, 'facce': [G.nomi[f] for f in p.facce], 'pieghe': len(p.pieghe),
                            'ingombro': [round(corto, 1), round(lungo, 1)], 'nel_foglio': nel})
         x += max(q[0] for q in pts) - mx + 100
+    if schegge or strette:
+        cosa = []
+        if strette:
+            cosa.append(f'{len(strette)} {"faccia larga" if len(strette) == 1 else "facce larghe"} '
+                        f'{fmt_mm(round(min(x for _, x in strette), 1))} mm tra due pieghe (non si piegano: ne servono almeno '
+                        f'{fmt_mm(round(4 * t))})')
+        if schegge:
+            cosa.append(f'{len(schegge)} {"pezzo" if len(schegge) == 1 else "pezzi"} a scheggia, larghi '
+                        f'{fmt_mm(round(min(x for _, x in schegge), 1))} mm ({", ".join(n for n, _ in schegge)})')
+        avvisi.append('Smusso troppo piccolo: ' + ' e '.join(cosa) + '. Toglilo (0 = angolo vivo) o fallo di almeno '
+                      f'{fmt_mm(math.ceil(4 * t / math.sqrt(2)))} mm.')
     flat = facce_flat[0] if len(facce_flat) == 1 else bd.Compound(children=facce_flat)
     sald, giunti = metri_saldatura(G, pieghe)
     spigoli = [{'key': kk, 'nome': s_['nome'], 'lung': round(s_['lung'], 1), 'angolo': round(s_['angolo'], 2),
@@ -730,7 +776,7 @@ def costruisci(fdef: dict, valuta, t: float, r, k, fid: str):
     media = _superficie_media(G, t, tec.rif)
     area = sum(_area3(G, f) for f in range(len(G.facce)))
     try:
-        solido = _solido(media, t)
+        solido = _solido(media, t, _piani_medi(G, t, tec.rif))
         buono = solido.is_valid and abs(abs(solido.volume) - area * t) < 0.08 * area * t
     except Exception:  # noqa: BLE001
         buono = False

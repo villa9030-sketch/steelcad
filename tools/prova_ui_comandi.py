@@ -244,9 +244,9 @@ def main():
             time.sleep(0.4)
             attesi = {
                 'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal',
-                'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'modal',
+                'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'tavole',
                 'export_dxf': 'toast', 'export_bendtable': 'toast', 'export_step': 'toast', 'show_cut': 'cut', 'show_bom': 'bom',
-                'misura': 'aiuto',
+                'misura': 'aiuto', 'misura_angolo': 'aiuto',
             }
             ok('progetto in lamiera: si vede solo la scheda LAMIERA',
                pg.evaluate("[...document.querySelectorAll('.rtabs button:not([hidden])')].map(b => b.dataset.rtab).join()") == 'lamiera')
@@ -269,11 +269,16 @@ def main():
                         risposta = True
                         pg.keyboard.press('Escape')
                         pg.wait_for_selector('#modal[hidden]', state='attached', timeout=5000)
+                    elif tipo == 'tavole':                    # l'editor delle tavole a tutto schermo (25/10)
+                        pg.wait_for_selector('#tav-ed', timeout=20000)
+                        risposta = True
+                        pg.click('#te-chiudi')
+                        pg.wait_for_selector('#tav-ed', state='detached', timeout=5000)
                     elif tipo == 'toast':
                         pg.wait_for_selector('.toast', timeout=8000)
                         risposta = pg.locator('.toast.err').count() == 0 or cmd in ('member_help',)
                     elif tipo == 'aiuto':                     # la Quota: si accende e dice cosa cliccare
-                        risposta = 'Quota' in pg.inner_text('#sk-help')
+                        risposta = ('Angolo' if cmd == 'misura_angolo' else 'Quota') in pg.inner_text('#sk-help')
                         pg.evaluate("(c) => window.__steelcad.runCmd(c)", cmd)      # e si spegne
                     elif tipo in ('cut', 'bom'):
                         risposta = pg.evaluate(f"!document.querySelector('#tab-{tipo}').hidden")
@@ -302,12 +307,20 @@ def main():
             for f, atteso in (('pz', (0, 0, -1)), ('ny', (0, 1, 0)), ('px', (-1, 0, 0))):
                 pg.click('#viewcube .cube-home'); time.sleep(0.5)     # dall'isometrica si vedono sopra, fronte, destra
                 pg.click(f'#cube .cf[data-f="{f}"]')
-                time.sleep(0.6)
                 d = direzione()
+                for _ in range(30):                               # con la grafica software l'animazione è più lenta
+                    if all(abs(d[i] - atteso[i]) < 0.05 for i in range(3)):
+                        break
+                    time.sleep(0.1)
+                    d = direzione()
                 ok(f'cubo delle viste: faccia {f} → guardo verso {[round(c, 2) for c in d]}', all(abs(d[i] - atteso[i]) < 0.05 for i in range(3)))
             pg.click('#viewcube .cube-home')
-            time.sleep(0.6)
             d = direzione()
+            for _ in range(30):                                   # l'animazione, con la grafica software
+                if d[2] < -0.3 and d[1] > 0.3:
+                    break
+                time.sleep(0.1)
+                d = direzione()
             ok('casetta del cubo: isometrica', d[2] < -0.3 and d[1] > 0.3)
             ok('niente barra "Storia" (ripeteva l’albero)', pg.locator('#tl-items').count() == 0)
             scuro = pg.evaluate("document.body.classList.contains('dark')")

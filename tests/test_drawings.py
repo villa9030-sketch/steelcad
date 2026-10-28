@@ -119,3 +119,18 @@ def test_stessa_tavola_scalata_nei_formati():
     s._tavole_fatte = None
     a = s._fogli(campi)
     assert s._fogli(campi) is a                                    # la seconda volta: le stesse, non rifatte
+
+
+def test_dxf_con_quote_vere(tmp_path):
+    """28/10: le quote nel DXF sono DIMENSION (si modificano in AutoCAD), con la misura vera del pezzo a 1:1."""
+    import ezdxf
+    from app.service import Service
+    s = Service()
+    s.new_project('lamiera', {'name': 'P', 'larghezza': 420, 'profondita': 260, 'spessore': 2})
+    p = tmp_path / 't.dxf'
+    assert s.export_drawings(str(p), s.drawing_fields()['fields'])['ok']
+    d = ezdxf.readfile(str(p))
+    misure = sorted(round(e.get_measurement(), 2) for e in d.modelspace() if e.dxftype() == 'DIMENSION')
+    assert 420 in misure and 260 in misure
+    testi = [e.dxf.text for e in d.modelspace() if e.dxftype() == 'TEXT']
+    assert '420' not in testi                         # il numero non è più un testo a parte

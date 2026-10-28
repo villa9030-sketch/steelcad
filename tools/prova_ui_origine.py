@@ -59,7 +59,7 @@ try:
         chk('chiede conferma per tutto il taglio', pg.is_visible('#modal-box') and 'Elimina' in pg.inner_text('#modal-box'))
         pg.click('#m-ok'); time.sleep(2.5)
         st = api('state')
-        chk('taglio tolto: niente più fori', 'Taglio attraverso' not in str(st['tree']))
+        chk('taglio tolto: niente più fori', "'sheet_cut'" not in str(st['tree']))
         chk('nessun errore ' + str(err), not err)
         b.close()
 finally:

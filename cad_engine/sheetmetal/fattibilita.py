@@ -95,26 +95,19 @@ def _controlla(data, materiale: str) -> list[str]:
 
 
 def _ingombri_su(w, pieghe) -> dict:
-    """Per ogni piega: s_min, s_max (traverso alla piega) e u_min, u_max (lungo la piega) del foro w. I tratti dritti
-    dai loro estremi, gli archi e i cerchi dal centro ± raggio (largo, mai stretto)."""
-    import build123d as bd
-    pezzi = []                                     # (punto, raggio)
-    for e in w.edges():
-        if e.geom_type in (bd.GeomType.CIRCLE,):
-            try:
-                pezzi.append((e.arc_center, e.radius))
-                continue
-            except Exception:  # noqa: BLE001
-                pass
-        if e.geom_type == bd.GeomType.LINE:
-            pezzi += [(e.position_at(0), 0.0), (e.position_at(1), 0.0)]
-        else:
-            pezzi += [(p, 0.0) for p in e.positions([i / 8 for i in range(9)])]
+    """Per ogni piega: s_min, s_max (traverso alla piega) e u_min, u_max (lungo la piega) del foro w. Dagli angoli
+    della scatola del foro nello sviluppo (largo, mai stretto). 28/10: prima punto per punto sui lati, 0,35 s con 300
+    fori a ogni modifica."""
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    b = Bnd_Box()
+    BRepBndLib.Add_s(w.wrapped, b)
+    lo, hi = b.CornerMin(), b.CornerMax()
+    angoli = [(x, y, z) for x in (lo.X(), hi.X()) for y in (lo.Y(), hi.Y()) for z in (lo.Z(), hi.Z())]
     out = {}
     for g in pieghe:
-        ss = [((p - g.F0).dot(g.fn), r) for p, r in pezzi]
-        uu = [((p - g.F0).dot(g.fx), r) for p, r in pezzi]
-        out[id(g)] = (min(s - r for s, r in ss), max(s + r for s, r in ss), min(u - r for u, r in uu), max(u + r for u, r in uu))
+        F, n_, x_ = g.F0, g.fn, g.fx
+        ss = [(p[0] - F.X) * n_.X + (p[1] - F.Y) * n_.Y + (p[2] - F.Z) * n_.Z for p in angoli]
+        uu = [(p[0] - F.X) * x_.X + (p[1] - F.Y) * x_.Y + (p[2] - F.Z) * x_.Z for p in angoli]
+        out[id(g)] = (min(ss), max(ss), min(uu), max(uu))
     return out
-
-

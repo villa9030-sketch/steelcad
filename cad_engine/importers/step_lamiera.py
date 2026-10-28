@@ -31,19 +31,49 @@ class StepError(SteelCADError):
     code = 'step'
 
 
-def leggi(path) -> bd.Shape:
+def solidi(path) -> list:
+    """I solidi dello STEP, dal più grande; quelli minuscoli (meno del 2% del più grande: sporcizia del CAD del
+    cliente) solo se sono pezzi veri, cioè se non c'è altro."""
     try:
         s = bd.import_step(str(path))
     except Exception as ex:  # noqa: BLE001
         raise StepError(f'Lo STEP non si legge: {ex}') from None
-    solidi = s.solids() if hasattr(s, 'solids') else []
-    if not solidi:
+    tutti = s.solids() if hasattr(s, 'solids') else []
+    if not tutti:
         raise StepError('Nello STEP non c’è un solido.')
-    if len(solidi) > 1:
-        solidi = sorted(solidi, key=lambda x: -x.volume)
-        if solidi[1].volume > 0.02 * solidi[0].volume:
-            raise StepError(f'Nello STEP ci sono {len(solidi)} solidi: è un assieme. Per lo sviluppo serve un pezzo solo.')
-    return solidi[0]
+    tutti = sorted(tutti, key=lambda x: -x.volume)
+    return [x for x in tutti if x.volume > 0.02 * tutti[0].volume] or tutti[:1]
+
+
+def leggi(path, indice=None) -> bd.Shape:
+    """Il solido da spiegare: l'unico, o quello scelto (28/10: lo STEP del cliente è spesso un assieme)."""
+    tutti = solidi(path)
+    if indice not in (None, ''):
+        try:
+            return tutti[int(indice)]
+        except (IndexError, ValueError):
+            raise StepError('Nello STEP non c’è più il pezzo scelto.') from None
+    if len(tutti) > 1:
+        raise StepError(f'Nello STEP ci sono {len(tutti)} solidi: è un assieme. Scegli quale pezzo spiegare.')
+    return tutti[0]
+
+
+def elenco(path, k: float = 0.33) -> list:
+    """Per ogni solido dello STEP: le misure e se è una lamiera che si spiega (spessore, pieghe) o perché no."""
+    out = []
+    for i, so in enumerate(solidi(path)):
+        bb = so.bounding_box()
+        voce = {'i': i, 'misure': sorted((round(bb.size.X, 1), round(bb.size.Y, 1), round(bb.size.Z, 1)), reverse=True),
+                'volume': so.volume}
+        try:
+            r = spiega(so, k=k)
+            voce.update(lamiera=True, spessore=round(r['t'], 2), pieghe=len(r['linee']), avvisi=list(r['avvisi']))
+        except StepError as ex:
+            voce.update(lamiera=False, perche=ex.message)
+        except Exception:  # noqa: BLE001 - un solido strano non ferma l'elenco
+            voce.update(lamiera=False, perche='Non riesco a leggerlo come lamiera.')
+        out.append(voce)
+    return out
 
 
 def _v(p) -> np.ndarray:
@@ -310,7 +340,7 @@ def build(fdef: dict, ctx):
         p = Path(d) / 'pezzo.step'
         p.write_bytes(dati)
         try:
-            solido = leggi(p)
+            solido = leggi(p, fdef.get('solido'))
             r = spiega(solido, k=k)
         except StepError as ex:
             raise FeatureError(ex.message, feature=fid) from None

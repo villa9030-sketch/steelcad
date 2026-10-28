@@ -127,6 +127,10 @@ def build_edge_flange(fdef: dict, ctx):
         if fuori is not None:
             break
     if fuori is None:
+        if nome in (getattr(data, 'pannelli', None) or {}) and (getattr(data, 'shape_info', None) or {}).get('kind') == 'sezioni':
+            raise FeatureError('Questo bordo non è libero o è tagliato di sbieco. Sulla tramoggia il bordo in alto e la '
+                               'flangia dello scarico si mettono dalle misure della forma (Modifica → Bordo, Flangia '
+                               'scarico).', feature=fid)
         raise FeatureError('Questo bordo non è libero: oltre c’è già lamiera.', feature=fid)
 
     def val(k, d, cosa):
@@ -208,12 +212,13 @@ def build_edge_flange(fdef: dict, ctx):
     lungo = piega.ba + dritto
     rett = _orienta(bd.Face(bd.Wire.make_polygon([A2, B2, B2 + F2 * lungo, A2 + F2 * lungo], close=True)), data.plane)
     prima = data.flat.area
+    n_prima = len(data.flat.faces()) if not isinstance(data.flat, bd.Face) else 1      # tramogge: più pezzi
     unito = data.flat.fuse(rett)
     unito = unito.clean() if hasattr(unito, 'clean') else unito
     fs = unito.faces() if not isinstance(unito, bd.Face) else [unito]
-    if len(fs) != 1 or abs(fs[0].area - prima - rett.area) > 1e-3:
+    if len(fs) != n_prima or abs(sum(f.area for f in fs) - prima - rett.area) > 1e-3:
         raise FeatureError('Nello sviluppo la piega si sovrappone ad altro: accorciala o lascia uno scarico.', feature=fid)
-    flat = fs[0]
+    flat = fs[0] if len(fs) == 1 else bd.Compound(children=fs)
     pl = data.plane
     m0, m1 = pl.to_local_coords(A2 + F2 * (piega.ba / 2)), pl.to_local_coords(B2 + F2 * (piega.ba / 2))
     su = sig > 0
@@ -242,7 +247,8 @@ def build_edge_flange(fdef: dict, ctx):
         nuovo.names.setdefault(f'{fid}/piega', []).append(f)
     riga = {'flange': fid, 'edge': 'bordo libero', 'parent': None, 'length': lung, 'line_at': None,
             'direction': 'up' if sig > 0 else 'down', 'position': 'outside', 'width': L_edge, **piega.as_dict()}
-    nuovo.sheet = dataclasses.replace(data, flat=flat, flat_area=flat.area, flat_size=flat_size(flat, data.plane),
+    nuovo.sheet = dataclasses.replace(data, flat=flat, flat_area=flat.area,
+                                      flat_size=flat_size(flat, data.plane) if len(fs) == 1 else data.flat_size,
                                       bend_lines=list(data.bend_lines) + [linea], pannelli=mappa,
                                       extra_bends=list(data.extra_bends or []) + [riga])
     return nuovo

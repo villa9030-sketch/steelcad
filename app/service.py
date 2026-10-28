@@ -355,6 +355,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             for e in self._bordi_liberi(r.body, data, bordi_noti):
                 bordi.append({**e, 'feature': data.feature, 'thickness': data.thickness,
                               'label': f'bordo ({fmt_mm(round(e["length"], 1))} mm)'})
+        elif data is not None and getattr(data, 'pannelli', None):
+            # tramogge, cassoni, profili, STEP: i bordi liberi delle facce (il bordo in alto…) si piegano come gli altri
+            for e in self._bordi_liberi(r.body, data, []):
+                bordi.append({**e, 'feature': data.feature, 'thickness': data.thickness,
+                              'label': f'bordo ({fmt_mm(round(e["length"], 1))} mm)'})
         return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
                 'bend_edges': bordi, 'threads': self._filettature(), 'svasature_ko': self._svasature_ko(),
                 'marks': [m['pezzo'] for m in (getattr(data, 'marks', None) or []) if m.get('pezzo')] if data is not None else []}
@@ -378,7 +383,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         from cad_engine.sheetmetal.edge_flange import fuori_dalla_vicina, mappa_spigoli
         t = data.thickness
         mappa = mappa_spigoli(body.shape)
-        facce = [n for n in body.names if n.endswith('/esterno') or n.endswith('/sopra')]
+        pannelli = getattr(data, 'pannelli', None) or {}
+        facce = [n for n in body.names if n.endswith('/esterno') or n.endswith('/sopra')
+                 or (n.endswith('/fuori') and n in pannelli)]
         noti_seg = [(np.array(e['a'], dtype=float), np.array(e['b'], dtype=float)) for e in noti]
 
         def gia(p, q):
@@ -730,6 +737,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except SteelCADError:
             return None
         return f if not isinstance(f, Sketch) and f.get('type') == 'sheet' else None
+
+    def _lamiera_def(self, fid: str):
+        """Una lamiera di qualsiasi tipo: disegnata, forma (tramoggia, cassone, profilo, cono) o letta da STEP."""
+        try:
+            f = self.doc.feature(fid)
+        except SteelCADError:
+            return None
+        return f if not isinstance(f, Sketch) and f.get('type') in ('sheet', 'sheet_shape', 'step_lamiera') else None
 
     def _sheet_state(self):
         sm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet'), None)
@@ -1582,6 +1597,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             fid = piano.get('flat') or (piano.get('face') or '').split('/')[0]
             sm = self._sheet_def(fid)
             data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+            if sm is None and self._lamiera_def(fid) is not None:
+                raise SteelCADError('Su questa forma le pieghe sono i suoi spigoli: scegli piega o saldatura spigolo per '
+                                    'spigolo (doppio clic sulla forma nell’albero). Fori, tagli, linguette e flange sui '
+                                    'bordi liberi si fanno come sugli altri pezzi.', code='piega')
             if sm is None or data is None or not (piano.get('flat') or (piano.get('face') or '').split('/')[-1] in ('sopra', 'sotto')):
                 raise SteelCADError('La piega su linea si disegna sulla base: sulla faccia di sopra o di sotto, oppure sullo '
                                     'sviluppo.', code='piega')
@@ -2077,7 +2096,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     campi.append({'label': sk.describe_constraint(did), 'value': ss.values.get(did, c['value']), 'dim': did})
         if not campi:
             return None
-        return {'sketch': sid, 'feature': t['id'], 'campi': campi,
+        return {'sketch': sid, 'feature': t['id'], 'campi': campi, 'eids': sorted(contorno),
                 'tipo': 'rettangolo' if len(vert) >= 2 and len(oriz) >= 2 else 'contorno'}
 
     def cut_contour_set(self, sid: str, campi: list) -> dict:
@@ -2164,7 +2183,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     centri = {k: (lambda q: [q.X, q.Y, q.Z])(pl.from_local_coords(ss.points[ss.circles[k][0]])) for k in uguali}
                     dentro = pl.z_dir if t.get('type') == 'sheet' else -pl.z_dir   # la base cresce dallo sketch verso z
                     data = getattr(self.result.body, 'sheet', None)
-                    return {'sketch': sid, 'cerchio': cid, 'd': 2 * r, 'hole': sk.entities[cid].get('hole'), 'uguali': uguali,
+                    return {'sketch': sid, 'cerchio': cid, 'feature': t['id'], 'd': 2 * r, 'hole': sk.entities[cid].get('hole'), 'uguali': uguali,
                             'centri': centri, 'dentro': [dentro.X, dentro.Y, dentro.Z],
                             'spessore': data.thickness if data is not None else None}
         return None
@@ -2330,6 +2349,31 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                             f'da {info["nome"]}. Annulla (Ctrl+Z) li rimette.')
         return r
 
+    def togli_dal_taglio(self, sid: str, eids: list) -> dict:
+        """Hai cliccato un foro (o un taglio) sul pezzo e lo vuoi togliere (28/10): si toglie il suo contorno dal
+        disegno del taglio che l'ha fatto; gli altri fori restano. Se era l'unico contorno, si dice di togliere il
+        taglio intero (code 'ultimo', con la feature)."""
+        try:
+            sk = self.doc.sketch(sid)
+            eids = [e for e in (eids or []) if e in sk.entities]
+            if not eids:
+                raise SteelCADError('Questo contorno non c’è più nel disegno.', code='taglio')
+            taglio = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('sketch') == sid), None)
+            if taglio is None:
+                raise SteelCADError('Questo disegno non fa nessun taglio.', code='taglio')
+            fatto = (self.doc._sketch_results or {}).get(sid)
+            contorni = len(fatto[1].faces) if fatto and fatto[1] is not None else 0
+        except SteelCADError as ex:
+            return _err(ex)
+        nome = self._etichetta(taglio['id'])
+        if contorni <= 1:
+            return {'ok': False, 'code': 'ultimo', 'feature': taglio['id'], 'nome': nome,
+                    'message': f'È l’unico contorno di {nome}: si toglie il taglio intero.'}
+        r = self._change(f'Togli un contorno da {taglio["id"]}', lambda: sketch_ops.delete(self.doc, sid, eids))
+        if r.get('ok'):
+            r['message'] = f'Tolto da {nome}. Annulla (Ctrl+Z) lo rimette.'
+        return r
+
     def sketch_delete(self, sid: str, eids: list) -> dict:
         return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
 
@@ -2384,7 +2428,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             faccia = bd.Face(self.result.body.face(face_name)[0])
             piano = plane_of(self.result.body, face_name, sk)
             sketch_ops.add_reference_edges(sk, faccia, piano, self.result.body.shape)
-            ox, oy, w, h = self._fuori_tutto(piano)
+            ox, oy, w, h = self._fuori_tutto(piano, face_name)
             P = {k: (e['x'] - ox, e['y'] - oy) for k, e in sk.entities.items() if e['kind'] == 'point'}
             linee = [[*P[e['a']], *P[e['b']]] for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref')]
             cerchi = [[*P[e['center']], e['r']] for e in sk.entities.values() if e['kind'] == 'circle' and e.get('ref')]
@@ -2397,11 +2441,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
-    def _fuori_tutto(self, piano) -> tuple:
+    def _fuori_tutto(self, piano, face_name: str | None = None) -> tuple:
         """Dove comincia il pezzo, fuori tutto, nelle coordinate della faccia: le distanze dei fori si misurano dal bordo
-        esterno (com'è in officina), non dall'inizio della parte piana dopo la piega."""
+        esterno (com'è in officina), non dall'inizio della parte piana dopo la piega. Su una forma a facce (tramoggia,
+        cassone) dai bordi della faccia stessa: le altre pareti, viste di sbieco, non dicono niente (28/10)."""
         import build123d as bd
-        pts = [piano.to_local_coords(v.center()) for v in bd.Shape.cast(self.result.body.shape).vertices()]
+        body = self.result.body
+        if face_name and face_name in (getattr(getattr(body, 'sheet', None), 'pannelli', None) or {}):
+            vs = [v for f in body.names.get(face_name, []) for v in bd.Face(f).vertices()]
+        else:
+            vs = bd.Shape.cast(body.shape).vertices()
+        pts = [piano.to_local_coords(v.center()) for v in vs]
         xs, ys = [q.X for q in pts], [q.Y for q in pts]
         return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
 
@@ -2429,7 +2479,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             nonlocal x, y
             sk = self._crea_sketch_faccia(face_name, nomi.get(tipo, 'Fori'))
             from cad_engine.sketch.face_plane import plane_of
-            ox, oy, _, _ = self._fuori_tutto(plane_of(self.result.body, face_name, sk))
+            ox, oy, _, _ = self._fuori_tutto(plane_of(self.result.body, face_name, sk), face_name)
             x, y = x + ox, y + oy                          # dal bordo esterno del pezzo alle coordinate della faccia
             prima = set(sk.entities)
             if tipo == 'tondo':
@@ -2466,7 +2516,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     {'tipo': 'svasato', 'D': spec.get('sD'), 'angolo': spec.get('sang') or 90}
                 for e in [k for k, x in sk.entities.items() if k not in prima and x['kind'] == 'circle' and not x.get('ref')]:
                     self._applica_foro(sk, e, tf)
-            if self._sheet_def(face_name.split('/')[0]) is not None:
+            if self._lamiera_def(face_name.split('/')[0]) is not None:
                 self.doc.add_feature('sheet_cut', nomi.get(tipo, 'Fori'), sketch=sk.id)
             else:
                 self.doc.add_feature('extrude', nomi.get(tipo, 'Fori'), sketch=sk.id, operation='cut', through_all=True, reverse=True)
@@ -2637,8 +2687,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         try:
             sk = self.doc.sketch(sid)
             lamiere = [f['id'] for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet']
+            forme = [f['id'] for f in self.doc.features if not isinstance(f, Sketch)
+                     and f.get('type') in ('sheet_shape', 'step_lamiera')]
+            if isinstance(sk.plane, dict) and sk.plane.get('flat') in forme:
+                raise SteelCADError('Su questa forma il materiale si aggiunge disegnando sulla faccia del pezzo, non '
+                                    'sullo sviluppo.', code='linguetta')
             if not isinstance(sk.plane, dict) or not (sk.plane.get('flat') in lamiere or (sk.plane.get('face') or '').startswith(
-                    tuple(x + '/' for x in lamiere))):
+                    tuple(x + '/' for x in lamiere + forme))):
                 raise SteelCADError('La linguetta si disegna su una faccia di una lamiera.', code='linguetta')
             ss = self.doc.solved_sketch(sid)
             P = ss.points
@@ -3120,30 +3175,47 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                         ' Le pieghe sono quelle del 3D: per cambiarle, cambia l’originale e rifai lo specchio.')
         return r
 
-    def import_step(self, path: str, k=None) -> dict:
-        """Uno STEP di lamiera piegata del cliente: diventa un pezzo con lo sviluppo (K della piegatrice, o quello
-        scritto). Lo STEP si salva dentro il progetto: il file può poi spostarsi."""
+    def _doc_da_step(self, p: Path, kk, solido=None):
+        """Il progetto di un pezzo dello STEP (lo STEP intero dentro, il pezzo scelto): (doc, risultato, errore)."""
         import base64
         import zlib
 
         from cad_engine.document import Document
-        p = Path(path)
-        try:
-            dati = p.read_bytes()
-        except OSError as ex:
-            return {'ok': False, 'message': f'Lo STEP non si legge: {ex}'}
-        kk = k if k not in (None, '') else self.bend_default().get('k') or 0.33
-        try:
-            kk = _numero(kk, 'il K')
-        except SteelCADError as ex:
-            return _err(ex)
-        doc = Document(p.stem, 'S235')
-        doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk,
+        dati = p.read_bytes()
+        nome = p.stem if solido in (None, '') else f'{p.stem} — pezzo {int(solido) + 1}'
+        doc = Document(nome, 'S235')
+        extra = {} if solido in (None, '') else {'solido': int(solido)}
+        doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk, **extra,
                         dati=base64.b64encode(zlib.compress(dati, 9)).decode('ascii'))
         prova = doc.rebuild()
         fr = next((f for f in prova.features if f.id == 'IM1'), None)
         if fr is None or not fr.ok:
-            return {'ok': False, 'code': 'step', 'message': fr.message if fr else 'Lo STEP non si apre.'}
+            return doc, prova, (fr.message if fr else 'Lo STEP non si apre.')
+        return doc, prova, None
+
+    def import_step(self, path: str, k=None, solido=None) -> dict:
+        """Uno STEP di lamiera piegata del cliente: diventa un pezzo con lo sviluppo (K della piegatrice, o quello
+        scritto). Lo STEP si salva dentro il progetto: il file può poi spostarsi. Se lo STEP è un assieme (28/10)
+        torna l'elenco dei pezzi (code 'assieme'), e si apre quello scelto (solido = il suo numero)."""
+        from cad_engine.importers import step_lamiera
+        p = Path(path)
+        if not p.exists():
+            return {'ok': False, 'message': f'Lo STEP non si legge: {p} non c’è.'}
+        kk = k if k not in (None, '') else self.bend_default().get('k') or 0.33
+        try:
+            kk = _numero(kk, 'il K')
+            if solido in (None, '') and len(step_lamiera.solidi(p)) > 1:
+                pezzi = step_lamiera.elenco(p, kk)
+                return {'ok': False, 'code': 'assieme', 'path': str(p), 'k': kk, 'pezzi': pezzi,
+                        'message': f'Nello STEP ci sono {len(pezzi)} pezzi ({sum(1 for x in pezzi if x["lamiera"])} in '
+                                   'lamiera): scegli quale aprire, o fai i DXF di tutte le lamiere.'}
+            doc, prova, errore = self._doc_da_step(p, kk, solido)
+        except SteelCADError as ex:
+            return _err(ex)
+        except OSError as ex:
+            return {'ok': False, 'message': f'Lo STEP non si legge: {ex}'}
+        if errore:
+            return {'ok': False, 'code': 'step', 'message': errore}
         self._set(doc)
         self.path = None
         self.blank = False
@@ -3153,6 +3225,36 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return _ok(state=self.state(), message=f'{p.name}: lamiera sp. {fmt_mm(round(data.thickness, 2))}, {len(data.bend_rows)} pieghe, '
                            f'sviluppo {fmt_mm(round(data.flat_size[0], 1))} × {fmt_mm(round(data.flat_size[1], 1))} '
                            f'(K {fmt_mm(kk)}).' + (' ' + ' '.join(data.warnings) if data.warnings else ''))
+
+    def step_dxf_tutti(self, path: str, cartella: str, k=None) -> dict:
+        """Lo STEP del cliente con tanti pezzi (28/10): il DXF di sviluppo di ogni lamiera, in una cartella. I pezzi
+        che non sono lamiere piegate si dicono e si saltano."""
+        from cad_engine.exporters import dxf as dxf_
+        from cad_engine.importers import step_lamiera
+        p, dest = Path(path), Path(cartella)
+        try:
+            kk = _numero(k if k not in (None, '') else self.bend_default().get('k') or 0.33, 'il K')
+            pezzi = step_lamiera.solidi(p)
+            dest.mkdir(parents=True, exist_ok=True)
+        except SteelCADError as ex:
+            return _err(ex)
+        except OSError as ex:
+            return {'ok': False, 'message': f'Non riesco a scrivere in {dest}: {ex}'}
+        fatti, saltati = [], []
+        for i in range(len(pezzi)):
+            try:
+                _, prova, errore = self._doc_da_step(p, kk, i)
+            except SteelCADError as ex:
+                errore = ex.message
+            if errore:
+                saltati.append(f'pezzo {i + 1}: {errore}')
+                continue
+            data = prova.body.sheet
+            nome = dest / f'{p.stem}_{i + 1:02d}_sp{fmt_mm(round(data.thickness, 2)).replace(",", "-")}.dxf'
+            dxf_.export_flat_pattern(data, nome)
+            fatti.append(nome.name)
+        msg = f'{len(fatti)} DXF di sviluppo in {dest.name}' + (f'; saltati {len(saltati)}: ' + '; '.join(saltati) if saltati else '.')
+        return {'ok': bool(fatti), 'message': msg, 'fatti': fatti, 'saltati': saltati, 'cartella': str(dest)}
 
     def _rivoluzione(self, sid, sk, v) -> dict:
         """Il contorno chiuso fatto girare attorno alla linea di costruzione: nuovo pezzo, o aggiunto/tolto."""
@@ -3321,9 +3423,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return {'ok': False, 'code': 'sketch', 'message': 'Prima chiudi il contorno: '
                     + (fr.message if fr else 'lo sketch non è costruibile.')}
         su = self._sheet_def(sk.plane.get('flat') or sk.plane['face'].split('/')[0])
-        if su is None and not sk.plane.get('flat'):          # una forma di lamiera (profilo a colpi…): taglio di lamiera
+        if su is None:          # una forma di lamiera (profilo a colpi, tramoggia…): taglio di lamiera
             try:
-                f_ = self.doc.feature(sk.plane['face'].split('/')[0])
+                f_ = self.doc.feature(sk.plane.get('flat') or sk.plane['face'].split('/')[0])
                 su = f_ if not isinstance(f_, Sketch) and f_.get('type') in ('sheet_shape', 'step_lamiera') else None
             except SteelCADError:
                 su = None

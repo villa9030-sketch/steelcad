@@ -44,3 +44,34 @@ def test_contorno_del_pezzo_non_viene_da_un_taglio():
     linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and e.get('ref')]
     r = s.origine_bordi(nuovo, linee[:1])
     assert not r['ok'] and 'non vengono da un taglio' in r['message']
+
+
+def test_fori_disegnati_sullo_sviluppo_si_tolgono_uno_per_uno():
+    """28/10: prima i fori di un taglio fatto sullo sviluppo si toglievano solo aprendo il suo disegno."""
+    s = Service()
+    s.new_project('lamiera', {'name': 'P', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 2, 'k': 0.4})
+    sid = s.sketch_on_flat()['sketch']
+    for x in (50, 150, 250):
+        assert s.sketch_add_circle(sid, [x, 100], 10)['ok']
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    nuovo = s.sketch_on_face('SM1/sopra')['sketch']
+    sk = s.doc.sketch(nuovo)
+    cerchi = [k for k, e in sk.entities.items() if e['kind'] == 'circle' and e.get('ref')]
+    assert len(cerchi) == 3
+    r = s.origine_bordi(nuovo, cerchi[:1])
+    assert r['ok'] and r['fori'] == 1 and r['eids'] and not r['tutti'], r
+    prima = volume(s.result.body.shape)
+    assert s.togli_fori_da_taglio(nuovo, cerchi[:1])['ok']
+    assert volume(s.result.body.shape) > prima + 1
+    assert len([k for k, e in s.doc.sketch(sid).entities.items() if e['kind'] == 'circle' and not e.get('ref')]) == 2
+
+
+def test_togli_dal_taglio_cliccato_sul_pezzo():
+    s, nuovo, _ = _pezzo_con_fori()
+    tg = next(f for f in s.doc.features if not hasattr(f, 'entities') and f.get('type') == 'sheet_cut')
+    sk = s.doc.sketch(tg['sketch'])
+    cerchi = [k for k, e in sk.entities.items() if e['kind'] == 'circle' and not e.get('ref')]
+    assert s.togli_dal_taglio(tg['sketch'], cerchi[:1])['ok']
+    assert s.togli_dal_taglio(tg['sketch'], cerchi[1:2])['ok']
+    r = s.togli_dal_taglio(tg['sketch'], cerchi[2:])
+    assert not r['ok'] and r['code'] == 'ultimo' and r['feature'] == tg['id']

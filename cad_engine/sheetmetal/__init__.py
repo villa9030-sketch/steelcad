@@ -1701,6 +1701,14 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
         # disegnato sullo sviluppo: ogni contorno va riportato sulla faccia dove cade, nel pezzo piegato
         if piano['flat'] != data.feature:
             raise FeatureError('Questo sketch sta sullo sviluppo di un’altra lamiera.', feature=fid)
+        if getattr(data, 'pannelli', None) and not data.flanges:
+            # forma a facce (tramoggia, cassone, profilo, STEP): ogni contorno va sulla faccia in cui cade (28/10)
+            if fdef.get('mode') == 'add':
+                raise FeatureError('Su questa forma il materiale si aggiunge disegnando sulla faccia del pezzo, non '
+                                   'sullo sviluppo.', feature=fid)
+            lavori = [_pannello_dallo_sviluppo(f, body, data, fid) for f in prof.faces]
+            nuovo = _taglio_semplice(fdef, body, data, lavori, t, fid)
+            return _countersinks(nuovo, ss, prof, [(None, d, None) for _, d, _ in lavori], t, fid)
         if fdef.get('mode') != 'add':
             return _cut_from_flat(fdef, body, data, prof.faces, t)
         # materiale aggiunto sullo sviluppo: va col tratto piano a cui si attacca (la base o una flangia)
@@ -1717,11 +1725,11 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
         pannelli = getattr(data, 'pannelli', None) or {}
         if nome in pannelli:
             # profilo estruso in lamiera: il tratto ha la sua mappa pezzo → sviluppo
-            if fdef.get('mode') == 'add':
-                raise FeatureError('Su un profilo estruso in lamiera si tolgono fori e tagli; il materiale non si '
-                                   'aggiunge.', feature=fid)
             src, dst, dentro = pannelli[nome]
             lavori = [(f, dentro, f.moved(dst.location * src.location.inverse())) for f in prof.faces]
+            if fdef.get('mode') == 'add':                  # linguetta sulla faccia di una tramoggia, un cassone… (28/10)
+                ritorni = [src.location * dst.location.inverse()] * len(lavori)
+                return _add_tab(fdef, body, data, _fuori_dallo_sviluppo(lavori, ritorni, data), t)
             nuovo = _taglio_semplice(fdef, body, data, lavori, t, fid)
             return _countersinks(nuovo, ss, prof, [(None, dentro, None)] * len(prof.faces), t, fid)
         piani = _face_planes(parti, data, fid)
@@ -1829,6 +1837,10 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     for f3, dentro, _ in lavori:
         s = bd.extrude(f3.moved(bd.Location(-dentro * 0.01)), amount=t + 0.02, dir=tuple(dentro))
         attrezzo = s if attrezzo is None else attrezzo + s
+    from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as TopTools_IndexedMapOfShape
+    gia_senza = TopTools_IndexedMapOfShape()          # le forme a facce hanno facce senza nome (pieghe, coste): non sono pareti
+    for f in body.senza_nome():
+        gia_senza.Add(f)
     op = BRepAlgoAPI_Cut(body.shape, attrezzo.wrapped)
     if not op.IsDone():
         raise FeatureError('Il kernel non è riuscito a fare il taglio.', feature=fid)
@@ -1838,7 +1850,8 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     if tolto < 1e-6:
         raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
     for f in nuovo.senza_nome():
-        nuovo.names.setdefault(f'{fid}/parete', []).append(f)
+        if not gia_senza.Contains(f):
+            nuovo.names.setdefault(f'{fid}/parete', []).append(f)
     # sviluppo: lo stesso contorno, in piano
     flat = data.flat
     prima = data.flat.faces() if not isinstance(data.flat, bd.Face) else [data.flat]
@@ -1862,6 +1875,33 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     nuovo.sheet = _copia_dati(data, dataclasses.replace(data, flat=nuovo_flat, flat_area=area,
                                                         flat_size=flat_size(nuovo_flat, data.plane) if len(facce) == 1 else data.flat_size))
     return nuovo
+
+
+def _pannello_dallo_sviluppo(f, body, data, fid):
+    """Forma a facce: il contorno disegnato sullo sviluppo cade in una faccia del pezzo (la sua sagoma portata in
+    piano). Torna (contorno sul pezzo, verso dentro il materiale, contorno nello sviluppo) come per _taglio_semplice."""
+    pannelli = data.pannelli
+    sagome = []
+    for nome, (src, dst, dentro) in pannelli.items():
+        if nome.endswith('/dentro') and nome[:-len('dentro')] + 'fuori' in pannelli:
+            continue                                  # la stessa faccia vista da fuori basta
+        loc = dst.location * src.location.inverse()
+        for fw in body.names.get(nome, []):
+            try:
+                sagome.append((bd.Face(bd.Face(fw).outer_wire().moved(loc)), nome))
+            except Exception:  # noqa: BLE001
+                continue
+    c = f.center()
+    pts = [c] + [p for e in f.edges() for p in e.positions([0, 0.5])]
+    for sag, nome in sagome:
+        bb = sag.bounding_box()
+        if not (bb.min.X - TOL <= c.X <= bb.max.X + TOL and bb.min.Y - TOL <= c.Y <= bb.max.Y + TOL):
+            continue
+        if sag.is_inside(c) or sum(sag.is_inside(p) for p in pts) > len(pts) // 2:
+            src, dst, dentro = pannelli[nome]
+            return f.moved(src.location * dst.location.inverse()), dentro, f
+    raise FeatureError('Il contorno disegnato non cade su una faccia dello sviluppo: spostalo dentro un pezzo.',
+                       feature=fid)
 
 
 def _sotto_la_piega_in_punta(f, src, g, data):
@@ -1933,16 +1973,23 @@ def _add_tab(fdef, body, data, lavori, t):
         nuovo.names.setdefault(f'{fid}/linguetta', []).append(f)
     nuovo = _unisci_facce(nuovo)                # la linguetta e la faccia su cui è disegnata diventano una faccia sola
     flat = data.flat
+    prima = data.flat.faces() if not isinstance(data.flat, bd.Face) else [data.flat]
     for _, _, f2 in lavori:
         flat = flat.fuse(_orienta(f2, data.plane))         # girata come lo sviluppo, se no non si fonde
     flat = flat.clean() if hasattr(flat, 'clean') else flat
     facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
-    if len(facce) != 1:
+    if len(facce) != len(prima):                          # una tramoggia ha lo sviluppo in più pezzi: restano quelli
         raise FeatureError('Nello sviluppo la linguetta resta staccata o si sovrappone ad altro.', feature=fid)
-    if abs((facce[0].area - data.flat.area) * t - messo) > 1e-6 * max(messo, 1) + 1e-3:
+    area = sum(f.area for f in facce)
+    # le forme a facce hanno lo spessore giusto a meno di qualche centesimo negli angoli (vedi _taglio_semplice)
+    rel = 0.05 if (getattr(data, 'shape_info', None) or {}).get('kind') == 'sezioni' else 1e-6
+    if abs((area - sum(f.area for f in prima)) * t - messo) > rel * max(messo, 1) + 1e-3:
         raise FeatureError('La linguetta tocca un’altra parte del pezzo o una piega: nello sviluppo non tornerebbe. '
                            'Tienila nel piano della faccia, lontana dalle altre pareti.', feature=fid)
-    nuovo.sheet = dataclasses.replace(data, flat=facce[0], flat_area=facce[0].area, flat_size=flat_size(facce[0], data.plane))
+    nuovo_flat = facce[0] if len(facce) == 1 else bd.Compound(children=facce)
+    nuovo.sheet = _copia_dati(data, dataclasses.replace(
+        data, flat=nuovo_flat, flat_area=area,
+        flat_size=flat_size(nuovo_flat, data.plane) if len(facce) == 1 else data.flat_size))
     return nuovo
 
 
@@ -2321,6 +2368,20 @@ def _dentro_contorno_2d(filo, piano, margine=0.05):
         xi = A[:, 0] + (y - A[:, 1]) * d[:, 0] / np.where(d[:, 1] == 0, 1e-300, d[:, 1])
         dentro = (attr & (x < xi)).sum(1) % 2 == 1
         return [None if v < soglia else bool(k) for v, k in zip(vic, dentro)]
+
+    def scatola_dentro(bb) -> bool:
+        """28/10: la scatola (3D) di un contorno sta tutta dentro il poligono? I suoi angoli dentro (lontani dal bordo)
+        e nessun vertice del poligono dentro la scatola: allora niente lato del poligono la attraversa."""
+        C = np.array([(x, y, z) for x in (bb.min.X, bb.max.X) for y in (bb.min.Y, bb.max.Y) for z in (bb.min.Z, bb.max.Z)])
+        Q = (C - O3) @ M
+        x0, y0 = Q.min(0) - soglia
+        x1, y1 = Q.max(0) + soglia
+        V = A
+        if ((V[:, 0] >= x0) & (V[:, 0] <= x1) & (V[:, 1] >= y0) & (V[:, 1] <= y1)).any():
+            return False
+        angoli = [bd.Vector(*(O3 + M @ np.array(q))) for q in ((x0, y0), (x1, y0), (x0, y1), (x1, y1))]
+        return all(k is True for k in esito(angoli))
+    esito.scatola_dentro = scatola_dentro
     return esito
 
 
@@ -2353,6 +2414,8 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     def tutto_dentro(x, bx):
         if any(sovrappone(bx, b) for b in buchi):
             return False
+        if dentro_2d.scatola_dentro(bx):        # 28/10: il caso di quasi tutti i fori, senza punti sui lati
+            return True
         es = x.edges()
         if len(es) > 8:                        # un contorno a tanti lati (lettere, poligoni): bastano i suoi vertici, una ventina
             vs = [bd.Vector(v) for v in x.vertices()]

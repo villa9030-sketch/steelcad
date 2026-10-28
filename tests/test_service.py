@@ -868,7 +868,7 @@ def test_fori_svasati_filettati_e_per_inserti():
     cono = math.pi * 0.8 / 3 * (16 + 12.8 + 3.2 ** 2) - math.pi * 3.2 ** 2 * 0.8
     assert tolto == pytest.approx(fori + 2 * cono, rel=1e-4)
     assert len([f for f in bd.Shape.cast(s.result.body.shape).faces() if f.geom_type == bd.GeomType.CONE]) == 2
-    voce = next(n['label'] for n in s.state()['tree']['children'][0]['children'] if n['label'].startswith('Taglio'))
+    voce = next(n['label'] for n in s.state()['tree']['children'][0]['children'] if n['kind'] == 'sheet_cut')
     assert '2 × M6' in voce and 'svasati Ø8' in voce and 'XYZ-M4' in voce
     # svasatura più profonda dello spessore (21/10): il pezzo non si blocca, il foro si fa dritto, la svasatura resta
     # in rosso con l'avviso

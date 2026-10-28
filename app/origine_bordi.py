@@ -149,7 +149,18 @@ def trova(svc, sid: str, eids: list) -> dict:
     fatto = svc.doc._sketch_results.get(src)
     prof = fatto[1] if fatto else None
     eid_src, contorni = [], set()
-    if prof is not None and prof.faces:
+    sk_src = svc.doc.sketch(src)
+    sviluppo = isinstance(sk_src.plane, dict) and bool(sk_src.plane.get('flat'))
+    if prof is not None and prof.faces and sviluppo:
+        # disegnato sullo sviluppo (28/10): ogni contorno portato al suo posto sul pezzo piegato, poi come sopra
+        sul_pezzo = _contorni_sul_pezzo(svc, prof)
+        for p, f in da_taglio:
+            if f != fid:
+                continue
+            k = _contorno_sul_pezzo(sul_pezzo, p)
+            if k is not None:
+                contorni.add(k)
+    elif prof is not None and prof.faces:
         n, o = prof.plane.z_dir, prof.plane.origin
         for p, f in da_taglio:
             if f != fid:
@@ -158,15 +169,75 @@ def trova(svc, sid: str, eids: list) -> dict:
             k = _contorno_di(prof, q)
             if k is not None:
                 contorni.add(k)
-        for k in sorted(contorni):
-            for e in prof.faces[k].edges():
-                ent = prof.entity_of(e)
-                if ent and ent not in eid_src:
-                    eid_src.append(ent)
+    for k in sorted(contorni):
+        for e in prof.faces[k].edges():
+            ent = prof.entity_of(e)
+            if ent and ent not in eid_src:
+                eid_src.append(ent)
     return {'feature': fid, 'nome': svc._etichetta(fid), 'sketch': src, 'fori': len(contorni),
             'altri': sum(conta.values()) - conta[fid],          # bordi scelti che vengono da altri tagli
             'totale': len(prof.faces) if prof is not None else 0, 'eids': eid_src,
             'tutti': prof is not None and len(contorni) == len(prof.faces)}
+
+
+def _contorni_sul_pezzo(svc, prof) -> list:
+    """Per ogni contorno di un disegno sullo sviluppo: la sua faccia sul pezzo piegato (None se passa una piega o non
+    si sa). Si ricorda sul risultato del disegno: con tanti fori si fa una volta."""
+    from cad_engine.errors import FeatureError
+    from cad_engine.sheetmetal import _from_flat, _pannello_dallo_sviluppo
+    body = svc.result.body
+    memo = prof.__dict__.get('_sul_pezzo')
+    if memo is not None and memo[0] is body.shape:
+        return memo[1]
+    data = body.sheet
+    # le zone delle flange nello sviluppo (piega + tratto dritto): un contorno lontano da tutte sta sulla base, e la
+    # base nello sviluppo è al suo posto (niente conti: con 260 fori erano 3 s)
+    zone = []
+    for g in data.flanges or []:
+        us = [g.u0, g.u1] + [x for ab in g.tab_ranges for x in ab]
+        ss = [g.off, g.off + g.bend.ba + g.lf]
+        pts = [g.F0 + g.fx * u + g.fn * s_ for u in (min(us), max(us)) for s_ in ss]
+        zone.append((min(q.X for q in pts) - 1, max(q.X for q in pts) + 1, min(q.Y for q in pts) - 1, max(q.Y for q in pts) + 1))
+    out = []
+    for f in prof.faces:
+        bf = f.bounding_box()
+        if not getattr(data, 'pannelli', None) and not any(
+                bf.min.X <= z[1] and bf.max.X >= z[0] and bf.min.Y <= z[3] and bf.max.Y >= z[2] for z in zone):
+            out.append((f, bf, data.plane.z_dir))
+            continue
+        try:
+            if getattr(data, 'pannelli', None) and not data.flanges:
+                f3 = _pannello_dallo_sviluppo(f, body, data, data.feature)[0]
+            else:
+                f3 = _from_flat(f, data, data.feature)[0]
+            out.append((f3, f3.bounding_box(), f3.normal_at(f3.center())))
+        except (FeatureError, Exception):  # noqa: BLE001
+            out.append(None)
+    prof.__dict__['_sul_pezzo'] = (body.shape, out)
+    return out
+
+
+def _contorno_sul_pezzo(sul_pezzo, p) -> int | None:
+    """Il contorno (portato sul pezzo) che passa per p, guardando dentro lo spessore: p sta su una faccia, il contorno
+    sull'altra o su quella."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.gp import gp_Pnt
+    for k, x in enumerate(sul_pezzo):
+        if x is None:
+            continue
+        f3, bb, n = x
+        o = f3.center()
+        q = p - n * (p - o).dot(n)
+        if not (bb.min.X - 0.1 <= q.X <= bb.max.X + 0.1 and bb.min.Y - 0.1 <= q.Y <= bb.max.Y + 0.1
+                and bb.min.Z - 0.1 <= q.Z <= bb.max.Z + 0.1):
+            continue
+        v = BRepBuilderAPI_MakeVertex(gp_Pnt(q.X, q.Y, q.Z)).Vertex()
+        for w in f3.wires():
+            d = BRepExtrema_DistShapeShape(v, w.wrapped)
+            if d.IsDone() and d.Value() < TOLL:
+                return k
+    return None
 
 
 def _contorno_di(prof, q) -> int | None:

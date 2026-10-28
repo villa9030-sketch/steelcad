@@ -91,28 +91,68 @@ def _feature_label(doc, f, fr) -> str:
                 except Exception:  # noqa: BLE001
                     testi = []
                 return f'{nome or "Marcatura"} laser: ' + (', '.join(f'«{t}»' for t in testi[:3]) or 'testi') +                     (' …' if len(testi) > 3 else '')
-            extra = []
             try:
-                sk = doc.sketch(f['sketch'])
-                fil, sva = {}, {}
-                for e in sk.entities.values():
-                    h = e.get('hole') if e['kind'] == 'circle' and not e.get('construction') else None
-                    if h and h.get('tipo') == 'filettato':
-                        fil[h['M']] = fil.get(h['M'], 0) + 1
-                    elif h and h.get('tipo') == 'svasato':
-                        k = f'Ø{fmt_mm(h["D"])}'
-                        sva[k] = sva.get(k, 0) + 1
-                    elif h and h.get('tipo') == 'inserto':
-                        k = f'inserti {h["codice"]}'
-                        sva[k] = sva.get(k, 0) + 1
-                extra = [f'{n} × {m}' for m, n in fil.items()] + [f'{n} × {"" if k.startswith("inserti") else "svasati "}{k}'
-                                                                  for k, n in sva.items()]
+                return _cosa_taglia(doc.sketch(f['sketch']), nome)
             except (SteelCADError, KeyError):
-                pass
-            return f'{nome or "Taglio"} attraverso la lamiera' + (f' ({", ".join(extra)})' if extra else '')
+                return f'{nome or "Taglio"} attraverso la lamiera'
+
     except (KeyError, ValueError):
         pass
     return nome or f['id']
+
+
+def _cosa_taglia(sk, nome) -> str:
+    """Il nome di un taglio da quello che c'è nel disegno (28/10: tutti si chiamavano «Taglio attraverso la
+    lamiera»): «Fori 3 × Ø10», «Fori 2 × M6, 2 × svasati Ø8», «Taglio sagomato», «Fori 4 × Ø8 e 2 tagli sagomati»."""
+    fori = {}
+    for e in sk.entities.values():
+        if e['kind'] != 'circle' or e.get('construction') or e.get('ref'):
+            continue
+        h = e.get('hole') or {}
+        if h.get('tipo') == 'filettato':
+            k = h['M']
+        elif h.get('tipo') == 'svasato':
+            k = f'svasati Ø{fmt_mm(h["D"])}' if h.get('D') else f'svasati Ø{fmt_mm(round(2 * e["r"], 2))}'
+        elif h.get('tipo') == 'inserto':
+            k = f'inserti {h.get("codice") or ""}'.strip()
+        else:
+            k = f'Ø{fmt_mm(round(2 * e["r"], 2))}'
+        fori[k] = fori.get(k, 0) + 1
+    # i contorni fatti di linee e archi: gruppi di elementi attaccati per i punti
+    segni = [e for e in sk.entities.values() if e['kind'] in ('line', 'arc') and not e.get('construction') and not e.get('ref')]
+    padre: dict = {}
+
+    def radice(x):
+        while padre.get(x, x) != x:
+            x = padre[x]
+        return x
+    for e in segni:
+        pts = [e[k] for k in ('a', 'b', 'start', 'end') if k in e]
+        for q in pts[1:]:
+            padre[radice(q)] = radice(pts[0])
+    gruppi: dict = {}
+    for e in segni:
+        g = gruppi.setdefault(radice(next(e[k] for k in ('a', 'start') if k in e)), [0, 0])
+        g[0 if e['kind'] == 'line' else 1] += 1
+    tipi = {'asola': 0, 'rettangolo': 0, 'sagoma': 0}
+    for linee, archi in gruppi.values():
+        tipi['asola' if (linee, archi) == (2, 2) else 'rettangolo' if (linee, archi) == (4, 0) else 'sagoma'] += 1
+    parti = [f'{n} × {k}' if n > 1 else k.replace('svasati', 'svasato') for k, n in sorted(fori.items(), key=lambda x: -x[1])]
+    pezzi = []
+    if parti:
+        pezzi.append(('Foro ' if sum(fori.values()) == 1 else 'Fori ') + ', '.join(parti))
+    for k, uno, tanti in (('asola', 'asola', 'asole'), ('rettangolo', 'finestra', 'finestre'),
+                          ('sagoma', 'taglio sagomato', 'tagli sagomati')):
+        n = tipi[k]
+        if n:
+            pezzi.append(uno if n == 1 else f'{n} {tanti}')
+    testo = ' e '.join([', '.join(pezzi[:-1]), pezzi[-1]] if len(pezzi) > 1 else pezzi) if pezzi else ''
+    testo = testo[0].upper() + testo[1:] if testo else 'Taglio attraverso la lamiera'
+    if nome and nome not in ('Taglio', 'Fori', 'Asole', 'Finestre', 'Togli materiale'):
+        testo = f'{nome}: {testo[0].lower() + testo[1:]}'          # un nome dato da te resta davanti
+    if isinstance(sk.plane, dict) and sk.plane.get('flat'):
+        testo += ' (sullo sviluppo)'
+    return testo
 
 
 def project_tree(doc, result) -> dict:

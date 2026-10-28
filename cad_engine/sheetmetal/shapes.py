@@ -203,10 +203,13 @@ def _faccia_piana(pts):
     return BRepBuilderAPI_MakeFace(poli.Wire(), True).Face()
 
 
-def _solido(S: Facce, t: float):
+def _solido(S: Facce, t: float, piani: list | None = None):
     """Il solido costruito direttamente: le facce in asse spostate di ±t/2 (pelle esterna e interna) più le
     fasce sui bordi, cucite in un guscio chiuso. Ispessire faccia per faccia e fondere tutto (build123d) era
-    lento (secondi su un raccordo) e lasciava centinaia di facce spezzate."""
+    lento (secondi su un raccordo) e lasciava centinaia di facce spezzate.
+    piani: per ogni faccia (normale, n·x) del suo piano in asse esatto; dove si incontrano più di tre facce (gli
+    angoli del cambio di pendenza di una tramoggia) ogni faccia ha il suo punto d'angolo su quel piano: senza, la
+    parete veniva storta e sottile (2,84 su 3) e i fori lì vicino erano rifiutati (28/10)."""
     import numpy as np
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
     from OCP.BRepLib import BRepLib
@@ -223,10 +226,14 @@ def _solido(S: Facce, t: float):
     S = Facce([], [[idx[i] for i in f] for f in S.facce])
     normali = []
     vicine = [[] for _ in P]                               # normali delle facce attorno a ogni punto
-    for f in S.facce:
-        a, b, c = (P[i] for i in f[:3])
-        n = np.cross(b - a, c - a)
-        n /= np.linalg.norm(n)
+    for k, f in enumerate(S.facce):
+        if piani is not None:
+            n = np.array(piani[k][0], dtype=float)
+            n /= np.linalg.norm(n)
+        else:
+            a, b, c = (P[i] for i in f[:3])
+            n = np.cross(b - a, c - a)
+            n /= np.linalg.norm(n)
         normali.append(n)
         for i in f:
             vicine[i].append(n)
@@ -240,7 +247,7 @@ def _solido(S: Facce, t: float):
     # punto solo non può stare a t/2 da tutte (o l'angolo sporge, o le facce si assottigliano: −5% di peso). Come
     # nella lamiera vera, ogni faccia ha il suo punto d'angolo a t/2, e tra una faccia e l'altra c'è un raccordo
     # piccolo; il taglio del bordo, lì, è un ventaglio di triangoli attorno al punto in asse.
-    ventaglio = {i for i, ns in enumerate(vicine) if len(ns) > 3 and i in sul_bordo}
+    ventaglio = {i for i, ns in enumerate(vicine) if len(ns) > 3 and (i in sul_bordo or piani is not None)}
     off = np.zeros_like(P)
     for i, ns in enumerate(vicine):
         if not ns or i in ventaglio:
@@ -253,11 +260,17 @@ def _solido(S: Facce, t: float):
             m /= np.linalg.norm(m)
             off[i] = m * (t / 2) / max(0.5, float(np.mean(N @ m)))
 
+    def base(k, i):                                        # il punto d'angolo della faccia k, sul suo piano in asse
+        if piani is None or i not in ventaglio:
+            return P[i]
+        n = normali[k]
+        return P[i] - n * (float(n @ P[i]) - piani[k][1])
+
     def fuori(k, i):
-        return P[i] + (normali[k] * (t / 2) if i in ventaglio else off[i])
+        return base(k, i) + normali[k] * (t / 2) if i in ventaglio else P[i] + off[i]
 
     def dentro(k, i):
-        return P[i] - (normali[k] * (t / 2) if i in ventaglio else off[i])
+        return base(k, i) - normali[k] * (t / 2) if i in ventaglio else P[i] - off[i]
 
     def poligoni(pts):
         """Un poligono, o i suoi triangoli se i punti spostati non stanno più in un piano; niente se è nullo."""
@@ -296,6 +309,25 @@ def _solido(S: Facce, t: float):
             if c in ventaglio:
                 facce += poligoni([P[c], fuori(k, c), fuori(g, c)])
                 facce += poligoni([P[c], dentro(g, c), dentro(k, c)])
+    # angoli in mezzo alla superficie (più di tre facce, nessun bordo libero): il tappo sulle due pelli, con i punti
+    # d'angolo delle facce in giro
+    for c in ventaglio - sul_bordo:
+        attorno = [k for k, f in enumerate(S.facce) if c in f]
+        dopo = {}
+        for k in attorno:
+            f = S.facce[k]
+            j = f.index(c)
+            dopo[k] = (f[j - 1], f[(j + 1) % len(f)])          # (prima, dopo) attorno a c nella faccia k
+        giro, k = [], attorno[0]
+        while k not in giro:
+            giro.append(k)
+            nxt = dopo[k][1]
+            k = next((g for g in attorno if g != k and dopo[g][0] == nxt), None)
+            if k is None:
+                break
+        if len(giro) == len(attorno):
+            facce += poligoni([fuori(k, c) for k in giro][::-1])
+            facce += poligoni([dentro(k, c) for k in giro])
     cuci = BRepBuilderAPI_Sewing(1e-4)
     for pts in facce:
         cuci.Add(_faccia_piana(pts))
