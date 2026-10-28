@@ -325,49 +325,112 @@ def _cornice(f: Foglio, campi: dict):
         return _cornice_(f, campi)
 
 
+def _tipo_documento(campi: dict) -> str:
+    t = str(campi.get('titolo') or '').lower()
+    for chiave, tipo in (('sviluppo', 'SVILUPPO'), ('esploso', 'ESPLOSO'), ('sezione', 'SEZIONE'),
+                         ('distinta di taglio', 'DISTINTA DI TAGLIO')):
+        if '— ' + chiave in t:
+            return tipo
+    return str(campi.get('tipo_doc') or 'DISEGNO DI PARTICOLARE')
+
+
 def _cornice_(f: Foglio, campi: dict):
-    """La cornice e il cartiglio in basso a destra, 180 mm di larghezza: righe da tre caselle con i campi da mostrare,
-    sopra il titolo e l'azienda (col logo, se c'è). campi['mostra']: i campi da vedere (23/10: si scelgono nella tavola)."""
+    """La cornice e il cartiglio in basso a destra (29/10, come il modello ISO che ha scelto Stefano), 180 mm:
+    in alto la tabella delle revisioni (Rev., Data, Descrizione, Da); sotto, a sinistra azienda, titolo, n. disegno e
+    revisione, disegnato e approvato, proiezione e «quote in mm»; a destra logo, scala, data, materiale, foglio di,
+    tipo di documento. Cliente e commessa (se scritti) sotto il titolo, tolleranze con la nota sulle quote, trattamento
+    col materiale."""
     W, H = f.size
     with f.oggetto('cornice'):
         f.line('cornice', (20, 10), (W - 10, 10), (W - 10, H - 10), (20, H - 10), (20, 10))
     L = 'cartiglio'
-    valori = {**campi, 'proiezione': 'europea (ISO E)'}
     f.scala = float(campi.get('_s') or 0)
-    mostra = campi.get('mostra')
-    if mostra is None:
-        mostra = [k for k, _ in CAMPI_CARTIGLIO if k not in NUOVI_CARTIGLIO or str(campi.get(k) or '').strip()]
-    celle = [(k, et) for k, et in CAMPI_CARTIGLIO if k in mostra]
-    righe = [celle[i:i + 3] for i in range(0, len(celle), 3)]
-    logo = campi.get('logo')
-    alto_az = 18 if logo else 10
     x0, x1, y0 = W - 190, W - 10, 10
-    y1 = y0 + 10 * len(righe) + 10 + alto_az
-    f.line(L, (x0, y0), (x0, y1), (x1, y1))
-    y = y0
-    for riga in righe:
-        f.line(L, (x0, y + 10), (x1, y + 10))
-        w = 180 / len(riga)
-        for i, (k, et) in enumerate(riga):
-            x = x0 + i * w
-            if i:
-                f.line(L, (x, y), (x, y + 10))
-            f.text(L, (x + 1.5, y + 7.2), et, 1.8)
-            if k == 'scala':
+    xr = x0 + 124.8                                    # la colonna di destra (logo, scala, data…)
+    r_ = 7.5                                           # altezza di una riga
+    # dal basso: proiezione | tipo · disegnato, approvato | foglio, di · n. disegno, rev. | data, materiale
+    # · azienda, titolo | logo, scala · tabella revisioni
+    y_pr, y_dis, y_num = y0, y0 + r_, y0 + 2 * r_
+    y_az = y_num + 2 * r_
+    y_rev = y_az + 3 * r_
+    hr = 5.6
+    y1 = y_rev + 4 * hr
+
+    def cella(x, y, w, h, etichetta, valore='', hv=2.6, scala=False):
+        f.text(L, (x + 1.2, y + h - 2.2), etichetta.upper(), 1.5)
+        if valore not in (None, ''):
+            if scala:
                 f.i_scala = len(f.testi)
-            f.text(L, (x + 1.5, y + 2), _taglia(str(valori.get(k, '') or ''), w, 2.8), 2.8)
-        y += 10
-    f.text(L, (x0 + 1.5, y + 7.2), 'Titolo', 1.8)
-    f.text(L, (x0 + 1.5, y + 2), _taglia(str(campi.get('titolo', '')), 180, 3.2), 3.2)
-    y += 10
-    f.line(L, (x0, y), (x1, y))
-    xa = x0
+            f.text(L, (x + 1.2, y + 1.3), _taglia(str(valore), w, hv), hv)
+    # i bordi
+    f.line(L, (x0, y0), (x0, y1), (x1, y1))
+    for y in (y_dis, y_num, y_az, y_rev):
+        f.line(L, (x0, y), (x1, y))
+    f.line(L, (xr, y0), (xr, y_rev))
+    # tabella revisioni
+    col = [x0, x0 + 24.9, x0 + 59.9, x0 + 154.8, x1]
+    for k in range(1, 4):
+        f.line(L, (x0, y_rev + k * hr), (x1, y_rev + k * hr))
+    for x in col[1:-1]:
+        f.line(L, (x, y_rev), (x, y1))
+    for x, t in zip(col, ('Rev.', 'Data', 'Descrizione', 'Da')):
+        f.text(L, (x + 1.2, y1 - hr + 1.8), t.upper(), 1.5)
+    revs = [r for r in (campi.get('revisioni') or []) if isinstance(r, dict) and any(str(v).strip() for v in r.values())][-3:]
+    for k, r in enumerate(reversed(revs)):             # la più nuova in alto
+        y = y1 - (k + 2) * hr
+        for (xa, xb), chiave in zip(zip(col, col[1:]), ('rev', 'data', 'descrizione', 'da')):
+            f.text(L, (xa + 1.2, y + 1.6), _taglia(str(r.get(chiave, '') or ''), xb - xa, 2.2), 2.2)
+    # azienda e titolo | logo e scala
+    f.line(L, (x0, y_az + 2 * r_), (xr, y_az + 2 * r_))
+    cella(x0, y_az + 2 * r_, xr - x0, r_, 'Azienda', campi.get('azienda', ''))
+    f.text(L, (x0 + 1.2, y_az + 2 * r_ - 2.2), 'TITOLO', 1.5)
+    f.text(L, (x0 + 1.2, y_az + 5.2), _taglia(str(campi.get('titolo', '')), xr - x0, 4.2), 4.2)
+    extra = ' · '.join(f'{et} {campi[k]}' for k, et in (('cliente', 'Cliente'), ('commessa', 'Commessa'))
+                       if str(campi.get(k) or '').strip())
+    if extra:
+        f.text(L, (x0 + 1.2, y_az + 1.3), _taglia(extra, xr - x0, 2.2), 2.2)
+    f.line(L, (xr, y_az + r_), (x1, y_az + r_))
+    f.text(L, (xr + 1.2, y_az + 3 * r_ - 2.2), 'LOGO', 1.5)
+    logo = campi.get('logo')
     if logo:
-        f.immagini.append((logo, x0 + 1.5, y + 1.5, 50, alto_az - 3))
-        f.line(L, (x0 + 53, y), (x0 + 53, y1))
-        xa = x0 + 53
-    f.text(L, (xa + 1.5, y + alto_az - 2.8), 'Azienda', 1.8)
-    f.text(L, (xa + 1.5, y + 2), _taglia(str(campi.get('azienda', '')), x1 - xa, 3.2), 3.2)
+        f.immagini.append((logo, xr + 4, y_az + r_ + 1.2, x1 - xr - 8, 2 * r_ - 4.6))
+    cella(xr, y_az, x1 - xr, r_, 'Scala', campi.get('scala', ''), scala=True)
+    # n. disegno e revisione | data e materiale
+    xrev = x0 + 94.9
+    f.line(L, (xrev, y_num), (xrev, y_az))
+    f.text(L, (x0 + 1.2, y_az - 2.2), 'N. DISEGNO', 1.5)
+    f.text(L, (x0 + 1.2, y_num + 3.5), _taglia(str(campi.get('numero', '') or ''), xrev - x0, 4.2), 4.2)
+    f.text(L, (xrev + 1.2, y_az - 2.2), 'REV.', 1.5)
+    f.text(L, (xrev + 1.2, y_num + 3.5), _taglia(str(campi.get('revisione', '') or ''), xr - xrev, 4.2), 4.2)
+    f.line(L, (xr, y_num + r_), (x1, y_num + r_))
+    cella(xr, y_num + r_, x1 - xr, r_, 'Data', campi.get('data', ''))
+    mat = ' · '.join(str(campi[k]) for k in ('materiale', 'spessore_massa', 'finitura') if str(campi.get(k) or '').strip())
+    cella(xr, y_num, x1 - xr, r_, 'Materiale', mat, hv=2.2)
+    # disegnato, approvato | foglio di
+    xapp = x0 + 64.9
+    f.line(L, (xapp, y_dis), (xapp, y_num))
+    cella(x0, y_dis, xapp - x0, r_, 'Disegnato', campi.get('disegnatore', ''))
+    cella(xapp, y_dis, xr - xapp, r_, 'Approvato', campi.get('approvato', ''))
+    fg = str(campi.get('foglio') or '').split('/')
+    xof = x0 + 154.8
+    f.line(L, (xof, y_dis), (xof, y_num))
+    cella(xr, y_dis, xof - xr, r_, 'Foglio', fg[0] if fg else '')
+    cella(xof, y_dis, x1 - xof, r_, 'Di', fg[1] if len(fg) > 1 else '')
+    # proiezione (europea, ISO E: il tronco di cono a sinistra, i cerchi a destra) | tipo di documento
+    xpr = x0 + 44.9
+    f.line(L, (xpr, y_pr), (xpr, y_dis))
+    f.text(L, (x0 + 1.2, y_pr + r_ - 2.2), 'PROIEZIONE', 1.5)
+    cy = y_pr + 2.6
+    f.line(L, (x0 + 22, cy - 1.2), (x0 + 22, cy + 1.2), (x0 + 28, cy + 2.2), (x0 + 28, cy - 2.2), (x0 + 22, cy - 1.2))
+    f.cerchi.append((L, (x0 + 36, cy), 2.2))
+    f.cerchi.append((L, (x0 + 36, cy), 1.2))
+    nota = 'QUOTE IN mm – NON SCALARE IL DISEGNO'
+    if str(campi.get('tolleranze') or '').strip():
+        f.text(L, (xpr + 1.2, y_pr + 4.4), _taglia(nota, xr - xpr, 1.8), 1.8)
+        f.text(L, (xpr + 1.2, y_pr + 1.3), _taglia('Tolleranze: ' + str(campi['tolleranze']), xr - xpr, 1.8), 1.8)
+    else:
+        f.text(L, (xpr + 1.2, y_pr + 2.8), _taglia(nota, xr - xpr, 2.0), 2.0)
+    cella(xr, y_pr, x1 - xr, r_, 'Tipo documento', _tipo_documento(campi), hv=2.4)
     if campi.get('note'):
         with f.oggetto('note_cartiglio'):
             f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5), 2.5)   # non sotto il cartiglio
@@ -1816,7 +1879,7 @@ def to_svg(f: Foglio) -> str:
     chiudi_tracciato()
     if corrente:
         out.append('</g>')
-    gruppi(f.cerchi, lambda x: f'<circle class="{classe["quote"]}" cx="{x[1][0]:.2f}" cy="{Y(x[1][1]):.2f}" r="{x[2]:.2f}"/>')
+    gruppi(f.cerchi, lambda x: f'<circle class="{classe.get(x[0], classe["quote"])}" cx="{x[1][0]:.2f}" cy="{Y(x[1][1]):.2f}" r="{x[2]:.2f}"/>')
     out.append('</g>')
     gruppi(f.pieni, lambda x: f'<polygon class="tq" points="{pts_(x[1])}"/>')
 

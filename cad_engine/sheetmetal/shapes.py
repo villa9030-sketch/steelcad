@@ -523,7 +523,7 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
     if kind == 'profilo' and pannelli:
         ns.names, data.pannelli = _nomi_profilo(fid, shape, piano_profilo, pannelli, verso_L, t)
     if kind == 'sezioni' and mappe:
-        ns.names, data.pannelli = _nomi_sezioni(fid, shape, mappe, t, rif)
+        ns.names, data.pannelli, data.sagome = _nomi_sezioni(fid, shape, mappe, t, rif)
     ns.sheet = data
     return ns
 
@@ -533,16 +533,19 @@ def _nomi_sezioni(fid, shape, mappe, t, rif):
     pezzo e nello sviluppo, così si disegna sulla faccia e il contorno va al suo posto nel DXF (22/10). Le facce del
     solido fuse insieme (i bordi complanari) restano senza nome: non si sa in quale pezzo dello sviluppo vanno."""
     from ..topology.naming import _faces_of
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.gp import gp_Pnt
     off_est = {'esterno': 0.0, 'interno': t, 'asse': t / 2}.get(rif, 0.0)
     facce = [bd.Face(f) for f in _faces_of(shape)]
-    nomi, mappa = {}, {}
+    nomi, mappa, sagome = {}, {}, {}
     for f in facce:
         try:
             c = f.center()
             nf = f.normal_at(c)
         except Exception:  # noqa: BLE001
             continue
-        trovate = []
+        trovate, sul_piano = [], []
         for m in mappe:
             n = bd.Vector(*m['normale'])
             d = nf.dot(n)
@@ -557,30 +560,52 @@ def _nomi_sezioni(fid, shape, mappe, t, rif):
             v = n.cross(u)
             poly = [((bd.Vector(*q) - P0).dot(u), (bd.Vector(*q) - P0).dot(v)) for q in m['poly3']]
             x, y = (c - P0).dot(u), (c - P0).dot(v)
+            voce = (m, lato, n, c, nf * (1 if d > 0 else -1))
+            sul_piano.append(voce)
             if _dentro_poligono(x, y, poly):
-                trovate.append((m, lato, n, c, nf * (1 if d > 0 else -1)))
+                trovate.append(voce)
         if len(trovate) != 1:
-            continue
-        m, lato, n, c, nv = trovate[0]
-        nome = f"{fid}/{m['nome'].replace(' ', '_')}/{lato}"
-        nomi.setdefault(nome, []).append(f.wrapped)
-        if nome in mappa:
-            continue
-        # il piano della faccia vera del solido (nasce dalla superficie media: può essere spostata o girata di
-        # pochissimo rispetto alla faccia teorica). Se no il contorno arriva nello sviluppo fuori piano e non taglia
-        P0, P1, P2 = (bd.Vector(*q) for q in m['pts3'])
-        P0, P1, P2 = (q + nv * (c - q).dot(nv) for q in (P0, P1, P2))
-        u = (P1 - P0) - nv * (P1 - P0).dot(nv)
-        u = u.normalized()
-        sorg = bd.Plane(origin=P0, x_dir=u, z_dir=nv)
-        q0, q1, q2 = (bd.Vector(q[0], q[1], 0) for q in m['pts2'])
-        ux = (q1 - q0).normalized()
-        y3 = (P2 - P0).dot(nv.cross(u))
-        y2 = ux.cross(q2 - q0).Z
-        zf = (0, 0, 1) if (y3 > 0) == (y2 > 0) else (0, 0, -1)
-        dest = bd.Plane(origin=q0, x_dir=ux, z_dir=zf)
-        mappa[nome] = (sorg, dest, -n if lato == 'fuori' else n)
-    return nomi, mappa
+            # 29/10: più facce sullo stesso piano fuse in una sola dal solido (il bordo in alto con gli angoli a 45°
+            # è un anello unico): la faccia prende il nome di ognuno dei lati che stanno su di lei; il lato giusto per
+            # ogni foro si sceglie dopo, da dove cade (sagome)
+            trovate = []
+            for voce in sul_piano:
+                m, lato, n = voce[0], voce[1], voce[2]
+                off = off_est if lato == 'fuori' else off_est - t
+                pts = [bd.Vector(*q) - n * (off_est - off) for q in m['poly3']]
+                cm = sum(pts, bd.Vector()) / len(pts)
+                dd = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(gp_Pnt(cm.X, cm.Y, cm.Z)).Vertex(), f.wrapped)
+                if dd.IsDone() and dd.Value() < 0.3 * t + 0.05:
+                    trovate.append(voce)
+            if len(trovate) < 2:
+                continue
+        for m, lato, n, c, nv in trovate:
+            nome = f"{fid}/{m['nome'].replace(' ', '_')}/{lato}"
+            nomi.setdefault(nome, []).append(f.wrapped)
+            if nome in mappa:
+                continue
+            off = off_est if lato == 'fuori' else off_est - t
+            sagome[nome] = [tuple(bd.Vector(*q) - n * (off_est - off)) for q in m['poly3']]
+            _mappa_sezione(mappa, nome, m, lato, n, c, nv)
+    return nomi, mappa, sagome
+
+
+def _mappa_sezione(mappa, nome, m, lato, n, c, nv):
+    """Piano sul pezzo e piano nello sviluppo di un lato della forma."""
+    # il piano della faccia vera del solido (nasce dalla superficie media: può essere spostata o girata di
+    # pochissimo rispetto alla faccia teorica). Se no il contorno arriva nello sviluppo fuori piano e non taglia
+    P0, P1, P2 = (bd.Vector(*q) for q in m['pts3'])
+    P0, P1, P2 = (q + nv * (c - q).dot(nv) for q in (P0, P1, P2))
+    u = (P1 - P0) - nv * (P1 - P0).dot(nv)
+    u = u.normalized()
+    sorg = bd.Plane(origin=P0, x_dir=u, z_dir=nv)
+    q0, q1, q2 = (bd.Vector(q[0], q[1], 0) for q in m['pts2'])
+    ux = (q1 - q0).normalized()
+    y3 = (P2 - P0).dot(nv.cross(u))
+    y2 = ux.cross(q2 - q0).Z
+    zf = (0, 0, 1) if (y3 > 0) == (y2 > 0) else (0, 0, -1)
+    dest = bd.Plane(origin=q0, x_dir=ux, z_dir=zf)
+    mappa[nome] = (sorg, dest, -n if lato == 'fuori' else n)
 
 
 def _dentro_poligono(x, y, poly) -> bool:

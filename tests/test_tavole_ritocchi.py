@@ -74,8 +74,8 @@ def test_cartiglio_campi_e_logo(monkeypatch, tmp_path):
     campi = {**s.drawing_fields()['fields'], 'cliente': 'Officine Rossi', 'tolleranze': 'ISO 2768-m'}
     svg = _foglio(s, campi)['svg']
     assert 'Officine Rossi' in svg and 'ISO 2768-m' in svg                # i campi nuovi compaiono se scritti
-    nascosto = _foglio(s, {**campi, 'mostra': ['revisione', 'data']})['svg']
-    assert 'Officine Rossi' not in nascosto                              # e si possono togliere
+    vuoto = _foglio(s, {**campi, 'cliente': ''})['svg']
+    assert 'Officine Rossi' not in vuoto                                 # vuoto: non si vede
     assert s.set_logo(str(tmp_path / 'non-esiste.gif'))['ok'] is False
     Image.new('RGB', (200, 80), (200, 40, 40)).save(tmp_path / 'logo.png')
     r = s.set_logo(str(tmp_path / 'logo.png'))
@@ -202,3 +202,18 @@ def test_ritocchi_persi_si_dicono():
     p = _foglio(s)
     testi = ' | '.join(x['testo'] for x in p['persi'])
     assert '«perso»' in testi and 'vista da destra' in testi and '«XX»' not in testi
+
+
+def test_cartiglio_iso_revisioni_e_grandezza():
+    """29/10: il cartiglio del modello ISO scelto da Stefano (revisioni, approvato, foglio di, tipo di documento) e
+    la sua grandezza si cambia, fermo nell'angolo."""
+    s = _cassa()
+    campi = {**s.drawing_fields()['fields'], 'approvato': 'M. Rossi',
+             'revisioni': [{'rev': 'A', 'data': '20/10', 'descrizione': 'Prima emissione', 'da': 'SV'}]}
+    f = _foglio(s, campi)
+    for t in ('APPROVATO', 'M. Rossi', 'Prima emissione', 'DISEGNO DI PARTICOLARE', 'NON SCALARE', 'DESCRIZIONE'):
+        assert t in f['svg'], t
+    bb = next(o['bbox'] for o in f['oggetti'] if o['id'] == 'cartiglio')
+    g = s.tavola_ritocchi('pezzo', {'cartiglio': 0.5}, campi)['foglio']
+    bb2 = next(o['bbox'] for o in g['oggetti'] if o['id'] == 'cartiglio')
+    assert abs((bb2[2] - bb2[0]) - 0.5 * (bb[2] - bb[0])) < 0.5 and abs(bb2[2] - bb[2]) < 0.5 and abs(bb2[1] - bb[1]) < 0.5

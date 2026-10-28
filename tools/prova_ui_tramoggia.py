@@ -52,6 +52,22 @@ try:
         n_ref = pg.evaluate("window.__steelcad.sketch.v.lines.filter(l => l.ref).length")
         chk(f'sullo sviluppo si vedono i pezzi della tramoggia ({n_ref} linee arancio)', n_ref > 20)
         pg.screenshot(path=str(OUT / '3_sviluppo.png'))
+        # 29/10: il bordo in alto con gli angoli a 45° (un anello solo nel 3D): ci si disegna e si fora
+        api('new_project', 'tramoggia_cassone', dict(A=600, B=600, Hc=600, a=250, b=250, Ht=400, bordo=20, verso_bordo='dentro',
+                                                     flangia=50, verso_flangia='fuori', angoli_bordo='45', spessore=2, raggio=2,
+                                                     k=0.4, divisione='lati'))
+        pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5); pg.evaluate("window.__steelcad.hideHome()")
+        idx = pg.evaluate("(() => { const o = window.__steelcad.objs.get('body'); const f = o.data.faces.find(f => /^FM1\/bordo_[a-z]+\/fuori$/.test(f.name || '')); window.__nomeBordo = f && f.name; return f ? f.index : null; })()")
+        chk('l’anello del bordo ha un nome nel 3D', idx is not None)
+        pg.evaluate("i => window.__steelcad.select('body', i)", idx); time.sleep(1.2)
+        chk('cliccandolo: «Disegna su questa faccia»', pg.is_visible('[data-face-sketch]'))
+        pg.screenshot(path=str(OUT / '4_bordo.png'))
+        pg.click('[data-face-sketch]'); pg.wait_for_function('window.__steelcad.sketch', timeout=10000); time.sleep(0.8)
+        sid = pg.evaluate("window.__steelcad.sketch.sid")
+        bb = pg.evaluate("(() => { const v = window.__steelcad.sketch.v; const xs = v.points.map(p => p.xy[0]), ys = v.points.map(p => p.xy[1]); return [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]; })()")
+        print('  ingombro del disegno', bb)
+        r = api('fori_guidati', pg.evaluate('window.__nomeBordo'), {'tipo': 'tondo', 'd': 8, 'x': 300, 'y': 10})
+        chk('foro sul bordo: ' + str(r.get('message')), r.get('ok'))
         chk('nessun errore ' + str(err), not err)
         b.close()
 finally:

@@ -183,6 +183,7 @@ class SheetData:
     bend_rows: object = None                           # tabella pieghe delle forme (coni, raccordi…)
     shape_info: object = None
     pannelli: dict = field(default_factory=dict)       # faccia -> (piano sul pezzo, piano nello sviluppo, verso dentro)
+    sagome: dict = field(default_factory=dict)         # faccia -> il suo poligono 3D (forme a facce: per le facce fuse)
     fold_pos: dict = field(default_factory=dict)
     # le pieghe che non sono flange (sul fianco di una parete, su un bordo libero): in tabella con le altre (22/10)
     extra_bends: list = field(default_factory=list)
@@ -1725,13 +1726,15 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
         pannelli = getattr(data, 'pannelli', None) or {}
         if nome in pannelli:
             # profilo estruso in lamiera: il tratto ha la sua mappa pezzo → sviluppo
-            src, dst, dentro = pannelli[nome]
-            lavori = [(f, dentro, f.moved(dst.location * src.location.inverse())) for f in prof.faces]
+            lavori, ritorni = [], []
+            for f in prof.faces:
+                src, dst, dentro = pannelli[pannello_per(nome, f.center(), body, data)]
+                lavori.append((f, dentro, f.moved(dst.location * src.location.inverse())))
+                ritorni.append(src.location * dst.location.inverse())
             if fdef.get('mode') == 'add':                  # linguetta sulla faccia di una tramoggia, un cassone… (28/10)
-                ritorni = [src.location * dst.location.inverse()] * len(lavori)
                 return _add_tab(fdef, body, data, _fuori_dallo_sviluppo(lavori, ritorni, data), t)
             nuovo = _taglio_semplice(fdef, body, data, lavori, t, fid)
-            return _countersinks(nuovo, ss, prof, [(None, dentro, None)] * len(prof.faces), t, fid)
+            return _countersinks(nuovo, ss, prof, [(None, d, None) for _, d, _ in lavori], t, fid)
         piani = _face_planes(parti, data, fid)
         if fdef.get('mode') != 'add':
             # il contorno portato sullo sviluppo (stesse coordinate locali): così può anche uscire dalla faccia e
@@ -1785,7 +1788,8 @@ def _marca(fdef, body, data, ss, prof, fid):
         parti = nome.split('/')
         pannelli = getattr(data, 'pannelli', None) or {}
         if nome in pannelli:
-            src, dst = pannelli[nome][0], pannelli[nome][1]
+            cm = sum((p for t in tre_d for p in t), bd.Vector()) / max(1, sum(len(t) for t in tre_d))
+            src, dst = pannelli[pannello_per(nome, cm, body, data)][:2]
         else:
             src, dst, _dentro, _g = _face_planes(parti, data, fid)
         segni = []
@@ -1877,6 +1881,31 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     return nuovo
 
 
+def pannello_per(nome: str, p, body, data) -> str:
+    """La faccia che il solido ha fuso con altre sullo stesso piano (l'anello del bordo con gli angoli a 45°) ha più
+    nomi, uno per lato: il lato giusto per il punto p è quello del cui poligono p sta dentro (29/10)."""
+    sagome = getattr(data, 'sagome', None) or {}
+    facce = body.names.get(nome) or []
+    if not sagome or not facce:
+        return nome
+    fusi = [n for n, fs in body.names.items() if n in sagome and n.rsplit('/', 1)[-1] == nome.rsplit('/', 1)[-1]
+            and any(a.IsSame(b) for a in fs for b in facce)]
+    if len(fusi) < 2:
+        return nome
+    src = data.pannelli[nome][0]
+    q = src.to_local_coords(p)
+    for n in fusi:
+        poly = [src.to_local_coords(bd.Vector(*v)) for v in sagome[n]]
+        dentro = False
+        for i in range(len(poly)):
+            a, b = poly[i - 1], poly[i]
+            if (a.Y > q.Y) != (b.Y > q.Y) and q.X < a.X + (q.Y - a.Y) * (b.X - a.X) / (b.Y - a.Y):
+                dentro = not dentro
+        if dentro:
+            return n
+    return nome
+
+
 def _pannello_dallo_sviluppo(f, body, data, fid):
     """Forma a facce: il contorno disegnato sullo sviluppo cade in una faccia del pezzo (la sua sagoma portata in
     piano). Torna (contorno sul pezzo, verso dentro il materiale, contorno nello sviluppo) come per _taglio_semplice."""
@@ -1886,6 +1915,16 @@ def _pannello_dallo_sviluppo(f, body, data, fid):
         if nome.endswith('/dentro') and nome[:-len('dentro')] + 'fuori' in pannelli:
             continue                                  # la stessa faccia vista da fuori basta
         loc = dst.location * src.location.inverse()
+        poly = (getattr(data, 'sagome', None) or {}).get(nome)
+        if poly:                                          # il poligono del lato (la faccia può essere fusa con altri)
+            try:
+                # sul piano della faccia vera (il poligono è quello teorico: può stare fuori di qualche centesimo)
+                locali = [src.to_local_coords(bd.Vector(*v)) for v in poly]
+                piatti = [src.from_local_coords((q.X, q.Y, 0)) for q in locali]
+                sagome.append((bd.Face(bd.Wire.make_polygon(piatti, close=True)).moved(loc), nome))
+            except Exception:  # noqa: BLE001
+                pass
+            continue
         for fw in body.names.get(nome, []):
             try:
                 sagome.append((bd.Face(bd.Face(fw).outer_wire().moved(loc)), nome))

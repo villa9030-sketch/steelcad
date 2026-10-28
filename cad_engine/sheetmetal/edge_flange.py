@@ -109,7 +109,12 @@ def build_edge_flange(fdef: dict, ctx):
     facce = body.names.get(nome) or []
     if not facce:
         raise FeatureError('La faccia di questa piega non c’è più (una modifica l’ha tolta).', feature=fid)
-    src, dst, dentro = mappa_faccia(nome, data, fid)
+    if nome in (getattr(data, 'pannelli', None) or {}):
+        from . import pannello_per
+        nome_m = pannello_per(nome, (bd.Vector(*fdef['a']) + bd.Vector(*fdef['b'])) * 0.5, body, data)
+    else:
+        nome_m = nome
+    src, dst, dentro = mappa_faccia(nome_m, data, fid)
     dentro = bd.Vector(dentro).normalized()
     trovato = bordo_sulla_faccia(facce, bd.Vector(*fdef['a']), bd.Vector(*fdef['b']))
     if trovato is None:

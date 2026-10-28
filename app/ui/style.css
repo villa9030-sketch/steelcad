@@ -1080,3 +1080,10 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 /* 28/10: ritocchi delle tavole rimasti senza oggetto */
 #te-persi { border: 1px solid #b7791f; background: rgba(183, 121, 31, .12); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
 #te-persi h4 { margin: 0 0 4px; color: #f0b44c; font-size: 13px; }
+
+/* 29/10: revisioni del cartiglio nell'editor delle tavole */
+.te-rev { margin-top: 8px; }
+.te-rev-g { display: grid; grid-template-columns: 42px 80px 1fr 46px; gap: 3px; margin-top: 4px; }
+.te-rev-g b { font-size: 11px; font-weight: 500; color: var(--ink-3, #8a94a3); }
+.te-rev-g .field { min-width: 0; padding: 3px 5px; }
+#te-sel #ts-ck { width: 52px; text-align: right; }

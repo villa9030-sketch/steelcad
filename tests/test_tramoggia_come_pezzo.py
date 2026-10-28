@@ -138,3 +138,35 @@ def test_smusso_piccolo_avvisa_delle_schegge():
     s2 = Service()
     assert s2.new_project('tramoggia_cassone', {'raggio': 3, 'k': 0.4, 'smusso': 10})['ok']
     assert 'Smusso troppo piccolo' not in ' '.join(s2.result.body.sheet.warnings)
+
+
+def test_fori_sul_bordo_con_angoli_a_45():
+    """29/10 (schermata di Stefano): con gli angoli del bordo a 45° le quattro facce del bordo sono un anello solo nel
+    3D e restava senza nome: niente sketch, niente fori. Ora ha il nome dei lati e ogni foro va nel suo pezzo."""
+    s = Service()
+    assert s.new_project('tramoggia_cassone', dict(A=600, B=600, Hc=600, a=250, b=250, Ht=400, bordo=20, verso_bordo='dentro',
+                                                   flangia=50, verso_flangia='fuori', angoli_bordo='45', spessore=2,
+                                                   raggio=2, k=0.4, divisione='lati'))['ok']
+    from cad_engine.sketch.face_plane import plane_of
+    for anello in ('bordo', 'flangia_scarico'):
+        nome = f'FM1/{anello}_davanti/fuori'
+        assert nome in s.result.body.names
+        v0 = volume(s.result.body.shape)
+        sid = s.sketch_on_face(nome)['sketch']
+        pl = plane_of(s.result.body, nome, s.doc.sketch(sid))
+        sag = s.result.body.sheet.sagome
+        lati = [n for n in sag if n.startswith(f'FM1/{anello}_') and n.endswith('/fuori')]
+        assert len(lati) == 4
+        for n in lati:
+            pts = [bd.Vector(*q) for q in sag[n]]
+            q = pl.to_local_coords(sum(pts, bd.Vector()) / len(pts))
+            s.sketch_add_circle(sid, [q.X, q.Y], 4)
+        assert s.create_from_sketch(sid, 'cut', {})['ok']
+        assert v0 - volume(s.result.body.shape) == pytest.approx(4 * math.pi * 16 * 2, rel=0.02)
+    d = s.result.body.sheet
+    cerchi = [e.arc_center for f in d.flat.faces() for e in f.edges() if e.geom_type == bd.GeomType.CIRCLE]
+    for n in (x for x in d.sagome if x.endswith('/fuori') and ('bordo' in x or 'flangia' in x)):
+        src, dst, _ = d.pannelli[n]
+        pts = [bd.Vector(*q) for q in d.sagome[n]]
+        atteso = dst.from_local_coords(src.to_local_coords(sum(pts, bd.Vector()) / len(pts)))
+        assert min((c - atteso).length for c in cerchi) < 0.01, n              # nel pezzo giusto dello sviluppo

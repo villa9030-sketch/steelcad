@@ -56,6 +56,7 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
     r = r or {}
     testi = r.get('testi') or {}
     f.persi = persi(f, r)
+    _cartiglio_grande(f, r.get('cartiglio'))
     # 0. viste tolte e dettagli ingranditi (28/10): prima degli spostamenti, così il cerchio del dettaglio segue la
     # sua vista e il dettaglio si sposta per conto suo
     for vista in r.get('tolte') or []:
@@ -274,6 +275,26 @@ def _dettaglio(f: Foglio, d: dict, i: int):
     scala = scala_testo(f.scala * k) if f.scala else f'× {fmt(k)}'
     with f.oggetto(f'{nome}/titolo'):
         f.text('testo', (P[0] - R * k, P[1] + R * k + 3 * kf), f'DETTAGLIO {lettera} ({scala})', 2.5 * kf)
+
+
+def _cartiglio_grande(f: Foglio, k):
+    """Il cartiglio più grande o più piccolo (29/10): k volte, fermo nell'angolo in basso a destra della cornice."""
+    try:
+        k = float(k)
+    except (TypeError, ValueError):
+        return
+    if k <= 0 or abs(k - 1) < 1e-6:
+        return
+    pts = [p for (l, ps), t in zip(f.linee, f.linee.tag) if t == 'cartiglio' for p in ps]
+    if not pts:
+        return
+    cx, cy = max(p[0] for p in pts), min(p[1] for p in pts)
+    S = lambda p: (cx + (p[0] - cx) * k, cy + (p[1] - cy) * k)  # noqa: E731
+    ok = lambda t: t == 'cartiglio'  # noqa: E731
+    f.linee[:] = [(l, [S(p) for p in ps]) if ok(t) else (l, ps) for (l, ps), t in zip(f.linee, f.linee.tag)]
+    f.cerchi[:] = [(l, S(c), r * k) if ok(t) else (l, c, r) for (l, c, r), t in zip(f.cerchi, f.cerchi.tag)]
+    f.testi[:] = [(l, S(p), tx, h * k, al) if ok(t) else (l, p, tx, h, al) for (l, p, tx, h, al), t in zip(f.testi, f.testi.tag)]
+    f.immagini[:] = [(im, *S((x, y)), w * k, h * k) for im, x, y, w, h in f.immagini]
 
 
 def persi(f: Foglio, r: dict) -> list:

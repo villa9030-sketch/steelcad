@@ -85,7 +85,7 @@ try:
         pg.click('[data-str="sel"]')
         pg.locator('summary', has_text='Cartiglio').click()
         pg.fill('[data-c="cliente"]', 'Officine Rossi'); pg.press('[data-c="cliente"]', 'Tab')
-        pg.check('[data-mostra="cliente"]'); time.sleep(2)
+        time.sleep(2)
         chk('cliente nel cartiglio', 'Officine Rossi' in pg.inner_html('#te-foglio'))
         pg.screenshot(path=str(OUT / '2_ritoccata.png'))
         # diametro con un clic sul cerchio, angolo con tre clic, saldatura (punta + simbolo + finestra)

@@ -2761,7 +2761,6 @@ async function drawingsDialog() {
   const campo = (k, l) => `<label class="te-riga">${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
   const scelta = (k, l, opz) => `<label class="te-riga">${l}<select class="field" data-c="${k}">${opz.map(([v, t]) =>
     `<option value="${esc(v)}"${String(c[k] ?? opz[0][0]) === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
-  const mostraDi = c.mostra || r.campi_cartiglio.filter(([k, , nuovo]) => !nuovo || String(c[k] || '').trim()).map(([k]) => k);
   box.innerHTML = `<header class="te-testa"><b>Tavole — ${esc(S?.name || '')}</b><div class="te-tabs" id="te-tabs"></div><span class="te-spazio"></span>
       <span class="hint te-zoom-aiuto">Rotella: zoom · tasto centrale: sposta</span>
       <button class="btn" id="te-adatta" title="Il foglio intero">Adatta</button>
@@ -2799,11 +2798,13 @@ async function drawingsDialog() {
           <p class="hint">Vuoto = come la fa il programma. Le frecce seguono il testo, se non scrivi niente.</p>
         </details>
         <details class="te-sez"><summary>Cartiglio</summary>
-          ${campo('azienda', 'Azienda')}${campo('disegnatore', 'Disegnatore')}${campo('numero', 'N. disegno')}${campo('revisione', 'Revisione')}
+          ${campo('azienda', 'Azienda')}${campo('numero', 'N. disegno')}${campo('revisione', 'Revisione')}
+          ${campo('disegnatore', 'Disegnato')}${campo('approvato', 'Approvato')}
           ${campo('cliente', 'Cliente')}${campo('commessa', 'Commessa')}${campo('tolleranze', 'Tolleranze generali')}${campo('finitura', 'Trattamento / finitura')}
           ${campo('note', 'Note')}
-          <div class="te-mostra"><span class="hint">Cosa si vede nel cartiglio</span>${r.campi_cartiglio.map(([k, et]) =>
-            `<label class="check"><input type="checkbox" data-mostra="${k}"${mostraDi.includes(k) ? ' checked' : ''}> ${esc(et)}</label>`).join('')}</div>
+          <div class="te-rev"><span class="hint">Revisioni (la più nuova va in alto nel cartiglio)</span>
+            <div class="te-rev-g"><b>Rev.</b><b>Data</b><b>Descrizione</b><b>Da</b>
+            ${[0, 1, 2].map(i => ['rev', 'data', 'descrizione', 'da'].map(k => `<input class="field" data-rev="${i}:${k}" value="${esc(((c.revisioni || [])[i] || {})[k] || '')}">`).join('')).join('')}</div></div>
           <p class="hint">${r.logo ? 'Il logo dell’azienda è nel cartiglio.' : 'Il logo dell’azienda si mette in Impostazioni → Tavole e cartiglio.'}</p>
         </details>
         <details class="te-sez" open><summary>I tuoi ritocchi</summary><div id="te-rit"></div>
@@ -2816,7 +2817,8 @@ async function drawingsDialog() {
   const leggi = () => {
     const o = {};
     box.querySelectorAll('[data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); });
-    o.mostra = [...box.querySelectorAll('[data-mostra]')].filter(i => i.checked).map(i => i.dataset.mostra);
+    o.revisioni = [0, 1, 2].map(i => Object.fromEntries(['rev', 'data', 'descrizione', 'da'].map(k => [k, box.querySelector(`[data-rev="${i}:${k}"]`).value.trim()])))
+      .filter(r => Object.values(r).some(Boolean));
     return o;
   };
   const tutte = () => !!box.querySelector('#tav-tutte')?.checked;
@@ -2967,7 +2969,18 @@ async function drawingsDialog() {
       if ($('#ts-modifica')) $('#ts-modifica').onclick = () => saldaturaDialog(m, q => cambia(x => Object.assign(x, q)));
       $('#ts-via').onclick = () => { const n = rit(); n[lista].splice(o.indice, 1); ED.sel = null; salva(n); };
     } else if (o.kind === 'cartiglio') {
-      sez.innerHTML = `<h4>Cartiglio</h4><p class="hint">I campi e cosa si vede stanno qui sotto, in «Cartiglio».</p>`;
+      // 29/10: il cartiglio si ingrandisce e si rimpicciolisce (resta nell'angolo in basso a destra)
+      const k = +(R_.cartiglio || 1), pc = Math.round(k * 100);
+      sez.innerHTML = `<h4>Cartiglio</h4><p class="hint">I campi stanno qui sotto, in «Cartiglio».</p>
+        <div class="te-riga">Grandezza<div class="fp-len"><button type="button" class="pm" id="ts-cmeno" aria-label="Più piccolo">−</button>
+          <span class="inp"><input class="field" id="ts-ck" value="${pc}"><i>%</i></span>
+          <button type="button" class="pm" id="ts-cpiu" aria-label="Più grande">+</button></div></div>
+        ${k !== 1 ? '<div class="te-bott"><button class="btn" id="ts-c100">Grandezza normale</button></div>' : ''}`;
+      const metti = v => { const n = rit(); v = Math.max(40, Math.min(250, Math.round(v))); if (v === 100) delete n.cartiglio; else n.cartiglio = v / 100; salva(n); };
+      $('#ts-cmeno').onclick = () => metti(pc - 10);
+      $('#ts-cpiu').onclick = () => metti(pc + 10);
+      $('#ts-ck').onchange = () => { const v = parseFloat($('#ts-ck').value.replace(',', '.')); if (v > 0) metti(v); };
+      if ($('#ts-c100')) $('#ts-c100').onclick = () => metti(100);
       const d = box.querySelectorAll('.te-sez')[2]; if (d) d.open = true;
     }
   }
@@ -2991,6 +3004,7 @@ async function drawingsDialog() {
     (R_.dettagli || []).forEach((a, i) => righe.push([`Dettaglio ${a.lettera} (× ${String(a.k).replace('.', ',')})`, n => { n.dettagli.splice(i, 1); if (n.viste) delete n.viste['dettaglio:' + a.lettera]; }]));
     (R_.tolte || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} tolta`, n => { n.tolte.splice(i, 1); }]));
     (R_.libere || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} non allineata`, n => { n.libere.splice(i, 1); }]));
+    if (R_.cartiglio) righe.push([`Cartiglio al ${Math.round(R_.cartiglio * 100)}%`, n => { delete n.cartiglio; }]);
     const NOMI_T = { quote: 'Testi delle quote', frecce: 'Frecce delle quote', note: 'Testi delle note', titoli: 'Titoli delle viste' };
     for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`${NOMI_T[k] || k}: ${mm(v)} mm`, n => { delete n.testi[k]; }]);
     const el = box.querySelector('#te-rit');
@@ -3157,7 +3171,8 @@ async function drawingsDialog() {
       const dentro = x => p[0] >= x.bbox[0] - 0.5 && p[0] <= x.bbox[2] + 0.5 && p[1] >= x.bbox[1] - 0.5 && p[1] <= x.bbox[3] + 0.5;
       // prima le cose piccole (una quota, una nota, un simbolo), poi la vista che contiene il clic
       o = foglio().oggetti.filter(x => !['vista', 'cartiglio'].includes(x.kind) && dentro(x)).sort((a, b) => area(a) - area(b))[0]
-        || foglio().oggetti.filter(x => x.kind === 'vista' && dentro(x)).sort((a, b) => area(a) - area(b))[0] || null;
+        || foglio().oggetti.filter(x => x.kind === 'vista' && dentro(x)).sort((a, b) => area(a) - area(b))[0]
+        || foglio().oggetti.find(x => x.kind === 'cartiglio' && dentro(x)) || null;
     }
     ED.sel = o?.id || null;
     evidenzia(); pannelloSel();
@@ -3264,7 +3279,7 @@ async function drawingsDialog() {
     salva(n);
   }; });
   let attesa = null;
-  box.querySelectorAll('[data-c], [data-mostra]').forEach(i => i.addEventListener('change', () => { clearTimeout(attesa); attesa = setTimeout(aggiorna, 250); }));
+  box.querySelectorAll('[data-c], [data-rev]').forEach(i => i.addEventListener('change', () => { clearTimeout(attesa); attesa = setTimeout(aggiorna, 250); }));
   if (box.querySelector('#tav-tutte')) box.querySelector('#tav-tutte').onchange = aggiorna;
   box.querySelector('#te-auto').onclick = () => { ED.sel = null; salva({}); };
   box.querySelector('#te-undo').onclick = () => inCoda(async () => { await call('undo'); ED.toccato = true; carica(await call('drawing_preview', leggi(), tutte())); });

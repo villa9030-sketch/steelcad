@@ -76,6 +76,17 @@ try:
         r = api('drawing_preview', None)['sheets'][0]['ritocchi']
         chk('ingrandimento × 4 salvato', (r.get('dettagli') or [{}])[0].get('k') == 4)
         pg.screenshot(path=str(OUT / '3_dettaglio.png'))
+        # il cartiglio: più piccolo con «−», e una revisione scritta
+        pg.click('[data-str="sel"]'); time.sleep(0.2)
+        pg.locator('#te-foglio [data-el="cartiglio"]').first.click(force=True); time.sleep(0.5)
+        chk('pannello del cartiglio con la grandezza', pg.is_visible('#ts-ck') and pg.input_value('#ts-ck') == '100')
+        pg.click('#ts-cmeno'); time.sleep(1.5)
+        r = api('drawing_preview', None)['sheets'][0]['ritocchi']
+        chk('cartiglio al 90%', abs((r.get('cartiglio') or 0) - 0.9) < 1e-9)
+        pg.evaluate("document.querySelector('[data-rev=\"0:rev\"]').closest('details').open = true"); time.sleep(0.3)
+        pg.fill('[data-rev="0:rev"]', 'A'); pg.fill('[data-rev="0:descrizione"]', 'Prima emissione'); pg.press('[data-rev="0:descrizione"]', 'Tab'); time.sleep(2)
+        chk('revisione nel cartiglio', 'Prima emissione' in pg.inner_html('#te-foglio'))
+        pg.screenshot(path=str(OUT / '4_cartiglio.png'))
         chk('nessun errore ' + str(err), not err)
         b.close()
 finally:

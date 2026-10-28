@@ -46,7 +46,8 @@ class DrawingsMixin:
     def drawing_fields(self) -> dict:
         """I campi del cartiglio da proporre: i fissi ricordati + quelli del progetto."""
         out = {'azienda': '', 'disegnatore': '', 'numero': '', 'revisione': 'A', 'note': '', 'formato': 'A3',
-               'scala_fissa': 'auto', 'quote_fori': 'sì', 'fianco': 'sinistra', 'isometrica': 'sì', 'cliente': '', 'commessa': '', 'tolleranze': '', 'finitura': '',
+               'scala_fissa': 'auto', 'quote_fori': 'sì', 'fianco': 'sinistra', 'isometrica': 'sì', 'approvato': '',
+               'revisioni': [], 'cliente': '', 'commessa': '', 'tolleranze': '', 'finitura': '',
                'mostra': None}
         out.update(_leggi_fissi())
         if self.asm is None:
@@ -271,7 +272,7 @@ class DrawingsMixin:
         esploso = len(forme) > 1                       # la vista esplosa: come si monta
         tot = 1 + int(esploso) + tot_pezzi
         massa = sum(r['mass_tot'] for r in righe)
-        ca = {**campi, 'titolo': self.asm.name, 'materiale': ', '.join(sorted({r['material'] for r in righe if not r.get('acquisto')})),
+        ca = {**campi, 'tipo_doc': 'DISEGNO DI ASSIEME', 'titolo': self.asm.name, 'materiale': ', '.join(sorted({r['material'] for r in righe if not r.get('acquisto')})),
               'spessore_massa': f'{D.fmt(round(massa, 3))} kg', 'data': D.oggi(), 'foglio': f'1/{tot}'}
         fogli = [D.tavola_assieme(forme, ca, distinta, formato)]
         if esploso:
@@ -463,7 +464,8 @@ class DrawingsMixin:
             _scrivi_fissi(campi)
             if self.asm is None:
                 self.doc.meta['disegno'] = {k: campi.get(k, '') for k in ('numero', 'revisione', 'note', 'formato', 'cliente',
-                                                                          'commessa', 'tolleranze', 'finitura')}
+                                                                          'commessa', 'tolleranze', 'finitura', 'approvato',
+                                                                          'revisioni')}
                 if campi.get('mostra') is not None:
                     self.doc.meta['disegno']['mostra'] = list(campi['mostra'])
             return {'ok': True, 'path': str(p), 'message': f'Tavole salvate: {len(fogli)} fogli in {p.name}.'}
