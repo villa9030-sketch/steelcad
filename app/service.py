@@ -3226,6 +3226,70 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                            f'sviluppo {fmt_mm(round(data.flat_size[0], 1))} × {fmt_mm(round(data.flat_size[1], 1))} '
                            f'(K {fmt_mm(kk)}).' + (' ' + ' '.join(data.warnings) if data.warnings else ''))
 
+    def step_assieme(self, path: str, k=None) -> dict:
+        """Lo STEP di un assieme del cliente diventa un assieme di Radius (29/10): ogni pezzo diverso un file nella
+        cartella «‹nome› – pezzi» accanto allo STEP (le lamiere con lo sviluppo, gli altri come pezzo importato), le
+        copie dove stanno nello STEP, ferme; l'assieme accanto allo STEP, e si apre."""
+        import base64
+        import zlib
+
+        import numpy as np
+
+        from cad_engine import assembly as A
+        from cad_engine.importers import step_assieme as SA
+        p = Path(path)
+        try:
+            kk = _numero(k if k not in (None, '') else self.bend_default().get('k') or 0.33, 'il K')
+            pezzi = SA.leggi(p)
+        except SteelCADError as ex:
+            return _err(ex)
+        cartella = p.parent / f'{p.stem} – pezzi'
+        n = 2
+        while cartella.exists() and any(cartella.iterdir()):
+            cartella = p.parent / f'{p.stem} – pezzi ({n})'
+            n += 1
+        try:
+            cartella.mkdir(parents=True, exist_ok=True)
+        except OSError as ex:
+            return {'ok': False, 'message': f'Non riesco a creare la cartella dei pezzi accanto allo STEP: {ex}'}
+        asm = A.Assembly(p.stem)
+        usati: set = set()
+        lamiere, altri, specchiati = 0, 0, 0
+        for k_, pz in enumerate(pezzi, 1):
+            nome = pz['nome'] or f'Pezzo {k_}'
+            dati = base64.b64encode(zlib.compress(SA.step_di(pz['forma']), 9)).decode('ascii')
+            doc = Document(nome, 'S235')
+            doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk, dati=dati)
+            prova = doc.rebuild()
+            fr = next((f for f in prova.features if f.id == 'IM1'), None)
+            if fr is None or not fr.ok:                    # non è una lamiera piegata: pezzo importato
+                doc = Document(nome, 'S235')
+                doc.add_feature('solido_step', 'Pezzo importato', file=p.name, dati=dati)
+                altri += 1
+            else:
+                lamiere += 1
+            f = cartella / (SA.nome_file(nome, usati) + '.steelcad')
+            project_io.save(doc, f)
+            for j, (R, T) in enumerate(pz['copie']):
+                if not SA.ruota_ok(R):
+                    specchiati += 1
+                asm.instances.append({'id': asm.new_id('I', {i['id'] for i in asm.instances}), 'file': str(f),
+                                      'name': nome if len(pz['copie']) == 1 else f'{nome} ({j + 1})',
+                                      'R': np.array(R).tolist(), 'T': list(T), 'fixed': True})
+        dest = p.parent / (p.stem + A.EXT)
+        n = 2
+        while dest.exists():
+            dest = p.parent / f'{p.stem} ({n}){A.EXT}'
+            n += 1
+        A.save(asm, dest)
+        r = self.open(str(dest))
+        if r.get('ok'):
+            copie = sum(len(x['copie']) for x in pezzi)
+            r['message'] = (f'Assieme da STEP: {len(pezzi)} pezzi diversi ({lamiere} in lamiera con lo sviluppo, {altri} '
+                            f'importati), {copie} copie al loro posto. Pezzi in «{cartella.name}».'
+                            + (f' Attenzione: {specchiati} copie nello STEP sono specchiate: controllale.' if specchiati else ''))
+        return r
+
     def step_dxf_tutti(self, path: str, cartella: str, k=None) -> dict:
         """Lo STEP del cliente con tanti pezzi (28/10): il DXF di sviluppo di ogni lamiera, in una cartella. I pezzi
         che non sono lamiere piegate si dicono e si saltano."""

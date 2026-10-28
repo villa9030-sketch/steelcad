@@ -2262,6 +2262,7 @@ function stepDialog() {
   });
 }
 // 28/10: lo STEP del cliente è un assieme: l'elenco dei pezzi, apri quello che serve o i DXF di tutte le lamiere
+window.__stepPezzi = r => stepPezzi(r);              // per le prove automatiche
 function stepPezzi(r) {
   const mm = v => String(v).replace('.', ',');
   const righe = r.pezzi.map(x => `<tr><td>${x.i + 1}</td><td>${x.misure.map(mm).join(' × ')}</td>
@@ -2269,10 +2270,15 @@ function stepPezzi(r) {
       <td><button class="btn" data-sp="${x.i}">Apri</button></td></tr>`).join('');
   const lam = r.pezzi.filter(x => x.lamiera).length;
   modal(`<h3>Lo STEP ha ${r.pezzi.length} pezzi</h3>
-    <p class="hint">Apri il pezzo da guardare o modificare; oppure fai subito il DXF di sviluppo di tutte le lamiere (${lam}) in una cartella, con il K ${mm(r.k)}.</p>
+    <p class="hint">«Apri come assieme»: ogni pezzo diventa un file (le lamiere con lo sviluppo) in una cartella accanto allo STEP, e l’assieme si apre con i pezzi al loro posto. Oppure apri un pezzo solo, o fai subito il DXF di sviluppo di tutte le lamiere (${lam}), con il K ${mm(r.k)}.</p>
     <div class="tab-scroll"><table class="grid"><tr><th>N.</th><th>Misure (mm)</th><th>Lamiera</th><th></th></tr>${righe}</table></div>
-    <div class="acts"><button class="btn" id="m-no">Chiudi</button>${lam ? `<button class="btn primary" id="sp-tutti">DXF di tutte le lamiere…</button>` : ''}</div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Chiudi</button>${lam ? `<button class="btn" id="sp-tutti">DXF di tutte le lamiere…</button>` : ''}<button class="btn primary" id="sp-asm">Apri come assieme</button></div>`, close => {
     $('#m-no').onclick = close;
+    $('#sp-asm').onclick = () => { close(); inCoda(async () => {
+      const x = await call('step_assieme', r.path, r.k);
+      primaVolta = true; clearSelection();
+      if (await apply(x, x.message)) hideHome();
+    }); };
     document.querySelectorAll('[data-sp]').forEach(b => { b.onclick = () => { close(); inCoda(async () => {
       const x = await call('import_step', r.path, r.k, +b.dataset.sp);
       primaVolta = true; clearSelection();

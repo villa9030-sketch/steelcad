@@ -47,6 +47,8 @@ def _feature_label(doc, f, fr) -> str:
             return f'{nome or "Foro"}: {n} × Ø{fmt_mm(d) if isinstance(d, (int, float)) else d} {prof}'
         if t == 'step_lamiera':
             return f'{nome or "Lamiera da STEP"}: {f.get("file") or ""} (K {f.get("k")})'
+        if t == 'solido_step':
+            return f'{nome or "Pezzo importato"}: {f.get("file") or ""}'
         if t == 'revolve':
             op = {'new': '', 'add': ' (aggiunta)', 'cut': ' (tolta)'}.get(f.get('operation', 'new'), '')
             a = f.get('angle')

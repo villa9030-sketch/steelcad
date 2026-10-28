@@ -4,7 +4,7 @@ from ..sheetmetal import shapes
 from ..sheetmetal import forms
 from ..sheetmetal import edge_flange
 from ..sheetmetal import taglio_testa
-from ..importers import step_lamiera
+from ..importers import step_assieme, step_lamiera
 
 BUILDERS = {
     'extrude': extrude.build,
@@ -19,6 +19,7 @@ BUILDERS = {
     'sheet_edge_flange': edge_flange.build_edge_flange,
     'sheet_miter': taglio_testa.build_end_miter,
     'step_lamiera': step_lamiera.build,
+    'solido_step': step_assieme.build_solido,
 }
 
 # campi che contengono valori (numeri o espressioni sui parametri)

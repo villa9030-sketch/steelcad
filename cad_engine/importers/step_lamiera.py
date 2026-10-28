@@ -315,6 +315,11 @@ def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
         raise StepError(f'Lo sviluppo non torna con il pezzo (area {fs[0].area / 1e4:.1f} dm² invece di {atteso / 1e4:.1f}, '
                         f'{scarto * 100:+.0f}%): non sembra una lamiera piegata con pieghe dritte (angolare o profilo, '
                         'spigoli vivi, forme speciali). Non lo spiego per non darti uno sviluppo sbagliato.')
+    # 29/10: un perno, un blocco pieno hanno due facce piane parallele ma non sono lamiere: lo spessore è grande
+    # quanto il pezzo. Una lamiera (o una piastra) è almeno 2 volte più larga che spessa
+    bb = fs[0].bounding_box()
+    if t > 0.5 * min(bb.size.X, bb.size.Y):
+        raise StepError(f'Non è una lamiera: è un pezzo pieno (spesso {t:.1f} mm, largo {min(bb.size.X, bb.size.Y):.1f}).')
     return {'t': t, 'flat': fs[0], 'pieghe': pieghe, 'linee': linee, 'pos': pos, 'facce': facce, 'avvisi': avvisi}
 
 

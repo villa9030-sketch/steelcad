@@ -436,6 +436,9 @@ class Api:
     def import_step(self, path, k=None, solido=None):
         return self._call(self._svc.import_step, path, k, solido)
 
+    def step_assieme(self, path, k=None):
+        return self._call(self._svc.step_assieme, path, k)
+
     def step_dxf_tutti(self, path, k=None):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG)
         if not r:
