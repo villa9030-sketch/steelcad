@@ -103,7 +103,7 @@ def test_stessa_tavola_scalata_nei_formati():
     campi = s.drawing_fields()['fields']
     fogli = {}
     for formato in ('A2', 'A3', 'A4'):
-        s._tavole_fatte = None
+        s._tavole_base = None
         fogli[formato] = s._fogli({**campi, 'formato': formato})
     for formato, k in (('A3', 420 / 594), ('A4', 297 / 594)):
         for f2, f in zip(fogli['A2'], fogli[formato]):
@@ -116,9 +116,9 @@ def test_stessa_tavola_scalata_nei_formati():
             vera, a2 = sc.split(' (A2 ')
             atteso = D._scala_da_testo(a2.rstrip(')')) * k
             assert abs(D._scala_da_testo(vera) - atteso) < 0.01 * atteso, sc
-    s._tavole_fatte = None
+    s._tavole_base = None
     a = s._fogli(campi)
-    assert s._fogli(campi) is a                                    # la seconda volta: le stesse, non rifatte
+    assert all(x is y for x, y in zip(s._fogli(campi), a))         # la seconda volta: le stesse, non rifatte
 
 
 def test_dxf_con_quote_vere(tmp_path):

@@ -3705,8 +3705,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if self.asm is not None:
             return self._asm_undo(False)
         try:
+            solo_meta = self.history.ultimo_solo_meta()
             self.history.undo()
-            self._rebuild()
+            if not solo_meta:                       # un ritocco delle tavole: il pezzo è lo stesso
+                self._rebuild()
             return _ok(state=self.state())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
@@ -3715,8 +3717,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if self.asm is not None:
             return self._asm_undo(True)
         try:
+            solo_meta = self.history.ultimo_solo_meta(avanti=True)
             self.history.redo()
-            self._rebuild()
+            if not solo_meta:
+                self._rebuild()
             return _ok(state=self.state())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)

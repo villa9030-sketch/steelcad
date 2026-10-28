@@ -2811,7 +2811,8 @@ async function drawingsDialog() {
       </aside>
     </div>`;
   document.body.appendChild(box);
-  const chiudi = () => { box.remove(); document.removeEventListener('keydown', tasti, true); };
+  const chiudi = () => { box.remove(); document.removeEventListener('keydown', tasti, true);
+    if (ED.toccato) inCoda(async () => { const st = await call('state'); if (st && st.version) { S = st; renderPanels(); } }); };
   const leggi = () => {
     const o = {};
     box.querySelectorAll('[data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); });
@@ -2879,9 +2880,14 @@ async function drawingsDialog() {
     if (!ED.modificabili) { toast('Le tavole degli assiemi non si ritoccano ancora: aprile dal pezzo.', 'err'); return; }
     const ch = foglio().chiave;
     inCoda(async () => {
-      const p = await call('tavola_ritocchi', ch, nuovi, leggi());
-      if (p.state) { S = p.state; renderPanels(); }
-      carica(p);
+      // 29/10: torna solo il foglio toccato (prima tutte le tavole e lo stato intero del pezzo: lentissimo coi fori)
+      const p = await call('tavola_ritocchi', ch, nuovi, leggi(), tutte());
+      if (!p.ok) { toast(p.message, 'err'); return; }
+      ED.toccato = true;
+      const i = ED.fogli.findIndex(f => f.chiave === ch);
+      if (p.foglio && i >= 0) ED.fogli[i] = p.foglio;
+      if (ED.sel && !foglio().oggetti.some(o => o.id === ED.sel)) ED.sel = null;
+      disegna();
     });
   };
 
@@ -3145,10 +3151,29 @@ async function drawingsDialog() {
       });
       return;
     }
-    const o = oggettoDi(ev.target.closest('[data-el]')?.getAttribute('data-el'));
+    let o = oggettoDi(ev.target.closest('[data-el]')?.getAttribute('data-el'));
+    if (!o) {                                       // 29/10: nel vuoto dentro una vista si prende la vista (non serve centrare una linea)
+      const area = x => (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]);
+      const dentro = x => p[0] >= x.bbox[0] - 0.5 && p[0] <= x.bbox[2] + 0.5 && p[1] >= x.bbox[1] - 0.5 && p[1] <= x.bbox[3] + 0.5;
+      // prima le cose piccole (una quota, una nota, un simbolo), poi la vista che contiene il clic
+      o = foglio().oggetti.filter(x => !['vista', 'cartiglio'].includes(x.kind) && dentro(x)).sort((a, b) => area(a) - area(b))[0]
+        || foglio().oggetti.filter(x => x.kind === 'vista' && dentro(x)).sort((a, b) => area(a) - area(b))[0] || null;
+    }
     ED.sel = o?.id || null;
     evidenzia(); pannelloSel();
-    if (o && ['vista', 'quota', 'nota', 'diametro', 'angolo', 'saldatura'].includes(o.kind)) tiro = { o, da: p, ora: p };
+    if (o && ['vista', 'quota', 'nota', 'diametro', 'angolo', 'saldatura'].includes(o.kind)) {
+      // 29/10: gli elementi da muovere si trovano adesso, non a ogni movimento del mouse
+      const ids = o.kind === 'vista' ? Object.keys(mosseViste(o.id, 0, 0)) : [o.id];
+      const els = [];
+      svgDi().querySelectorAll('[data-el]').forEach(e => {
+        const t = e.getAttribute('data-el');
+        const v = o.kind === 'vista' ? ids.find(id => t === id || t.startsWith(id + '/')) : (t === o.id ? o.id : null);
+        if (!v) return;
+        if (e.dataset.t0 === undefined) e.dataset.t0 = e.getAttribute('transform') || '';
+        els.push([e, v]);
+      });
+      tiro = { o, da: p, ora: p, els, raf: 0 };
+    }
   });
   foglioEl.addEventListener('mousemove', ev => {
     if (!svgDi()) return;
@@ -3163,22 +3188,24 @@ async function drawingsDialog() {
     if (ED.strumento === 'saldatura' && !ED.sald) { const a = aggancia(p); segno(a?.p || null); return; }
     if (!tiro) return;
     tiro.ora = p;
-    const dx = p[0] - tiro.da[0], dy = p[1] - tiro.da[1];
-    // durante il trascinamento si sposta solo il disegno a video; il ritocco si salva quando lasci
-    const mosse = tiro.o.kind === 'vista' ? mosseViste(tiro.o.id, dx, dy) : null;
-    svgDi().querySelectorAll('[data-el]').forEach(e => {
-      const t = e.getAttribute('data-el');
-      if (e.dataset.t0 === undefined) e.dataset.t0 = e.getAttribute('transform') || '';   // i testi in verticale hanno già il loro
-      if (mosse) {
-        const v = Object.keys(mosse).find(id => t === id || t.startsWith(id + '/'));
-        e.setAttribute('transform', v ? `translate(${mosse[v][0]} ${-mosse[v][1]}) ` + e.dataset.t0 : e.dataset.t0);
-      } else if (t === tiro.o.id && tiro.o.kind !== 'quota') e.setAttribute('transform', `translate(${dx} ${-dy}) ` + e.dataset.t0);
+    if (tiro.raf) return;                           // al massimo una volta per fotogramma
+    tiro.raf = requestAnimationFrame(() => {
+      if (!tiro) return;
+      tiro.raf = 0;
+      const dx = tiro.ora[0] - tiro.da[0], dy = tiro.ora[1] - tiro.da[1];
+      // durante il trascinamento si sposta solo il disegno a video; il ritocco si salva quando lasci
+      let mosse;
+      if (tiro.o.kind === 'vista') mosse = mosseViste(tiro.o.id, dx, dy);
+      else if (tiro.o.kind === 'quota') {           // la quota si muove solo di traverso
+        const [ax, ay] = tiro.o.a, [bx, by] = tiro.o.b, L = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / L, ny = (bx - ax) / L;
+        const k = dx * nx + dy * ny;
+        mosse = { [tiro.o.id]: [k * nx, k * ny] };
+      } else mosse = { [tiro.o.id]: [dx, dy] };
+      for (const [e, v] of tiro.els) {
+        const m = mosse[v];
+        e.setAttribute('transform', m ? `translate(${m[0]} ${-m[1]}) ` + e.dataset.t0 : e.dataset.t0);
+      }
     });
-    if (tiro.o.kind === 'quota') {                  // la quota si muove solo di traverso
-      const [ax, ay] = tiro.o.a, [bx, by] = tiro.o.b, L = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / L, ny = (bx - ax) / L;
-      const k = dx * nx + dy * ny;
-      svgDi().querySelectorAll(`[data-el="${CSS.escape(tiro.o.id)}"]`).forEach(e => e.setAttribute('transform', `translate(${k * nx} ${-k * ny}) ` + (e.dataset.t0 || '')));
-    }
   });
   // 28/10: viste allineate come in ogni CAD: l'alto si sposta solo in su e in giù sotto la fronte, il fianco solo di
   // lato, e seguono la fronte. Le «libere» (scelta nel pannello della vista) si spostano dove vuoi
@@ -3199,7 +3226,7 @@ async function drawingsDialog() {
   const lascia = () => {
     pan = null;
     if (!tiro) return;
-    const { o, da, ora } = tiro; tiro = null;
+    const { o, da, ora } = tiro; if (tiro.raf) cancelAnimationFrame(tiro.raf); tiro = null;
     const dx = ora[0] - da[0], dy = ora[1] - da[1];
     if (Math.hypot(dx, dy) < 0.4) return;            // era un clic, non un trascinamento
     const n = rit();
@@ -3240,7 +3267,7 @@ async function drawingsDialog() {
   box.querySelectorAll('[data-c], [data-mostra]').forEach(i => i.addEventListener('change', () => { clearTimeout(attesa); attesa = setTimeout(aggiorna, 250); }));
   if (box.querySelector('#tav-tutte')) box.querySelector('#tav-tutte').onchange = aggiorna;
   box.querySelector('#te-auto').onclick = () => { ED.sel = null; salva({}); };
-  box.querySelector('#te-undo').onclick = () => inCoda(async () => { const u = await call('undo'); if (u.state) { S = u.state; renderPanels(); } carica(await call('drawing_preview', leggi(), tutte())); });
+  box.querySelector('#te-undo').onclick = () => inCoda(async () => { await call('undo'); ED.toccato = true; carica(await call('drawing_preview', leggi(), tutte())); });
   const esporta = fmt => inCoda(async () => { const x = await call('export_drawings_dialog', fmt, leggi(), tutte()); if (!x.cancelled) toast(x.message, x.ok ? '' : 'err'); });
   box.querySelector('#te-pdf').onclick = () => esporta('pdf');
   box.querySelector('#te-dxf').onclick = () => esporta('dxf');

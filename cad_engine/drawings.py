@@ -1706,41 +1706,128 @@ def to_pdf(fogli: list, path):
         fh.write(bytes(out))
 
 
+def copia_foglio(f: Foglio) -> Foglio:
+    """Una copia da ritoccare (29/10): le primitive sono tuple (non cambiano), si copiano solo le liste e i dati degli
+    oggetti. deepcopy di un foglio con 300 fori era lento."""
+    g = Foglio(f.formato, f.titolo)
+    for nome in STRATI:
+        st = getattr(f, nome)
+        setattr(g, nome, _Strato(g, list(st), st.tag if isinstance(st, _Strato) else None))
+    g.i_scala, g.chiave, g.scala, g.fattore = f.i_scala, f.chiave, f.scala, f.fattore
+    g.immagini = list(f.immagini)
+    g.elementi = {k: dict(v) for k, v in f.elementi.items()}
+    return g
+
+
+_STILI_SVG = {'contorno': 'stroke:#111;stroke-width:.45', 'nascoste': 'stroke:#666;stroke-width:.22;stroke-dasharray:2.5 1.2',
+              'tangenti': 'stroke:#777;stroke-width:.16', 'piega': 'stroke:#C0392B;stroke-width:.25;stroke-dasharray:5 1.2 1 1.2',
+              'quote': 'stroke:#2B5BA0;stroke-width:.16', 'cornice': 'stroke:#111;stroke-width:.5',
+              'cartiglio': 'stroke:#111;stroke-width:.25', 'tabella': 'stroke:#111;stroke-width:.2', 'testo': 'stroke:#111'}
+
+
 def to_svg(f: Foglio) -> str:
+    """Il foglio in SVG. 29/10: compatto (stili in classi, coordinate a 2 decimali) e raggruppato per oggetto
+    (<g data-el="vista:alto">…): con 300 fori l'editor aveva 12.000 elementi da spostare a ogni movimento del mouse."""
+    import html
     W, H = f.size
     Y = lambda y: H - y  # noqa: E731
-    stile = {'contorno': 'stroke="#111" stroke-width="0.45"', 'nascoste': 'stroke="#666" stroke-width="0.22" stroke-dasharray="2.5 1.2"',
-             'tangenti': 'stroke="#777" stroke-width="0.16"', 'piega': 'stroke="#C0392B" stroke-width="0.25" stroke-dasharray="5 1.2 1 1.2"',
-             'quote': 'stroke="#2B5BA0" stroke-width="0.16"', 'cornice': 'stroke="#111" stroke-width="0.5"',
-             'cartiglio': 'stroke="#111" stroke-width="0.25"', 'tabella': 'stroke="#111" stroke-width="0.2"', 'testo': 'stroke="#111"'}
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}mm" height="{H}mm">',
+    classe = {k: f'l{i}' for i, k in enumerate(_STILI_SVG)}
+    stile = ''.join(f'.{classe[k]}{{{v}}}' for k, v in _STILI_SVG.items())
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}mm" height="{H}mm" '
+           'font-family="Helvetica,Arial,sans-serif">',
+           f'<style>{stile}.tq{{fill:#2B5BA0}}.tp{{fill:#C0392B}}.tn{{fill:#111}}</style>',
            f'<rect width="{W}" height="{H}" fill="#fff"/>']
-    import html
-    el = lambda t: f' data-el="{html.escape(t)}"' if t else ''  # noqa: E731
-    tag = lambda strato, i: strato.tag[i] if isinstance(strato, _Strato) and i < len(strato.tag) else ''  # noqa: E731
-    for i, ((r, g, b), pts) in enumerate(f.ombre):
+    pts_ = lambda pts: ' '.join(f'{p[0]:.2f},{Y(p[1]):.2f}' for p in pts)  # noqa: E731
+
+    def gruppi(strato, scrivi):
+        """Le primitive dello strato, quelle dello stesso oggetto di fila in un gruppo solo."""
+        tags = strato.tag if isinstance(strato, _Strato) else [''] * len(strato)
+        corrente = None
+        for x, t in zip(strato, tags):
+            if t != corrente:
+                if corrente:
+                    out.append('</g>')
+                if t:
+                    out.append(f'<g data-el="{html.escape(t)}">')
+                corrente = t
+            out.append(scrivi(x))
+        if corrente:
+            out.append('</g>')
+
+    # l'ombra dell'isometrica: i colori in classi, i triangoli di fila dello stesso colore in un tracciato solo
+    # (nell'ordine: quelli dietro prima), coordinate a un decimale
+    colori: dict = {}
+    tags = f.ombre.tag if isinstance(f.ombre, _Strato) else [''] * len(f.ombre)
+    corrente, tratti, col_c = None, [], None
+
+    def chiudi_ombra():
+        if tratti:
+            out.append(f'<path class="{colori[col_c]}" d="{"".join(tratti)}"/>')
+            tratti.clear()
+    pezzi_ombra = []
+    for ((r, g, b), pts), t in zip(f.ombre, tags):
         col = '#%02X%02X%02X' % (round(r * 255), round(g * 255), round(b * 255))
-        out.append(f'<polygon{el(tag(f.ombre, i))} fill="{col}" stroke="{col}" stroke-width="0.12" stroke-linejoin="round" '
-                   f'points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
+        colori.setdefault(col, f'o{len(colori)}')
+        pezzi_ombra.append((col, pts, t))
+    if colori:
+        out.append('<style>' + ''.join(f'.{k}{{fill:{c};stroke:{c};stroke-width:.12;stroke-linejoin:round}}' for c, k in colori.items())
+                   + '</style>')
+    for col, pts, t in pezzi_ombra:
+        if t != corrente:
+            chiudi_ombra()
+            if corrente:
+                out.append('</g>')
+            if t:
+                out.append(f'<g data-el="{html.escape(t)}">')
+            corrente = t
+        elif col != col_c:
+            chiudi_ombra()
+        col_c = col
+        tratti.append('M' + 'L'.join(f'{p[0]:.1f} {Y(p[1]):.1f}' for p in pts) + 'Z')
+    chiudi_ombra()
+    if corrente:
+        out.append('</g>')
     for p, x, y, w, h in f.immagini:
         dati = _immagine_base64(p)
         if dati:
             out.append(f'<image data-el="cartiglio" x="{x:.2f}" y="{Y(y + h):.2f}" width="{w:.2f}" height="{h:.2f}" '
                        f'preserveAspectRatio="xMidYMid meet" href="{dati}"/>')
     out.append('<g fill="none" stroke-linecap="round" stroke-linejoin="round">')
-    for i, (layer, pts) in enumerate(f.linee):
-        out.append(f'<polyline{el(tag(f.linee, i))} {stile.get(layer, stile["contorno"])} points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
-    for i, (layer, (x, y), r) in enumerate(f.cerchi):
-        out.append(f'<circle{el(tag(f.cerchi, i))} {stile["quote"]} cx="{x:.2f}" cy="{Y(y):.2f}" r="{r:.2f}"/>')
+    # le linee di fila dello stesso oggetto e dello stesso tipo: un tracciato solo (9.000 segmenti → poche decine)
+    tags = f.linee.tag if isinstance(f.linee, _Strato) else [''] * len(f.linee)
+    corrente, tratti, layer_c = None, [], None
+
+    def chiudi_tracciato():
+        if tratti:
+            out.append(f'<path class="{classe.get(layer_c, "l0")}" d="{" ".join(tratti)}"/>')
+            tratti.clear()
+    for (layer, pts), t in zip(f.linee, tags):
+        if t != corrente:
+            chiudi_tracciato()
+            if corrente:
+                out.append('</g>')
+            if t:
+                out.append(f'<g data-el="{html.escape(t)}">')
+            corrente = t
+        elif layer != layer_c:
+            chiudi_tracciato()
+        layer_c = layer
+        tratti.append('M' + ' '.join(f'{p[0]:.2f} {Y(p[1]):.2f}' for p in pts[:1]) + 'L' + ' '.join(f'{p[0]:.2f} {Y(p[1]):.2f}' for p in pts[1:]))
+    chiudi_tracciato()
+    if corrente:
+        out.append('</g>')
+    gruppi(f.cerchi, lambda x: f'<circle class="{classe["quote"]}" cx="{x[1][0]:.2f}" cy="{Y(x[1][1]):.2f}" r="{x[2]:.2f}"/>')
     out.append('</g>')
-    for i, (layer, pts) in enumerate(f.pieni):
-        out.append(f'<polygon{el(tag(f.pieni, i))} fill="#2B5BA0" points="{" ".join(f"{p[0]:.2f},{Y(p[1]):.2f}" for p in pts)}"/>')
-    for i, (layer, (x, y), t, h, al) in enumerate(f.testi):
-        col = '#2B5BA0' if layer == 'quote' else '#C0392B' if layer == 'piega' else '#111'
+    gruppi(f.pieni, lambda x: f'<polygon class="tq" points="{pts_(x[1])}"/>')
+
+    def testo(x):
+        layer, (tx, ty), t, h, al = x
+        col = 'tq' if layer == 'quote' else 'tp' if layer == 'piega' else 'tn'
         anchor = {'l': 'start', 'c': 'middle', 'r': 'end', 'cv': 'middle'}[al]
-        rot = f' transform="rotate(-90 {x:.2f} {Y(y):.2f})"' if al == 'cv' else ''
-        out.append(f'<text{el(tag(f.testi, i))} x="{x:.2f}" y="{Y(y):.2f}" font-family="Helvetica,Arial,sans-serif" font-size="{h:.2f}" '
-                   f'fill="{col}" text-anchor="{anchor}"{rot}>{html.escape(t)}</text>')
+        rot = f' transform="rotate(-90 {tx:.2f} {Y(ty):.2f})"' if al == 'cv' else ''
+        return (f'<text class="{col}" x="{tx:.2f}" y="{Y(ty):.2f}" font-size="{h:.2f}" text-anchor="{anchor}"{rot}>'
+                f'{html.escape(t)}</text>')
+    gruppi(f.testi, testo)
     out.append('</svg>')
     return '\n'.join(out)
 

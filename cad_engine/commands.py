@@ -12,6 +12,7 @@ storia non resta niente.
 """
 from __future__ import annotations
 
+import copy
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,6 +26,16 @@ class Step:
     label: str
     before: str
     after: str
+
+
+@dataclass
+class MetaStep:
+    """Un passo che cambia solo un dato del progetto (i ritocchi delle tavole, 29/10): niente copia di tutto il
+    progetto prima e dopo (con 4.000 elementi nello sketch erano 0,4 s a ogni ritocco), niente ricostruzione."""
+    label: str
+    chiave: str
+    before: object
+    after: object
 
 
 class History:
@@ -62,10 +73,40 @@ class History:
         self.dirty = True
         self.doc.meta['modified'] = _now()
 
+    def change_meta(self, label: str, chiave: str, valore) -> bool:
+        """doc.meta[chiave] = valore (None = toglilo), come un passo della storia. False se non cambia niente."""
+        prima = copy.deepcopy(self.doc.meta.get(chiave))
+        if prima == valore:
+            return False
+        self._metti(chiave, valore)
+        self.done.append(MetaStep(label, chiave, prima, copy.deepcopy(valore)))
+        if len(self.done) > self.limit:
+            self.done.pop(0)
+        self.undone.clear()
+        self.dirty = True
+        self.doc.meta['modified'] = _now()
+        return True
+
+    def _metti(self, chiave, valore):
+        if valore is None:
+            self.doc.meta.pop(chiave, None)
+        else:
+            self.doc.meta[chiave] = copy.deepcopy(valore)
+
+    def ultimo_solo_meta(self, avanti: bool = False) -> bool:
+        """Il prossimo Annulla (o Rifai) tocca solo un dato del progetto: il pezzo non va ricostruito."""
+        lista = self.undone if avanti else self.done
+        return bool(lista) and isinstance(lista[-1], MetaStep)
+
     def undo(self) -> str:
         if not self.done:
             raise SteelCADError('Non c\'è niente da annullare.', code='niente_da_annullare')
         s = self.done.pop()
+        if isinstance(s, MetaStep):
+            self._metti(s.chiave, s.before)
+            self.undone.append(s)
+            self.dirty = True
+            return s.label
         self.doc.load_definition(json.loads(s.before))
         self.undone.append(s)
         self.dirty = True
@@ -75,6 +116,11 @@ class History:
         if not self.undone:
             raise SteelCADError('Non c\'è niente da ripetere.', code='niente_da_ripetere')
         s = self.undone.pop()
+        if isinstance(s, MetaStep):
+            self._metti(s.chiave, s.after)
+            self.done.append(s)
+            self.dirty = True
+            return s.label
         self.doc.load_definition(json.loads(s.after))
         self.done.append(s)
         self.dirty = True

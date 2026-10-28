@@ -38,7 +38,7 @@ def test_tavola_assieme_si_ritocca_e_si_salva(tmp_path):
     T0 = next(o['T'] for o in f['oggetti'] if o['id'] == 'vista:fronte')
     r = s.tavola_ritocchi(f['chiave'], {'viste': {'vista:fronte': [10, 0]}, 'note': [{'x': 40, 'y': 40, 'testo': 'Zincare'}]})
     assert r['ok']
-    g = r['sheets'][0]
+    g = r['foglio']
     T1 = next(o['T'] for o in g['oggetti'] if o['id'] == 'vista:fronte')
     assert abs(T1[1] - T0[1] - 10) < 1e-6 and 'Zincare' in g['svg']
     assert s.asm.meta['tavole'][f['chiave']]['note'][0]['testo'] == 'Zincare'

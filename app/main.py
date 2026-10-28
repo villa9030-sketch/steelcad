@@ -503,8 +503,8 @@ class Api:
     def esempio(self, eid):
         return self._call(self._svc.esempio, eid)
 
-    def tavola_ritocchi(self, chiave, ritocchi, campi=None):
-        return self._call(self._svc.tavola_ritocchi, chiave, ritocchi, campi)
+    def tavola_ritocchi(self, chiave, ritocchi, campi=None, tutte=False):
+        return self._call(self._svc.tavola_ritocchi, chiave, ritocchi, campi, tutte)
 
     def scegli_logo(self):
         p = self._dialog(webview.OPEN_DIALOG, ('Immagine (*.png;*.jpg;*.jpeg)',))
