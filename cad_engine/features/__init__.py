@@ -34,5 +34,5 @@ VALUE_FIELDS = {
     'sheet_form': ('width', 'height', 'depth'),
     'sheet_edge_flange': ('length', 'angle', 'trim0', 'trim1'),
     'sheet_miter': ('angle', 'gap'),
-    'step_lamiera': ('k',),
+    'step_lamiera': ('k', 'spessore'),
 }

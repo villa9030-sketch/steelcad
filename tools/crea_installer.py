@@ -94,6 +94,9 @@ def prepara(ver_py: str):
             shutil.copy2(p, sp / p.name)
     copia(ROOT / 'app', STAGE / 'app', salta=('icons_nuove',))
     copia(ROOT / 'cad_engine', STAGE / 'cad_engine')
+    # le librerie di questa installazione: tools/aggiorna_installato.py copia solo il codice finché non cambiano
+    import hashlib
+    (STAGE / 'requisiti.sha1').write_text(hashlib.sha1((ROOT / 'requirements.txt').read_bytes()).hexdigest())
     # le librerie compilate in anticipo: la prima apertura non deve aspettare
     subprocess.run([str(py / 'python.exe'), '-m', 'compileall', '-q', '-j', '2', str(STAGE / 'app'), str(STAGE / 'cad_engine')],
                    check=False)
@@ -134,6 +137,12 @@ Name: "desktop"; Description: "Icona sul desktop"; GroupDescription: "Icone:"
 Type: filesandordirs; Name: "{{app}}\app"
 Type: filesandordirs; Name: "{{app}}\cad_engine"
 Type: filesandordirs; Name: "{{app}}\python"
+
+[UninstallDelete]
+; aggiorna_installato.py (28/10) rimette app e cad_engine senza passare dal Setup: si tolgono comunque tutti
+Type: filesandordirs; Name: "{{app}}\app"
+Type: filesandordirs; Name: "{{app}}\cad_engine"
+Type: files; Name: "{{app}}\requisiti.sha1"
 
 [Files]
 Source: "{stage}\*"; DestDir: "{{app}}"; Flags: recursesubdirs createallsubdirs ignoreversion

@@ -1266,19 +1266,28 @@ def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -
     return f
 
 
-def _tabella(f: Foglio, x, ytop, col, righe, titolo=None, h=7.0):
+def _tabella(f: Foglio, x, ytop, col, righe, titolo=None, h=7.0, k=1.0):
     if titolo:
-        f.text('testo', (x, ytop + 2), titolo, 2.8)
+        f.text('testo', (x, ytop + 2 * k), titolo, 2.8 * k)
     for i, r in enumerate(righe):
         y = ytop - i * h
         f.line('tabella', (x, y), (x + col[-1], y))
         for j, val in enumerate(r):
-            th = min(2.4, h * 0.55)
+            th = min(2.4 * k, h * 0.55)
             f.text('tabella' if i else 'testo', (x + col[j] + 1.2, y - h * 0.72), _taglia(str(val), col[j + 1] - col[j], th), th)
     yb = ytop - len(righe) * h
     f.line('tabella', (x, yb), (x + col[-1], yb))
     for c in col:
         f.line('tabella', (x + c, ytop), (x + c, yb))
+
+
+def _metti_distinta(f: Foglio, x, ybase, col, intest, righe, h, k=1.0):
+    """La distinta sopra il cartiglio (la riga di sotto a ybase): si ricorda come è fatta, così si ritocca (28/10:
+    «la distinta non posso modificarla»)."""
+    with f.oggetto('distinta'):
+        _tabella(f, x, ybase + h * (len(righe) + 1), col, [intest] + righe, 'DISTINTA', h=h, k=k)
+    f.elementi['distinta'] = {'kind': 'distinta', 'x': x, 'ybase': ybase, 'col': list(col), 'intest': list(intest),
+                              'righe': [list(r) for r in righe], 'h': h, 'k': k}
 
 
 def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3') -> Foglio:
@@ -1360,8 +1369,7 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     f.gruppo = gruppo_prima
     col = [0, 12, 76, 90, 116, 140, 180]
     intest = ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Peso kg']
-    with f.oggetto('distinta'):
-        _tabella(f, cart[0], cart[3] + 10 + h_riga * (len(distinta) + 1), col, [intest] + distinta, 'DISTINTA', h=h_riga)
+    _metti_distinta(f, cart[0], cart[3] + 10, col, intest, distinta, h_riga)
     return f
 
 
@@ -1513,8 +1521,7 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
     f.gruppo = 'vista:esploso/titolo'
     f.text('testo', (xi0, yi1 + 3), 'VISTA ESPLOSA (fuori scala) · le linee tratteggiate vanno da ogni pezzo a dove si monta', 2.8)
     f.gruppo = gruppo_prima
-    with f.oggetto('distinta'):
-        _tabella(f, cart[0], cart[3] + 10 + h_riga * (len(distinta) + 1), col, [intest] + distinta, 'DISTINTA', h=h_riga)
+    _metti_distinta(f, cart[0], cart[3] + 10, col, intest, distinta, h_riga)
     if righe_m:
         y = area[1] + alto_m
         f.text('testo', (area[0] + 4, y), 'ORDINE DI MONTAGGIO', 2.8)
@@ -1556,6 +1563,8 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
             e.update(a=list(S(e['a'])), b=list(S(e['b'])), distanza=e['distanza'] * k, h=e['h'] * k)
         elif e['kind'] == 'vista':
             e['T'] = [e['T'][0] * k, e['T'][1] * k, e['T'][2] * k]
+        elif e['kind'] == 'distinta':
+            e.update(x=e['x'] * k, ybase=e['ybase'] * k, col=[c * k for c in e['col']], h=e['h'] * k, k=e['k'] * k)
         g.elementi[nome] = e
     if 0 <= f.i_scala < len(g.testi):
         l, p, t, h, al = g.testi[f.i_scala]

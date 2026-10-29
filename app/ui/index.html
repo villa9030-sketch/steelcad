@@ -57,7 +57,7 @@
       <button data-cmd="home">Pagina iniziale</button>
     </div>
   </div>
-  <button class="tbtn" data-cmd="save" title="Salva (Ctrl+S)"><img src="icons/save.svg" alt=""></button>
+  <button class="tbtn testo colore" data-cmd="save" title="Salva (Ctrl+S)"><img src="icons/save.svg" alt=""><span>Salva</span></button>
   <button class="tbtn testo" data-cmd="undo" id="b-undo" title="Annulla"><img src="icons/undo.svg" alt=""><span>Annulla</span></button>
   <button class="tbtn testo" data-cmd="redo" id="b-redo" title="Rifai"><img src="icons/redo.svg" alt=""><span>Rifai</span></button>
   <div class="menu-item"><button class="tbtn" title="Vista"><span>Vista</span></button>
@@ -95,9 +95,15 @@
 </nav>
 
 <aside id="left">
+  <button id="sx-apri" title="Apri il pannello (Progetto, Misure)"><b>»</b><span>Progetto</span></button>
   <section class="panel">
-    <h2>Progetto</h2>
+    <h2>Progetto<button class="sx-chiudi" id="sx-chiudi" title="Riduci il pannello (trascina il bordo per allargarlo)">«</button></h2>
     <div id="tree"></div>
+  </section>
+  <section class="panel" id="storia-panel" hidden>
+    <details id="storia-box"><summary><h2>Storia</h2><span class="storia-n" id="storia-n"></span></summary>
+      <div class="storia" id="storia"></div>
+      <p class="hint">Clic su un passo: il pezzo torna com’era lì. Ctrl+Z / Ctrl+Y un passo alla volta.</p></details>
   </section>
   <section class="panel" id="params-panel">
     <h2>Misure</h2>
@@ -131,12 +137,12 @@
       <div class="cf" data-view="view_right" data-f="px">DESTRA</div>
       <div class="cf" data-view="view_left" data-f="nx">SINISTRA</div>
     </div>
-    <button class="cube-home" data-cmd="view_iso" title="Vista isometrica (0)"><img src="icons/home.svg" alt=""></button>
+    <button class="cube-home" data-cmd="view_iso" title="Torna alla vista isometrica (0)"><img src="icons/home.svg" alt="">Iso</button>
   </div>
   <div id="navbar">
-    <button data-cmd="fit" title="Inquadra tutto il pezzo (F)" aria-label="Inquadra tutto"><img src="icons/fit.svg" alt=""></button>
-    <button data-cmd="toggle_dims" title="Quote: mostra o nascondi le misure sul modello (Q)" aria-label="Quote"><img src="icons/dimension.svg" alt=""></button>
-    <button data-cmd="toggle_theme" title="Colori: passa dallo sfondo scuro al chiaro e viceversa" aria-label="Colori" class="theme-btn">◐</button>
+    <button data-cmd="fit" title="Inquadra tutto il pezzo (F)"><img src="icons/fit.svg" alt=""><span>Inquadra</span></button>
+    <button data-cmd="toggle_dims" title="Quote: mostra o nascondi le misure sul modello (Q)"><img src="icons/dimension.svg" alt=""><span>Quote</span></button>
+    <button data-cmd="toggle_theme" title="Colori: passa dallo sfondo scuro al chiaro e viceversa" class="theme-btn"><b>◐</b><span>Tema</span></button>
   </div>
   <div id="flat-bar" hidden>Sviluppo della lamiera
     <button class="btn primary" data-cmd="flat_sketch">Disegna sullo sviluppo</button>
@@ -164,6 +170,7 @@
   <div id="sk-box"></div>
 </main>
 
+<div id="sx-maniglia" title="Trascina per allargare o stringere il pannello"></div>
 <aside id="right">
   <section class="panel" id="props-panel">
     <h2>Proprietà</h2>
@@ -233,6 +240,10 @@
         <button data-new="cancello"><span class="pic"><img src="img/modelli/cancello.png" alt=""></span><b>Cancello</b><span>Telaio e sbarre a passo uguale</span></button>
         <button data-new="disegno"><span class="pic"><img src="img/modelli/struttura_disegno.png" alt=""></span><b>La disegno io</b><span>Tracci le linee, diventano tubi</span></button>
       </div>
+    </section>
+    <section class="home-modelli">
+      <h2>Parti da un modello</h2>
+      <div class="home-modelli-griglia" id="home-modelli"></div>
     </section>
     <section class="home-esempi" id="home-esempi" hidden>
       <h2>Esempi da aprire</h2>

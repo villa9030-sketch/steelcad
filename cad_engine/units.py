@@ -22,6 +22,11 @@ def fmt_mm(v: float) -> str:
     return s.replace('.', ',')
 
 
+def fmt_kg(v: float) -> str:
+    """12.197 -> '12,20 kg', 0.0893 -> '0,089 kg' (28/10: «12.197 kg» in italiano si legge dodicimila)."""
+    return (f'{v:.3f}' if abs(v) < 1 else f'{v:.2f}').replace('.', ',') + ' kg'
+
+
 def cap(s: str) -> str:
     """Prima lettera maiuscola, il resto com'è (str.capitalize abbasserebbe i nomi propri)."""
     return s[:1].upper() + s[1:]

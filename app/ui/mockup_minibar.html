@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Radius · la barra dopo la selezione</title>
+<style>
+:root { --bg: #121519; --app: #16191D; --panel: #1E232A; --surf: #252B33; --line: #343C46; --ink: #E4E9EE; --ink2: #AAB4BE; --ink3: #75808B;
+  --blu: #3D7FD0; --blu2: #5AA9FF; --ambra: #FFB000; --rosso: #E5484D; --verde: #3FB27F; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.pag { max-width: 1300px; margin: 0 auto; padding: 26px 40px 50px; }
+h1 { margin: 0 0 6px; font-size: 24px; }
+.intro { color: var(--ink2); margin: 0 0 18px; max-width: 980px; }
+.male { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 0 0 30px; }
+.male div { background: #2A1E21; border: 1px solid #5A2A2E; border-radius: 9px; padding: 10px 12px; font-size: 13px; color: #EBC9CB; }
+.male b { display: block; color: #FFC9CB; margin-bottom: 2px; }
+section { margin: 0 0 36px; }
+section > h2 { display: flex; align-items: center; gap: 10px; font-size: 19px; margin: 0 0 4px; }
+section > h2 .t { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; background: #4A5562; color: #fff; font-size: 15px; }
+section.cons > h2 .t { background: var(--blu); }
+.cons-tag { font-size: 12px; font-weight: 600; color: #fff; background: var(--verde); padding: 2px 9px; border-radius: 10px; }
+section > p { margin: 0 0 10px; color: var(--ink2); max-width: 980px; }
+.pro { display: flex; gap: 18px; flex-wrap: wrap; margin: 0 0 10px; font-size: 13px; }
+.pro span::before { content: '✓ '; color: var(--verde); font-weight: 700; }
+.pro span.contro::before { content: '✗ '; color: #E58B8E; }
+.scelte { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
+.scelte button { font: inherit; font-size: 13px; padding: 5px 13px; border-radius: 16px; border: 1px solid var(--line); background: none; color: var(--ink2); cursor: pointer; }
+.scelte button.on { border-color: var(--blu); color: var(--ink); background: rgba(61, 127, 208, .16); }
+.schermo { position: relative; height: 520px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 40%, #2A313A, #181C21 75%); box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+.schermo svg.pz { position: absolute; inset: 0; width: 100%; height: 100%; }
+.barra-sx { position: absolute; left: 0; top: 0; bottom: 0; width: 200px; background: var(--panel); border-right: 1px solid var(--line); padding: 12px; font-size: 12.5px; color: var(--ink2); }
+.barra-sx h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; color: var(--ink3); }
+.barra-sx div { padding: 3px 6px; border-radius: 4px; }
+.barra-sx div.on { background: rgba(255, 176, 0, .14); color: var(--ink); }
+.vista { position: absolute; left: 200px; right: 0; top: 0; bottom: 0; }
+/* elementi comuni */
+.chip-sel { display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 9px; border-radius: 8px; background: rgba(255, 176, 0, .14);
+  border: 1px solid rgba(255, 176, 0, .45); color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.chip-sel i { font-style: normal; color: var(--ambra); }
+.chip-sel small { color: var(--ink3); font-weight: 400; }
+.chip-sel .x { border: 0; background: none; color: var(--ink3); cursor: pointer; font-size: 15px; padding: 0 3px; }
+.campo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+.num { display: flex; align-items: center; height: 32px; border: 1px solid #434C57; border-radius: 7px; background: #14181D; overflow: hidden; }
+.num button { width: 26px; height: 100%; border: 0; background: none; color: var(--ink2); cursor: pointer; font-size: 15px; }
+.num button:hover { background: #2A313A; color: var(--ink); }
+.num input { width: 56px; border: 0; background: none; color: var(--ink); font: 600 14px "Segoe UI"; text-align: center; outline: none; }
+.num span { color: var(--ink3); font-size: 11.5px; padding-right: 8px; }
+.seg { display: flex; padding: 2px; gap: 2px; border-radius: 8px; background: #14181D; border: 1px solid #343C46; }
+.seg button { border: 0; background: none; color: var(--ink2); font: 12.5px "Segoe UI"; padding: 5px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: #3A4552; color: #fff; font-weight: 600; }
+.az { display: flex; gap: 2px; }
+.az button { display: grid; justify-items: center; gap: 1px; min-width: 58px; padding: 4px 6px; border: 0; border-radius: 7px; background: none; color: var(--ink2);
+  font: 11.5px "Segoe UI"; cursor: pointer; }
+.az button img { width: 20px; height: 20px; }
+.az button:hover { background: #2E3640; color: var(--ink); }
+.az button.via { color: #FF9B9E; }
+.piu { border: 1px solid var(--line); background: none; color: var(--ink2); border-radius: 7px; padding: 6px 10px; font: 12.5px "Segoe UI"; cursor: pointer; white-space: nowrap; }
+.piu:hover { color: var(--ink); border-color: var(--blu2); }
+.sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+/* ===== A: la scheda accanto, con la linea che la lega a quello che hai scelto */
+.scheda { position: absolute; width: 300px; border-radius: 12px; background: rgba(30, 35, 42, .98); border: 1px solid #3A4450; box-shadow: 0 16px 40px rgba(0, 0, 0, .5); }
+.scheda .testa { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.scheda .testa img { width: 22px; height: 22px; }
+.scheda .testa b { font-size: 14px; }
+.scheda .testa small { display: block; color: var(--ink3); font-size: 11.5px; font-weight: 400; }
+.scheda .testa .x { margin-left: auto; border: 0; background: none; color: var(--ink3); font-size: 18px; cursor: pointer; }
+.scheda .corpo { padding: 10px 12px; display: grid; gap: 9px; }
+.scheda .riga { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink2); }
+.scheda .piede { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px 8px; border-top: 1px solid var(--line); }
+.scheda .altro { padding: 0 12px 12px; display: none; gap: 8px; }
+.scheda.aperta .altro { display: grid; }
+.scheda .altro .riga { grid-template-columns: 110px 1fr; }
+/* ===== B: la barra fissa in basso, una sola per tutto (selezione + misure + azioni), che si alza per «Altro» */
+.dock { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(1020px, calc(100% - 40px)); border-radius: 14px;
+  background: rgba(30, 35, 42, .98); border: 1px solid #3A4450; box-shadow: 0 16px 40px rgba(0, 0, 0, .55); overflow: hidden; }
+.dock .riga1 { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 12px; min-height: 56px; }
+.dock .riga1 { min-height: 50px !important; padding: 6px 10px 6px 12px !important; }
+.dock .riga2 { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 2px 14px 12px; }
+.dock .riga2 .campo > span { color: var(--ink3); }
+.dock .spazio { flex: 1; }
+.dock .altro { display: none; border-top: 1px solid var(--line); padding: 12px 14px; gap: 18px; flex-wrap: wrap; align-items: flex-start; background: rgba(0, 0, 0, .12); }
+.dock.aperta .altro { display: flex; }
+.dock .altro .gruppo { display: grid; gap: 6px; min-width: 200px; }
+.dock .altro .gruppo h6 { margin: 0; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink3); }
+.dock .suggerimento { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: 8px; font-size: 12px; color: var(--ink3); white-space: nowrap; }
+.nota { position: absolute; font-size: 12px; color: #FFD27A; background: rgba(0, 0, 0, .6); border: 1px dashed rgba(255, 210, 122, .55); padding: 4px 8px; border-radius: 6px; max-width: 240px; pointer-events: none; }
+.colonne { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 30px; }
+.colonne > div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.colonne h3 { margin: 0 0 6px; font-size: 15px; }
+.colonne ul { margin: 0; padding-left: 18px; color: var(--ink2); font-size: 13px; }
+</style>
+</head>
+<body><div class="pag">
+<h1>La barra dopo la selezione: due modi migliori</h1>
+<p class="intro">Cosa non va nella mini barra di adesso, e due alternative provate sugli stessi casi. Cambia cosa è selezionato con i pulsanti sopra ogni schermo; prova i campi, i ± e «Altro».</p>
+<div class="male">
+  <div><b>Copre il pezzo</b>compare dove clicchi: sopra quello che guardi</div>
+  <div><b>Cambia posto</b>a ogni clic l'occhio la deve cercare</div>
+  <div><b>Tutto in una riga</b>misure, scelte e azioni mescolate</div>
+  <div><b>I passi sostituiscono</b>il «secondo passo» del foro fa sparire il primo</div>
+  <div><b>Due cose flottanti</b>«Altro…» apre un'altra scheda in un altro posto</div>
+</div>
+
+<!-- ============================================================ A -->
+<section id="A">
+  <h2><span class="t">A</span>La scheda accanto, legata a quello che hai scelto</h2>
+  <p>Una scheda ordinata (titolo, misure una per riga, azioni in fondo) che si mette <b>di fianco</b> alla cosa scelta, mai sopra, con una linea che la collega. «Altro» si apre <b>dentro la stessa scheda</b>.</p>
+  <div class="pro"><span>ordinata e leggibile</span><span>«Altro» nello stesso posto</span><span class="contro">si sposta ancora col pezzo</span><span class="contro">sui pezzi grandi copre comunque una parte</span></div>
+  <div class="scelte" data-per="A"></div>
+  <div class="schermo"><div class="barra-sx"><h4>PROGETTO</h4><div>Staffa a L</div><div>Lamiera sp. 3</div><div class="on" id="A-albero">Flangia dietro</div></div>
+    <div class="vista"><svg class="pz" id="A-svg"></svg><div id="A-ui"></div></div></div>
+</section>
+
+<!-- ============================================================ B -->
+<section id="B" class="cons">
+  <h2><span class="t">B</span>Una barra sola, ferma in basso <span class="cons-tag">consigliata</span></h2>
+  <p>Una barra <b>sempre nello stesso posto</b>, in basso al centro, la stessa della «cosa fare adesso»: a sinistra <b>cosa hai scelto</b> (con la × per lasciarlo), in mezzo <b>le misure</b> grandi con ± , a destra <b>le azioni</b>. «Altro» la fa <b>crescere verso l'alto</b>, senza aprire altro. Le scelte (svasato, filettato…) mostrano le loro misure <b>accanto</b>, senza «passo 2».</p>
+  <div class="pro"><span>non copre mai il pezzo</span><span>sempre lì: la mano la trova senza guardare</span><span>una cosa sola per tutto (anche i comandi)</span><span>niente secondo passo</span></div>
+  <div class="scelte" data-per="B"></div>
+  <div class="schermo"><div class="barra-sx"><h4>PROGETTO</h4><div>Staffa a L</div><div>Lamiera sp. 3</div><div class="on" id="B-albero">Flangia dietro</div></div>
+    <div class="vista"><svg class="pz" id="B-svg"></svg><div id="B-ui"></div></div></div>
+</section>
+
+<div class="colonne">
+  <div><h3>Come funzionerebbe (B)</h3><ul>
+    <li>Clic su una cosa: la barra in basso diventa sua. Clic nel vuoto o <b>Esc</b>: la barra torna vuota (o mostra il comando in corso).</li>
+    <li>Le misure cambiano <b>subito</b> (Invio, ±, rotellina) con l'anteprima nel 3D; <b>Ctrl+Z</b> le annulla.</li>
+    <li>Le scelte a bottoni (90°/45°, Su/Giù, Semplice/Svasato/Filettato) mostrano le loro misure accanto.</li>
+    <li>«Altro ▴» alza la barra con le opzioni rare, divise per gruppi; di nuovo «Altro ▾» la riabbassa.</li>
+    <li>Durante un comando (Flangia, Saldatura…) la stessa barra fa da «cosa fare adesso».</li>
+  </ul></div>
+  <div><h3>Cosa resta uguale</h3><ul>
+    <li>La freccia blu da tirare sulle flange.</li>
+    <li>Il tasto destro sui pezzi dell'assieme (Apri, Nascondi, Solo questo).</li>
+    <li>La colonna a destra sparisce del tutto: la vista 3D usa tutta la larghezza.</li>
+    <li>Le misure e i nomi sono quelli di Radius (esempi: staffa 300 × 200, flangia 120).</li>
+  </ul></div>
+</div>
+</div>
+<script>
+// ------------------------------------------------------------------ il pezzo (staffa a L con un foro e un taglio)
+const C30 = Math.cos(Math.PI / 6);
+function vista(svg) {
+  const W = svg.clientWidth || 1100, H = svg.clientHeight || 520, k = 1.05, ox = W / 2 - 40 * k, oy = H / 2 - 110 * k;
+  const P = (x, y, z) => [ox + (x - y) * C30 * k, oy + ((x + y) * 0.5 - z) * k];
+  const poly = (pts, fill, extra = '') => `<polygon points="${pts.map(p => P(...p).map(v => v.toFixed(1)).join(',')).join(' ')}" fill="${fill}" stroke="#20262D" stroke-width="1" stroke-linejoin="round" ${extra}/>`;
+  return { P, k, poly };
+}
+const L = 300, Pf = 200, T = 3, HW = 120;
+function pezzo(svg, sel) {
+  const v = vista(svg);
+  const acc = c => sel === c;
+  let s = '<defs><filter id="g"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  const [cx, cy] = v.P(L / 2, Pf / 2, -10);
+  s += `<ellipse cx="${cx}" cy="${cy + 30}" rx="${300 * v.k}" ry="${80 * v.k}" fill="rgba(0,0,0,.3)" style="filter:blur(14px)"/>`;
+  s += v.poly([[0, 0, T], [L, 0, T], [L, Pf, T], [0, Pf, T]], acc('faccia') ? '#E9C46A' : '#C7CFD8');
+  // il taglio nell'angolo davanti a destra
+  s += v.poly([[220, 140, T + .1], [290, 140, T + .1], [290, 190, T + .1], [220, 190, T + .1]], acc('taglio') ? '#3A3020' : '#2B333D', acc('taglio') ? 'stroke="#FFB000" stroke-width="2.5"' : '');
+  s += v.poly([[0, Pf, 0], [L, Pf, 0], [L, Pf, T], [0, Pf, T]], acc('bordo') ? '#FFB000' : '#8A96A3', acc('bordo') ? 'filter="url(#g)"' : '');
+  s += v.poly([[L, 0, 0], [L, Pf, 0], [L, Pf, T], [L, 0, T]], '#6E7A87');
+  // il foro
+  const [hx, hy] = v.P(80, 120, T);
+  s += `<ellipse cx="${hx}" cy="${hy}" rx="${13 * v.k}" ry="${7.5 * v.k}" fill="#232A33" stroke="${acc('foro') ? '#FFB000' : '#5AA9FF'}" stroke-width="${acc('foro') ? 3 : 1.2}"/>`;
+  s += v.poly([[0, T, T], [L, T, T], [L, T, T + HW], [0, T, T + HW]], acc('flangia') ? '#E9C46A' : '#AEB8C3');
+  s += v.poly([[0, 0, T + HW], [L, 0, T + HW], [L, T, T + HW], [0, T, T + HW]], '#DDE3E9');
+  s += v.poly([[L, 0, T], [L, T, T], [L, T, T + HW], [L, 0, T + HW]], '#7D8996');
+  if (acc('flangia')) {
+    const [ax, ay] = v.P(L / 2, T, T + HW + 22);
+    s += `<g transform="translate(${ax},${ay})"><circle r="13" fill="rgba(90,169,255,.18)"/><path d="M0 -11 L7 -3 L2.5 -3 L2.5 6 L-2.5 6 L-2.5 -3 L-7 -3 Z" fill="#5AA9FF" stroke="#fff" stroke-width="1"/></g>`;
+  }
+  svg.innerHTML = s;
+  const dove = { faccia: v.P(150, 80, T), bordo: v.P(150, Pf, T / 2), flangia: v.P(150, T, T + 70), foro: v.P(80, 120, T), taglio: v.P(255, 165, T) }[sel];
+  return { v, dove };
+}
+// ------------------------------------------------------------------ cosa c'è da mostrare per ogni selezione
+const num = (id, val, u = 'mm') => `<div class="num"><button data-pm="-1" data-for="${id}">−</button><input id="${id}" value="${val}"><span>${u}</span><button data-pm="1" data-for="${id}">+</button></div>`;
+const seg = (id, voci, on) => `<div class="seg" data-seg="${id}">${voci.map(([k, t]) => `<button data-k="${k}" class="${k === on ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+const az = voci => `<div class="az">${voci.map(([ic, t, cls]) => `<button class="${cls || ''}"><img src="icons/${ic}.svg" alt="">${t}</button>`).join('')}</div>`;
+const COSE = {
+  faccia: { ic: 'project', nome: 'Faccia di sopra', sotto: 'base 300 × 200', albero: 'Lamiera sp. 3',
+    misure: () => [], azioni: [['project', 'Disegna qui'], ['hole', 'Foro'], ['cut', 'Taglio'], ['dimension', 'Misura']],
+    altro: [['Pezzo', `<div class="campo">Peso <b style="color:var(--ink)">3,87 kg</b></div><div class="campo">Area faccia <b style="color:var(--ink)">58 500 mm²</b></div>`]] },
+  bordo: { ic: 'flange', nome: 'Bordo davanti', sotto: '300 mm', albero: 'Lamiera sp. 3',
+    misure: () => [['Lunghezza', num('l', 30)], ['Angolo', seg('ang', [['90', '90°'], ['45', '45°'], ['135', '135°']], '90')]],
+    azioni: [['flange', 'Piega in su'], ['fold', 'Piega in giù'], ['hem', 'Orlo']],
+    altro: [['Misura', seg('pos', [['f', 'Fuori tutto'], ['b', 'Dal bordo']], 'f')], ['Dati di piega', '<div class="campo">R 3 · K 0,4 <a style="color:var(--blu2)">cambia</a></div>']] },
+  flangia: { ic: 'flange', nome: 'Flangia dietro', sotto: 'FL1 · piega 90°', albero: 'Flangia dietro',
+    misure: () => [['Lunghezza', num('l', 120)], ['Angolo', seg('ang', [['90', '90°'], ['45', '45°'], ['135', '135°']], '90')], ['Verso', seg('dir', [['su', '↑ Su'], ['giu', '↓ Giù']], 'su')]],
+    azioni: [['project', 'Disegna qui'], ['hole', 'Foro'], ['delete', 'Togli', 'via']],
+    altro: [['Angoli', seg('ang2', [['a', 'Aperti'], ['c', 'Chiusi']], 'a')], ['Prolunga', `<div class="campo">Inizio ${num('p1', 0)} Fine ${num('p2', 0)}</div>`], ['Misura', seg('pos', [['f', 'Fuori tutto'], ['b', 'Dal bordo']], 'f')]] },
+  foro: { ic: 'hole', nome: 'Foro Ø9', sotto: '4 fori uguali', albero: 'Fori',
+    misure: tipo => [['Ø', num('d', 9)], ['Tipo', seg('tipo', [['s', 'Semplice'], ['v', 'Svasato'], ['f', 'Filettato'], ['i', 'Inserto']], tipo)],
+      ...(tipo === 'v' ? [['Ø svasatura', num('D', 14)], ['Angolo', num('A', 90, '°')]] : tipo === 'f' ? [['Filetto', seg('m', [['M5', 'M5'], ['M6', 'M6'], ['M8', 'M8'], ['M10', 'M10']], 'M6')]] : []),
+      ['', '<label class="check"><input type="checkbox" checked> tutti e 4 i fori</label>']],
+    azioni: [['fastener', 'Vite qui'], ['delete', 'Togli', 'via']],
+    altro: [['Disegno', '<button class="piu">Apri il disegno del foro</button>'], ['Inserto', '<div class="campo">Codice <input style="width:120px;height:28px;background:#14181D;border:1px solid #434C57;border-radius:6px;color:var(--ink)"></div>']] },
+  taglio: { ic: 'cut', nome: 'Taglio rettangolare', sotto: 'angolo davanti', albero: 'Taglio',
+    misure: () => [['Largo', num('w', 70)], ['Alto', num('h', 50)], ['Raggio', num('r', 0)]],
+    azioni: [['delete', 'Togli', 'via']],
+    altro: [['Posizione', `<div class="campo">Da sinistra ${num('x', 220)} Dal basso ${num('y', 10)}</div>`], ['Disegno', '<button class="piu">Apri il disegno</button>']] },
+};
+const stato = { A: { sel: 'flangia', tipo: 's', aperta: false }, B: { sel: 'flangia', tipo: 's', aperta: false } };
+function disegna(k) {
+  const st = stato[k], c = COSE[st.sel];
+  const { dove } = pezzo(document.getElementById(k + '-svg'), st.sel);
+  document.getElementById(k + '-albero').textContent = c.albero;
+  const ui = document.getElementById(k + '-ui');
+  const unico = h => h.replace(/(id|data-for)="([^"]+)"/g, `$1="${k}-$2"`);   // i campi delle due schermate non si scontrano
+  const lista = c.misure(st.tipo).map(([e, h]) => [e, unico(h)]);
+  const altro = c.altro.map(([t, h]) => k === 'A' ? `<div class="riga"><span>${t}</span><div>${h}</div></div>` : `<div class="gruppo"><h6>${t}</h6>${h}</div>`).map(unico).join('');
+  if (k === 'A') {
+    const x = Math.min(dove[0] + 120, 760), y = Math.max(20, Math.min(dove[1] - 150, 230));
+    ui.innerHTML = `<svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"><line x1="${dove[0]}" y1="${dove[1]}" x2="${x}" y2="${y + 30}" stroke="#FFB000" stroke-width="1.5" stroke-dasharray="4 3"/><circle cx="${dove[0]}" cy="${dove[1]}" r="5" fill="#FFB000"/></svg>
+      <div class="scheda${st.aperta ? ' aperta' : ''}" style="left:${x}px;top:${y}px">
+        <div class="testa"><img src="icons/${c.ic}.svg" alt=""><div><b>${c.nome}</b><small>${c.sotto}</small></div><button class="x">×</button></div>
+        <div class="corpo">${lista.length ? lista.map(([e, h]) => `<div class="riga"><span>${e}</span><div>${h}</div></div>`).join('') : '<span style="color:var(--ink3);font-size:12.5px">Cosa vuoi fare su questa faccia?</span>'}</div>
+        <div class="altro">${altro}</div>
+        <div class="piede">${az(c.azioni)}<button class="piu" data-altro>${st.aperta ? 'Meno ▴' : 'Altro ▾'}</button></div>
+      </div>`;
+  } else {
+    ui.innerHTML = `<div class="dock${st.aperta ? ' aperta' : ''}">
+        <div class="altro">${altro}</div>
+        <div class="riga1">
+          <span class="chip-sel"><i>●</i>${c.nome} <small>${c.sotto}</small><button class="x" title="Lascia (Esc)">×</button></span>
+          <span class="spazio"></span>${az(c.azioni)}<div class="sep"></div><button class="piu" data-altro>${st.aperta ? 'Altro ▾' : 'Altro ▴'}</button>
+        </div>
+        ${lista.length ? `<div class="riga2">${lista.map(([e, h]) => `<div class="campo">${e ? `<span>${e}</span>` : ''}${h}</div>`).join('')}</div>` : ''}</div>
+      <div class="nota" style="left:${dove[0] - 120}px;top:${dove[1] - 70}px">scelto qui · la barra resta giù</div>`;
+  }
+  ui.querySelectorAll('[data-altro]').forEach(b => b.onclick = () => { st.aperta = !st.aperta; disegna(k); });
+  ui.querySelectorAll('[data-seg="tipo"] button').forEach(b => b.onclick = () => { st.tipo = b.dataset.k; disegna(k); });
+  ui.querySelectorAll('.seg:not([data-seg="tipo"]) button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
+  ui.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { const i = document.getElementById(b.dataset.for); i.value = Math.max(0, (+i.value || 0) + +b.dataset.pm * (i.id === 'A' ? 5 : 1)); });
+  ui.querySelectorAll('.num input').forEach(i => i.addEventListener('wheel', e => { e.preventDefault(); i.value = Math.max(0, (+i.value || 0) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false }));
+  ui.querySelectorAll('.x').forEach(b => b.onclick = () => { ui.innerHTML = k === 'B' ? '<div class="dock"><div class="riga1" style="justify-content:center;color:var(--ink3)">Clicca una faccia, un bordo, un foro… · oppure scegli un comando in alto</div></div>' : ''; pezzo(document.getElementById(k + '-svg'), null); });
+}
+for (const k of ['A', 'B']) {
+  const box = document.querySelector(`.scelte[data-per="${k}"]`);
+  box.innerHTML = [['faccia', 'Una faccia'], ['bordo', 'Un bordo'], ['flangia', 'Una flangia'], ['foro', 'Un foro'], ['taglio', 'Un taglio']]
+    .map(([s, t]) => `<button data-s="${s}" class="${s === stato[k].sel ? 'on' : ''}">${t}</button>`).join('');
+  box.onclick = e => { const b = e.target.closest('button'); if (!b) return; box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    stato[k].sel = b.dataset.s; stato[k].tipo = 's'; stato[k].aperta = false; disegna(k); };
+}
+addEventListener('load', () => { disegna('A'); disegna('B'); });
+</script>
+</body>
+</html>

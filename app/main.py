@@ -583,6 +583,12 @@ class Api:
     def libreria_catalogo(self):
         return self._call(self._svc.libreria_catalogo)
 
+    def asm_insert_viteria(self, tipo, misura, lunghezza=None, foro=None, opz=None):
+        return self._call(self._svc.asm_insert_viteria, tipo, misura, lunghezza, foro, opz)
+
+    def asm_fori_uguali(self, inst, face):
+        return self._call(self._svc.asm_fori_uguali, inst, face)
+
     def asm_insert_libreria(self, tipo, misura, lunghezza=None, foro=None):
         return self._call(self._svc.asm_insert_libreria, tipo, misura, lunghezza, foro)
 
@@ -617,6 +623,21 @@ class Api:
         if r.get('ok') and self._window is not None:
             threading.Timer(1.5, lambda: self._window.destroy()).start()
         return r
+
+    def step_spessore(self, valore):
+        return self._call(self._svc.step_spessore, valore)
+
+    def faccia_del_foro(self, centro):
+        return self._call(self._svc.faccia_del_foro, centro)
+
+    def hole_adopt(self, face_name, centri, d, spec):
+        return self._call(self._svc.hole_adopt, face_name, centri, d, spec)
+
+    def crea_da_modello(self, tipo, campi):
+        return self._call(self._svc.crea_da_modello, tipo, campi)
+
+    def history_goto(self, pos):
+        return self._call(self._svc.history_goto, pos)
 
     def set_titlebar(self, colore):
         _barra_titolo(getattr(self, '_window', None), colore if isinstance(colore, str) and len(colore) == 7 else '#101215')

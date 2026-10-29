@@ -15,7 +15,7 @@ import numpy as np
 
 from cad_engine import assembly as A
 from cad_engine.errors import SteelCADError
-from cad_engine.units import fmt_mm
+from cad_engine.units import fmt_kg, fmt_mm
 
 
 def _ok(**kw):
@@ -202,6 +202,16 @@ class AssemblyMixin:
         self.asm_dirty = True
         self.scene_version += 1
         return _ok(state=self.state())
+
+    def asm_history_goto(self, pos) -> dict:
+        pos = int(pos)
+        qui = len(self.asm_undo)
+        if not 0 <= pos <= qui + len(self.asm_redo):
+            return {'ok': False, 'message': 'Quel passo non c’è più.'}
+        r = _ok(state=self.state())
+        for _ in range(abs(pos - qui)):
+            r = self._asm_undo(pos > qui)
+        return r
 
     def _asm_save(self, path=None):
         p = Path(path) if path else self.path
@@ -792,6 +802,195 @@ class AssemblyMixin:
         r['select'] = nuovo
         return r
 
+    # ------------------------------------------------------------ viteria a quantità (28/10)
+    # «non stare lì a farlo una alla volta ogni volta»: in tutti i fori uguali del pezzo cliccato (ogni vite nel suo
+    # foro e appoggiata sotto la testa, dal lato da cui guardi), o N pezzi affiancati; un solo passo di Annulla.
+    def _fori_uguali(self, inst: str, face: int) -> list:
+        """I fori del pezzo con lo stesso diametro e la stessa direzione del foro cliccato (quello per primo)."""
+        from cad_engine.topology.naming import _faces_of
+        part = self.asm_parts[self.asm.instance(inst)['file']]
+        facce = list(_faces_of(part.shape))
+        f0 = A.face_info(part, facce[int(face)])
+        if f0['kind'] != 'cilindrica':
+            return [{'inst': inst, 'face': int(face)}]
+        d0 = np.array(f0['n'])
+        perp = lambda p: np.array(p) - d0 * np.dot(np.array(p), d0)  # noqa: E731 - il punto dell'asse, tolto lo spessore
+        assi, out = [perp(f0['p'])], [{'inst': inst, 'face': int(face)}]
+        for k, f in enumerate(facce):
+            inf = A.face_info(part, f)
+            if inf['kind'] != 'cilindrica' or abs(inf['r'] - f0['r']) > 1e-4 or abs(abs(float(np.dot(inf['n'], d0))) - 1) > 1e-6:
+                continue
+            q = perp(inf['p'])
+            if any(np.linalg.norm(q - a) < 1e-3 for a in assi):
+                continue
+            assi.append(q)
+            out.append({'inst': inst, 'face': k})
+        return out
+
+    def asm_fori_uguali(self, inst: str, face: int) -> dict:
+        try:
+            return {'ok': True, 'n': len(self._fori_uguali(inst, face))}
+        except Exception:  # noqa: BLE001 - è solo un conteggio per la finestra
+            return {'ok': True, 'n': 1}
+
+    def _appoggia_testa(self, foro: dict, vite: str, verso=None) -> bool:
+        """La vite (asse Y, sotto della testa a y = 0) appoggiata sulla faccia dove si apre il foro: quella girata
+        verso chi guarda (verso: la direzione verso la camera, nel mondo)."""
+        import build123d as bd
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.GeomAbs import GeomAbs_Plane
+        from OCP.gp import gp_Pnt
+
+        from cad_engine.topology.naming import _faces_of
+        ip = self.asm.instance(foro['inst'])
+        parte = self.asm_parts[ip['file']]
+        facce = list(_faces_of(parte.shape))
+        fc = facce[int(foro['face'])]
+        ad = BRepAdaptor_Surface(fc)
+        ax = ad.Cylinder().Axis()
+        o = np.array([ax.Location().X(), ax.Location().Y(), ax.Location().Z()])
+        d = np.array([ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z()])
+        R = ad.Cylinder().Radius()
+        capi = [o + d * ad.FirstVParameter(), o + d * ad.LastVParameter()]
+        Rm = np.array(ip['R'], dtype=float)
+        v = np.array(verso if verso else [0, 0, 1], dtype=float)
+        scelte = []
+        for k, f in enumerate(facce):
+            s2 = BRepAdaptor_Surface(f)
+            if s2.GetType() != GeomAbs_Plane:
+                continue
+            pl = s2.Plane()
+            n = np.array([pl.Axis().Direction().X(), pl.Axis().Direction().Y(), pl.Axis().Direction().Z()])
+            p0 = np.array([pl.Location().X(), pl.Location().Y(), pl.Location().Z()])
+            if abs(abs(float(np.dot(n, d))) - 1) > 1e-6:
+                continue
+            for c in capi:
+                if abs(float(np.dot(c - p0, n))) > 1e-3:
+                    continue
+                dd = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(gp_Pnt(*c)).Vertex(), f)
+                if dd.IsDone() and dd.Value() < R + 0.05:          # la faccia attorno al foro (il centro dista R)
+                    nn = bd.Face(f).normal_at(bd.Vector(*c))
+                    scelte.append((float(np.dot(Rm @ np.array([nn.X, nn.Y, nn.Z]), v)), k))
+        if not scelte:
+            return False
+        k_pezzo = max(scelte)[1]
+        # il pacco (28/10): se sopra c'è un altro pezzo col foro allineato (la staffa sulla piastra, una rondella),
+        # la vite appoggia sull'ultimo pezzo in cima, non dentro quello di mezzo
+        T = np.array(ip['T'], dtype=float)
+        fk = BRepAdaptor_Surface(facce[k_pezzo]).Plane()
+        nk = bd.Face(facce[k_pezzo]).normal_at(bd.Vector(*capi[0]))
+        su = Rm @ np.array([nk.X, nk.Y, nk.Z])                     # verso fuori dalla faccia, nel mondo
+        asse_w = Rm @ o + T
+        p0 = Rm @ np.array([fk.Location().X(), fk.Location().Y(), fk.Location().Z()]) + T
+        h = float(np.dot(p0 - asse_w, su))                         # la quota della faccia lungo «su»
+        dove = (foro['inst'], k_pezzo)
+        visti = {foro['inst']}
+        for _ in range(8):
+            sopra = self._faccia_del_pacco(asse_w, su, h, R, visti)
+            if not sopra:
+                break
+            dove, h = sopra[0], sopra[1]
+            visti.add(dove[0])
+        vp = self.asm_parts[self.asm.instance(vite)['file']]
+        sotto = [(bd.Face(f).area, k) for k, f in enumerate(_faces_of(vp.shape))
+                 if A.face_info(vp, f)['kind'] == 'piana' and abs(A.face_info(vp, f)['n'][1] + 1) < 1e-6
+                 and abs(A.face_info(vp, f)['p'][1]) < 1e-6]
+        if not sotto:
+            return False
+        r = self.asm_add_mate('faccia', {'inst': dove[0], 'face': dove[1]}, {'inst': vite, 'face': max(sotto)[1]}, 0)
+        return bool(r.get('ok'))
+
+    def _faccia_del_pacco(self, asse_w, su, h, R, visti):
+        """Sopra la faccia a quota h (lungo «su», dall'asse del foro): un altro pezzo appoggiato lì (una sua faccia piana
+        girata verso il basso a quella quota, col foro attorno all'asse) e la sua faccia di sopra. ((inst, faccia), quota)."""
+        import build123d as bd
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.GeomAbs import GeomAbs_Plane
+        from OCP.gp import gp_Pnt
+
+        from cad_engine.topology.naming import _faces_of
+        for i in self.asm.instances:
+            if i['id'] in visti or i['file'] not in self.asm_parts:
+                continue
+            Rm, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+            facce = list(_faces_of(self.asm_parts[i['file']].shape))
+            sotto, sopra = False, []
+            for k, f in enumerate(facce):
+                ad = BRepAdaptor_Surface(f)
+                if ad.GetType() != GeomAbs_Plane:
+                    continue
+                pl = ad.Plane()
+                p0 = Rm @ np.array([pl.Location().X(), pl.Location().Y(), pl.Location().Z()]) + T
+                c = asse_w + su * float(np.dot(p0 - asse_w, su))       # dove l'asse buca il piano della faccia
+                cl = Rm.T @ (c - T)
+                nn = bd.Face(f).normal_at(bd.Vector(*cl))
+                n = Rm @ np.array([nn.X, nn.Y, nn.Z])
+                if abs(abs(float(np.dot(n, su))) - 1) > 1e-6:
+                    continue
+                dd = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(gp_Pnt(*cl)).Vertex(), f)
+                if not dd.IsDone() or dd.Value() > R + 0.05:            # la faccia non sta attorno all'asse
+                    continue
+                q = float(np.dot(p0 - asse_w, su))
+                if np.dot(n, su) < 0 and abs(q - h) < 0.05:
+                    sotto = True                                      # appoggia sulla faccia di prima
+                elif np.dot(n, su) > 0 and q > h + 1e-3:
+                    sopra.append((q, k))
+            if sotto and sopra:
+                q, k = min(sopra)
+                return (i['id'], k), q
+        return None
+
+    def asm_insert_viteria(self, tipo: str, misura: str, lunghezza=None, foro: dict | None = None, opz: dict | None = None) -> dict:
+        """opz: {'tutti': in tutti i fori uguali, 'quante': senza foro quante, 'appoggia': sotto la testa, 'verso': [x,y,z]}."""
+        from app import libreria
+        opz = opz or {}
+        n0 = len(self.asm_undo)
+        prima = self.asm.to_dict()
+
+        def indietro(r):
+            self.asm.__dict__.update(A.Assembly.from_dict(prima, self.asm.path).__dict__)
+            del self.asm_undo[n0:]
+            self._asm_reload()
+            self.scene_version += 1
+            return {**r, 'state': self.state()}
+        try:
+            fori = (self._fori_uguali(foro['inst'], foro['face']) if opz.get('tutti') else [foro]) if foro else []
+        except Exception:  # noqa: BLE001
+            fori = [foro] if foro else []
+        try:
+            quante = max(1, min(200, int(float(str(opz.get('quante') or 1).replace(',', '.')))))
+        except ValueError:
+            return {'ok': False, 'message': 'Quante: scrivi un numero.'}
+        messi, appoggiate = [], 0
+        for k in range(len(fori) or quante):
+            fo = fori[k] if fori else None
+            r = self.asm_insert_libreria(tipo, misura, lunghezza, fo)
+            if not r.get('ok'):
+                return indietro(r)
+            messi.append(r['select'])
+            if fo and opz.get('appoggia', True) and tipo in ('vite_tcei', 'vite_te', 'rivetto', 'inserto') \
+                    and 'nel foro' in (r.get('message') or ''):
+                try:
+                    appoggiate += self._appoggia_testa(fo, r['select'], opz.get('verso'))
+                except Exception:  # noqa: BLE001 - se non si appoggia resta nel foro: si sistema a mano
+                    pass
+        # tutto quello che è stato fatto: un solo passo di Annulla
+        nome = libreria.descrizione(tipo, misura, lunghezza or None)
+        del self.asm_undo[n0:]
+        self.asm_undo.append((f'{len(messi)} × {nome}', prima))
+        self.asm_redo.clear()
+        self.asm_dirty = True
+        msg = f'{len(messi)} × {nome}'
+        if fori:
+            msg += f' in {len(fori)} {"foro" if len(fori) == 1 else "fori"}'
+            if appoggiate:
+                msg += f', {"appoggiata" if appoggiate == 1 else f"{appoggiate} appoggiate"} sotto la testa'
+        return {'ok': True, 'state': self.state(), 'select': messi[0], 'message': msg + '.'}
+
     def _siedi_nel_cono(self, foro, fr, nuovo):
         """La vite a testa svasata nel foro cliccato: la svasatura (il cono coassiale al foro, o il cono cliccato) con la
         testa conica della vite. Il risultato dell'accoppiamento, o None se il foro non è svasato."""
@@ -1107,11 +1306,128 @@ class AssemblyMixin:
                              for f in dict.fromkeys(i['file'] for i in asm.instances) if f not in self.asm_parts],
                 'ritrovati': list(getattr(self, 'asm_ritrovati', [])),
                 'bom': bom, 'bom_kg': totale, 'cutlist': {'rows': [], 'totals': [], 'pieces': 0, 'kg': 0},
+                'saldature': self._asm_saldature(),
+                'storia': {'passi': [x[0] for x in self.asm_undo] + [x[0] for x in reversed(self.asm_redo)], 'qui': len(self.asm_undo)},
                 'info': {'rebuild_ms': round(getattr(self, 'asm_ms', 0), 1), 'rebuilt': len(self.asm_parts), 'cached': 0,
                          'material': '—'},
                 'scene_version': self.scene_version, 'dimensions': [], 'sheet': None,
                 'instances': [{'id': i['id'], 'name': i['name'], 'file': i['file'], 'fixed': bool(i.get('fixed'))} for i in asm.instances],
                 'mate_types': A.MATE_TYPES, 'can_back': False}
+
+    # ------------------------------------------------------------ saldature nell'assieme (28/10)
+    # «ovunque schiaccio mi da solo errori»: nell'assieme lo strumento cercava gli spigoli di un pezzo solo. Qui si
+    # salda dove si salda davvero: tra i pezzi. Ogni spigolo cliccato è dello spigolo di una copia (nel pezzo, con il
+    # suo riferimento stabile quando c'è, se no la sua linea): la saldatura segue la copia quando si sposta.
+    def _spigolo_del_pezzo(self, part, p):
+        import build123d as bd
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.gp import gp_Pnt
+
+        from cad_engine.topology.naming import _edges_of
+        v = BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(c) for c in p])).Vertex()
+        migliore = None
+        for e in _edges_of(part.shape):
+            dd = BRepExtrema_DistShapeShape(v, e)
+            if dd.IsDone() and (migliore is None or dd.Value() < migliore[0]):
+                migliore = (dd.Value(), e)
+        if migliore is None or migliore[0] > 1.0:
+            raise SteelCADError('Clicca proprio sullo spigolo (si accende).', code='spigolo')
+        e = migliore[1]
+        voce = {}
+        body = getattr(part.result, 'body', None)
+        if body is not None:
+            try:
+                voce['ref'] = body.edge_ref(e)
+            except Exception:  # noqa: BLE001 - uno spigolo senza nome (di un tubo, di un taglio): si tiene la linea
+                pass
+        be = bd.Edge(e)
+        n = 2 if be.geom_type == bd.GeomType.LINE else 24
+        voce['linea'] = [[p.X, p.Y, p.Z] for p in be.positions([k / (n - 1) for k in range(n)])]
+        return voce
+
+    def asm_add_saldatura(self, scelti: list, spec: dict) -> dict:
+        """scelti: [{'inst': id della copia, 'p': punto cliccato nelle coordinate del pezzo}]."""
+        istanze = {i['id']: i for i in self.asm.instances}
+        tratti = []
+        try:
+            for s in scelti or []:
+                i = istanze.get((s or {}).get('inst'))
+                part = self.asm_parts.get(i['file']) if i else None
+                if part is None:
+                    raise SteelCADError('Clicca proprio sullo spigolo di un pezzo (si accende).', code='spigolo')
+                t = {'inst': i['id'], **self._spigolo_del_pezzo(part, s['p'])}
+                if t not in tratti:
+                    tratti.append(t)
+        except SteelCADError as ex:
+            return {'ok': False, 'code': ex.code, 'message': ex.message}
+        if not tratti:
+            return {'ok': False, 'code': 'spigolo', 'message': 'Scegli almeno uno spigolo.'}
+        tipo = (spec or {}).get('tipo') if (spec or {}).get('tipo') in ('angolo', 'V', 'I') else 'angolo'
+        a = str((spec or {}).get('a') or '').strip().replace(',', '.')[:10]
+        nome = f'Saldatura {"a" + a if tipo == "angolo" and a else tipo}'.strip()
+        self.asm_undo.append((nome, self.asm.to_dict()))
+        self.asm_redo.clear()
+        self.asm.meta['saldature'] = list(self.asm.meta.get('saldature') or []) + [{'tratti': tratti, 'tipo': tipo, 'a': a}]
+        self.asm_dirty = True
+        return {'ok': True, 'state': self.state(), 'message': f'{nome} su {len(tratti)} '
+                f'{"spigolo" if len(tratti) == 1 else "spigoli"}: i metri sono nella distinta.'}
+
+    def asm_del_saldatura(self, i: int) -> dict:
+        lista = list(self.asm.meta.get('saldature') or [])
+        if not 0 <= int(i) < len(lista):
+            return {'ok': False, 'message': 'Saldatura non trovata.'}
+        self.asm_undo.append(('Togli saldatura', self.asm.to_dict()))
+        self.asm_redo.clear()
+        lista.pop(int(i))
+        if lista:
+            self.asm.meta['saldature'] = lista
+        else:
+            self.asm.meta.pop('saldature', None)
+        self.asm_dirty = True
+        return {'ok': True, 'state': self.state()}
+
+    def _asm_saldature(self) -> list:
+        """Come _saldature del pezzo: i tratti al loro posto nell'assieme (per vederli) e i metri."""
+        import build123d as bd
+        import numpy as np
+        istanze = {i['id']: i for i in self.asm.instances}
+        out = []
+        for k, w in enumerate(self.asm.meta.get('saldature') or []):
+            linee, lung, persa = [], 0.0, False
+            for t in w.get('tratti') or []:
+                i = istanze.get(t.get('inst'))
+                part = self.asm_parts.get(i['file']) if i else None
+                if part is None:
+                    persa = True
+                    continue
+                punti = None
+                body = getattr(part.result, 'body', None)
+                if t.get('ref') and body is not None:
+                    try:
+                        es = body.edges(t['ref'])
+                    except Exception:  # noqa: BLE001 - lo spigolo non c'è più: si usa la linea di quando è stato cliccato
+                        es = []
+                    if es:
+                        punti = []
+                        for e in es:
+                            be = bd.Edge(e)
+                            n = 2 if be.geom_type == bd.GeomType.LINE else 24
+                            punti.append([[p.X, p.Y, p.Z] for p in be.positions([j / (n - 1) for j in range(n)])])
+                    else:
+                        persa = True
+                if punti is None:
+                    punti = [t.get('linea') or []]
+                R, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+                for pl in punti:
+                    if len(pl) < 2:
+                        continue
+                    q = np.array(pl, dtype=float) @ R.T + T
+                    lung += float(np.linalg.norm(np.diff(q, axis=0), axis=1).sum())
+                    linee.append([float(c) for c in q.ravel()])
+            out.append({'i': k, 'tipo': w.get('tipo', 'angolo'), 'a': w.get('a', ''), 'm': lung / 1000, 'linee': linee,
+                        'persa': persa, 'spigoli': len(w.get('tratti') or [])})
+        return out
 
     def _asm_scene(self) -> dict:
         objs = []
@@ -1154,7 +1470,7 @@ class AssemblyMixin:
         rows = [['File', Path(i['file']).name]]
         if part is not None:
             pr = A.part_props(part)
-            rows += [['Materiale', part.doc.material], ['Peso', f'{pr["mass_kg"]:.3f} kg'.replace('.', ',')],
+            rows += [['Materiale', part.doc.material], ['Peso', fmt_kg(pr["mass_kg"])],
                      ['Ingombro', ' × '.join(fmt_mm(round(v, 1)) for v in pr['bbox_mm']['size']) + ' mm']]
         sel = {'kind': 'instance', 'id': obj_id, 'title': i['name'], 'rows': rows, 'fixed': bool(i.get('fixed')),
                'acquisto': (part.doc.meta.get('acquisto') if part is not None else None),

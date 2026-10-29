@@ -350,6 +350,26 @@ def build(fdef: dict, ctx):
         except StepError as ex:
             raise FeatureError(ex.message, feature=fid) from None
     t = r['t']
+    # 28/10 («ma non è modificabile»): una lastra piana da STEP si può fare di un altro spessore. Resta la faccia da
+    # cui si è fatto lo sviluppo (con i suoi fori, al suo posto nell'assieme) e lo spessore cresce dalla parte del
+    # materiale. Un pezzo piegato no: le pieghe andrebbero rifatte col raggio e lo sviluppo cambierebbe.
+    if fdef.get('spessore') not in (None, ''):
+        nuovo = ctx.value(fdef, 'spessore', 'lo spessore')
+        if nuovo <= 0:
+            raise FeatureError('Lo spessore deve essere più di zero.', feature=fid)
+        if abs(nuovo - t) > 1e-9:
+            if r['pieghe']:
+                raise FeatureError(f'Questo pezzo da STEP ha {len(r["pieghe"])} pieghe: lo spessore segue il file 3D. Per '
+                                   'cambiarlo rifai il pezzo in Radius (o fatti dare lo STEP giusto).', feature=fid)
+            (i, _M), = r['pos'].items()
+            f = r['facce'][i]
+            c, n = _piano(f)
+            dentro = -n if solido.is_inside(bd.Vector(*(c - n * t / 2))) else n
+            nuovo_solido = bd.extrude(f, amount=nuovo, dir=tuple(dentro))
+            base = min((g for g in nuovo_solido.faces() if abs(abs(g.normal_at(g.center()).dot(bd.Vector(*n))) - 1) < 1e-9),
+                       key=lambda g: (g.center() - bd.Vector(*c)).length)
+            r['facce'][i] = base
+            solido, t = nuovo_solido, nuovo
     names, pannelli = {}, {}
     for j, (i, M) in enumerate(sorted(r['pos'].items()), 1):
         f = r['facce'][i]

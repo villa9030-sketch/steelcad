@@ -17,6 +17,9 @@ cambia. Si salvano nel progetto (meta['tavole'][chiave del foglio]) come:
      'tolte':  ['vista:iso'],                                    viste tolte dal foglio
      'dettagli': [{'vista': 'vista:fronte', 'c': [x, y], 'r': 12, 'k': 2, 'p': [x, y], 'lettera': 'A'}]}
                                                                 centro e raggio nella vista, ingrandimento, centro sul foglio
+     'distinta': {'celle': {'2:1': 'Fondo zincato'}, 'via': [5], 'nuove': [['8', 'Vernice', '1', '', '', '']]}
+                                                                (28/10) celle cambiate (riga:colonna delle righe della
+                                                                distinta, 0 = la prima), righe tolte, righe in più in fondo
 
 Una quota può avere anche 'freccia' (mm). Senza ritocchi testi e frecce sono quelli della tavola: impaginata in A2 e
 rimpicciolita sul foglio (f.fattore), così una quota aggiunta è uguale alle altre su ogni formato.
@@ -56,6 +59,7 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
     r = r or {}
     testi = r.get('testi') or {}
     f.persi = persi(f, r)
+    _distinta(f, r.get('distinta'))
     _cartiglio_grande(f, r.get('cartiglio'))
     # 0. viste tolte e dettagli ingranditi (28/10): prima degli spostamenti, così il cerchio del dettaglio segue la
     # sua vista e il dettaglio si sposta per conto suo
@@ -277,6 +281,34 @@ def _dettaglio(f: Foglio, d: dict, i: int):
         f.text('testo', (P[0] - R * k, P[1] + R * k + 3 * kf), f'DETTAGLIO {lettera} ({scala})', 2.5 * kf)
 
 
+def righe_distinta(e: dict, rd: dict | None) -> list:
+    """Le righe della distinta coi ritocchi: celle cambiate, righe tolte, righe in più."""
+    rd = rd or {}
+    celle, via = rd.get('celle') or {}, set(int(i) for i in rd.get('via') or [])
+    n = len(e['intest'])
+    out = []
+    for i, riga in enumerate(e['righe']):
+        if i in via:
+            continue
+        out.append([str(celle.get(f'{i}:{j}', riga[j] if j < len(riga) else '')) for j in range(n)])
+    for riga in rd.get('nuove') or []:
+        out.append([str(riga[j]) if j < len(riga) else '' for j in range(n)])
+    return out
+
+
+def _distinta(f: Foglio, rd):
+    """La distinta ritoccata (28/10): si toglie quella automatica e si ridisegna con le righe giuste, ferma sopra il
+    cartiglio (cresce verso l'alto se ci sono righe in più)."""
+    e = f.elementi.get('distinta')
+    if not rd or not e:
+        return
+    from .drawings import _tabella
+    righe = righe_distinta(e, rd)
+    _togli(f, 'distinta')
+    with f.oggetto('distinta'):
+        _tabella(f, e['x'], e['ybase'] + e['h'] * (len(righe) + 1), e['col'], [e['intest']] + righe, 'DISTINTA', h=e['h'], k=e['k'])
+
+
 def _cartiglio_grande(f: Foglio, k):
     """Il cartiglio più grande o più piccolo (29/10): k volte, fermo nell'angolo in basso a destra della cornice."""
     try:
@@ -493,6 +525,11 @@ def oggetti(f: Foglio) -> list:
                 out.append({'id': nome, 'kind': e['kind'], 'label': etich, 'bbox': bb, 'indice': e['indice'],
                             **({'P': e['P'], 'K': e['K']} if e['kind'] == 'saldatura' else {}),
                             **({'C': e['C'], 'R': e['R']} if e['kind'] == 'diametro' else {})})
+    e = f.elementi.get('distinta')
+    bb = _ingombro(per_tag.get('distinta', []))
+    if e and bb:
+        out.append({'id': 'distinta', 'kind': 'distinta', 'label': 'Distinta', 'bbox': bb, 'intest': e['intest'],
+                    'righe': e['righe']})
     bb = _ingombro(per_tag.get('cartiglio', []) + [(x, y) for _, x, y, w, h in f.immagini] +
                    [(x + w, y + h) for _, x, y, w, h in f.immagini])
     if bb:

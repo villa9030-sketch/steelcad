@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Radius · prototipo: barretta e quote sul pezzo</title>
+<style>
+:root { --bg: #121519; --panel: #1E232A; --surf: #252B33; --line: #343C46; --ink: #E4E9EE; --ink2: #AAB4BE; --ink3: #75808B;
+  --blu: #3D7FD0; --blu2: #5AA9FF; --ambra: #FFB000; --verde: #3FB27F; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: 44px 1fr; }
+#top { display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #0E1013; border-bottom: 1px solid var(--line); }
+#top b { font-size: 15px; }
+#top .prova { color: var(--ink2); font-size: 13px; }
+#top .prova kbd { font: 600 11px "Segoe UI"; padding: 1px 6px; border: 1px solid #434C57; border-bottom-width: 2px; border-radius: 4px; background: #2C333D; color: var(--ink); }
+#top button { margin-left: auto; font: inherit; font-size: 13px; color: var(--ink); background: #2A313A; border: 1px solid #3A434E; border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+#top button:hover { border-color: var(--blu2); }
+#vista { position: relative; background: radial-gradient(ellipse at 50% 40%, #2A313A, #15191E 78%); overflow: hidden; cursor: default; }
+#vista svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sel-on { cursor: pointer; }
+/* l'etichetta al passaggio del mouse: cosa prenderai */
+#hov { position: absolute; pointer-events: none; padding: 3px 9px; border-radius: 6px; background: rgba(14, 16, 19, .92); border: 1px solid #3A4450;
+  font-size: 12.5px; color: var(--ink); white-space: nowrap; display: none; }
+#hov small { color: var(--ink3); margin-left: 6px; }
+/* la barretta: solo icone, attaccata alla cosa scelta */
+#bar { position: absolute; display: none; gap: 2px; padding: 4px; border-radius: 11px; background: rgba(30, 35, 42, .97); border: 1px solid #3A4450;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .5); transform: translate(-50%, 0); transition: opacity .12s; }
+#bar.su { display: flex; }
+#bar .nome { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: 6px; padding: 2px 9px; border-radius: 6px;
+  background: rgba(255, 176, 0, .16); border: 1px solid rgba(255, 176, 0, .5); font-size: 12px; font-weight: 600; white-space: nowrap; }
+#bar button { position: relative; width: 38px; height: 36px; border: 0; border-radius: 8px; background: none; cursor: pointer; display: grid; place-items: center; color: var(--ink2); font-size: 17px; }
+#bar button img { width: 22px; height: 22px; }
+#bar button:hover { background: #313A45; }
+#bar button.via:hover { background: rgba(229, 72, 77, .2); }
+#bar button[data-t]:hover::after { content: attr(data-t); position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 6px; padding: 3px 8px;
+  border-radius: 5px; background: #0E1013; border: 1px solid #3A4450; font-size: 12px; color: var(--ink); white-space: nowrap; pointer-events: none; }
+#bar .sep { width: 1px; margin: 6px 2px; background: var(--line); }
+/* le quote sul pezzo */
+.quota { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: 7px;
+  background: #FFB000; color: #1A1305; font: 700 13.5px "Segoe UI"; box-shadow: 0 3px 10px rgba(0, 0, 0, .45); cursor: pointer; user-select: none; white-space: nowrap; }
+.quota:hover { background: #FFC23D; }
+.quota.tira { cursor: grab; }
+.quota.tira:active { cursor: grabbing; }
+.quota .u { font-weight: 400; opacity: .7; margin-right: 4px; }
+.quota .h { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: rgba(0, 0, 0, .12); font-size: 12px; }
+.quota input { width: 54px; border: 0; outline: none; background: #fff; border-radius: 4px; font: 700 13.5px "Segoe UI"; text-align: center; padding: 2px 0; color: #10161C; }
+.quota.blu { background: #5AA9FF; color: #06182B; }
+.quota.blu:hover { background: #7DBBFF; }
+.quota.pulsa { animation: pulsa 1.1s ease-out 2; }
+@keyframes pulsa { 0% { box-shadow: 0 0 0 0 rgba(255, 176, 0, .7); } 100% { box-shadow: 0 0 0 14px rgba(255, 176, 0, 0); } }
+.scelte { position: absolute; transform: translate(-50%, 8px); display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: rgba(30, 35, 42, .98);
+  border: 1px solid #3A4450; box-shadow: 0 10px 24px rgba(0, 0, 0, .5); }
+.scelte button { border: 0; background: none; color: var(--ink2); font: 600 12.5px "Segoe UI"; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.scelte button:hover { background: #313A45; color: var(--ink); }
+.scelte button.on { background: #3A4552; color: #fff; }
+.scelte .lib { width: 76px; margin-left: 4px; border: 1px solid #3A4450; border-radius: 6px; background: #121519; color: var(--ink); font: 600 12.5px "Segoe UI"; text-align: center; outline: none; }
+.scelte .lib:focus { border-color: var(--blu2); }
+#toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); padding: 8px 14px; border-radius: 9px; background: rgba(14, 16, 19, .95);
+  border: 1px solid #3A4450; font-size: 13px; color: var(--ink2); opacity: 0; transition: opacity .2s; pointer-events: none; }
+#toast.su { opacity: 1; }
+#guida { position: absolute; left: 16px; top: 14px; width: 300px; padding: 12px 14px; border-radius: 10px; background: rgba(30, 35, 42, .9); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink2); }
+#guida b { color: var(--ink); }
+#guida ol { margin: 6px 0 0; padding-left: 18px; }
+#guida li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top"><b>Radius · prototipo</b><span class="prova">Passa col mouse, clicca, scrivi sulle quote · <kbd>Esc</kbd> lascia · secondo clic sullo stesso punto: la faccia</span>
+    <button id="gira">↻ Gira la vista</button></div>
+  <div id="vista">
+    <svg id="svg"></svg>
+    <div id="guida"><b>Prova così</b><ol>
+      <li>Passa sulla parete: vedi cosa prenderai.</li>
+      <li>Clicca la parete: barretta piccola e le quote <b>sul pezzo</b>.</li>
+      <li>Clicca «120» e scrivi 80, oppure <b>tiralo</b>.</li>
+      <li>Clicca «90°» per l'angolo, <b>⇅</b> per il verso.</li>
+      <li>Clicca il bordo davanti → «Piega in su» (passaci sopra: anteprima).</li>
+      <li>Clicca il foro → Svasa.</li>
+      <li>«Gira la vista»: la barretta resta attaccata.</li></ol></div>
+    <div id="hov"></div>
+    <div id="bar"></div>
+    <div id="quote"></div>
+    <div id="toast"></div>
+  </div>
+</div>
+<script>
+// ------------------------------------------------------------------ il pezzo: base 500 × 300 sp. 4, parete dietro, bordo davanti libero, un foro
+const T = 4, LX = 500, LY = 300;
+const P = {
+  fl: { L: 120, ang: 90, su: true },            // la parete dietro (y = 0)
+  fr: null,                                     // la flangia davanti (y = 300), quando c'è
+  foro: { d: 9, tipo: 'semplice', D: 14, A: 90, x: 120, y: 190 },
+};
+let vista = { phi: 0 }, sel = null, hov = null, anteprima = null;
+const C30 = Math.cos(Math.PI / 6);
+function proietta(x, y, z) {
+  const W = svg.clientWidth, H = svg.clientHeight, k = Math.min(W / 1250, H / 760) * 1.25;
+  const c = Math.cos(vista.phi), s = Math.sin(vista.phi), cx = x - LX / 2, cy = y - LY / 2;
+  const u = cx * c - cy * s, v = cx * s + cy * c;
+  return [W / 2 + (u - v) * C30 * k, H / 2 + 40 + ((u + v) * 0.5 - z) * k];
+}
+const pt = q => proietta(...q).map(v => v.toFixed(1)).join(',');
+const poly = (pts, fill, attr = '') => `<polygon points="${pts.map(pt).join(' ')}" fill="${fill}" stroke="#1C2229" stroke-width="1" stroke-linejoin="round" ${attr}/>`;
+// la flangia come lastra: dal bordo (y0), lunga L, con angolo e verso; verso = +1 dentro il pezzo (y cresce) per la parete dietro
+function flangia(f, y0, dentro) {
+  const a = f.ang * Math.PI / 180, dz = Math.sin(a) * (f.su ? 1 : -1), dy = Math.cos(a) * dentro;
+  const z0 = f.su ? T : 0;
+  const A = [0, y0, z0], B = [LX, y0, z0], C = [LX, y0 + dy * f.L, z0 + dz * f.L], D = [0, y0 + dy * f.L, z0 + dz * f.L];
+  return { A, B, C, D, dy, dz, z0, punta: [LX / 2, y0 + dy * f.L, z0 + dz * f.L], piega: [LX * 0.12, y0, z0] };
+}
+const svg = document.getElementById('svg');
+function colore(cosa, base) {
+  if (sel && sel.cosa === cosa) return sel.faccia ? '#E9C46A' : '#D9A93A';
+  if (hov === cosa) return '#B8D6F5';
+  return base;
+}
+function disegna(soloSvg) {
+  let s = '<defs><filter id="ombra"><feGaussianBlur stdDeviation="16"/></filter></defs>';
+  const o = [proietta(LX / 2, LY / 2, 0)];
+  s += `<ellipse cx="${o[0][0]}" cy="${o[0][1] + 40}" rx="${svg.clientWidth * 0.3}" ry="${svg.clientHeight * 0.12}" fill="rgba(0,0,0,.35)" filter="url(#ombra)"/>`;
+  const fl = flangia(P.fl, 0, 1);
+  // la parete dietro va disegnata prima della base se si piega in giù
+  const parete = poly([fl.A, fl.B, fl.C, fl.D], colore('fl', '#AEB8C3'), 'data-cosa="fl" class="sel-on"')
+    + poly([fl.D, fl.C, [fl.C[0], fl.C[1] + 4, fl.C[2]], [fl.D[0], fl.D[1] + 4, fl.D[2]]], '#DDE3E9');
+  if (!P.fl.su) s += parete;
+  s += poly([[0, 0, T], [LX, 0, T], [LX, LY, T], [0, LY, T]], colore('base', '#C7CFD8'), 'data-cosa="base" class="sel-on"');
+  s += poly([[LX, 0, 0], [LX, LY, 0], [LX, LY, T], [LX, 0, T]], '#6E7A87');
+  // il bordo davanti: lo spessore, con una fascia larga invisibile per prenderlo facilmente
+  s += poly([[0, LY, 0], [LX, LY, 0], [LX, LY, T], [0, LY, T]], colore('bordo', '#8A96A3'), 'data-cosa="bordo" class="sel-on"');
+  if (!P.fr) { const a = proietta(0, LY, T / 2), b = proietta(LX, LY, T / 2);
+    s += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${hov === 'bordo' || sel?.cosa === 'bordo' ? '#FFB000' : 'transparent'}" stroke-width="${sel?.cosa === 'bordo' ? 5 : 4}" stroke-linecap="round"/>`
+      + `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="transparent" stroke-width="16" data-cosa="bordo" class="sel-on"/>`; }
+  // il foro
+  const fc = proietta(P.foro.x, P.foro.y, T), kk = Math.min(svg.clientWidth / 1250, svg.clientHeight / 760) * 1.25;
+  const r = P.foro.d / 2 * kk * 1.25;
+  if (P.foro.tipo === 'svasato') s += `<ellipse cx="${fc[0]}" cy="${fc[1]}" rx="${P.foro.D / 2 * kk * 1.25 * 1.4}" ry="${P.foro.D / 2 * kk * 1.25 * 0.8}" fill="#5E6B78" stroke="#5AA9FF" stroke-width="1.2"/>`;
+  s += `<ellipse cx="${fc[0]}" cy="${fc[1]}" rx="${r * 1.4}" ry="${r * 0.8}" fill="#20262E" stroke="${sel?.cosa === 'foro' ? '#FFB000' : hov === 'foro' ? '#5AA9FF' : '#3A4552'}" stroke-width="${sel?.cosa === 'foro' ? 3 : 1.5}"/>`
+    + `<ellipse cx="${fc[0]}" cy="${fc[1]}" rx="${r * 1.4 + 8}" ry="${r * 0.8 + 6}" fill="transparent" data-cosa="foro" class="sel-on"/>`;
+  if (P.foro.tipo === 'filettato') s += `<ellipse cx="${fc[0]}" cy="${fc[1]}" rx="${r * 1.1}" ry="${r * 0.6}" fill="none" stroke="#FFB000" stroke-dasharray="2 2"/>`;
+  if (P.fl.su) s += parete;
+  // la flangia davanti (o la sua anteprima)
+  const fr = P.fr || anteprima;
+  if (fr) {
+    const g = flangia(fr, LY, -1);
+    s += poly([g.A, g.B, g.C, g.D], P.fr ? colore('fr', '#9AA6B2') : 'rgba(90,169,255,.28)', P.fr ? 'data-cosa="fr" class="sel-on"' : 'stroke-dasharray="6 4" stroke="#5AA9FF"');
+  }
+  // l'anteprima della parete mentre si tira o si sceglie
+  if (sel?.ghost) { const g = flangia(sel.ghost, sel.cosa === 'fr' ? LY : 0, sel.cosa === 'fr' ? -1 : 1);
+    s += poly([g.A, g.B, g.C, g.D], 'rgba(90,169,255,.25)', 'stroke="#5AA9FF" stroke-dasharray="6 4" pointer-events="none"'); }
+  svg.innerHTML = s;
+  if (!soloSvg) quote();
+}
+// ------------------------------------------------------------------ cosa si prende passando col mouse
+const NOMI = { fl: ['Parete dietro', 'piega'], fr: ['Flangia davanti', 'piega'], base: ['Base', 'faccia'], bordo: ['Bordo davanti', '500 mm'], foro: ['Foro Ø9', '4 uguali'] };
+const hovEl = document.getElementById('hov');
+svg.addEventListener('mousemove', e => {
+  const c = e.target.closest('[data-cosa]')?.dataset.cosa || null;
+  if (c !== hov) { hov = c; disegna(true); }
+  if (c) {
+    const n = NOMI[c]; const sec = sel?.cosa === c && !sel.faccia && (c === 'fl' || c === 'fr') ? 'clic ancora: la faccia' : n[1];
+    hovEl.innerHTML = `${c === 'foro' ? 'Foro Ø' + P.foro.d : n[0]}<small>${sec}</small>`; hovEl.style.display = 'block';
+    hovEl.style.left = (e.offsetX + 16) + 'px'; hovEl.style.top = (e.offsetY + 18) + 'px';
+  } else hovEl.style.display = 'none';
+});
+svg.addEventListener('mouseleave', () => { hov = null; hovEl.style.display = 'none'; disegna(true); });
+svg.addEventListener('click', e => {
+  const c = e.target.closest('[data-cosa]')?.dataset.cosa || null;
+  chiudiScelte();
+  if (!c) { sel = null; disegna(); barra(); return; }
+  if (sel && sel.cosa === c && (c === 'fl' || c === 'fr') && !sel.faccia) sel = { cosa: c, faccia: true };   // secondo clic: la faccia
+  else sel = { cosa: c };
+  disegna(); barra();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { chiudiScelte(); sel = null; anteprima = null; disegna(); barra(); } });
+// ------------------------------------------------------------------ la barretta: solo icone, attaccata alla cosa scelta
+const bar = document.getElementById('bar');
+function ancora() {
+  if (!sel) return null;
+  if (sel.cosa === 'fl') { const g = flangia(P.fl, 0, 1); return proietta(LX * 0.5, g.D[1] * 0.5, (g.z0 + g.C[2]) * 0.5); }
+  if (sel.cosa === 'fr' && P.fr) { const g = flangia(P.fr, LY, -1); return proietta(LX * 0.5, (LY + g.C[1]) / 2, (g.z0 + g.C[2]) / 2); }
+  if (sel.cosa === 'bordo') return proietta(LX * 0.62, LY, T);
+  if (sel.cosa === 'foro') return proietta(P.foro.x, P.foro.y, T);
+  return proietta(LX * 0.6, LY * 0.45, T);
+}
+const ICONE = {
+  fl: [['flange', 'Piega…', 'altro'], ['hole', 'Foro sulla parete'], ['cut', 'Taglio'], ['sep'], ['delete', 'Togli la piega', 'via']],
+  faccia: [['project', 'Disegna qui'], ['hole', 'Foro'], ['cut', 'Taglio'], ['dimension', 'Misura'], ['sep'], ['list', 'Dettagli…', 'altro']],
+  bordo: [['flange', 'Piega in su', 'su'], ['fold', 'Piega in giù', 'giu'], ['hem', 'Orlo'], ['sep'], ['list', 'Opzioni…', 'altro']],
+  foro: [['hole', 'Svasa', 'svasa'], ['fastener', 'Filetta', 'filetta'], ['finish', 'Semplice', 'semplice'], ['sep'], ['delete', 'Togli il foro', 'via']],
+  base: [['project', 'Disegna qui'], ['hole', 'Foro'], ['cut', 'Taglio'], ['dimension', 'Misura'], ['sep'], ['list', 'Dettagli…', 'altro']],
+};
+function barra() {
+  if (!sel) { bar.classList.remove('su'); return; }
+  const tipo = sel.faccia ? 'faccia' : sel.cosa === 'fr' ? 'fl' : sel.cosa;
+  const nome = sel.faccia ? `Faccia della ${sel.cosa === 'fl' ? 'parete' : 'flangia'}` : sel.cosa === 'foro' ? `Foro Ø${P.foro.d}` : NOMI[sel.cosa][0];
+  bar.innerHTML = `<span class="nome">${nome}</span>` + ICONE[tipo].map(([ic, t, k]) => ic === 'sep' ? '<span class="sep"></span>'
+    : `<button data-t="${t}" data-k="${k || ''}" class="${k === 'via' ? 'via' : ''}"><img src="icons/${ic}.svg" alt=""></button>`).join('');
+  bar.classList.add('su');
+  posiziona();
+  bar.querySelectorAll('button').forEach(b => {
+    const k = b.dataset.k;
+    b.onmouseenter = () => { if (k === 'su' || k === 'giu') { anteprima = { L: 30, ang: 90, su: k === 'su' }; disegna(true); } };
+    b.onmouseleave = () => { if (anteprima) { anteprima = null; disegna(true); } };
+    b.onclick = () => azione(k, b.dataset.t);
+  });
+}
+function posiziona() {
+  const a = ancora(); if (!a) return;
+  bar.style.left = a[0] + 'px'; bar.style.top = (a[1] + 34) + 'px';
+}
+function azione(k, t) {
+  if (k === 'su' || k === 'giu') { anteprima = null; P.fr = { L: 30, ang: 90, su: k === 'su' }; sel = { cosa: 'fr', nuova: true }; disegna(); barra(); avviso('Piega fatta: 30 mm. Clicca «30» sul pezzo per cambiarla.'); return; }
+  if (k === 'via' && sel.cosa === 'fr') { P.fr = null; sel = null; disegna(); barra(); return; }
+  if (k === 'svasa') { P.foro.tipo = 'svasato'; disegna(); avviso('Svasato: Ø e angolo della svasatura sono sul pezzo, cliccali per cambiarli.'); return; }
+  if (k === 'filetta') { P.foro.tipo = 'filettato'; disegna(); return; }
+  if (k === 'semplice') { P.foro.tipo = 'semplice'; disegna(); return; }
+  avviso(`«${t}»: nel prototipo non fa niente${k === 'altro' ? ' (aprirebbe il pannello completo, vicino)' : ''}.`);
+}
+// ------------------------------------------------------------------ le quote SUL pezzo: si cliccano, si scrivono, si tirano
+const box = document.getElementById('quote');
+let scelteAperte = null;
+function chiudiScelte() { scelteAperte?.remove(); scelteAperte = null; }
+function quote() {
+  box.innerHTML = '';
+  if (!sel) return;
+  const f = sel.cosa === 'fl' ? P.fl : sel.cosa === 'fr' ? P.fr : null;
+  if (f && !sel.faccia) {
+    const y0 = sel.cosa === 'fl' ? 0 : LY, dentro = sel.cosa === 'fl' ? 1 : -1, g = flangia(sel.ghost || f, y0, dentro);
+    const mid0 = proietta(LX, (y0 + g.C[1]) / 2, (g.z0 + g.C[2]) / 2), mid = [mid0[0] + 52, mid0[1]];
+    quota(`${(sel.ghost || f).L}`, 'mm', mid, { tira: true, pulsa: sel.nuova,
+      scrivi: v => { f.L = v; }, tiro: (dx, dy) => {
+        const a = proietta(LX, y0, g.z0), b = proietta(LX, y0 + g.dy * 100, g.z0 + g.dz * 100);
+        const ux = (b[0] - a[0]) / 100, uy = (b[1] - a[1]) / 100, l2 = ux * ux + uy * uy;
+        return Math.max(5, Math.round(f.L + (dx * ux + dy * uy) / l2)); } });
+    const pg = proietta(LX * 0.1, y0, g.z0);
+    const qa = quota(`${f.ang}°`, '', [pg[0] - 30, pg[1] - 26], { scelte: [[45, '45°'], [90, '90°'], [135, '135°']].map(([v, t]) => [v, t, v === f.ang]),
+      sceglie: v => { f.ang = v; }, libero: 'es. 87,5', prova: v => { sel.ghost = v == null ? null : { ...f, ang: v }; disegna(true); } });
+    const qv = quota('⇅', '', [pg[0] - 30, pg[1] + 4], { blu: true, titolo: 'Verso: su ↔ giù', clic: () => { f.su = !f.su; disegna(); barra(); } });
+  }
+  if (sel.cosa === 'foro') {
+    const c = proietta(P.foro.x, P.foro.y, T);
+    quota(`Ø${P.foro.d}`, 'mm', [c[0] - 46, c[1] - 30], { scrivi: v => { P.foro.d = v; }, num: P.foro.d });
+    if (P.foro.tipo === 'svasato') {
+      quota(`svasatura Ø${P.foro.D}`, '', [c[0] + 50, c[1] - 30], { blu: true, scrivi: v => { P.foro.D = v; }, num: P.foro.D });
+      quota(`${P.foro.A}°`, '', [c[0] + 50, c[1] + 2], { blu: true, scelte: [[90, '90°'], [120, '120°']].map(([v, t]) => [v, t, v === P.foro.A]), sceglie: v => { P.foro.A = v; } });
+    }
+    if (P.foro.tipo === 'filettato') quota('M10', '', [c[0] + 46, c[1] - 30], { blu: true, scelte: [['M8', 'M8', false], ['M10', 'M10', true], ['M12', 'M12', false]], sceglie: () => {} });
+  }
+  posiziona();
+}
+function quota(testo, unita, [x, y], o = {}) {
+  const q = document.createElement('div');
+  q.className = 'quota' + (o.tira ? ' tira' : '') + (o.blu ? ' blu' : '') + (o.pulsa ? ' pulsa' : '');
+  q.style.left = x + 'px'; q.style.top = y + 'px';
+  if (o.titolo) q.title = o.titolo;
+  q.innerHTML = `<span>${testo}</span>${unita ? `<span class="u">${unita}</span>` : ''}${o.tira ? '<span class="h" title="Tira">↕</span>' : ''}`;
+  box.appendChild(q);
+  // clic: si scrive lì (o si sceglie); trascinando: cambia mentre muovi
+  let giu = null, mosso = false;
+  q.onpointerdown = e => {
+    if (e.target.tagName === 'INPUT') return;
+    giu = { x: e.clientX, y: e.clientY }; mosso = false; q.setPointerCapture(e.pointerId);
+  };
+  q.onpointermove = e => {
+    if (!giu || !o.tira) return;
+    const dx = e.clientX - giu.x, dy = e.clientY - giu.y;
+    if (!mosso && Math.hypot(dx, dy) < 4) return;
+    mosso = true;
+    const f = sel.cosa === 'fl' ? P.fl : P.fr;
+    sel.ghost = { ...f, L: o.tiro(dx, dy) }; disegna(true); q.firstChild.textContent = sel.ghost.L;
+  };
+  q.onpointerup = () => {
+    if (!giu) return; giu = null;
+    if (mosso) { const f = sel.cosa === 'fl' ? P.fl : P.fr; f.L = sel.ghost.L; sel.ghost = null; sel.nuova = false; disegna(); return; }
+    if (o.clic) { o.clic(); return; }
+    if (o.scelte) {
+      chiudiScelte();
+      const sc = document.createElement('div'); sc.className = 'scelte';
+      sc.style.left = q.style.left; sc.style.top = (parseFloat(q.style.top) + 12) + 'px';
+      sc.innerHTML = o.scelte.map(([v, t, on]) => `<button data-v="${v}" class="${on ? 'on' : ''}">${t}</button>`).join('');
+      box.appendChild(sc); scelteAperte = sc;
+      sc.querySelectorAll('button').forEach(b => {
+        const v = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
+        b.onmouseenter = () => o.prova && o.prova(v);
+        b.onmouseleave = () => o.prova && o.prova(null);
+        b.onclick = () => { o.sceglie(v); if (sel) sel.ghost = null; chiudiScelte(); disegna(); };
+      });
+      if (o.libero) {                                  // oltre ai valori veloci, qualsiasi valore scritto (anteprima mentre scrivi)
+        sc.insertAdjacentHTML('beforeend', `<input class="lib" placeholder="${o.libero}" title="Scrivi un valore e premi Invio">`);
+        const i = sc.querySelector('.lib'); setTimeout(() => i.focus(), 0);
+        const num = () => parseFloat(i.value.replace(',', '.'));
+        i.oninput = () => { const v = num(); o.prova && o.prova(v > 0 && v < 180 ? v : null); };
+        i.onkeydown = e => { if (e.key === 'Enter') { const v = num(); if (v > 0 && v < 180) o.sceglie(v); if (sel) sel.ghost = null; chiudiScelte(); disegna(); }
+          if (e.key === 'Escape') { e.stopPropagation(); if (sel) sel.ghost = null; chiudiScelte(); disegna(); } };
+      }
+      return;
+    }
+    if (o.scrivi) {
+      const v0 = o.num ?? parseFloat(testo);
+      q.innerHTML = `<input value="${v0}">${unita ? `<span class="u">${unita}</span>` : ''}`;
+      const i = q.querySelector('input'); i.focus(); i.select();
+      let chiuso = false; const fatto = ok => { if (chiuso) return; chiuso = true; if (ok) { const v = parseFloat(i.value.replace(',', '.')); if (v > 0) o.scrivi(v); } if (sel) sel.nuova = false; disegna(); };
+      i.onkeydown = e => { if (e.key === 'Enter') fatto(true); if (e.key === 'Escape') { e.stopPropagation(); fatto(false); } };
+      i.oninput = () => { if (sel && (sel.cosa === 'fl' || sel.cosa === 'fr') && o.tira) { const v = parseFloat(i.value.replace(',', '.')); if (v > 0) { const f = sel.cosa === 'fl' ? P.fl : P.fr; sel.ghost = { ...f, L: v }; disegnaSoloPezzo(); } } };
+      i.onblur = () => fatto(true);
+    }
+  };
+  return q;
+}
+function disegnaSoloPezzo() { disegna(true); }       // l'anteprima mentre scrivi: le quote (e il campo) restano
+function avviso(t) { const el = document.getElementById('toast'); el.textContent = t; el.classList.add('su'); clearTimeout(avviso.t); avviso.t = setTimeout(() => el.classList.remove('su'), 3200); }
+// ------------------------------------------------------------------ gira la vista: la barretta e le quote restano attaccate
+document.getElementById('gira').onclick = () => {
+  const da = vista.phi, a = da === 0 ? -0.55 : 0, t0 = performance.now();
+  const passo = t => { const k = Math.min(1, (t - t0) / 700), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    vista.phi = da + (a - da) * e; disegna(); if (k < 1) requestAnimationFrame(passo); };
+  requestAnimationFrame(passo);
+};
+addEventListener('resize', disegna);
+disegna();
+</script>
+</body>
+</html>

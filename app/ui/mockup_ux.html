@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Radius · proposte d'interfaccia</title>
+<style>
+:root {
+  --bg: #121519; --app: #16191D; --panel: #1E232A; --panel2: #232932; --line: #2E353E; --ink: #E4E9EE; --ink2: #AAB4BE; --ink3: #75808B;
+  --blu: #3D7FD0; --blu2: #5AA9FF; --ambra: #FFB000; --rosso: #E5484D; --verde: #3FB27F;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header.pag { padding: 28px 40px 8px; max-width: 1280px; margin: 0 auto; }
+header.pag h1 { margin: 0 0 4px; font-size: 24px; }
+header.pag p { margin: 0; color: var(--ink2); }
+nav.indice { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+nav.indice a { color: var(--ink2); text-decoration: none; padding: 5px 11px; border: 1px solid var(--line); border-radius: 16px; font-size: 13px; }
+nav.indice a:hover { color: var(--ink); border-color: var(--blu); }
+section.prop { max-width: 1280px; margin: 26px auto; padding: 0 40px; }
+section.prop > h2 { font-size: 18px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+section.prop > h2 .n { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--blu); color: #fff; font-size: 14px; }
+section.prop > p.cosa { margin: 0 0 12px; color: var(--ink2); max-width: 900px; }
+.schermo { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--app);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+.finestra { display: grid; grid-template-columns: 230px 1fr; height: 470px; }
+.finestra.tre { grid-template-columns: 230px 1fr 300px; }
+.sx { background: var(--panel); border-right: 1px solid var(--line); padding: 12px; overflow: hidden; }
+.dx { background: var(--panel); border-left: 1px solid var(--line); padding: 14px; }
+.sx h4, .dx h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: .08em; color: var(--ink3); text-transform: uppercase; }
+.vista { position: relative; background: radial-gradient(ellipse at 50% 40%, #2A313A, #181C21 75%); overflow: hidden; }
+.vista svg.pz { position: absolute; inset: 0; width: 100%; height: 100%; }
+.barra-top { height: 34px; background: #0E1013; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 13px; color: #D4DAE0; border-bottom: 1px solid var(--line); }
+.barra-top b { color: #fff; }
+.barra-top .doc { margin: 0 auto; color: var(--ink2); }
+.albero div { padding: 3px 6px; border-radius: 4px; color: var(--ink2); font-size: 13px; display: flex; align-items: center; gap: 7px; }
+.albero div.on { background: rgba(255, 176, 0, .14); color: var(--ink); }
+.albero i { width: 10px; height: 10px; border-radius: 2px; background: #5D6B7A; display: inline-block; }
+.nota { position: absolute; font-size: 12px; color: #FFD27A; background: rgba(0, 0, 0, .55); border: 1px dashed rgba(255, 210, 122, .6);
+  padding: 4px 8px; border-radius: 6px; max-width: 220px; pointer-events: none; }
+.tasto { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 12.5px; }
+.tasto kbd { font: 600 11px "Segoe UI"; color: var(--ink); background: #2C333D; border: 1px solid #434C57; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; }
+.btn { font: inherit; font-size: 13px; color: var(--ink); background: #2A313A; border: 1px solid #3A434E; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--blu2); }
+.btn.pri { background: var(--blu); border-color: var(--blu); color: #fff; }
+.btn.pri:hover { background: var(--blu2); }
+.btn.ross { color: #FF9B9E; }
+/* 1. la barra «cosa fare adesso» */
+.guida { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 16px;
+  background: rgba(30, 35, 42, .97); border: 1px solid #3A4450; border-radius: 12px; padding: 10px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); white-space: nowrap; }
+.guida .cmd { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.guida .cmd img { width: 22px; height: 22px; }
+.guida .passi { display: flex; gap: 4px; }
+.guida .passi i { width: 22px; height: 4px; border-radius: 2px; background: #3A4450; }
+.guida .passi i.on { background: var(--ambra); }
+.guida .testo { color: var(--ink); }
+.guida .testo small { display: block; color: var(--ink3); font-size: 12px; }
+.guida .sep { width: 1px; height: 30px; background: var(--line); }
+/* 2. la mini barra */
+.mini { position: absolute; display: flex; gap: 2px; padding: 4px; background: rgba(30, 35, 42, .98); border: 1px solid #3A4450; border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .55); }
+.mini button { display: grid; justify-items: center; gap: 2px; width: 66px; padding: 5px 2px; border: 0; border-radius: 7px; background: none; color: var(--ink2);
+  font: 11.5px "Segoe UI"; cursor: pointer; }
+.mini button img { width: 22px; height: 22px; }
+.mini button:hover { background: #2E3640; color: var(--ink); }
+.mini .tit { position: absolute; top: -22px; left: 4px; font-size: 11.5px; color: var(--ink3); white-space: nowrap; }
+.scelte { display: flex; gap: 8px; margin: 10px 0 0; }
+.scelte button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 16px; border: 1px solid var(--line); background: none; color: var(--ink2); cursor: pointer; }
+.scelte button.on { border-color: var(--blu); color: var(--ink); background: rgba(61, 127, 208, .15); }
+/* 3. la quota da trascinare */
+.quota3d { position: absolute; display: flex; align-items: center; gap: 6px; background: #FFB000; color: #1A1305; font-weight: 700; font-size: 13px;
+  padding: 3px 9px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); }
+.quota3d s { opacity: .55; font-weight: 400; }
+.quota-in { position: absolute; display: flex; align-items: center; gap: 4px; background: #fff; border: 2px solid var(--blu2); border-radius: 6px; padding: 2px 6px;
+  color: #10161C; font-weight: 700; font-size: 13px; box-shadow: 0 6px 16px rgba(0, 0, 0, .5); }
+.quota-in span { color: #7A8590; font-weight: 400; }
+/* 4. l'errore che spiega */
+.errore { position: absolute; right: 18px; top: 18px; width: 340px; background: #2A1E21; border: 1px solid #6B2D31; border-left: 4px solid var(--rosso);
+  border-radius: 10px; padding: 14px 16px; box-shadow: 0 14px 34px rgba(0, 0, 0, .55); }
+.errore h5 { margin: 0 0 4px; font-size: 14.5px; color: #FFC9CB; }
+.errore p { margin: 0 0 10px; color: #E2C3C5; font-size: 13px; }
+.errore .soluz { display: flex; flex-direction: column; gap: 6px; }
+.errore .soluz button { text-align: left; }
+.errore .soluz button small { display: block; color: #C9A5A8; font-size: 11.5px; }
+.errore .soluz .btn.pri small { color: #DCE9FA; }
+/* 5. la galleria dei modelli */
+.home { display: grid; grid-template-columns: 1fr 330px; height: 470px; background: var(--app); }
+.galleria { padding: 18px 20px; overflow: hidden; }
+.galleria h3 { margin: 0 0 12px; font-size: 17px; }
+.griglia { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.mod { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
+.mod:hover { border-color: var(--blu2); transform: translateY(-2px); }
+.mod.on { border-color: var(--blu); box-shadow: 0 0 0 1px var(--blu); }
+.mod .im { height: 104px; background: radial-gradient(ellipse at 50% 40%, #2C343E, #1A1E24); display: grid; place-items: center; }
+.mod .im svg { width: 150px; height: 96px; }
+.mod .t { padding: 8px 10px; font-size: 13.5px; }
+.mod .t small { display: block; color: var(--ink3); font-size: 12px; }
+.conf { background: var(--panel); border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.conf .anteprima { height: 150px; border-radius: 8px; background: radial-gradient(ellipse at 50% 40%, #2C343E, #1A1E24); display: grid; place-items: center; }
+.campo { display: grid; grid-template-columns: 1fr 120px; align-items: center; gap: 8px; color: var(--ink2); font-size: 13px; }
+.campo .in { display: flex; align-items: center; background: #14181D; border: 1px solid #39424D; border-radius: 6px; padding: 0 8px; height: 32px; }
+.campo .in input { width: 100%; background: none; border: 0; color: var(--ink); font: inherit; font-size: 14px; outline: none; text-align: right; }
+.campo .in span { color: var(--ink3); margin-left: 4px; font-size: 12px; }
+/* 7. la storia */
+.storia { position: relative; display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.storia div { position: relative; display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 22px; border-radius: 6px; font-size: 13px; color: var(--ink2); cursor: pointer; }
+.storia div::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px; background: #3A4450; }
+.storia div::after { content: ''; position: absolute; left: 6px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: #56626F; }
+.storia div:hover { background: #2A313A; color: var(--ink); }
+.storia div.qui { background: rgba(61, 127, 208, .16); color: var(--ink); }
+.storia div.qui::after { background: var(--blu2); box-shadow: 0 0 0 3px rgba(90, 169, 255, .3); }
+.storia div.dopo { opacity: .42; }
+.storia div small { margin-left: auto; color: var(--ink3); font-size: 11px; }
+.storia div img { width: 16px; height: 16px; }
+/* 9. i campi numerici */
+.num { display: grid; gap: 14px; padding: 20px; max-width: 520px; }
+.num .riga { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 12px; color: var(--ink2); }
+.num .in { position: relative; display: flex; align-items: center; height: 36px; background: #14181D; border: 1px solid #39424D; border-radius: 7px; padding: 0 10px; }
+.num .in.focus { border-color: var(--blu2); box-shadow: 0 0 0 3px rgba(90, 169, 255, .18); }
+.num .in input { flex: 1; min-width: 0; background: none; border: 0; color: var(--ink); font: 15px "Segoe UI"; outline: none; }
+.num .in .ris { color: var(--verde); font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+.num .in .u { color: var(--ink3); margin-left: 6px; }
+.num .in.scorri { cursor: ew-resize; }
+.num .in.scorri::before { content: '⟷'; position: absolute; left: -26px; color: var(--blu2); font-size: 15px; }
+.chip { display: inline-flex; gap: 6px; margin-top: 6px; }
+.chip button { font: 12px "Segoe UI"; color: var(--ink2); background: #252B33; border: 1px solid #39424D; border-radius: 12px; padding: 2px 9px; cursor: pointer; }
+.chip button:hover { color: var(--ink); border-color: var(--blu2); }
+.spiega { color: var(--ink3); font-size: 12.5px; margin-top: 2px; }
+footer { max-width: 1280px; margin: 30px auto 50px; padding: 0 40px; color: var(--ink3); font-size: 13px; }
+</style>
+</head>
+<body>
+<header class="pag">
+  <h1>Radius: proposte d'interfaccia</h1>
+  <p>Mockup dei punti scelti (1, 2, 3, 4, 5, 7, 9). Sono finti ma cliccabili dove serve: passa col mouse e prova.</p>
+  <nav class="indice"><a href="#p1">1 · Cosa fare adesso</a><a href="#p2">2 · Mini barra sulla selezione</a><a href="#p3">3 · Modifica nel 3D</a>
+    <a href="#p4">4 · Errori che spiegano</a><a href="#p5">5 · Modelli pronti</a><a href="#p7">7 · Storia dei passi</a><a href="#p9">9 · Campi numerici</a></nav>
+</header>
+
+<!-- ======================================================================== 1 -->
+<section class="prop" id="p1">
+  <h2><span class="n">1</span>Una barra «cosa fare adesso», uguale per ogni comando</h2>
+  <p class="cosa">Sempre nello stesso posto, in basso al centro: il comando, a che passo sei, cosa cliccare e i tasti che servono. Nel 3D si accende quello che il comando aspetta (qui i bordi dove si può piegare, in ambra).</p>
+  <div class="schermo">
+    <div class="barra-top"><b>Radius</b><span>File</span><span>Salva</span><span>Annulla</span><span class="doc">Staffa a L — non salvato</span></div>
+    <div class="finestra"><div class="sx"><h4>Progetto</h4><div class="albero"><div><i></i>Staffa a L</div><div><i></i>Lamiera sp. 4</div><div><i></i>Parete 120</div></div></div>
+      <div class="vista"><svg class="pz" id="v1"></svg>
+        <div class="guida">
+          <div class="cmd"><img src="icons/flange.svg" alt="">Flangia</div>
+          <div class="passi"><i class="on"></i><i></i></div>
+          <div class="testo">Clicca il bordo da piegare<small>Passo 1 di 2 · i bordi possibili sono accesi</small></div>
+          <div class="sep"></div>
+          <span class="tasto"><kbd>Invio</kbd> conferma</span><span class="tasto"><kbd>Esc</kbd> esci</span><span class="tasto"><kbd>Ctrl</kbd><kbd>Z</kbd> un passo indietro</span>
+        </div>
+      </div></div>
+  </div>
+</section>
+
+<!-- ======================================================================== 2 -->
+<section class="prop" id="p2">
+  <h2><span class="n">2</span>La mini barra accanto a quello che hai cliccato</h2>
+  <p class="cosa">Clicchi una faccia, un bordo o un pezzo dell'assieme: lì vicino compaiono le 3–4 azioni più probabili. Prova a cambiare cosa è selezionato:</p>
+  <div class="scelte" id="sc2"><button data-k="faccia" class="on">Una faccia</button><button data-k="bordo">Un bordo</button><button data-k="pezzo">Un pezzo dell'assieme</button></div>
+  <div class="schermo" style="margin-top:10px">
+    <div class="finestra"><div class="sx"><h4>Progetto</h4><div class="albero"><div><i></i>Staffa a L</div><div class="on"><i></i>Lamiera sp. 4</div><div><i></i>Parete 120</div></div></div>
+      <div class="vista"><svg class="pz" id="v2"></svg><div class="mini" id="mini2"></div></div></div>
+  </div>
+</section>
+
+<!-- ======================================================================== 3 -->
+<section class="prop" id="p3">
+  <h2><span class="n">3</span>Modificare tirando nel 3D</h2>
+  <p class="cosa">Sulla flangia c'è una freccia: la tiri e la flangia si allunga mentre muovi, con la misura che cambia (passi di 1 mm, Maiusc per 5). Doppio clic su una quota per scriverla. <b>Prova: trascina la freccia blu.</b></p>
+  <div class="schermo">
+    <div class="finestra"><div class="sx"><h4>Progetto</h4><div class="albero"><div><i></i>Staffa a L</div><div><i></i>Lamiera sp. 4</div><div class="on"><i></i>Flangia davanti</div></div></div>
+      <div class="vista" id="vista3"><svg class="pz" id="v3"></svg>
+        <div class="quota3d" id="q3">40 mm</div>
+        <div class="quota-in" id="qin3" style="left:auto;right:36px;top:40px">300<span>mm · Invio</span></div>
+        <div class="nota" style="right:28px;top:76px">doppio clic su una quota: la scrivi lì</div>
+      </div></div>
+  </div>
+</section>
+
+<!-- ======================================================================== 4 -->
+<section class="prop" id="p4">
+  <h2><span class="n">4</span>Errori che mostrano dove e come uscirne</h2>
+  <p class="cosa">Il punto del problema si accende in rosso nel 3D, e il messaggio propone le soluzioni: la più probabile si applica con un clic.</p>
+  <div class="schermo">
+    <div class="finestra"><div class="sx"><h4>Progetto</h4><div class="albero"><div><i></i>Staffa a L</div><div><i></i>Lamiera sp. 4</div><div style="color:#FF9B9E"><i style="background:#E5484D"></i>Flangia destra ⚠</div></div></div>
+      <div class="vista"><svg class="pz" id="v4"></svg>
+        <div class="errore">
+          <h5>La flangia destra entra nella parete</h5>
+          <p>Si sovrappone alla parete di dietro per <b>3 mm</b> nell'angolo (in rosso). Così non si può piegare.</p>
+          <div class="soluz">
+            <button class="btn pri">Accorcia la flangia di 3 mm<small>la parete resta com'è · consigliato</small></button>
+            <button class="btn">Lascia uno scarico d'angolo di 1 mm<small>le due pieghe si fermano prima dell'angolo</small></button>
+            <button class="btn">Mostrami il punto</button>
+          </div>
+        </div>
+      </div></div>
+  </div>
+</section>
+
+<!-- ======================================================================== 5 -->
+<section class="prop" id="p5">
+  <h2><span class="n">5</span>Modelli pronti sulla pagina iniziale</h2>
+  <p class="cosa">I pezzi che fate sempre, con l'immagine: si sceglie, si scrivono le misure, l'anteprima cambia subito. <b>Prova: clicca un modello e cambia le misure.</b></p>
+  <div class="schermo"><div class="home">
+    <div class="galleria"><h3>Parti da un modello</h3><div class="griglia" id="gal"></div></div>
+    <div class="conf"><h4 style="margin:0;font-size:15px" id="conf-t">Staffa a L</h4>
+      <div class="anteprima"><svg id="prev5" width="270" height="140"></svg></div>
+      <div id="conf-campi" style="display:grid;gap:8px"></div>
+      <button class="btn pri" style="margin-top:auto">Crea il pezzo</button></div>
+  </div></div>
+</section>
+
+<!-- ======================================================================== 7 -->
+<section class="prop" id="p7">
+  <h2><span class="n">7</span>La storia dei passi, cliccabile</h2>
+  <p class="cosa">Nel pannello di sinistra, tutti i passi fatti. Clicchi un passo e vedi il pezzo com'era lì; i passi dopo diventano grigi finché non torni avanti o fai una modifica. <b>Prova: clicca i passi.</b></p>
+  <div class="schermo">
+    <div class="finestra"><div class="sx"><h4>Storia</h4><div class="storia" id="storia"></div>
+      <p style="color:var(--ink3);font-size:12px;margin:12px 4px 0">Clic: torni lì · Ctrl+Z / Ctrl+Y: un passo alla volta</p></div>
+      <div class="vista"><svg class="pz" id="v7"></svg><div class="nota" id="nota7" style="left:18px;top:16px"></div></div></div>
+  </div>
+</section>
+
+<!-- ======================================================================== 9 -->
+<section class="prop" id="p9">
+  <h2><span class="n">9</span>Campi numerici più comodi</h2>
+  <p class="cosa">I conti dentro il campo, il valore che si cambia con la rotellina o trascinando, gli ultimi valori usati a portata di clic. <b>Prova: scrivi un conto, usa la rotellina sul campo.</b></p>
+  <div class="schermo"><div class="num">
+    <div class="riga">Lunghezza<div><div class="in focus" id="n-l"><input value="500/2+10" id="n-li"><span class="ris" id="n-lr">= 260</span><span class="u">mm</span></div>
+      <div class="spiega">Puoi scrivere conti: + − × / e parentesi. Invio per confermare.</div></div></div>
+    <div class="riga">Spessore<div><div class="in scorri" id="n-s"><input value="2" id="n-si"><span class="u">mm</span></div>
+      <div class="chip"><span class="spiega" style="margin:2px 2px 0 0">ultimi:</span><button>1,5</button><button>2</button><button>3</button><button>4</button></div></div></div>
+    <div class="riga">Raggio di piega<div><div class="in"><input value="2" id="n-ri"><span class="u">mm</span></div>
+      <div class="spiega">Rotellina sul campo: ±1 (Maiusc ±10, Ctrl ±0,1). Trascinando l'etichetta a sinistra: come una manopola.</div></div></div>
+  </div></div>
+</section>
+
+<footer>Mockup statico per decidere: colori e icone sono quelli di Radius, il 3D è disegnato a mano. Nessun dato reale.</footer>
+
+<script>
+// ------------------------------------------------------------------ il pezzo disegnato in isometrica (una staffa a L)
+const C30 = Math.cos(Math.PI / 6), S30 = 0.5;
+function vista(svg, opz = {}) {
+  const W = svg.clientWidth || 800, H = svg.clientHeight || 470;
+  // centrata: la staffa va da x−y = −200..300 e in altezza da −124 (cima della parete) a 250 (angolo davanti)
+  const k = opz.k || 0.95, ox = (opz.ox ?? W / 2) - 43 * k, oy = (opz.oy ?? H / 2) - 63 * k;
+  const P = (x, y, z) => [ox + (x - y) * C30 * k, oy + ((x + y) * S30 - z) * k];
+  return { P, k, poly: (pts, fill, extra = '') => `<polygon points="${pts.map(p => P(...p).map(v => v.toFixed(1)).join(',')).join(' ')}" fill="${fill}" stroke="#20262D" stroke-width="1" stroke-linejoin="round" ${extra}/>`,
+    line: (a, b, st) => { const A = P(...a), B = P(...b); return `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" ${st}/>`; } };
+}
+const L = 300, Pf = 200, T = 4, HW = 120;
+function staffa(v, opz = {}) {
+  const f = opz.flangia ?? 0;            // flangia davanti, verso giù
+  let s = '';
+  s += v.poly([[0, 0, T], [L, 0, T], [L, Pf, T], [0, Pf, T]], '#C7CFD8');                          // sopra della base
+  s += v.poly([[0, Pf, 0], [L, Pf, 0], [L, Pf, T], [0, Pf, T]], '#8A96A3');                        // spessore davanti
+  s += v.poly([[L, 0, 0], [L, Pf, 0], [L, Pf, T], [L, 0, T]], '#6E7A87');                          // spessore a destra
+  if (f) {
+    s += v.poly([[0, Pf, T - f], [L, Pf, T - f], [L, Pf, 0], [0, Pf, 0]], '#9AA6B2');                // la flangia (faccia davanti)
+    s += v.poly([[L, Pf - T, T - f], [L, Pf, T - f], [L, Pf, 0], [L, Pf - T, 0]], '#6E7A87');
+  }
+  s += v.poly([[0, T, T], [L, T, T], [L, T, T + HW], [0, T, T + HW]], '#AEB8C3');                  // la parete (davanti)
+  s += v.poly([[0, 0, T + HW], [L, 0, T + HW], [L, T, T + HW], [0, T, T + HW]], '#DDE3E9');        // il bordo di sopra
+  s += v.poly([[L, 0, T], [L, T, T], [L, T, T + HW], [L, 0, T + HW]], '#7D8996');                  // lo spessore a destra
+  if (opz.flDestra) s += v.poly([[L, T, T], [L + 0, Pf, T], [L, Pf, T + 60], [L, T, T + 60]], '#93A0AD');
+  return s;
+}
+const ombra = v => { const [cx, cy] = v.P(L / 2, Pf / 2, -6); return `<ellipse cx="${cx}" cy="${cy + 20}" rx="${260 * v.k}" ry="${70 * v.k}" fill="rgba(0,0,0,.28)" filter="url(#sf)"/>`; };
+const defs = '<defs><filter id="sf"><feGaussianBlur stdDeviation="14"/></filter><filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+  + '<pattern id="trat" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(229,72,77,.35)"/><line x1="0" y1="0" x2="0" y2="6" stroke="#E5484D" stroke-width="2"/></pattern></defs>';
+
+// 1: i bordi possibili accesi, quello sotto il mouse più forte
+(function () {
+  const svg = document.getElementById('v1'), v = vista(svg);
+  const acc = 'stroke="#FFB000" stroke-width="5" stroke-linecap="round" filter="url(#glow)"';
+  svg.innerHTML = defs + ombra(v) + staffa(v) + v.line([0, Pf, T], [L, Pf, T], acc) + v.line([L, 0, T], [L, Pf, T], 'stroke="#FFB000" stroke-width="3" stroke-linecap="round" opacity=".55"')
+    + v.line([0, 0, T + HW], [L, 0, T + HW], 'stroke="#FFB000" stroke-width="3" stroke-linecap="round" opacity=".55"');
+  const [x, y] = v.P(L / 2, Pf, T);
+  svg.insertAdjacentHTML('beforeend', `<g transform="translate(${x + 8},${y + 6})"><path d="M0 0 L0 16 L4 12 L7 19 L9 18 L6 11 L11 11 Z" fill="#fff" stroke="#111" stroke-width="1"/></g>`);
+})();
+
+// 2: la mini barra, che cambia con la selezione
+const MINI = {
+  faccia: { tit: 'Faccia: sopra della base', voci: [['project', 'Disegna qui'], ['hole', 'Foro'], ['cut', 'Taglio'], ['dimension', 'Misura']] },
+  bordo: { tit: 'Bordo davanti', voci: [['flange', 'Flangia'], ['hem', 'Orlo'], ['fold', 'Piega'], ['chamfer', 'Smusso']] },
+  pezzo: { tit: 'Copia: Staffa a L', voci: [['open', 'Apri'], ['eye', 'Nascondi'], ['fastener', 'Viti nei fori'], ['move', 'Sposta']] },
+};
+function disegna2(k) {
+  const svg = document.getElementById('v2'), v = vista(svg);
+  let s = defs + ombra(v) + staffa(v);
+  if (k === 'faccia') s += v.poly([[0, T, T], [L, T, T], [L, Pf, T], [0, Pf, T]], 'rgba(255,176,0,.42)', 'stroke="#FFB000" stroke-width="2"');
+  if (k === 'bordo') s += v.line([0, Pf, T], [L, Pf, T], 'stroke="#FFB000" stroke-width="5" stroke-linecap="round" filter="url(#glow)"');
+  if (k === 'pezzo') s += v.poly([[0, 0, T], [L, 0, T], [L, Pf, T], [0, Pf, T]], 'rgba(47,125,225,.35)', 'stroke="#5AA9FF" stroke-width="2"')
+    + v.poly([[0, T, T], [L, T, T], [L, T, T + HW], [0, T, T + HW]], 'rgba(47,125,225,.3)', 'stroke="#5AA9FF" stroke-width="2"');
+  svg.innerHTML = s;
+  const m = document.getElementById('mini2'), d = MINI[k];
+  m.innerHTML = `<span class="tit">${d.tit}</span>` + d.voci.map(([ic, t]) => `<button><img src="icons/${ic === 'open' ? 'open' : ic}.svg" alt="">${t}</button>`).join('');
+  const dove = k === 'bordo' ? v.P(L * 0.62, Pf, T) : k === 'faccia' ? v.P(L * 0.66, Pf * 0.55, T) : v.P(L * 0.8, Pf * 0.3, T + 70);
+  m.style.left = (dove[0] + 24) + 'px'; m.style.top = (dove[1] + 14) + 'px';
+}
+document.getElementById('sc2').onclick = e => { const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#sc2 button').forEach(x => x.classList.toggle('on', x === b)); disegna2(b.dataset.k); };
+
+// 3: la flangia che si tira
+let fl3 = 40;
+function disegna3(trascina = false) {
+  const svg = document.getElementById('v3'), v = vista(svg, { oy: 200 });
+  let s = defs + ombra(v) + staffa(v, { flangia: fl3 });
+  if (trascina) s += v.poly([[0, Pf, T - 40], [L, Pf, T - 40], [L, Pf, 0], [0, Pf, 0]], 'none', 'stroke="#5AA9FF" stroke-dasharray="5 4" stroke-width="1.5"');
+  const [ax, ay] = v.P(L / 2, Pf, T - fl3), [bx, by] = v.P(L / 2, Pf, T);
+  s += `<line x1="${bx}" y1="${by}" x2="${ax}" y2="${ay}" stroke="#FFB000" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+  s += `<g id="maniglia" style="cursor:ns-resize" transform="translate(${ax},${ay + 4})"><circle r="15" fill="rgba(90,169,255,.18)"/><path d="M0 -11 L7 -3 L2.5 -3 L2.5 3 L7 3 L0 11 L-7 3 L-2.5 3 L-2.5 -3 L-7 -3 Z" fill="#5AA9FF" stroke="#fff" stroke-width="1"/></g>`;
+  svg.innerHTML = s;
+  const q = document.getElementById('q3');
+  q.innerHTML = trascina && fl3 !== 40 ? `<s>40</s> → ${fl3} mm` : `${fl3} mm`;
+  q.style.left = (bx + 26) + 'px'; q.style.top = ((ay + by) / 2 - 12) + 'px';
+  const m = document.getElementById('maniglia');
+  m.onpointerdown = ev => {
+    ev.preventDefault(); const y0 = ev.clientY, f0 = fl3;
+    const muovi = e => { fl3 = Math.max(10, Math.min(120, Math.round(f0 + (e.clientY - y0) / v.k))); if (e.shiftKey) fl3 = Math.round(fl3 / 5) * 5; disegna3(true); };
+    const fine = () => { removeEventListener('pointermove', muovi); removeEventListener('pointerup', fine); disegna3(false); };
+    addEventListener('pointermove', muovi); addEventListener('pointerup', fine);
+  };
+}
+
+// 4: il punto del problema in rosso
+(function () {
+  const svg = document.getElementById('v4'), v = vista(svg, { ox: 330 });
+  let s = defs + ombra(v) + staffa(v, { flDestra: true });
+  s += v.poly([[L, T, T], [L, 20, T], [L, 20, T + 60], [L, T, T + 60]], 'url(#trat)', 'stroke="#E5484D" stroke-width="2.5" filter="url(#glow)"');
+  const [x, y] = v.P(L, 12, T + 30);
+  s += `<circle cx="${x}" cy="${y}" r="38" fill="none" stroke="#E5484D" stroke-width="2" stroke-dasharray="6 4"/>`;
+  svg.innerHTML = s;
+})();
+
+// 5: la galleria dei modelli
+const MOD = [
+  { n: 'Staffa a L', d: 'base + parete', c: [['Larghezza', 300], ['Profondità', 200], ['Altezza parete', 120], ['Spessore', 4]] },
+  { n: 'Scatola', d: '4 pareti piegate', c: [['Larghezza', 400], ['Profondità', 300], ['Altezza', 150], ['Spessore', 1.5]] },
+  { n: 'Cassone', d: 'con fondo e rinforzi', c: [['Lunghezza', 2000], ['Larghezza', 1000], ['Altezza', 1046], ['Spessore', 2]] },
+  { n: 'Tramoggia', d: 'tronco di piramide', c: [['Bocca sopra', 800], ['Bocca sotto', 200], ['Altezza', 600], ['Spessore', 3]] },
+  { n: 'Mensola', d: 'con nervatura', c: [['Sbalzo', 250], ['Larghezza', 120], ['Altezza', 180], ['Spessore', 5]] },
+  { n: 'Coperchio', d: 'con bordo a orlo', c: [['Larghezza', 600], ['Profondità', 400], ['Bordo', 25], ['Spessore', 1.5]] },
+];
+function miniatura(i, a = 1, b = 1, c = 1) {
+  const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const v = vista({ clientWidth: 260, clientHeight: 150 }, { k: 0.5, ox: 130, oy: 75 });
+  const box = (x0, y0, z0, x1, y1, z1, tono = 0) => v.poly([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], ['#C7CFD8', '#B8C2CC'][tono])
+    + v.poly([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], '#8A96A3') + v.poly([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], '#6E7A87');
+  const X = 300 * a, Y = 200 * b, Z = 140 * c;
+  const forme = [
+    () => box(0, 0, 0, X, Y, 6) + box(0, 0, 6, X, 6, Z),
+    () => box(0, 0, 0, X, Y, 4) + box(0, 0, 4, X, 4, Z * .7) + box(0, 4, 4, 4, Y, Z * .7, 1) + box(X - 4, 4, 4, X, Y, Z * .7) + box(4, Y - 4, 4, X - 4, Y, Z * .7),
+    () => box(0, 0, 0, X * 1.2, Y, 4) + box(0, 0, 4, X * 1.2, 4, Z) + box(0, 4, 4, 4, Y, Z, 1) + box(X * 1.2 - 4, 4, 4, X * 1.2, Y, Z) + box(4, Y - 4, 4, X * 1.2 - 4, Y, Z),
+    () => { const A = 300 * a, Bm = 100 * b, Zh = 220 * c, q = (A - Bm) / 2;        // bocca A sopra, Bm sotto, alta Zh
+      return v.poly([[0, 0, Zh], [A, 0, Zh], [q + Bm, q, 0], [q, q, 0]], '#7F8B97') + v.poly([[0, 0, Zh], [0, A, Zh], [q, q + Bm, 0], [q, q, 0]], '#95A1AD')
+        + v.poly([[0, A, Zh], [A, A, Zh], [q + Bm, q + Bm, 0], [q, q + Bm, 0]], '#B9C3CD') + v.poly([[A, 0, Zh], [A, A, Zh], [q + Bm, q + Bm, 0], [q + Bm, q, 0]], '#8A96A3'); },
+    () => box(0, 0, 0, X * .5, Y, 6) + box(0, 0, 6, 6, Y, Z * 1.2, 1) + v.poly([[6, Y / 2 - 3, 6], [X * .5, Y / 2 - 3, 6], [6, Y / 2 - 3, Z * 1.1]], '#AEB8C3'),
+    () => box(0, 0, 18, X, Y, 22) + box(0, Y - 4, 0, X, Y, 22) + box(X - 4, 0, 0, X, Y, 22),
+  ];
+  sv.setAttribute('viewBox', '0 0 260 150');
+  sv.innerHTML = forme[i]();
+  return sv;
+}
+function inquadra(sv) {                              // il disegno al centro, grande quanto il riquadro
+  requestAnimationFrame(() => { try { const b = sv.getBBox(), m = Math.max(b.width, b.height) * 0.08;
+    sv.setAttribute('viewBox', `${b.x - m} ${b.y - m} ${b.width + 2 * m} ${b.height + 2 * m}`); } catch { /* non ancora a video */ } });
+}
+let sc5 = 0;
+function apri5(i) {
+  sc5 = i;
+  document.querySelectorAll('.mod').forEach((m, j) => m.classList.toggle('on', j === i));
+  document.getElementById('conf-t').textContent = MOD[i].n;
+  document.getElementById('conf-campi').innerHTML = MOD[i].c.map(([n, val], j) => `<label class="campo">${n}<span class="in"><input data-j="${j}" value="${String(val).replace('.', ',')}"><span>mm</span></span></label>`).join('');
+  const rifai = () => {
+    const vv = [...document.querySelectorAll('#conf-campi input')].map((x, j) => (parseFloat(x.value.replace(',', '.')) || MOD[i].c[j][1]) / MOD[i].c[j][1]);
+    const p = document.getElementById('prev5'); const m = miniatura(i, vv[0], vv[1], vv[2]); p.innerHTML = m.innerHTML; inquadra(p);
+  };
+  document.querySelectorAll('#conf-campi input').forEach(x => { x.oninput = rifai; });
+  rifai();
+}
+(function () {
+  const g = document.getElementById('gal');
+  MOD.forEach((m, i) => {
+    const d = document.createElement('div'); d.className = 'mod';
+    d.innerHTML = `<div class="im"></div><div class="t">${m.n}<small>${m.d}</small></div>`;
+    const mi = miniatura(i); d.querySelector('.im').appendChild(mi); d.onclick = () => apri5(i); g.appendChild(d); inquadra(mi);
+  });
+  apri5(0);
+})();
+
+// 7: la storia
+const PASSI = [['box', 'Lamiera 300 × 200 sp. 4', '10:02', {}], ['flange', 'Parete 120 (piega 90°)', '10:03', { parete: 1 }],
+  ['hole', '4 fori Ø9 svasati', '10:05', { parete: 1, fori: 1 }], ['flange', 'Flangia davanti 40', '10:06', { parete: 1, fori: 1, fl: 40 }],
+  ['cut', 'Taglio a 45° sugli angoli', '10:08', { parete: 1, fori: 1, fl: 40 }], ['dimension', 'Flangia davanti 55', '10:09', { parete: 1, fori: 1, fl: 55 }]];
+let qui7 = PASSI.length - 1;
+function disegna7() {
+  document.getElementById('storia').innerHTML = PASSI.map(([ic, t, ora], i) => `<div class="${i === qui7 ? 'qui' : i > qui7 ? 'dopo' : ''}" data-i="${i}"><img src="icons/${ic}.svg" alt="">${t}<small>${ora}</small></div>`).join('');
+  const st = PASSI[qui7][3], svg = document.getElementById('v7'), v = vista(svg, { oy: 215 });
+  let s = defs + ombra(v);
+  s += v.poly([[0, 0, T], [L, 0, T], [L, Pf, T], [0, Pf, T]], '#C7CFD8') + v.poly([[0, Pf, 0], [L, Pf, 0], [L, Pf, T], [0, Pf, T]], '#8A96A3') + v.poly([[L, 0, 0], [L, Pf, 0], [L, Pf, T], [L, 0, T]], '#6E7A87');
+  if (st.fl) s += v.poly([[0, Pf, T - st.fl], [L, Pf, T - st.fl], [L, Pf, 0], [0, Pf, 0]], '#9AA6B2');
+  if (st.fori) for (const [x, y] of [[40, 50], [260, 50], [260, 160], [40, 160]]) { const [cx, cy] = v.P(x, y, T); s += `<ellipse cx="${cx}" cy="${cy}" rx="${9 * v.k}" ry="${5.2 * v.k}" fill="#2B333D" stroke="#5AA9FF" stroke-width="1.2"/>`; }
+  if (st.parete) s += v.poly([[0, T, T], [L, T, T], [L, T, T + HW], [0, T, T + HW]], '#AEB8C3') + v.poly([[0, 0, T + HW], [L, 0, T + HW], [L, T, T + HW], [0, T, T + HW]], '#DDE3E9') + v.poly([[L, 0, T], [L, T, T], [L, T, T + HW], [L, 0, T + HW]], '#7D8996');
+  svg.innerHTML = s;
+  document.getElementById('nota7').textContent = qui7 < PASSI.length - 1 ? `Sei al passo ${qui7 + 1}: «${PASSI[qui7][1]}». I ${PASSI.length - 1 - qui7} passi dopo sono in grigio: clic sull'ultimo per tornare.` : 'Sei all\'ultimo passo.';
+}
+document.getElementById('storia').onclick = e => { const d = e.target.closest('[data-i]'); if (d) { qui7 = +d.dataset.i; disegna7(); } };
+
+// 9: i conti e la rotellina
+function conto(t) { const s = t.replace(/,/g, '.').replace(/×/g, '*').replace(/[^0-9+\-*/(). ]/g, ''); try { const v = Function('return (' + s + ')')(); return Number.isFinite(v) ? v : null; } catch { return null; } }
+document.getElementById('n-li').oninput = e => { const v = conto(e.target.value); document.getElementById('n-lr').textContent = v === null ? '?' : /[+\-*/]/.test(e.target.value) ? '= ' + String(Math.round(v * 100) / 100).replace('.', ',') : ''; };
+for (const id of ['n-si', 'n-ri']) {
+  const inp = document.getElementById(id);
+  inp.parentElement.addEventListener('wheel', e => { e.preventDefault(); const d = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 10 : e.ctrlKey ? 0.1 : 1);
+    inp.value = String(Math.max(0, Math.round(((parseFloat(inp.value.replace(',', '.')) || 0) + d) * 10) / 10)).replace('.', ','); }, { passive: false });
+}
+document.querySelectorAll('.chip button').forEach(b => { b.onclick = () => { document.getElementById('n-si').value = b.textContent; }; });
+
+addEventListener('load', () => { disegna2('faccia'); disegna3(); disegna7(); });
+</script>
+</body>
+</html>

@@ -34,7 +34,7 @@ from app.tubi_service import TubiMixin  # noqa: E402
 from app.strutture_service import StruttureMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
-from cad_engine.units import fmt_mm  # noqa: E402
+from cad_engine.units import fmt_kg, fmt_mm  # noqa: E402
 
 DIREZIONI = {'X+': (0, 1), 'X-': (0, -1), 'Y+': (1, 1), 'Y-': (1, -1), 'Z+': (2, 1), 'Z-': (2, -1)}
 ANCORAGGI = {'center': 'centro', 'top': 'sopra', 'bottom': 'sotto', 'left': 'sinistra', 'right': 'destra',
@@ -49,9 +49,40 @@ def _ok(**kw):
     return {'ok': True, **kw}
 
 
+def _soluzioni(messaggio: str, feature: str | None = None) -> dict:
+    """28/10, «errori che spiegano come uscirne»: dai messaggi che hanno il numero giusto dentro, le soluzioni da
+    applicare con un clic. 'cambia': i campi da rifare nella stessa chiamata (l'interfaccia la ripete con quei valori);
+    'evidenzia': il prefisso dei nomi delle facce da accendere in rosso."""
+    import re as _re
+    out = {}
+    m = _re.search(r'La flangia (\S+) è troppo corta: .*? più lunga di ([\d,.]+) mm', messaggio)
+    if m:
+        minimo = float(m.group(2).replace(',', '.'))
+        v = math.floor(minimo) + 1
+        out['soluzioni'] = [{'testo': f'Flangia lunga {fmt_mm(v)} mm', 'sotto': f'la più corta che si piega (più di {m.group(2)} mm)',
+                             'cambia': {'length': str(v)}}]
+        if feature:
+            out['evidenzia'] = f'{feature}/{m.group(1)}'
+    m = _re.search(r'La svasatura Ø([\d,.]+) a ([\d,.]+)° è profonda [\d,.]+ mm: più dello spessore \(([\d,.]+)\)', messaggio)
+    d = _re.search(r'\[foro Ø([\d,.]+)\]', messaggio)
+    if m and d:
+        df = float(d.group(1).replace(',', '.'))
+        ang, sp = float(m.group(2).replace(',', '.')), float(m.group(3).replace(',', '.'))
+        dmax = math.floor((df + 2 * sp * math.tan(math.radians(ang) / 2)) * 2 - 1e-6) / 2
+        sol = []
+        if dmax > df:
+            sol.append({'testo': f'Svasatura Ø{fmt_mm(dmax)}', 'sotto': f'la più larga che sta nello spessore di {fmt_mm(sp)} mm',
+                        'cambia': {'D': str(dmax)}})
+        if ang < 120 and float(m.group(1).replace(',', '.')) - df <= 2 * sp * math.tan(math.radians(60)):
+            sol.append({'testo': f'Stessa svasatura, cono a 120°', 'sotto': 'meno profonda (per viti e rivetti a 120°)', 'cambia': {'angolo': '120'}})
+        if sol:
+            out['soluzioni'] = sol
+    return out
+
+
 def _err(ex: Exception):
     if isinstance(ex, SteelCADError):
-        return {'ok': False, 'message': ex.message, 'code': ex.code}
+        return {'ok': False, 'message': ex.message, 'code': ex.code, **_soluzioni(ex.message, getattr(ex, 'feature', None))}
     # problemi di file: cartella che non c'è, file aperto in un altro programma, disco pieno
     nome = Path(getattr(ex, 'filename', '') or '').name
     if isinstance(ex, (FileNotFoundError, NotADirectoryError)):
@@ -129,7 +160,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 self.history.undo()
                 self.history.undone.pop()
                 self._rebuild()
-                return {'ok': False, 'code': 'rompe', 'message': f'Non applicato: {nuovi[0].message}'}
+                return {'ok': False, 'code': 'rompe', 'message': f'Non applicato: {nuovi[0].message}',
+                        **_soluzioni(nuovi[0].message, getattr(nuovi[0], 'id', None))}
             return _ok(state=self.state())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
@@ -169,6 +201,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
             'saldature': self._saldature(),
+            'storia': {'passi': [s.label for s in self.history.done] + [s.label for s in reversed(self.history.undone)],
+                       'qui': len(self.history.done)},
             'bend_default': self.bend_default(), 'from_template': bool(self._modelli()),
             'materiale': doc.material, 'materiali': _materiali(),
         }
@@ -599,8 +633,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if obj_id == 'body':
                 p = properties(self.result.body.shape, self.doc.material)
                 dati = {'kind': 'body', 'title': self.doc.meta.get('name'),
-                        'rows': [['Materiale', self.doc.material], ['Peso', f'{p["mass_kg"]:.3f} kg'],
+                        'rows': [['Materiale', self.doc.material], ['Peso', fmt_kg(p["mass_kg"])],
                                  ['Ingombro', ' × '.join(fmt_mm(round(v, 1)) for v in p['bbox_mm']['size'])]]}
+                st = next((x for x in self.doc.features if not isinstance(x, Sketch) and x.get('type') == 'step_lamiera'), None)
+                sh = getattr(self.result.body, 'sheet', None)
+                if st is not None and sh is not None:          # pezzo da STEP: lo spessore (28/10)
+                    dati['step'] = {'t': round(sh.thickness, 3), 'pieghe': len(getattr(sh, 'bend_rows', None) or [])}
                 if face_index is not None:
                     from cad_engine.topology.naming import _faces_of
                     f = _faces_of(self.result.body.shape)[face_index]
@@ -613,7 +651,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     from OCP.BRepAdaptor import BRepAdaptor_Surface
                     from OCP.GeomAbs import GeomAbs_Plane
                     dati['face']['planar'] = BRepAdaptor_Surface(f).GetType() == GeomAbs_Plane
-                    foro = self._foro_della_faccia(f, dati['face']['name'] or '')
+                    foro = self._foro_della_faccia(f, dati['face']['name'] or '') or self._foro_importato(f)
                     if not foro:
                         cont = self._contorno_della_faccia(f, dati['face']['name'] or '')
                         if cont:
@@ -1925,6 +1963,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 if h.get('tipo') == 'filettato':
                     raise SteelCADError('Il foro filettato ha il diametro della filettatura: cambia la M (o rendilo '
                                         'semplice).', code='foro')
+                self._foro_step_ok(sk, e, d)
                 q = next((k for k, c in sk.constraints.items() if c['type'] in ('diameter', 'radius') and c['refs'] == [e]
                           and not c.get('driven')), None)
                 if q is not None:
@@ -1960,7 +1999,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     h = (D - d) / 2 / _m.tan(ang / 2)
                     if h > sp + 1e-6:
                         raise SteelCADError(f'La svasatura Ø{fmt_mm(D)} a {fmt_mm(_m.degrees(ang))}° è profonda {fmt_mm(round(h, 2))} mm: '
-                                            f'più dello spessore ({fmt_mm(sp)}). Riduci il diametro della svasatura.', code='foro')
+                                            f'più dello spessore ({fmt_mm(sp)}). Riduci il diametro della svasatura. '
+                                            f'[foro Ø{fmt_mm(round(d, 3))}]', code='foro')
         testo = ('Foro semplice' if not spec else 'Foro filettato ' + str(spec.get('M', '')) if spec.get('tipo') == 'filettato'
                  else 'Foro per inserto ' + str(spec.get('codice', '')) if spec.get('tipo') == 'inserto'
                  else f'Foro svasato Ø{spec.get("D")}')
@@ -1981,6 +2021,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             m = str(spec.get('M', '')).upper().replace(' ', '')
             if m not in FILETTI:
                 raise SteelCADError(f'Filettatura "{m}" non in tabella: {", ".join(FILETTI)}.', code='foro')
+            self._foro_step_ok(sk, e, FILETTI[m][0], f'Per {m} il preforo è Ø{fmt_mm(FILETTI[m][0])}. ')
             ent['hole'] = {'tipo': 'filettato', 'M': m}
             self._set_diameter(sk, e, FILETTI[m][0])
         elif tipo == 'inserto':
@@ -1990,6 +2031,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 raise SteelCADError('Scrivi il codice dell’inserto (es. quello del catalogo del fornitore).', code='foro')
             if not D or D <= 0:
                 raise SteelCADError('Scrivi il diametro del foro per l’inserto, preso dal catalogo.', code='foro')
+            self._foro_step_ok(sk, e, D)
             ent['hole'] = {'tipo': 'inserto', 'codice': codice, 'D': D}
             self._set_diameter(sk, e, D)
         elif tipo == 'svasato':
@@ -2183,10 +2225,166 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     centri = {k: (lambda q: [q.X, q.Y, q.Z])(pl.from_local_coords(ss.points[ss.circles[k][0]])) for k in uguali}
                     dentro = pl.z_dir if t.get('type') == 'sheet' else -pl.z_dir   # la base cresce dallo sketch verso z
                     data = getattr(self.result.body, 'sheet', None)
+                    d0 = sk.entities[cid].get('d_step')
                     return {'sketch': sid, 'cerchio': cid, 'feature': t['id'], 'd': 2 * r, 'hole': sk.entities[cid].get('hole'), 'uguali': uguali,
                             'centri': centri, 'dentro': [dentro.X, dentro.Y, dentro.Z],
-                            'spessore': data.thickness if data is not None else None}
+                            'spessore': data.thickness if data is not None else None,
+                            'min_d': d0, 'filetti_ok': [m for m, (pre, _) in FILETTI.items() if not d0 or pre >= d0 - 1e-6]}
         return None
+
+    def faccia_del_foro(self, centro: list) -> dict:
+        """La faccia (il cilindro) del foro che passa per questo punto (29/10). Dopo una modifica al foro il numero della
+        faccia cambia, e il nome non basta (le pareti dei fori di un taglio hanno tutte lo stesso nome)."""
+        import numpy as np
+        from cad_engine.topology.naming import _faces_of
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cylinder
+        if self.result.body is None or not centro:
+            return {'ok': False, 'message': 'Nessun pezzo.'}
+        c = np.array([float(x) for x in centro])
+        for i, f in enumerate(_faces_of(self.result.body.shape)):
+            su = BRepAdaptor_Surface(f)
+            if su.GetType() != GeomAbs_Cylinder:
+                continue
+            ax = su.Cylinder().Axis()
+            o = np.array([ax.Location().X(), ax.Location().Y(), ax.Location().Z()])
+            d = np.array([ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z()])
+            v = c - o
+            if np.linalg.norm(v - (v @ d) * d) < 1e-3:
+                return {'ok': True, 'face': i}
+        return {'ok': False, 'message': 'Foro non trovato.'}
+
+    def step_spessore(self, valore) -> dict:
+        """Lo spessore di una lastra piana arrivata da STEP (28/10): si rifà dalla sua faccia di sotto."""
+        st = next((x for x in self.doc.features if not isinstance(x, Sketch) and x.get('type') == 'step_lamiera'), None)
+        if st is None:
+            return {'ok': False, 'message': 'Questo pezzo non viene da uno STEP.'}
+        try:
+            v = _numero(valore, 'lo spessore')
+        except SteelCADError as ex:
+            return _err(ex)
+
+        def fn():
+            st['spessore'] = v
+        r = self._change(f'Spessore {fmt_mm(v)} mm', fn)
+        if r.get('ok'):
+            r['message'] = f'Spessore {fmt_mm(v)} mm: peso, sviluppo e tavole aggiornati.'
+        return r
+
+    def _foro_importato(self, f) -> dict | None:
+        """Un foro tondo del pezzo che non viene da un cerchio disegnato qui (28/10: i fori di un pezzo da STEP, che
+        non si potevano svasare): il foro, la faccia piana dove si apre (quella più in alto se si apre su due) e gli
+        altri fori uguali sulla stessa faccia. Per svasarlo/filettarlo gli si mette sotto il suo cerchio (hole_adopt)."""
+        import build123d as bd
+        import numpy as np
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+        body = self.result.body
+        if body is None:
+            return None
+        su = BRepAdaptor_Surface(f)
+        if su.GetType() != GeomAbs_Cylinder:
+            return None
+        cil = su.Cylinder()
+        R = cil.Radius()
+        o = np.array([cil.Axis().Location().X(), cil.Axis().Location().Y(), cil.Axis().Location().Z()])
+        d = np.array([cil.Axis().Direction().X(), cil.Axis().Direction().Y(), cil.Axis().Direction().Z()])
+        # (un foro dello STEP può arrivare in due mezze facce: va bene lo stesso; le pieghe e i raccordi hanno l'asse
+        # parallelo alle facce piane, e qui sotto non trovano la faccia dove aprirsi)
+        v0, v1 = su.FirstVParameter(), su.LastVParameter()
+        capi = [o + d * v0, o + d * v1]
+        scelte = []
+        for nome in body.names:
+            for ff in body.face(nome):
+                s2 = BRepAdaptor_Surface(ff)
+                if s2.GetType() != GeomAbs_Plane:
+                    continue
+                pl = s2.Plane()
+                n = np.array([pl.Axis().Direction().X(), pl.Axis().Direction().Y(), pl.Axis().Direction().Z()])
+                p0 = np.array([pl.Location().X(), pl.Location().Y(), pl.Location().Z()])
+                if abs(abs(n @ d) - 1) > 1e-6:
+                    continue
+                for c in capi:
+                    if abs((c - p0) @ n) < 1e-3:
+                        nn = bd.Face(ff).normal_at(bd.Vector(*c))
+                        scelte.append((nome, c, np.array([nn.X, nn.Y, nn.Z])))
+        if not scelte:
+            return None
+        nome, c, nn = max(scelte, key=lambda x: (x[2][2], x[1][2]))      # la faccia che guarda più in alto
+        # gli altri fori uguali che si aprono sulla stessa faccia
+        from cad_engine.topology.naming import _faces_of
+        centri = []
+        for g in _faces_of(body.shape):
+            s3 = BRepAdaptor_Surface(g)
+            if s3.GetType() != GeomAbs_Cylinder or abs(s3.Cylinder().Radius() - R) > 1e-4:
+                continue
+            a3 = s3.Cylinder().Axis()
+            o3 = np.array([a3.Location().X(), a3.Location().Y(), a3.Location().Z()])
+            d3 = np.array([a3.Direction().X(), a3.Direction().Y(), a3.Direction().Z()])
+            if abs(abs(d3 @ nn) - 1) > 1e-6:
+                continue
+            q = o3 + d3 * ((c - o3) @ nn) / (d3 @ nn)           # dove l'asse buca il piano della faccia
+            if all(np.linalg.norm(q - x) > 1e-3 for x in centri):
+                centri.append(q)
+        centri.sort(key=lambda q: np.linalg.norm(q - c))
+        data = getattr(body, 'sheet', None)
+        # come i fori disegnati: 'cerchio' e 'uguali' sono chiavi di 'centri' (qui i numeri dei fori, 0 = quello cliccato)
+        return {'importato': True, 'sketch': None, 'cerchio': '0', 'feature': None, 'hole': None, 'd': 2 * R,
+                'faccia': nome, 'uguali': [str(i) for i in range(len(centri))],
+                'centri': {str(i): [float(x) for x in q] for i, q in enumerate(centri)},
+                'dentro': [float(-x) for x in nn], 'spessore': data.thickness if data is not None else None,
+                'min_d': 2 * R, 'filetti_ok': [m for m, (pre, _) in FILETTI.items() if pre >= 2 * R - 1e-6]}
+
+    def hole_adopt(self, face_name: str, centri: list, d, spec: dict | None) -> dict:
+        """I fori di un pezzo da STEP diventano fori di Radius (28/10): uno sketch sulla faccia dove si aprono, un
+        cerchio per foro (stesso diametro, stesso centro), il taglio (che non toglie niente di nuovo) e il tipo di foro
+        (svasato, filettato...). Se un passo non riesce, il pezzo torna com'era."""
+        try:
+            d = _numero(d, 'il diametro')
+        except SteelCADError as ex:
+            return _err(ex)
+        if not centri:
+            return {'ok': False, 'code': 'foro', 'message': 'Nessun foro scelto.'}
+        fatti = 0
+
+        def indietro(r):
+            for _ in range(fatti):
+                self.undo()
+            return r
+        r = self.sketch_on_face(face_name)
+        if not r.get('ok'):
+            return r
+        fatti += 1
+        sid = r['sketch']
+        from cad_engine.sketch.face_plane import plane_of
+        import build123d as bd
+        piano = plane_of(self.result.body, face_name, self.doc.sketch(sid))
+        for c in centri:
+            q = piano.to_local_coords(bd.Vector(*c))
+            r = self.sketch_add_circle(sid, [q.X, q.Y], d / 2)
+            if not r.get('ok'):
+                return indietro(r)
+            fatti += 1
+        r = self.create_from_sketch(sid, 'cut', {'fori_esistenti': 1})
+        if not r.get('ok'):
+            return indietro(r)
+        fatti += 1
+        sk = self.doc.sketch(sid)
+        cerchi = [k for k, e in sk.entities.items() if e.get('kind') == 'circle' and not e.get('ref') and not e.get('construction')]
+        for k in cerchi:
+            sk.entities[k]['d_step'] = round(d, 4)
+        r = self.sketch_hole_type(sid, cerchi, spec)
+        if not r.get('ok'):
+            return indietro(r)
+        return r
+
+    @staticmethod
+    def _foro_step_ok(sk, cid, d, perche=''):
+        """Un foro che c'era già nel pezzo STEP non può diventare più piccolo: il materiale tolto non torna."""
+        d0 = sk.entities[cid].get('d_step')
+        if d0 and d < d0 - 1e-6:
+            raise SteelCADError(f'Questo foro c’era già nel pezzo da STEP (Ø{fmt_mm(d0)}): può solo diventare più grande. '
+                                f'{perche}Scegli un diametro da Ø{fmt_mm(d0)} in su.', code='foro')
 
     @staticmethod
     def _set_diameter(sk, cid, d):
@@ -3367,7 +3565,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         """Le saldature segnate sugli spigoli del pezzo: tipo (d'angolo, V, I) e misura. Si vedono sul pezzo e i metri
         vanno nella distinta. Restano legate agli spigoli (le due facce) anche se il pezzo cambia."""
         if self.asm is not None:
-            return {'ok': False, 'message': 'Le saldature si segnano sul pezzo: aprilo dall’assieme.'}
+            return self.asm_add_saldatura(punti, spec)
         if self.result.body is None:
             return {'ok': False, 'message': 'Prima serve un pezzo.'}
         try:
@@ -3387,6 +3585,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return r
 
     def del_saldatura(self, i: int) -> dict:
+        if self.asm is not None:
+            return self.asm_del_saldatura(i)
         lista = list(self.doc.meta.get('saldature') or [])
         if not 0 <= int(i) < len(lista):
             return {'ok': False, 'message': 'Saldatura non trovata.'}
@@ -3512,7 +3712,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 else:
                     lid = sk.line(a, b)
                     sk.entities[lid]['label'] = f'lato {lid}'
-            if kind == 'cut' and su is not None:
+            if kind == 'cut' and su is not None and v.get('fori_esistenti'):
+                self.doc.add_feature('sheet_cut', 'Fori del pezzo', sketch=sid, fori_esistenti=True)
+            elif kind == 'cut' and su is not None:
                 self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid)
             elif kind == 'cut' and v.get('distance'):           # tasca di quella profondità (non passante)
                 self.doc.add_feature('extrude', 'Tasca', sketch=sid, operation='cut', distance=v['distance'], reverse=True)
@@ -3777,6 +3979,59 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
+    # 28/10: i modelli pronti della pagina iniziale (la lamiera + le sue pieghe, in un passo solo)
+    MODELLI = {'staffa': ('Staffa a L', ['L3']), 'profilo_u': ('Profilo a U', ['L1', 'L3']),
+               'scatola': ('Scatola', ['L1', 'L2', 'L3', 'L4']), 'coperchio': ('Coperchio', ['L1', 'L2', 'L3', 'L4'])}
+
+    def crea_da_modello(self, tipo: str, campi: dict) -> dict:
+        """campi: larghezza, profondita, altezza (le pieghe), spessore; nome facoltativo. Il coperchio piega in giù."""
+        if tipo not in self.MODELLI:
+            return {'ok': False, 'message': f'Modello «{tipo}» sconosciuto.'}
+        nome, lati = self.MODELLI[tipo]
+        c = campi or {}
+        try:
+            L, P, Hh, t = (_numero(c.get(k), n) for k, n in (('larghezza', 'la larghezza'), ('profondita', 'la profondità'),
+                                                              ('altezza', 'l’altezza'), ('spessore', 'lo spessore')))
+        except SteelCADError as ex:
+            return _err(ex)
+        dati = {'name': (c.get('nome') or nome).strip() or nome, 'larghezza': L, 'profondita': P, 'spessore': t}
+        for k_in, k_out in (('raggio', 'raggio'), ('k', 'k')):         # i dati della piegatrice, se li hai scritti
+            if str(c.get(k_in) or '').strip():
+                try:
+                    dati[k_out] = _numero(c[k_in], 'il raggio' if k_in == 'raggio' else 'il K')
+                except SteelCADError as ex:
+                    return _err(ex)
+        r = self.new_project('lamiera', dati)
+        if not r.get('ok'):
+            return r
+        verso = 'down' if tipo == 'coperchio' else 'up'
+        for lato in lati:
+            r = self.add_flange('SM1', lato, {'length': str(Hh), 'angle': '90', 'direction': verso, 'position': 'inside'})
+            if not r.get('ok'):
+                return {**r, 'message': f'{nome}: la piega non si fa. {r.get("message", "")}'}
+        self.history.done.clear()                         # il pezzo nasce così: la storia parte da qui
+        self.history.dirty = True
+        return _ok(state=self.state(), message=f'{nome} {fmt_mm(L)} × {fmt_mm(P)} × {fmt_mm(Hh)} sp. {fmt_mm(t)}: le misure si '
+                                               'cambiano a sinistra, le pieghe cliccandole.')
+
+    def history_goto(self, pos) -> dict:
+        """La storia cliccabile (28/10): si torna al passo pos (0 = com'era all'apertura, n = dopo n passi), annullando
+        o ripetendo quanti passi servono; il pezzo si ricostruisce una volta sola alla fine."""
+        if self.asm is not None:
+            return self.asm_history_goto(pos)
+        try:
+            pos = int(pos)
+            qui = len(self.history.done)
+            if not 0 <= pos <= qui + len(self.history.undone):
+                return {'ok': False, 'message': 'Quel passo non c’è più.'}
+            for _ in range(abs(pos - qui)):
+                (self.history.undo if pos < qui else self.history.redo)()
+            if pos != qui:
+                self._rebuild()
+            return _ok(state=self.state())
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
     def redo(self) -> dict:
         if self.asm is not None:
             return self._asm_undo(True)
@@ -4009,7 +4264,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
 
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
     ANTEPRIMA_OK = {'fai_tubi', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
-                    'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear'}
+                    'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
+                    'edit_flange'}
 
     def anteprima(self, metodo: str, args: list) -> dict:
         """L'anteprima di un comando (22/10, «ci deve essere SEMPRE una preview»): lo stesso comando provato su una

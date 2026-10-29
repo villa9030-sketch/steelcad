@@ -791,8 +791,10 @@ def _free_edges(geos, lati, N, t) -> list:
             continue
         q = _section_points(g, t)
         mid = ((q['ot'][0] + q['it'][0]) / 2, (q['ot'][1] + q['it'][1]) / 2)
+        um = (g.u0 + g.u1) / 2
+        verso = g.p(um, mid[0] + q['d'][0], mid[1] + q['d'][1]) - g.p(um, *mid)    # dove cresce la flangia (28/10)
         out.append({'kind': 'tip', 'ref': g.fid, 'a': v(g.p(g.u0, *mid)), 'b': v(g.p(g.u1, *mid)),
-                    'length': g.u1 - g.u0})
+                    'length': g.u1 - g.u0, 'dir': v(verso.normalized())})
     # i due bordi laterali delle pareti piegate dalla base (a metà spessore, lungo il tratto dritto)
     for g in geos:
         if g.parent is not None:
@@ -1851,7 +1853,8 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     nuovo = body.after(op, op.Shape())
     from ..features.base import volume
     tolto = volume(body.shape) - volume(nuovo.shape)
-    if tolto < 1e-6:
+    # i cerchi messi sotto fori che ci sono già (pezzo da STEP, 28/10): non tolgono niente, servono per svasarli
+    if tolto < 1e-6 and not fdef.get('fori_esistenti'):
         raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
     for f in nuovo.senza_nome():
         if not gia_senza.Contains(f):
@@ -2518,7 +2521,8 @@ def _cut_from_flat(fdef, body, data, contorni, t, ritorni=None):
     solidi = [so for a in attrezzi for so in (a.solids() if hasattr(a, 'solids') else [a])]
     nuovo, memo = _taglia_ricordando(fid, body, solidi)
     tolto = volume(body.shape) - volume(nuovo.shape)
-    if tolto < 1e-6:
+    # i cerchi messi sotto fori che ci sono già (pezzo da STEP, 28/10): non tolgono niente, servono per svasarli
+    if tolto < 1e-6 and not fdef.get('fori_esistenti'):
         raise FeatureError('Il contorno disegnato non tocca la lamiera: non toglie niente.', feature=fid)
     flat = data.flat.cut(*contorni)                       # tutti i contorni in un colpo solo
     flat = flat.clean() if hasattr(flat, 'clean') else flat

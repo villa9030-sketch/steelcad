@@ -30,8 +30,10 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
 body {
   display: grid;
-  grid-template-columns: 270px minmax(0, 1fr) 310px;
-  grid-template-rows: 36px 114px 1fr 220px;
+  --larg-sx: 270px;                                 /* il pannello di sinistra: si allarga, si stringe, si chiude (28/10) */
+  --alt-rib: 114px;                                 /* la barra dei comandi: più bassa se ha una scheda sola (28/10) */
+  grid-template-columns: var(--larg-sx) minmax(0, 1fr) 0;
+  grid-template-rows: 36px var(--alt-rib) 1fr 220px;
   grid-template-areas: "top top top" "ribbon ribbon ribbon" "left view right" "left bottom right";
 }
 button { font: inherit; color: inherit; cursor: pointer; }
@@ -74,8 +76,26 @@ input, select { font: inherit; color: inherit; }
 #docname .dirty { color: var(--ink); font-weight: 700; }
 
 /* --- pannelli --- */
-#left { grid-area: left; border-right: 1px solid var(--line); background: var(--panel); overflow: auto; }
-#right { grid-area: right; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
+#left { grid-area: left; border-right: 1px solid var(--line); background: var(--panel); overflow: auto; min-width: 0; }
+/* il bordo da trascinare e il pulsante per chiuderlo; chiuso resta una striscia che lo riapre */
+#sx-maniglia { position: fixed; top: calc(36px + var(--alt-rib)); bottom: 0; left: calc(var(--larg-sx) - 3px); width: 7px; z-index: 5; cursor: col-resize; }
+#sx-maniglia:hover, body.sx-trascina #sx-maniglia { background: linear-gradient(90deg, transparent 2px, var(--hover) 2px, var(--hover) 4px, transparent 4px); }
+body.sx-trascina, body.sx-trascina * { cursor: col-resize !important; user-select: none; }
+.sx-chiudi { float: right; margin: -3px -4px 0 0; width: 24px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 4px;
+  background: none; color: var(--ink-3); font-size: 14px; line-height: 1; }
+.sx-chiudi:hover { border-color: var(--line); color: var(--ink); background: var(--row); }
+#sx-apri { display: none; }
+body.sx-chiuso { --larg-sx: 30px !important; }
+body.sx-chiuso #left { overflow: hidden; }
+body.sx-chiuso #left > :not(#sx-apri), body.sx-chiuso #sx-maniglia { display: none; }
+body.sx-chiuso #sx-apri { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 10px 0;
+  border: 0; background: none; color: var(--ink-2); }
+body.sx-chiuso #sx-apri:hover { background: var(--row); color: var(--ink); }
+#sx-apri span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+/* 28/10: il pannello delle proprietà si apre sopra la vista, a destra: la vista 3D non si stringe e non salta */
+#right { position: fixed; top: calc(36px + var(--alt-rib)); right: 0; bottom: 0; width: 310px; z-index: 6; border-left: 1px solid var(--line);
+  background: var(--panel); overflow: auto; box-shadow: -10px 0 28px rgba(0, 0, 0, .22); }
+body:not(.senza-destra) #viewcube { right: 326px; }
 .panel { padding: 10px 12px 14px; border-bottom: 1px solid var(--line); }
 .panel h2 {
   margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); text-transform: uppercase;
@@ -397,11 +417,17 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
   border-radius: 4px; font: inherit; }
 #top .tbtn:hover, #top .menu-item.open > .tbtn { background: rgba(255, 255, 255, .12); }
 #top .tbtn img { width: 18px; height: 18px; filter: brightness(0) invert(1); opacity: .92; }
+#top .tbtn.colore img { filter: none; opacity: 1; }      /* il dischetto in bianco pieno era un quadrato (28/10) */
 #top .tbtn:disabled { opacity: .4; }
 #top .menu-item .drop { color: var(--ink); }
 #doctab { margin: 0 auto; align-self: flex-end; background: var(--panel); color: var(--ink); border-radius: 6px 6px 0 0;
   padding: 6px 22px; min-width: 220px; text-align: center; max-width: 45%; overflow: hidden; }
 #doctab #docname { margin: 0; color: var(--ink); }
+/* 28/10: con «Salva» scritto la barra è più piena: il percorso del file si accorcia, il pulsante non va mai a capo */
+#doctab { min-width: 0; flex-shrink: 1; }
+#doctab #docname { display: block; }
+#b-prepara { white-space: nowrap; flex-shrink: 0; }
+#top .tbtn { flex-shrink: 0; white-space: nowrap; }
 #palette-btn { background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .18); color: #CFD6DD; max-width: 220px; }
 #palette-btn kbd { color: #AEB8C2; border-color: rgba(255, 255, 255, .25); background: transparent; }
 
@@ -413,6 +439,113 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 .rtabs button.ctx { color: #B45309; }
 .rtabs button.ctx.on { color: #B45309; border-bottom-color: #B45309; }
 .rtabs [hidden] { display: none; }
+#man-quota { position: fixed; z-index: 60; pointer-events: none; padding: 3px 9px; border-radius: 6px; background: #FFB000; color: #1A1305;
+  font: 13px "Segoe UI", sans-serif; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); white-space: nowrap; }
+#man-quota s { opacity: .55; margin-right: 2px; }
+/* 28/10: i modelli pronti sulla pagina iniziale */
+.home-modelli h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.home-modelli-griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.home-mod { display: grid; gap: 2px; padding: 0 0 8px; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
+  overflow: hidden; transition: border-color .15s, transform .15s; }
+.home-mod:hover { border-color: var(--hover); transform: translateY(-2px); }
+.home-mod .pic { display: grid; place-items: center; height: 88px; margin-bottom: 4px; background: radial-gradient(ellipse at 50% 40%, var(--view-top), var(--view-bot)); }
+.home-mod .pic svg, .home-mod .pic img { width: 82%; height: 76px; object-fit: contain; }
+.home-mod b { padding: 0 10px; font-size: 13px; }
+.home-mod small { padding: 0 10px; color: var(--ink-3); font-size: 11.5px; }
+#modal-box.wide:has(.mod-corpo) { width: min(720px, 94vw); }
+.mod-corpo { display: grid; grid-template-columns: 1fr 260px; gap: 18px; margin: 6px 0 4px; }
+.mod-ant { display: grid; place-items: center; min-height: 230px; border-radius: 8px; background: radial-gradient(ellipse at 50% 40%, var(--view-top), var(--view-bot)); }
+.mod-ant svg { width: 90%; height: 210px; }
+.mod-campi { display: flex; flex-direction: column; gap: 8px; }
+.campo-mod { display: grid; grid-template-columns: 1fr 120px; align-items: center; gap: 8px; color: var(--ink-2); }
+.campo-mod .inp { display: flex; align-items: center; gap: 4px; }
+.campo-mod .inp i { font-style: normal; color: var(--ink-3); }
+.mod-piega { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.mod-piega b { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+/* 28/10: l'errore che spiega */
+#err-card { position: fixed; z-index: 85; left: 50%; bottom: 70px; transform: translateX(-50%); width: min(460px, 92vw); padding: 14px 16px 14px 18px;
+  border-radius: 10px; border: 1px solid #6B2D31; border-left: 4px solid #E5484D; background: #2A1E21; color: #F3DADB;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5); animation: miniSu .15s ease-out; }
+body:not(.dark) #err-card { background: #FFF3F3; color: #4A1A1D; border-color: #F0B8BA; border-left-color: #E5484D; }
+#err-card h5 { margin: 0 24px 4px 0; font-size: 14.5px; }
+#err-card p { margin: 0 0 10px; font-size: 13px; opacity: .85; }
+#err-card .ec-sol { display: flex; flex-direction: column; gap: 6px; }
+#err-card .ec-sol:empty { display: none; }
+#err-card .ec-sol .btn { text-align: left; }
+#err-card .ec-sol small { display: block; font-size: 11.5px; opacity: .75; font-weight: 400; }
+#err-card .ec-x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: inherit; font-size: 18px; opacity: .6; }
+#err-card .ec-x:hover { opacity: 1; }
+/* 28/10: la mini barra accanto alla selezione */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* il pannello delle opzioni rare, vicino alla mini barra invece che nella colonna a destra */
+#pop-pannello { position: fixed; z-index: 41; width: 330px; max-height: calc(100vh - 170px); overflow: auto; padding: 14px 16px 16px;
+  border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0, 0, 0, .4); animation: miniSu .14s ease-out; }
+#pop-pannello .pp-x { position: sticky; top: 0; float: right; margin: -6px -8px 0 0; border: 0; background: none; color: var(--ink-3); font-size: 20px; line-height: 1; }
+#pop-pannello .pp-x:hover { color: var(--ink); }
+@keyframes miniSu { from { opacity: 0; transform: translateY(4px); } }
+/* 28/10: la barra «cosa fare adesso» */
+#sk-foot { background: rgba(30, 35, 42, .97) !important; border: 1px solid #3A4450 !important; border-radius: 12px !important;
+  padding: 9px 16px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, .45) !important; color: #E4E9EE; }
+body:not(.dark) #sk-foot { background: rgba(255, 255, 255, .98) !important; border-color: #CBD3DB !important; color: #1C2228;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .15) !important; }
+.sk-help { display: flex; align-items: center; gap: 14px; font-size: 13.5px; }
+.sk-help:empty { display: none; }
+.sk-help .g-cmd { display: flex; align-items: center; gap: 7px; font-weight: 700; white-space: nowrap; }
+.sk-help .g-cmd img { width: 22px; height: 22px; }
+.sk-help .g-passi { display: flex; gap: 4px; }
+.sk-help .g-passi i { width: 20px; height: 4px; border-radius: 2px; background: #4A5562; }
+.sk-help .g-passi i.on { background: #FFB000; }
+.sk-help .g-testo small { display: block; font-size: 11.5px; opacity: .65; }
+.sk-help .g-sep { width: 1px; align-self: stretch; background: rgba(128, 140, 152, .35); }
+.sk-help .g-tasto { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12.5px; opacity: .85; }
+.sk-help kbd { margin: 0; padding: 1px 6px; font: 600 11px "Segoe UI", sans-serif; color: inherit; background: rgba(128, 140, 152, .18);
+  border: 1px solid rgba(128, 140, 152, .45); border-bottom-width: 2px; border-radius: 4px; }
+.sk-help .g-mouse { font-weight: 600; font-size: 11.5px; padding: 1px 6px; border-radius: 9px; background: rgba(128, 140, 152, .18); }
+#conto-tip { position: fixed; z-index: 95; padding: 2px 8px; border-radius: 5px; background: #1F3B2C; border: 1px solid #3FB27F; color: #9BE3BF;
+  font: 600 12.5px "Segoe UI", sans-serif; pointer-events: none; }
+#conto-tip[hidden] { display: none; }
+/* 28/10: la storia dei passi, cliccabile */
+#storia-panel[hidden] { display: none; }
+#storia-box > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+#storia-box > summary::-webkit-details-marker { display: none; }
+#storia-box > summary h2 { margin: 0; }
+#storia-box > summary::before { content: '▸'; color: var(--ink-3); font-size: 11px; }
+#storia-box[open] > summary::before { content: '▾'; }
+.storia-n { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.storia { display: flex; flex-direction: column; gap: 1px; margin: 8px 0 4px; max-height: 260px; overflow: auto; }
+.storia button { position: relative; display: flex; align-items: center; gap: 8px; text-align: left; padding: 4px 8px 4px 22px; border: 0;
+  border-radius: 5px; background: none; color: var(--ink-2); font-size: 12.5px; }
+.storia button::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px; background: var(--line); }
+.storia button::after { content: ''; position: absolute; left: 6px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--ink-3); }
+.storia button:hover { background: var(--row); color: var(--ink); }
+.storia button.qui { background: var(--on-bg); color: var(--ink); font-weight: 600; }
+.storia button.qui::after { background: var(--hover); box-shadow: 0 0 0 3px rgba(90, 169, 255, .3); }
+.storia button.dopo { opacity: .45; }
+.storia button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-albero .ma-tit { padding: 6px 12px 4px; font-size: 11.5px; color: var(--ink-3); border-bottom: 1px solid var(--line); margin-bottom: 2px;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tree .occhio { margin-left: auto; padding: 0 4px; border: 0; background: none; color: var(--ink-3); font-size: 13px; line-height: 1; opacity: .55; }
+#tree .node:hover .occhio, #tree .occhio.via { opacity: 1; }
+#tree .occhio.via { color: var(--ink-3); text-decoration: line-through; }
+#tree .node.nascosto { opacity: .45; }
+#tree .node.trasp > .k { opacity: .5; }
+.tree-cerca { width: 100%; margin: 0 0 8px; height: 28px; }
+#tree .node .n-q { margin-left: 6px; color: var(--ink-3); font-size: 11.5px; }
+body.una-scheda { --alt-rib: 92px; }
+body.una-scheda .rtabs { display: none; }
 .rbody { display: flex; align-items: stretch; padding: 4px 10px 0; gap: 2px; flex: 1; }
 .rbody[hidden] { display: none; }
 .rgroup { display: flex; flex-direction: column; border-right: 1px solid var(--line); padding: 0 8px; }
@@ -435,20 +568,24 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 .rmenu > button.rb:hover, .rmenu.open > button.rb { background: var(--hov-bg); border-color: var(--hov-line); }
 .rmenu .drop { min-width: 260px; color: var(--ink); }
 
-#viewcube { position: absolute; top: 14px; right: 18px; width: 92px; height: 92px; perspective: 600px; z-index: 3; }
-#viewcube .cube { position: absolute; left: 16px; top: 16px; width: 60px; height: 60px; transform-style: preserve-3d; }
-#viewcube .cf { position: absolute; width: 60px; height: 60px; box-sizing: border-box; display: flex; align-items: center;
-  justify-content: center; font: 600 9px/1 "Segoe UI", sans-serif; letter-spacing: .03em; color: #4A5560;
-  background: rgba(236, 240, 244, .94); border: 1px solid #9AA6B2; cursor: pointer; backface-visibility: hidden; user-select: none; }
+#viewcube { position: absolute; top: 12px; right: 16px; width: 112px; height: 136px; perspective: 700px; z-index: 3; }
+#viewcube .cube { position: absolute; left: 18px; top: 18px; width: 76px; height: 76px; transform-style: preserve-3d; }
+#viewcube .cf { position: absolute; width: 76px; height: 76px; box-sizing: border-box; display: flex; align-items: center;
+  justify-content: center; font: 700 11px/1 "Segoe UI", sans-serif; letter-spacing: .04em; color: #2E3742;
+  background: rgba(240, 243, 246, .96); border: 1px solid #8C98A5; cursor: pointer; backface-visibility: hidden; user-select: none; }
 #viewcube .cf:hover { background: #CFE3FA; color: var(--action); }
-#viewcube .cube-home { position: absolute; left: -2px; top: -2px; width: 20px; height: 20px; border: 0; background: none; padding: 0; opacity: .7; }
-#viewcube .cube-home img { width: 16px; height: 16px; }
-#viewcube .cube-home:hover { opacity: 1; }
+#viewcube .cube-home { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); display: flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--glass); color: var(--ink-2);
+  font: 600 11px/1 "Segoe UI", sans-serif; }
+#viewcube .cube-home img { width: 14px; height: 14px; }
+#viewcube .cube-home:hover { color: var(--ink); border-color: var(--hover); }
 #views { top: auto; bottom: 10px; right: 10px; }
 body.sketching #viewcube, body.sketching #navbar { display: none; }
 #navbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; display: flex; gap: 2px; background: var(--glass);
   border: 1px solid var(--line); border-radius: 6px; padding: 3px; box-shadow: 0 1px 4px rgba(0, 0, 0, .08); }
-#navbar button { background: none; border: 0; border-radius: 4px; padding: 4px 6px; }
+#navbar button { background: none; border: 0; border-radius: 4px; padding: 4px 9px; display: flex; align-items: center; gap: 6px; }
+#navbar button span { font-size: 12px; color: var(--ink-2); }
+#navbar button:hover span { color: var(--ink); }
 #navbar button:hover { background: var(--hov-bg); }
 #navbar img { width: 20px; height: 20px; }
 
@@ -457,7 +594,7 @@ body.sketching #viewcube, body.sketching #navbar { display: none; }
 body:not(.sketching) #views { display: none; }
 
 /* pannello in basso chiuso: resta la barretta con le linguette e il riassunto */
-body.bottom-closed { grid-template-rows: 36px 114px 1fr 34px; }
+body.bottom-closed { grid-template-rows: 36px var(--alt-rib) 1fr 34px; }
 body.bottom-closed .tab-body { display: none; }
 body.bottom-closed .tabs { border-bottom: 0; }
 body.bottom-closed .tabs button.on { border-bottom-color: transparent; font-weight: 400; color: var(--ink-2); }
@@ -467,7 +604,7 @@ body.bottom-closed #toasts { bottom: 60px; }
 #bottom-toggle:hover { color: var(--ink); background: var(--hov-bg); }
 #bottom-toggle b { font-size: 11px; }
 /* mentre disegni il pannello in basso si chiude: tutta l'altezza alla vista */
-body.sketching { grid-template-rows: 36px 114px 1fr 0; }
+body.sketching { grid-template-rows: 36px var(--alt-rib) 1fr 0; }
 body.sketching #bottom { display: none; }
 #sk-foot { bottom: 10px; }
 
@@ -485,7 +622,7 @@ body.dark .rtabs button.on, body.dark .rtabs button:hover { color: #8CC0FF; }
 body.dark .rtabs button.on { border-bottom-color: #8CC0FF; }
 body.dark .rb img, body.dark #navbar img, body.dark #tree .k img, body.dark .cube-home img {
   filter: none; }          /* le icone in acciaio (23/10) stanno bene anche sullo scuro: niente più colori rovesciati */
-body.dark #viewcube .cf { background: rgba(48, 55, 63, .94); color: #C9D2DB; border-color: #5A6672; }
+body.dark #viewcube .cf { background: rgba(62, 71, 82, .96); color: #F2F5F8; border-color: #8693A1; }
 body.dark #viewcube .cf:hover { background: #27486E; color: #fff; }
 body.dark .dim { border-color: #4A6A8E; color: #8CC0FF; }
 body.dark .dim .p { color: var(--ink-3); }
@@ -522,7 +659,7 @@ body.dark #pal-list li.on { background: #24405F; }
 body.dark .drop { background: var(--surface); }
 body.dark .drop hr { border-color: var(--line); }
 body.dark #flat-svg .cut { fill: #3A424A; stroke: #C9D2DB; }
-#navbar .theme-btn { font-size: 17px; line-height: 20px; color: var(--ink-2); width: 32px; }
+#navbar .theme-btn b { font-size: 17px; line-height: 20px; color: var(--ink-2); font-weight: 400; }
 /* il colore del testo segue il tema (sulla radice resterebbe quello chiaro) e pulsanti/campi lo ereditano */
 body { color: var(--ink); }
 button, input, select, textarea { color: inherit; }
@@ -663,7 +800,7 @@ body.dark .ibtn img { filter: none; }
 .fsec .hint { margin: 0 0 8px; }
 .fnote { margin-top: 10px; padding: 9px 10px; border-radius: 6px; background: var(--on-bg); border: 1px solid var(--on-line); font-size: 12px; display: grid; gap: 6px; }
 .fnote .btn { justify-self: start; }
-body.assembly #left .panel:nth-child(2) { display: none; }
+body.assembly #left #params-panel { display: none; }          /* nell'assieme le misure non ci sono (per nome: 28/10 col pulsante in cima l'ordine era cambiato) */
 #b-back { font-weight: 600; color: #8CC0FF; }
 .imp-view { background: #fff; border: 1px solid var(--line); border-radius: 4px; height: min(70vh, 720px); overflow: hidden; }
 .imp-view svg { display: block; width: 100%; height: 100%; }
@@ -877,7 +1014,7 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 .fo-scelta button.on { border: 2px solid var(--hover); background: var(--on-bg); font-weight: 600; }
 
 /* ============ comandi tutti nella barra in alto; il pannello a destra solo con una selezione */
-body.senza-destra { grid-template-columns: 270px minmax(0, 1fr) 0; }
+body.senza-destra { grid-template-columns: var(--larg-sx) minmax(0, 1fr) 0; }   /* (la colonna è sempre 0: il pannello sta sopra) */
 body.senza-destra #right { display: none; }
 .rcol { display: flex; flex-direction: column; gap: 0; }
 .rb.rb-s { flex-direction: row; width: auto; min-width: 104px; height: 22px; gap: 6px; padding: 0 8px 0 4px; align-items: center; justify-content: flex-start; white-space: nowrap; }
@@ -1018,9 +1155,29 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 #tav-ed { position: fixed; inset: 0; z-index: 61; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); }
 .te-testa { height: 46px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--panel);
   border-bottom: 1px solid var(--line); }
-.te-tabs { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); }
-.te-tabs button { padding: 3px 12px; border: 0; border-radius: 3px; background: none; color: var(--ink-2); }
-.te-tabs button.on { background: var(--row); color: var(--ink); }
+.te-titolo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 40vw; font-size: 14px; }
+.te-titolo span { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+.te-testa .btn { white-space: nowrap; flex-shrink: 0; }
+/* i fogli: una striscia sotto la testata, una riga sola che scorre (28/10: con 14 fogli i nomi andavano su tre righe) */
+.te-tabs { flex-shrink: 0; display: flex; gap: 4px; padding: 6px 14px; overflow-x: auto; overflow-y: hidden; background: var(--panel);
+  border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+.te-tabs button { flex-shrink: 0; display: flex; align-items: baseline; gap: 6px; max-width: 240px; padding: 5px 10px; border: 1px solid transparent;
+  border-radius: 5px; background: none; color: var(--ink-2); white-space: nowrap; cursor: pointer; }
+.te-tabs button:hover { background: var(--row); }
+.te-tabs button.on { background: var(--on-bg); border-color: var(--on-line); color: var(--ink); }
+.te-tabs button i { font-style: normal; font-size: 11px; color: var(--ink-3); }
+.te-tabs button span { overflow: hidden; text-overflow: ellipsis; }
+.te-tabs button small { font-size: 11px; color: var(--ink-3); }
+.te-riga.te-pila { grid-template-columns: 1fr; gap: 4px; }
+#modal-box.wide:has(.dd-tab) { width: min(920px, 94vw); }
+.dd-scorri { max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; }
+.dd-tab { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.dd-tab th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; font-size: 12px; color: var(--ink-2);
+  padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.dd-tab td { padding: 2px; }
+.dd-tab .field { width: 100%; box-sizing: border-box; height: 30px; }
+.dd-tab tr.nuova .field { border-color: var(--on-line); }
+.dd-tab [data-via] { width: 30px; padding: 0; }
 .te-spazio { flex: 1; }
 .te-corpo { flex: 1; min-height: 0; display: flex; }
 .te-strumenti { width: 76px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 6px; background: var(--panel);
@@ -1087,3 +1244,126 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 .te-rev-g b { font-size: 11px; font-weight: 500; color: var(--ink-3, #8a94a3); }
 .te-rev-g .field { min-width: 0; padding: 3px 5px; }
 #te-sel #ts-ck { width: 52px; text-align: right; }
+
+/* 28/10 (notte): la scheda accanto alla selezione (opzione A) */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* nella flangia «Altro» non ripete quello che è già in cima alla scheda */
+
+
+
+
+
+@keyframes giraSc { to { transform: rotate(360deg); } }
+
+/* 29/10: la barretta (solo icone) attaccata alla cosa scelta, e le quote sul pezzo da cliccare o tirare */
+#mini-barra { position: fixed; z-index: 40; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 11px; background: var(--panel);
+  border: 1px solid var(--line); box-shadow: 0 10px 26px rgba(0, 0, 0, .4); animation: miniSu .14s ease-out; }
+#mini-barra.fermo { animation: none; }
+#mini-barra .nome { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: 6px; padding: 2px 9px; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap;
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+#mini-barra > button { position: relative; display: grid; place-items: center; width: 38px; height: 36px; padding: 0; border: 0; border-radius: 8px;
+  background: none; color: var(--ink-2); font-size: 18px; line-height: 1; }
+#mini-barra > button img { width: 22px; height: 22px; }
+#mini-barra > button:hover { background: var(--row); color: var(--ink); }
+#mini-barra > button.on { background: var(--row); box-shadow: inset 0 -2px 0 var(--hover); }
+#mini-barra > button.via:hover { background: rgba(229, 72, 77, .18); }
+#mini-barra > button[data-t]:hover::after { content: attr(data-t); position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 6px;
+  padding: 3px 8px; border-radius: 5px; background: #0E1013; color: #E4E9EE; border: 1px solid #3A4450; font-size: 12px; font-weight: 400;
+  white-space: nowrap; pointer-events: none; z-index: 2; }
+#mini-barra .sep { width: 1px; align-self: stretch; margin: 6px 2px; background: var(--line); }
+#mini-barra.calcolo .nome::after { content: ''; display: inline-block; width: 9px; height: 9px; margin-left: 6px; border-radius: 50%;
+  border: 2px solid var(--hover); border-right-color: transparent; animation: giraSc .7s linear infinite; vertical-align: -1px; }
+.quota { position: fixed; z-index: 41; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 4px; padding: 2px 5px 2px 9px;
+  border-radius: 7px; background: #FFB000; color: #1A1305; font: 700 13.5px "Segoe UI", system-ui, sans-serif; box-shadow: 0 3px 10px rgba(0, 0, 0, .4);
+  cursor: pointer; user-select: none; white-space: nowrap; touch-action: none; }
+.quota:hover { background: #FFC23D; }
+.quota.tira { cursor: grab; }
+.quota.tira:active { cursor: grabbing; }
+.quota .et { font-weight: 400; font-size: 12px; opacity: .75; margin-right: 2px; }
+.quota .u { font-weight: 400; opacity: .7; margin-right: 3px; }
+.quota .h { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: rgba(0, 0, 0, .12); font-size: 11px; }
+.quota input { width: 58px; border: 0; outline: none; background: #fff; border-radius: 4px; font: 700 13.5px "Segoe UI", system-ui, sans-serif;
+  text-align: center; padding: 2px 0; color: #10161C; }
+.quota.blu { background: #5AA9FF; color: #06182B; }
+.quota.blu:hover { background: #7DBBFF; }
+.quota.pulsa { animation: quotaPulsa 1.1s ease-out 2; }
+@keyframes quotaPulsa { 0% { box-shadow: 0 0 0 0 rgba(255, 176, 0, .75); } 100% { box-shadow: 0 0 0 14px rgba(255, 176, 0, 0); } }
+.q-scelte { position: fixed; z-index: 42; transform: translateX(-50%); display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--panel);
+  border: 1px solid var(--line); box-shadow: 0 10px 24px rgba(0, 0, 0, .45); }
+.q-scelte button { border: 0; background: none; color: var(--ink-2); font-weight: 600; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; }
+.q-scelte button:hover { background: var(--row); color: var(--ink); }
+.q-scelte button.on { background: var(--row); color: var(--ink); box-shadow: inset 0 -2px 0 var(--hover); }
+.q-scelte .lib { width: 76px; margin-left: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink);
+  font-weight: 600; font-size: 12.5px; text-align: center; outline: none; }
+.q-scelte .lib:focus { border-color: var(--hover); }
+/* 29/10: la scheda del foro (opzione B): i tipi col disegnino, la sezione con le misure, «vale per» */
+#mini-barra.scheda-foro { display: block; width: 330px; padding: 0; border-radius: 12px; overflow: visible; }
+.scheda-foro .sf-testa { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--line); }
+.scheda-foro .sf-testa b { font-size: 14px; }
+.scheda-foro .sf-testa small { color: var(--ink-3); font-size: 12px; margin-right: auto; }
+.scheda-foro .sf-testa b + .sf-b { margin-left: auto; }
+.scheda-foro .sf-b { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 17px; }
+.scheda-foro .sf-b img { width: 18px; height: 18px; }
+.scheda-foro .sf-b:hover { background: var(--row); color: var(--ink); }
+.scheda-foro .sf-b.via:hover { background: rgba(229, 72, 77, .18); }
+.scheda-foro .sf-tipi { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+.scheda-foro .sf-tipi button { display: grid; justify-items: center; gap: 1px; padding: 7px 2px 6px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  background: none; color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
+.scheda-foro .sf-tipi button:hover { color: var(--ink); background: var(--row); }
+.scheda-foro .sf-tipi button.on { color: var(--ink); border-bottom-color: var(--hover); background: rgba(90, 169, 255, .08); }
+.scheda-foro .sf-sez { position: relative; margin: 4px 9px; }
+.scheda-foro .sf-sez svg { display: block; }
+.quota.in { position: absolute; border: 0; font-family: inherit; }
+.scheda-foro .sf-piede { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); }
+.scheda-foro .sf-seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+.scheda-foro .sf-seg button { border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 6px; }
+.scheda-foro .sf-seg button.on { background: var(--row); color: var(--ink); }
+#mini-barra.scheda-foro.calcolo .sf-testa b::after { content: ''; display: inline-block; width: 9px; height: 9px; margin-left: 7px; border-radius: 50%;
+  border: 2px solid var(--hover); border-right-color: transparent; animation: giraSc .7s linear infinite; vertical-align: -1px; }
+#sc-linea { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 39; pointer-events: none; overflow: visible; }
+#sc-linea path { stroke: #FFB000; stroke-width: 1.6; fill: none; }
+.q-anello { position: fixed; z-index: 38; width: 26px; height: 26px; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid #5AA9FF;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .25); pointer-events: none; }
+.q-anello.scelto { border: 3px solid #FFB000; width: 30px; height: 30px; }
+.scheda-foro .sf-nota { padding: 0 12px 8px; font-size: 12px; color: var(--ink-3); }
+.scheda-foro .sf-tipi button:disabled { opacity: .35; cursor: not-allowed; background: none; }

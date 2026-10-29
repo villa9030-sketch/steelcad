@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Radius · fori: due proposte</title>
+<style>
+:root { --bg: #121519; --panel: #1E232A; --row: #2B323B; --line: #343C46; --ink: #E4E9EE; --ink2: #AAB4BE; --ink3: #75808B; --blu: #5AA9FF; --ambra: #FFB000; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: #0E1013; }
+header b { font-size: 15px; }
+header p { margin: 4px 0 0; color: var(--ink2); font-size: 13px; }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+@media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+.scena { position: relative; height: 600px; border-radius: 12px; border: 1px solid var(--line); background: radial-gradient(ellipse at 50% 35%, #2A313A, #15191E 80%); overflow: hidden; }
+.scena h2 { position: absolute; left: 14px; top: 10px; margin: 0; font-size: 14px; }
+.scena h2 small { display: block; font-weight: 400; color: var(--ink2); font-size: 12.5px; max-width: 420px; }
+.scena svg.pz { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* A: il richiamo come sul disegno */
+.richiamo { position: absolute; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 14px 34px rgba(0,0,0,.45); }
+.frase { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tk { padding: 4px 9px; border-radius: 7px; font-weight: 700; font-size: 14px; cursor: pointer; user-select: none; border: 0; font-family: inherit; }
+.tk.n { background: #5AA9FF; color: #06182B; }
+.tk.v { background: #FFB000; color: #1A1305; }
+.tk.t { background: var(--row); color: var(--ink); border: 1px solid #46505C; }
+.tk:hover { filter: brightness(1.12); }
+.tk input { width: 48px; border: 0; border-radius: 4px; text-align: center; font: 700 14px "Segoe UI"; outline: none; }
+.fr { color: var(--ink3); font-size: 13px; }
+.menu { position: absolute; z-index: 5; display: grid; grid-template-columns: repeat(4, 92px); gap: 4px; padding: 6px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 12px 28px rgba(0,0,0,.5); }
+.menu button { display: grid; justify-items: center; gap: 2px; padding: 6px 4px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--ink2); font: 600 12px "Segoe UI"; cursor: pointer; }
+.menu button:hover { background: var(--row); color: var(--ink); }
+.menu button.on { border-color: var(--blu); color: var(--ink); background: rgba(90,169,255,.1); }
+.menu svg { width: 64px; height: 40px; }
+.nota { font-size: 12px; color: var(--ink2); }
+.nota b { color: var(--ink); }
+/* B: la scheda con la sezione grande */
+.schedaB { position: absolute; width: 330px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 14px 34px rgba(0,0,0,.45); overflow: hidden; }
+.tipi { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+.tipi button { display: grid; justify-items: center; gap: 1px; padding: 7px 2px 6px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink2); font: 600 11.5px "Segoe UI"; cursor: pointer; }
+.tipi button:hover { color: var(--ink); background: var(--row); }
+.tipi button.on { color: var(--ink); border-bottom-color: var(--blu); background: rgba(90,169,255,.08); }
+.tipi svg { width: 46px; height: 28px; }
+.sez { position: relative; height: 190px; }
+.sez svg { width: 100%; height: 100%; }
+.sez .q { position: absolute; transform: translate(-50%, -50%); }
+.piede { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink2); }
+.seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+.seg button { border: 0; background: none; color: var(--ink2); font: 600 12px "Segoe UI"; padding: 4px 9px; border-radius: 6px; cursor: pointer; }
+.seg button.on { background: var(--row); color: var(--ink); }
+.leader { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+footer { padding: 0 20px 20px; color: var(--ink2); font-size: 13px; }
+footer li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<header><b>Fori: due proposte</b>
+  <p>Stesso pezzo (piastra 3 mm, 4 fori Ø9 uguali), foro scelto in alto a sinistra. Cliccate tutto: tipo, numeri, «4×». Gli altri fori uguali si accendono in azzurro.</p></header>
+<main>
+  <section class="scena" id="A"><h2>A · Il richiamo, come sul disegno<small>Una riga sola che si legge come la nota di una tavola: «4× Ø9 svasato Ø14,5 × 90°». Ogni pezzo si clicca. Sotto, la sezione piccola.</small></h2></section>
+  <section class="scena" id="B"><h2>B · La sezione del foro<small>Il tipo con i disegnini in sezione, e le misure scritte proprio sul disegno del foro: si vede cosa stai cambiando.</small></h2></section>
+</main>
+<footer><ul>
+  <li><b>In tutte e due:</b> scegliendo «Svasato» parte già dalla svasatura più larga che sta nello spessore (niente errore al primo clic). Il valore si vede e si cambia.</li>
+  <li>Gli altri fori uguali si accendono: si capisce subito a quali fori vale la modifica. «4×» ↔ «solo questo» con un clic.</li>
+  <li>Le misure delle filettature e degli inserti in questo mockup sono <b>solo d'esempio</b>.</li>
+</ul></footer>
+<script>
+const T = 3;                                   // spessore della piastra (esempio)
+const FILETTI = { M5: 4.2, M6: 5, M8: 6.8, M10: 8.5 };    // diametri di preparazione    // solo d'esempio, per il disegnino
+const nuovo = () => ({ tipo: 'passante', d: 9, D: 14.5, A: 90, M: 'M6', tutti: true });
+const maxD = s => Math.floor((s.d + 2 * T * Math.tan(s.A / 2 * Math.PI / 180)) * 2 - 1) / 2;   // la più larga che sta nello spessore
+const v = x => String(Math.round(x * 100) / 100).replace('.', ',');
+// ---------------------------------------------------------------- la piastra in iso, coi 4 fori
+function piastra(el, s) {
+  const W = el.clientWidth, H = el.clientHeight, c = Math.cos(Math.PI / 6), k = Math.min((W - 380) / (900 * c), (H - 140) / 450);
+  const pr = (x, y, z) => [24 + (x - y + 300) * c * k, 120 + ((x + y) * 0.5 - z) * k];
+  const P = pts => pts.map(p => pr(...p).join(',')).join(' ');
+  const L = 600, Pp = 300;
+  const fori = [[60, 60], [540, 60], [60, 240], [540, 240]];
+  let g = `<polygon points="${P([[0,0,T],[L,0,T],[L,Pp,T],[0,Pp,T]])}" fill="#C7CFD8" stroke="#1C2229"/>`
+    + `<polygon points="${P([[L,0,0],[L,Pp,0],[L,Pp,T],[L,0,T]])}" fill="#6E7A87"/><polygon points="${P([[0,Pp,0],[L,Pp,0],[L,Pp,T],[0,Pp,T]])}" fill="#8A96A3"/>`;
+  fori.forEach(([x, y], i) => {
+    const [cx, cy] = pr(x, y, T), sel = i === 0, acceso = sel || s.tutti;
+    const r = (s.tipo === 'svasato' ? s.D : s.tipo === 'filettato' ? FILETTI[s.M] : s.d) / 2 * k;
+    if (s.tipo === 'svasato') g += `<ellipse cx="${cx}" cy="${cy}" rx="${r * 1.22}" ry="${r * 0.7}" fill="#8A96A3"/>`;
+    const rr = (s.tipo === 'svasato' ? s.d : s.tipo === 'filettato' ? FILETTI[s.M] : s.d) / 2 * k;
+    g += `<ellipse cx="${cx}" cy="${cy}" rx="${rr * 1.22}" ry="${rr * 0.7}" fill="#20262E"/>`;
+    if (s.tipo === 'filettato') g += `<ellipse cx="${cx}" cy="${cy}" rx="${rr * 1.6}" ry="${rr * 0.92}" fill="none" stroke="#3A4552" stroke-dasharray="2 2"/>`;
+    if (acceso) g += `<ellipse cx="${cx}" cy="${cy}" rx="${Math.max(r, rr) * 1.22 + 7}" ry="${Math.max(r, rr) * 0.7 + 5}" fill="none" stroke="${sel ? '#FFB000' : '#5AA9FF'}" stroke-width="${sel ? 3 : 2}"/>`;
+  });
+  return { svg: g, punto: pr(60, 60, T) };
+}
+// ---------------------------------------------------------------- la sezione del foro (disegnino)
+function sezione(s, w, h, quote, t = T) {
+  const sc = Math.min((w - 10) / 36, (h - 14 - (quote ? 70 : 0)) / t), cx = w / 2, top = h / 2 - t * sc / 2, bot = top + t * sc;
+  const largo = 18 * sc, r = (s.tipo === 'filettato' ? FILETTI[s.M] : s.d) / 2 * sc;
+  const tratt = `<pattern id="tr${w}${h}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#5E6B78" stroke-width="1.5"/></pattern>`;
+  let sx, dx;
+  if (s.tipo === 'svasato') {
+    const R = s.D / 2 * sc, hz = Math.min(t * sc, (R - r) / Math.tan(s.A / 2 * Math.PI / 180));
+    sx = `M${cx - largo} ${top}H${cx - R}L${cx - r} ${top + hz}V${bot}H${cx - largo}Z`;
+    dx = `M${cx + largo} ${top}H${cx + R}L${cx + r} ${top + hz}V${bot}H${cx + largo}Z`;
+  } else if (s.tipo === 'inserto') {
+    sx = `M${cx - largo} ${top}H${cx - r - 3}V${bot}H${cx - largo}Z`; dx = `M${cx + largo} ${top}H${cx + r + 3}V${bot}H${cx + largo}Z`;
+  } else { sx = `M${cx - largo} ${top}H${cx - r}V${bot}H${cx - largo}Z`; dx = `M${cx + largo} ${top}H${cx + r}V${bot}H${cx + largo}Z`; }
+  let g = `<defs>${tratt}</defs><path d="${sx}" fill="url(#tr${w}${h})" stroke="#C7CFD8" stroke-width="1.5"/><path d="${dx}" fill="url(#tr${w}${h})" stroke="#C7CFD8" stroke-width="1.5"/>`;
+  g += `<line x1="${cx}" y1="${top - 14}" x2="${cx}" y2="${bot + 14}" stroke="#75808B" stroke-dasharray="8 3 2 3"/>`;
+  if (s.tipo === 'filettato') for (let y = top + 3; y < bot - 1; y += 4) g += `<path d="M${cx - r} ${y}l-3 2l3 2M${cx + r} ${y}l3 2l-3 2" stroke="#FFB000" fill="none" stroke-width="1.2"/>`;
+  if (s.tipo === 'inserto') g += `<rect x="${cx - r - 3}" y="${top - 4}" width="${2 * r + 6}" height="${bot - top + 4}" fill="none" stroke="#5AA9FF" stroke-width="2"/><rect x="${cx - r - 7}" y="${top - 6}" width="${2 * r + 14}" height="4" fill="#5AA9FF"/>`;
+  return { g, cx, top, bot, r, R: s.D / 2 * sc };
+}
+const pittogramma = tipo => { const s = { ...nuovo(), tipo, d: 12, D: 26, M: 'M10' }; return `<svg viewBox="0 0 80 46">${sezione(s, 80, 46, false, 9).g}</svg>`; };
+const TIPI = [['passante', 'Passante'], ['svasato', 'Svasato'], ['filettato', 'Filettato'], ['inserto', 'Inserto']];
+function cambiaTipo(s, t) { s.tipo = t; if (t === 'svasato') s.D = maxD(s); }
+// un numero che si clicca e si scrive
+function numero(el, valore, fatto) {
+  el.onclick = e => {
+    e.stopPropagation();
+    if (el.querySelector('input')) return;
+    const vecchio = el.innerHTML; el.innerHTML = `<input value="${v(valore)}">`;
+    const i = el.querySelector('input'); i.focus(); i.select();
+    const fine = ok => { const x = parseFloat(i.value.replace(',', '.')); if (ok && x > 0) fatto(x); else el.innerHTML = vecchio; };
+    i.onkeydown = e => { if (e.key === 'Enter') fine(true); if (e.key === 'Escape') fine(false); };
+    i.onblur = () => fine(true);
+  };
+}
+// ---------------------------------------------------------------- A: il richiamo
+const SA = nuovo();
+function A() {
+  const el = document.getElementById('A'); el.querySelectorAll('.x').forEach(x => x.remove());
+  const p = piastra(el, SA);
+  el.insertAdjacentHTML('beforeend', `<svg class="pz x">${p.svg}</svg>`);
+  const bx = el.clientWidth - 340, by = 150;
+  const s = SA;
+  const parti = [`<button class="tk n" data-k="tutti">${s.tutti ? '4×' : 'solo questo'}</button>`];
+  if (s.tipo === 'filettato') parti.push(`<button class="tk v" data-k="M">${s.M}</button>`);
+  else parti.push(`<button class="tk v" data-k="d">Ø${v(s.d)}</button>`);
+  parti.push(`<button class="tk t" data-k="tipo">${TIPI.find(t => t[0] === s.tipo)[1].toLowerCase()} ▾</button>`);
+  if (s.tipo === 'svasato') parti.push(`<button class="tk v" data-k="D">Ø${v(s.D)}</button><span class="fr">×</span><button class="tk v" data-k="A">${v(s.A)}°</button>`);
+  if (s.tipo === 'inserto') parti.push(`<button class="tk v" data-k="ins">M6 a rivetto</button>`);
+  const sz = sezione(s, 300, 92, false);
+  el.insertAdjacentHTML('beforeend', `<svg class="leader x"><path d="M${p.punto[0] + 10} ${p.punto[1] + 4}L${bx - 30} ${by + 22}H${bx}" stroke="#FFB000" stroke-width="1.6" fill="none"/><circle cx="${p.punto[0]}" cy="${p.punto[1]}" r="3.5" fill="#FFB000"/></svg>
+    <div class="richiamo x" style="left:${bx}px;top:${by}px"><div class="frase">${parti.join('')}</div>
+      <svg width="300" height="92">${sz.g}</svg>
+      <div class="nota">${s.tipo === 'svasato' ? `Svasatura: la più larga che sta nello spessore è <b>Ø${v(maxD(s))}</b>` : s.tipo === 'filettato' ? 'Il foro di preparazione lo sceglie Radius dal filetto' : s.tipo === 'inserto' ? 'Codice e misure dal catalogo inserti' : 'Foro passante'}</div></div>`);
+  const R = el.querySelector('.richiamo');
+  R.querySelector('[data-k="tutti"]').onclick = () => { s.tutti = !s.tutti; A(); };
+  R.querySelector('[data-k="tipo"]').onclick = e => {
+    e.stopPropagation(); el.querySelector('.menu')?.remove();
+    const b = e.target.getBoundingClientRect(), r0 = el.getBoundingClientRect();
+    el.insertAdjacentHTML('beforeend', `<div class="menu x" style="left:${b.left - r0.left - 60}px;top:${b.bottom - r0.top + 6}px">${TIPI.map(([k, t]) => `<button data-t="${k}" class="${k === s.tipo ? 'on' : ''}">${pittogramma(k)}${t}</button>`).join('')}</div>`);
+    el.querySelectorAll('.menu button').forEach(m => { m.onclick = () => { cambiaTipo(s, m.dataset.t); A(); }; });
+  };
+  const n = (k, f) => { const b = R.querySelector(`[data-k="${k}"]`); if (b) numero(b, s[k], x => { f(x); A(); }); };
+  n('d', x => { s.d = x; }); n('D', x => { s.D = x; }); n('A', x => { s.A = x; });
+  const m = R.querySelector('[data-k="M"]');
+  if (m) m.onclick = () => { const ks = Object.keys(FILETTI); s.M = ks[(ks.indexOf(s.M) + 1) % ks.length]; A(); };
+}
+// ---------------------------------------------------------------- B: la sezione grande
+const SB = nuovo();
+function B() {
+  const el = document.getElementById('B'); el.querySelectorAll('.x').forEach(x => x.remove());
+  const p = piastra(el, SB), s = SB;
+  el.insertAdjacentHTML('beforeend', `<svg class="pz x">${p.svg}</svg>`);
+  const bx = el.clientWidth - 346, by = 110, sz = sezione(s, 330, 190, true);
+  const q = [];
+  if (s.tipo === 'filettato') q.push(`<button class="tk v q" data-k="M" style="left:${sz.cx}px;top:${sz.bot + 26}px">${s.M}</button>`);
+  else q.push(`<button class="tk v q" data-k="d" style="left:${sz.cx}px;top:${sz.bot + 26}px">Ø${v(s.d)}</button>`);
+  if (s.tipo === 'svasato') q.push(`<button class="tk v q" data-k="D" style="left:${sz.cx}px;top:${sz.top - 24}px">Ø${v(s.D)}</button>`,
+    `<button class="tk v q" data-k="A" style="left:${sz.cx + sz.R + 40}px;top:${sz.top + 6}px">${v(s.A)}°</button>`);
+  if (s.tipo === 'inserto') q.push(`<button class="tk v q" style="left:${sz.cx}px;top:${sz.top - 24}px">M6 a rivetto</button>`);
+  const quotaLinee = `<line x1="${sz.cx - sz.r}" y1="${sz.bot + 12}" x2="${sz.cx + sz.r}" y2="${sz.bot + 12}" stroke="#FFB000"/>` +
+    (s.tipo === 'svasato' ? `<line x1="${sz.cx - sz.R}" y1="${sz.top - 10}" x2="${sz.cx + sz.R}" y2="${sz.top - 10}" stroke="#FFB000"/>` : '');
+  el.insertAdjacentHTML('beforeend', `<svg class="leader x"><path d="M${p.punto[0] + 10} ${p.punto[1] + 4}L${bx - 30} ${by + 30}H${bx}" stroke="#FFB000" stroke-width="1.6" fill="none"/><circle cx="${p.punto[0]}" cy="${p.punto[1]}" r="3.5" fill="#FFB000"/></svg>
+    <div class="schedaB x" style="left:${bx}px;top:${by}px">
+      <div class="tipi">${TIPI.map(([k, t]) => `<button data-t="${k}" class="${k === s.tipo ? 'on' : ''}">${pittogramma(k).replace('<svg', '<svg width="46" height="28"')}${t}</button>`).join('')}</div>
+      <div class="sez"><svg>${sz.g}${quotaLinee}</svg>${q.join('')}</div>
+      <div class="piede"><span>Vale per</span><div class="seg"><button data-tt="1" class="${s.tutti ? 'on' : ''}">tutti e 4</button><button data-tt="0" class="${s.tutti ? '' : 'on'}">solo questo</button></div></div></div>`);
+  const C = el.querySelector('.schedaB');
+  C.querySelectorAll('[data-t]').forEach(b => { b.onclick = () => { cambiaTipo(s, b.dataset.t); B(); }; });
+  C.querySelectorAll('[data-tt]').forEach(b => { b.onclick = () => { s.tutti = b.dataset.tt === '1'; B(); }; });
+  const n = (k, f) => { const b = C.querySelector(`[data-k="${k}"]`); if (b) numero(b, s[k], x => { f(x); B(); }); };
+  n('d', x => { s.d = x; }); n('D', x => { s.D = x; }); n('A', x => { s.A = x; });
+  const m = C.querySelector('[data-k="M"]');
+  if (m) m.onclick = () => { const ks = Object.keys(FILETTI); s.M = ks[(ks.indexOf(s.M) + 1) % ks.length]; B(); };
+}
+document.addEventListener('click', e => { if (!e.target.closest('.menu, [data-k="tipo"]')) document.querySelector('.menu')?.remove(); });
+A(); B();
+addEventListener('resize', () => { A(); B(); });
+</script>
+</body>
+</html>

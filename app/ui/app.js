@@ -40,7 +40,8 @@ function attesaInizio(name) {
     box.hidden = false; document.body.classList.add('in-attesa');
     attesaTick = setInterval(() => {
       const s = (performance.now() - attesaT0) / 1000;
-      document.getElementById('att-tempo').textContent = s >= 2 ? `${Math.floor(s)} s` : '';
+      document.getElementById('att-tempo').textContent = s >= 12 ? `${Math.floor(s)} s · è un lavoro pesante, ancora un momento`
+        : s >= 2 ? `${Math.floor(s)} s` : '';
     }, 250);
   }, 250);
 }
@@ -52,7 +53,9 @@ function attesaFine() {
   if (box) { box.hidden = true; document.getElementById('att-tempo').textContent = ''; }
   document.body.classList.remove('in-attesa');
 }
+let ultimaChiamata = null;                          // per ripetere la stessa chiamata con la soluzione di un errore
 async function call(name, ...args) {
+  if (!/^(state|scene|select|autosave|update_check|anteprima|.*_preview|libreria_catalogo|asm_fori_uguali|tree_menu|drawing_fields)$/.test(name)) ultimaChiamata = [name, args];
   attesaInizio(name);
   try {
     if (!DEV) return await window.pywebview.api[name](...args);
@@ -162,10 +165,89 @@ const EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
 const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x1F3A5F });
 const ING_MAT = new THREE.LineDashedMaterial({ color: 0x8A6A1F, dashSize: 6, gapSize: 4 });
 const C_HOVER = new THREE.Color(0x4EA1FF), C_SEL = new THREE.Color(0xFFB000);
+// 28/10: un pezzo giallo/arancio selezionato in ambra non si distingue: lì la selezione è blu, e i suoi spigoli si accendono
+const C_SEL_BLU = new THREE.Color(0x2F7DE1);
+const EDGE_SCELTO = new THREE.LineBasicMaterial({ color: 0x1E90FF });
+const comeSel = c => { const a = {}, b = {}; c.getHSL(a); C_SEL.getHSL(b); return Math.abs(a.h - b.h) < 0.09 && a.s > 0.35; };
 
 let daRidisegnare = true;
 const ridisegna = () => { daRidisegnare = true; };
 controls.addEventListener('change', ridisegna);
+
+// 28/10: nei suggerimenti dei pulsanti anche il tasto rapido, dove c'è (preso dall'elenco dei comandi)
+function tastiNeiSuggerimenti() {
+  const tasti = Object.fromEntries((typeof CMDS !== 'undefined' ? CMDS : []).filter(c => c.keys).map(c => [c.id, c.keys]));
+  document.querySelectorAll('[data-cmd][title]').forEach(b => {
+    const k = tasti[b.dataset.cmd];
+    if (k && !b.title.includes(`(${k})`) && !b.title.includes(k + ')')) b.title += ` (${k})`;
+  });
+}
+// il pannello di sinistra (28/10): «deve essere collassabile o comunque da rimpicciolire». Larghezza e chiuso si
+// ricordano; doppio clic sul bordo = larghezza normale
+(function pannelloSinistra() {
+  const leggi = k => { try { return localStorage.getItem(k); } catch { return null; } };
+  const scrivi = (k, v) => { try { localStorage.setItem(k, v); } catch { /* va bene così */ } };
+  const metti = w => { w = Math.max(190, Math.min(560, Math.round(w))); document.body.style.setProperty('--larg-sx', w + 'px'); return w; };
+  const w0 = parseFloat(leggi('radius.sx.larg'));
+  if (w0) metti(w0);
+  if (leggi('radius.sx.chiuso') === '1') document.body.classList.add('sx-chiuso');
+  const chiudi = on => { document.body.classList.toggle('sx-chiuso', on); scrivi('radius.sx.chiuso', on ? '1' : '0'); };
+  document.getElementById('sx-chiudi').onclick = ev => { ev.stopPropagation(); chiudi(true); };
+  document.getElementById('sx-apri').onclick = () => chiudi(false);
+  const m = document.getElementById('sx-maniglia');
+  m.addEventListener('pointerdown', ev => {
+    ev.preventDefault(); m.setPointerCapture(ev.pointerId); document.body.classList.add('sx-trascina');
+    const muovi = e => metti(e.clientX);
+    const fine = e => { m.removeEventListener('pointermove', muovi); m.removeEventListener('pointerup', fine);
+      document.body.classList.remove('sx-trascina'); scrivi('radius.sx.larg', metti(e.clientX)); };
+    m.addEventListener('pointermove', muovi); m.addEventListener('pointerup', fine);
+  });
+  m.addEventListener('dblclick', () => { metti(270); scrivi('radius.sx.larg', 270); });
+})();
+
+// 28/10: in tutti i campi di numeri si possono scrivere conti (500/2+10), il risultato si vede mentre scrivi e diventa
+// il valore quando confermi (Invio, o uscendo dal campo); con la rotellina, nel campo dove scrivi, il numero cresce o cala
+(function campiNumerici() {
+  const ESPR = /^[\d\s.,+\-*/()×]+$/;          // niente «x»: 40x40x3 è un profilo, non un conto
+  const eConto = v => ESPR.test(v) && /\d\s*[+*/×]\s*[\d(]|\d\s*-\s*[\d(]|\)/.test(v.trim());
+  const calcola = v => {
+    const s = v.replace(/,/g, '.').replace(/×/g, '*');
+    if (!/^[\d\s.+\-*/()]+$/.test(s)) return null;
+    try { const r = Function(`"use strict"; return (${s})`)(); return Number.isFinite(r) ? Math.round(r * 1000) / 1000 : null; } catch { return null; }
+  };
+  const testo = n => String(n).replace('.', ',');
+  const adatto = el => el && el.tagName === 'INPUT' && (!el.type || el.type === 'text') && !el.closest('#sk-cmd, .dd-tab, #tav-ed .te-lato, #te-sel') && !el.dataset.c && !el.list && !/ral|nome|name|cod|desc|forn|cerca/i.test(el.id || '');
+  let tip = null;
+  const mostra = (el, r) => {
+    if (!tip) { tip = document.createElement('div'); tip.id = 'conto-tip'; document.body.appendChild(tip); }
+    if (r === null) { tip.hidden = true; return; }
+    const b = el.getBoundingClientRect();
+    tip.textContent = '= ' + testo(r); tip.hidden = false;
+    tip.style.left = (b.right - tip.offsetWidth - 6) + 'px'; tip.style.top = (b.top - 24) + 'px';
+  };
+  const chiudi = el => {
+    if (tip) tip.hidden = true;
+    if (!adatto(el) || !eConto(el.value)) return;
+    const r = calcola(el.value);
+    if (r !== null) { el.value = testo(r); el.dispatchEvent(new Event('input', { bubbles: true })); }
+  };
+  document.addEventListener('input', e => { const el = e.target; if (adatto(el)) mostra(el, eConto(el.value) ? calcola(el.value) : null); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Enter' && adatto(e.target)) chiudi(e.target); }, true);
+  document.addEventListener('change', e => chiudi(e.target), true);
+  document.addEventListener('focusout', e => chiudi(e.target), true);
+  document.addEventListener('wheel', e => {
+    const el = e.target;
+    if (!adatto(el) || document.activeElement !== el) return;
+    const v = parseFloat(String(el.value).replace(',', '.'));
+    if (!Number.isFinite(v) || !/^-?\d+([.,]\d+)?$/.test(el.value.trim())) return;
+    e.preventDefault();
+    const passo = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+    const n = Math.round((v + (e.deltaY < 0 ? passo : -passo)) * 1000) / 1000;
+    el.value = testo(n);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    clearTimeout(el._ruota); el._ruota = setTimeout(() => el.dispatchEvent(new Event('change', { bubbles: true })), 450);
+  }, { passive: false, capture: true });
+})();
 
 function resize() {
   const w = view.clientWidth, h = view.clientHeight;
@@ -185,6 +267,7 @@ function loop() {
   renderer.render(scene, camera);
   placeDims();
   placeCube();
+  placeBarra();
 }
 
 const matOf = o => Array.isArray(o.mesh.material) ? o.mesh.material[0] : o.mesh.material;
@@ -242,6 +325,7 @@ function buildScene(sc) {
     objs.set(d.id, { data: d, mesh, lines, base, pos, extra });
   }
   if (ESPLOSO > 0) esplodi(ESPLOSO);
+  if (typeof applicaVisibilita === 'function') applicaVisibilita();
   paint();
 }
 
@@ -281,10 +365,15 @@ function paint() {
   for (const [id, o] of objs) {
     let c = o.base;
     const intero = o.data.kind === 'member';
-    if (selIds.has(id) && (intero || sel.face == null || (sel.ids && sel.ids.length > 1))) c = C_SEL;
+    const scelto = selIds.has(id) && (intero || sel.face == null || (sel.ids && sel.ids.length > 1));
+    if (scelto) c = comeSel(o.base) ? C_SEL_BLU : C_SEL;
     else if (hover && hover.id === id && (intero || hover.face == null)) c = C_HOVER;
     matOf(o).color.copy(c);
-    matOf(o).emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, 0);
+    matOf(o).emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, c === C_SEL_BLU ? 0.12 : 0);
+    if (o.lines) {                                 // gli spigoli del pezzo scelto, accesi: si vede anche se è dello stesso colore
+      if (!o.lineeMat) o.lineeMat = o.lines.material;
+      o.lines.material = scelto && S?.mode === 'assembly' ? EDGE_SCELTO : o.lineeMat;
+    }
   }
   if (sel && sel.face != null && objs.has(sel.id)) faceOverlay(objs.get(sel.id), sel.face, C_SEL);
   if (sel && sel.hl && objs.has('body')) for (const i of sel.hl) faceOverlay(objs.get('body'), i, C_SEL);
@@ -335,8 +424,9 @@ function pickEdge(ev) {
     ray.set(camera.position, dir.normalize());
     const hit = ray.intersectObjects(corpi, false)[0];
     if (hit && hit.distance < dist - Math.max(3 * e.thickness, 1)) continue;
-    best = { e, d };
+    best = { e, d, P };
   }
+  pickEdge.P = best?.P ?? null;                   // il punto del bordo più vicino al mouse
   return best?.e ?? null;
 }
 // ---- raccordo / smusso sugli spigoli del pezzo (piastre, pezzi pieni): si cliccano gli spigoli, poi Invio
@@ -356,49 +446,60 @@ function dressHelp() {
   setHelp(`${nome}: clic sugli spigoli da ${{ fillet: 'arrotondare', chamfer: 'smussare', weld: 'saldare' }[DRESS.kind]} (si accendono)` +
     (n ? ` · ${n} scelt${n === 1 ? 'o' : 'i'}: Invio per ${DRESS.kind === 'weld' ? 'tipo e misura' : 'la misura'}` : '') + ' · Esc annulla');
 }
-function pickBodyEdge(ev) {                          // lo spigolo del pezzo sotto il mouse, e il punto più vicino
-  const o = objs.get('body');
-  if (!o) return null;
+// 28/10: anche nell'assieme (gli spigoli di tutte le copie, al loro posto): lì si saldano i pezzi tra loro.
+// p: il punto nelle coordinate della scena (del pezzo, per il pezzo aperto); pl: lo stesso nel pezzo della copia
+function pickBodyEdge(ev) {                          // lo spigolo sotto il mouse, e il punto più vicino
+  const tutti = S?.mode === 'assembly' ? [...objs.values()].filter(o => o.data.kind === 'instance' && o.mesh.visible && o.data.edges)
+    : [objs.get('body')].filter(Boolean);
+  if (!tutti.length) return null;
   const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
   const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height]; };
+  const maglie = tutti.map(o => o.mesh);
   let best = null;
-  o.data.edges.forEach((e, k) => {
-    for (let i = 0; i + 5 < e.length; i += 3) {
-      const A = new THREE.Vector3(e[i], e[i + 1], e[i + 2]), B = new THREE.Vector3(e[i + 3], e[i + 4], e[i + 5]);
-      const a = scr(A), b = scr(B), dx = b[0] - a[0], dy = b[1] - a[1], LL = dx * dx + dy * dy || 1;
-      const t = Math.max(0, Math.min(1, ((mx - a[0]) * dx + (my - a[1]) * dy) / LL));
-      const d = Math.hypot(mx - a[0] - t * dx, my - a[1] - t * dy);
-      if (d > 8 || (best && d >= best.d)) continue;
-      const P = A.clone().lerp(B, t), dir = P.clone().sub(camera.position), dist = dir.length();
-      ray.set(camera.position, dir.normalize());
-      const hit = ray.intersectObjects([o.mesh], false)[0];
-      if (hit && hit.distance < dist - 0.5) continue;  // dietro al pezzo
-      best = { k, d, p: [P.x, P.y, P.z] };
-    }
-  });
+  for (const o of tutti) {
+    const W = o.mesh.matrixWorld, M = o.mesh.matrix;
+    o.data.edges.forEach((e, k) => {
+      for (let i = 0; i + 5 < e.length; i += 3) {
+        const Al = new THREE.Vector3(e[i], e[i + 1], e[i + 2]), Bl = new THREE.Vector3(e[i + 3], e[i + 4], e[i + 5]);
+        const A = Al.clone().applyMatrix4(W), B = Bl.clone().applyMatrix4(W);
+        const a = scr(A), b = scr(B), dx = b[0] - a[0], dy = b[1] - a[1], LL = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((mx - a[0]) * dx + (my - a[1]) * dy) / LL));
+        const d = Math.hypot(mx - a[0] - t * dx, my - a[1] - t * dy);
+        if (d > 8 || (best && d >= best.d)) continue;
+        const P = A.clone().lerp(B, t), dir = P.clone().sub(camera.position), dist = dir.length();
+        ray.set(camera.position, dir.normalize());
+        const hit = ray.intersectObjects(maglie, false)[0];
+        if (hit && hit.distance < dist - 0.5) continue;  // dietro a un pezzo
+        const Pl = Al.clone().lerp(Bl, t), Pm = Pl.clone().applyMatrix4(M);
+        best = { id: o.data.id, k, d, p: [Pm.x, Pm.y, Pm.z], pl: [Pl.x, Pl.y, Pl.z] };
+      }
+    });
+  }
   return best;
 }
 function dressDraw() {
   DRESS.group.clear();
-  const o = objs.get('body');
-  const linea = (k, mat) => {
-    const e = o.data.edges[k], pts = [];
-    for (let i = 0; i + 2 < e.length; i += 3) pts.push(new THREE.Vector3(e[i], e[i + 1], e[i + 2]));
+  const linea = (h, mat) => {
+    const o = objs.get(h.id);
+    if (!o) return;
+    const e = o.data.edges[h.k], pts = [];
+    for (let i = 0; i + 2 < e.length; i += 3) pts.push(new THREE.Vector3(e[i], e[i + 1], e[i + 2]).applyMatrix4(o.mesh.matrix));
     DRESS.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
   };
-  for (const c of DRESS.scelti) linea(c.k, DRESS_MAT);
-  if (DRESS.hover != null && !DRESS.scelti.some(c => c.k === DRESS.hover)) linea(DRESS.hover, DRESS_HOV);
+  const uguale = (a, b) => a && b && a.id === b.id && a.k === b.k;
+  for (const c of DRESS.scelti) linea(c, DRESS_MAT);
+  if (DRESS.hover && !DRESS.scelti.some(c => uguale(c, DRESS.hover))) linea(DRESS.hover, DRESS_HOV);
   paint();
 }
 function dressMove(ev) {
   const h = pickBodyEdge(ev);
-  const k = h ? h.k : null;
-  if (k !== DRESS.hover) { DRESS.hover = k; dressDraw(); }
+  const v = DRESS.hover;
+  if ((h?.id ?? null) !== (v?.id ?? null) || (h?.k ?? null) !== (v?.k ?? null)) { DRESS.hover = h ? { id: h.id, k: h.k } : null; dressDraw(); }
 }
 function dressClick(ev) {
   const h = pickBodyEdge(ev);
-  if (!h) { toast('Clicca proprio su uno spigolo (si accende in blu).', 'err'); return; }
-  const i = DRESS.scelti.findIndex(c => c.k === h.k);
+  if (!h) { toast('Avvicinati a uno spigolo finché si accende in blu, poi clicca.'); return; }
+  const i = DRESS.scelti.findIndex(c => c.id === h.id && c.k === h.k);
   if (i >= 0) DRESS.scelti.splice(i, 1); else DRESS.scelti.push(h);
   dressHelp(); dressDraw();
 }
@@ -406,7 +507,7 @@ let ultimaSaldatura = { tipo: 'angolo', a: '4' };
 function dressFine() {
   if (!DRESS?.scelti.length) { toast('Scegli almeno uno spigolo.', 'err'); return; }
   if (DRESS.kind === 'weld') {                     // saldatura: tipo e misura, poi sul pezzo e in distinta
-    const punti = DRESS.scelti.map(c => c.p), q = ultimaSaldatura;
+    const punti = S?.mode === 'assembly' ? DRESS.scelti.map(c => ({ inst: c.id, p: c.pl })) : DRESS.scelti.map(c => c.p), q = ultimaSaldatura;
     modal(`<h3>Saldatura su ${punti.length} spigol${punti.length === 1 ? 'o' : 'i'}</h3>
       <div class="form"><label>Tipo<select class="field" id="sw-tipo">${[['angolo', 'D’angolo (a gola)'], ['V', 'Di testa a V'], ['I', 'Di testa a I']].map(([v, t]) =>
         `<option value="${v}"${q.tipo === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -486,6 +587,35 @@ function selectEdge(e) {
   if (e.kind === 'side' || e.kind === 'libero') { pannelloPiegaBordo(e); return; }
   const punta = e.kind === 'tip';
   const d = punta ? ultimaPunta : ultimaFlangia;
+  // 29/10: la barretta sul bordo; la piega si fa subito con l'ultima lunghezza, poi si cambia la sua quota sul pezzo
+  if (MINI.dove && performance.now() - MINI.dove.t < 2500) {
+    sel.soloMini = true; aggiornaLayout();
+    MINI.ancora = MINI.dove.p ? MINI.dove.p.clone() : v3(e.a).lerp(v3(e.b), 0.5);
+    MINI.dove = null; MINI.s = null;
+    togliQuote();
+    const versi = punta ? VERSI_PUNTA : VERSI_UI;
+    const prova = verso => on => (on ? anteprima('add_flange', () => [e.feature, punta ? null : e.ref, { ...d, direction: verso }, punta ? e.ref : null], null) : anteprimaVia());
+    const piega = verso => {
+      anteprimaVia();
+      const f = { ...d, direction: verso };
+      if (punta) ultimaPunta = f; else ultimaFlangia = f;
+      schedaCalcola(true);
+      inCoda(async () => {
+        const r = await call('add_flange', e.feature, punta ? null : e.ref, f, punta ? e.ref : null);
+        if (await apply(r)) {
+          MINI.nuova = true;
+          if (r.select) await select(r.select);       // la flangia nuova, con le sue quote
+          if (r.ask_tip_corners) askTipCorners(r.ask_tip_corners);
+          toast(`Piega ${virgola(f.length)} mm ${versi[verso].toLowerCase()}: clicca «${virgola(f.length)}» sul pezzo per cambiarla.`);
+        } else schedaCalcola(false);
+      });
+    };
+    barretta(punta ? 'Punta della flangia' : `Bordo ${e.label}`, [
+      ['flange', `Piega ${versi.up.toLowerCase()}`, () => piega('up'), '', prova('up')],
+      ['fold', `Piega ${versi.down.toLowerCase()}`, () => piega('down'), '', prova('down')]],
+    { chi: 'edge=' + e.id, piu: () => { nascondiMini(); MINI.dove = null; selectEdge(e); } });
+    return;                                        // il pannello completo solo con «⋯»
+  }
   $('#props').innerHTML = `<h3>Flangia su questo bordo</h3><table class="grid"><tr><td>Bordo</td><td>${esc(e.label)}</td></tr></table>
     <p class="hint" style="margin:6px 0">${punta ? 'Piega sul bordo libero della flangia: la sua lunghezza resta la quota esterna fino allo spigolo della nuova piega.' : 'Lunghezza dallo spigolo esterno alla punta.'}</p>
     ${flangeFields(d, punta ? VERSI_PUNTA : VERSI_UI, POS_UI)}
@@ -525,12 +655,24 @@ function pick(ev) {
   }
   // da che parte guarda la faccia cliccata (per le aste: su quale faccia del tubo si disegna)
   const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).toArray() : null;
-  return { id: o.data.id, face, name: o.data.name, normal };
+  return { id: o.data.id, face, name: o.data.name, normal, point: hit.point.clone() };
 }
 let ultimoClic = null;                        // l'ultima cosa cliccata nel 3D, con la normale della faccia
 
 const tip = $('#hover-tip');
 let premuto = null;
+let destroGiu = null;
+canvas.addEventListener('pointerdown', ev => { if (ev.button === 2) destroGiu = [ev.clientX, ev.clientY]; }, true);
+canvas.addEventListener('contextmenu', ev => {
+  ev.preventDefault();
+  if (S?.mode !== 'assembly' || SK || !destroGiu || Math.hypot(ev.clientX - destroGiu[0], ev.clientY - destroGiu[1]) > 5) return;
+  const r = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((ev.clientX - r.left) / r.width * 2 - 1, -(ev.clientY - r.top) / r.height * 2 + 1), camera);
+  const maglie = [...objs.values()].filter(o => o.data.kind === 'instance' && o.mesh.visible).map(o => o.mesh);
+  const hit = ray.intersectObjects(maglie, false)[0];
+  const o = hit && [...objs.values()].find(x => x.mesh === hit.object);
+  if (o) menuPezzoAssieme(o.data.id, ev.clientX, ev.clientY);
+});
 canvas.addEventListener('pointerdown', ev => {
   premuto = { x: ev.clientX, y: ev.clientY };
   if (document.activeElement?.id === 'sk-cmd-in') document.activeElement.blur();
@@ -607,6 +749,7 @@ canvas.addEventListener('pointermove', ev => {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
     tip.textContent = h.face != null ? `${o.data.name}: ${f?.label || 'faccia'}` : h.name;
+    if (sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia) tip.textContent += ' · clic ancora: la faccia';
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
     tip.style.top = (ev.clientY - r.top + 14) + 'px';
@@ -621,10 +764,15 @@ canvas.addEventListener('pointerup', ev => {
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
   const he = pickEdge(ev);
-  if (he) { selectEdge(he); return; }
+  if (he) { MINI.dove = { p: pickEdge.P, t: performance.now() }; selectEdge(he); return; }
   const h = pick(ev);
   ultimoClic = h;
   if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
+  MINI.dove = { p: h?.point ?? null, t: performance.now() };      // la barretta compare qui
+  // secondo clic sulla stessa flangia: la sua faccia (disegna, fora, taglia lì)
+  if (h && sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia && document.getElementById('mini-barra')) {
+    MINI.faccia = true; miniBarra(MINI.s); return;
+  }
   if (h) select(h.id, h.face); else clearSelection();
 });
 
@@ -1208,7 +1356,8 @@ function clickNode(n) {
 // ===================================================================== dati → pannelli
 async function apply(res, okMsg) {
   if (!res || !res.ok) {
-    if (res && !res.cancelled) toast(res.message || 'Operazione non riuscita.', 'err');
+    if (res && !res.cancelled && (res.soluzioni?.length || res.evidenzia)) mostraErrore(res);   // 28/10: dove e come uscirne
+    else if (res && !res.cancelled) toast(res.message || 'Operazione non riuscita.', 'err');
     return false;
   }
   if (res.state) {
@@ -1281,21 +1430,43 @@ async function caricaScena() {
   }
 }
 
+let visPercorso = null;
+// 28/10: la storia dei passi; un clic e il pezzo torna com'era lì (i passi dopo restano, in grigio, finché non cambi)
+function renderStoria() {
+  const st = S?.storia, box = document.getElementById('storia-panel');
+  if (!box) return;
+  box.hidden = !st || !st.passi.length;
+  if (box.hidden) return;
+  document.getElementById('storia-n').textContent = st.qui < st.passi.length ? `passo ${st.qui} di ${st.passi.length}` : `${st.passi.length} passi`;
+  const voci = [['Com’era all’apertura', 0], ...st.passi.map((t, i) => [t, i + 1])];
+  const el = document.getElementById('storia');
+  el.innerHTML = voci.map(([t, pos]) => `<button data-pos="${pos}" class="${pos === st.qui ? 'qui' : pos > st.qui ? 'dopo' : ''}" title="${esc(t)}"><span>${esc(t)}</span></button>`).join('');
+  el.querySelector('.qui')?.scrollIntoView({ block: 'nearest' });
+  el.onclick = e => {
+    const b = e.target.closest('[data-pos]');
+    if (!b || +b.dataset.pos === st.qui) return;
+    clearSelection();
+    inCoda(async () => apply(await call('history_goto', +b.dataset.pos)));
+  };
+}
 function renderPanels() {
   const assieme = S.mode === 'assembly';
+  if ((assieme ? S.path || S.name : null) !== visPercorso) {      // un altro assieme: si vede tutto di nuovo
+    visPercorso = assieme ? S.path || S.name : null;
+    VIS.nascosti.clear(); VIS.trasparenti.clear(); VIS.solo = null;
+  }
   document.body.classList.toggle('assembly', assieme);
   $('#b-back').hidden = !S.can_back;
   if (!assieme && ASM.tool) asmTool(null);
-  renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi();
+  renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi(); renderStoria();
   aggiornaLayout();
   if (!sel && !SK) $('#props').innerHTML = '';
 }
 // il pannello a destra si apre solo quando c'è qualcosa di selezionato (le proprietà); i comandi stanno nella barra in alto
 function aggiornaLayout() {
-  const chiuso = !sel || !!SK;
+  const chiuso = !sel || !!SK || !!sel.soloMini;
   if (document.body.classList.contains('senza-destra') === chiuso) return;
-  document.body.classList.toggle('senza-destra', chiuso);
-  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  document.body.classList.toggle('senza-destra', chiuso);          // sopra la vista: la vista non cambia misura
 }
 
 function renderTop() {
@@ -1329,9 +1500,49 @@ function renderTree() {
     const st = n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
     const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
     const figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${esc(n.label)}${st}</div>${figli}</li>`;
+    let occhio = '';
+    if (n.kind === 'instance') {                     // 28/10: l'occhio per nascondere, e come si vede adesso
+      const vede = VIS.solo ? VIS.solo.has(n.ref) : !VIS.nascosti.has(n.ref);
+      if (!vede) cls.push('nascosto');
+      if (VIS.trasparenti.has(n.ref)) cls.push('trasp');
+      occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
+    }
+    const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${esc(n.label)}${q}${st}${occhio}</div>${figli}</li>`;
   };
-  $('#tree').innerHTML = `<ul>${nodo(S.tree)}</ul>`;
+  // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
+  let albero = S.tree;
+  if (S.mode === 'assembly' && S.tree) {
+    const file = Object.fromEntries((S.instances || []).map(i => [i.id, i.file]));
+    const figli = [], gruppi = {};
+    for (const c of S.tree.children) {
+      if (c.kind !== 'instance') { figli.push(c); continue; }
+      const k = file[c.ref] || c.ref;
+      (gruppi[k] = gruppi[k] || []).push(c);
+      if (gruppi[k].length === 1) figli.push({ _gruppo: k });
+    }
+    albero = { ...S.tree, children: figli.flatMap(c => {
+      if (!c._gruppo) return [c];
+      const g = gruppi[c._gruppo];
+      if (g.length < 3) return g;
+      return [{ label: g[0].label.replace(/\s*\(\d+\)$/, ''), kind: 'members', ref: g.map(x => x.ref), qta: g.length, status: null, children: g }];
+    }) };
+  }
+  const cerca = ($('#tree-cerca')?.value || '').trim().toLowerCase();
+  const filtra = n => {                              // con la ricerca: le voci che contengono il testo (e i loro gruppi)
+    if (!cerca || n.kind === 'assembly' || n.kind === 'project') return { ...n, children: n.children.map(filtra).filter(Boolean) };
+    const figli = n.children.map(filtra).filter(Boolean);
+    return String(n.label).toLowerCase().includes(cerca) || figli.length ? { ...n, children: figli } : null;
+  };
+  const molti = S.mode === 'assembly' && (S.instances || []).length > 6;
+  const prima = document.activeElement?.id === 'tree-cerca';
+  $('#tree').innerHTML = (molti ? `<input class="field tree-cerca" id="tree-cerca" placeholder="Cerca un pezzo…" value="${esc(cerca)}">` : '')
+    + `<ul>${nodo(filtra(albero) || albero)}</ul>`;
+  if (molti) {
+    const inp = $('#tree-cerca');
+    inp.oninput = () => renderTree();
+    if (prima) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+  }
 }
 // tasto destro su una voce dell'albero: modifica, rinomina, disattiva, elimina, perché è rossa (21/10)
 const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', serie: 'Ripeti in serie…', disattiva: 'Disattiva (non farla, senza cancellarla)',
@@ -1348,6 +1559,67 @@ async function confermaElimina(kind, ref, titolo, dip = null) {
   });
 }
 function chiudiMenuAlbero() { document.getElementById('menu-albero')?.remove(); }
+// 28/10: nell'assieme i pezzi si nascondono, si isolano, si fanno trasparenti (solo a video, il file non cambia):
+// per lavorare sul fondo del cassone si tolgono di mezzo le pareti
+const VIS = { nascosti: new Set(), trasparenti: new Set(), solo: null };
+function applicaVisibilita() {
+  for (const o of objs.values()) {
+    if (o.data.kind !== 'instance') continue;
+    const id = o.data.id, vede = VIS.solo ? VIS.solo.has(id) : !VIS.nascosti.has(id);
+    for (const x of [o.mesh, o.lines, ...(o.extra || [])]) if (x) x.visible = vede;
+    const m = matOf(o), tr = VIS.trasparenti.has(id);
+    if (m.transparent !== tr || (tr && m.opacity !== 0.22)) {
+      m.transparent = tr; m.opacity = tr ? 0.22 : 1; m.depthWrite = !tr; m.needsUpdate = true;
+    }
+  }
+  ridisegna();
+}
+function visibilitaVia() { VIS.nascosti.clear(); VIS.trasparenti.clear(); VIS.solo = null; applicaVisibilita(); renderTree(); }
+function menuPezzoAssieme(id, x, y) {
+  chiudiMenuAlbero();
+  const ist = (S.instances || []).find(i => i.id === id);
+  if (!ist) return;
+  const nascosto = VIS.solo ? !VIS.solo.has(id) : VIS.nascosti.has(id), tr = VIS.trasparenti.has(id);
+  const qualcosa = VIS.nascosti.size || VIS.trasparenti.size || VIS.solo;
+  const voci = [['apri', 'Apri il pezzo'], [nascosto ? 'mostra' : 'nascondi', nascosto ? 'Mostra' : 'Nascondi'],
+    ['solo', 'Mostra solo questo'], [tr ? 'opaco' : 'trasparente', tr ? 'Non più trasparente' : 'Trasparente'],
+    ...(qualcosa ? [['tutti', 'Mostra tutti i pezzi']] : [])];
+  const box = document.createElement('div');
+  box.id = 'menu-albero'; box.className = 'menu-albero';
+  box.innerHTML = `<div class="ma-tit">${esc(ist.name)}</div>` + voci.map(([v, t]) => `<button data-v="${v}">${t}</button>`).join('');
+  document.body.appendChild(box);
+  const r = box.getBoundingClientRect();
+  box.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  box.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  box.onclick = e => {
+    const v = e.target.closest('button')?.dataset.v;
+    if (!v) return;
+    chiudiMenuAlbero();
+    if (v === 'apri') { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', id))); return; }
+    if (v === 'nascondi') { if (VIS.solo) VIS.solo.delete(id); else VIS.nascosti.add(id); if (sel && (sel.ids || [sel.id]).includes(id)) clearSelection(); }
+    if (v === 'mostra') { if (VIS.solo) VIS.solo.add(id); else VIS.nascosti.delete(id); }
+    if (v === 'solo') { VIS.solo = new Set([id]); VIS.nascosti.clear(); }
+    if (v === 'trasparente') VIS.trasparenti.add(id);
+    if (v === 'opaco') VIS.trasparenti.delete(id);
+    if (v === 'tutti') { visibilitaVia(); return; }
+    applicaVisibilita(); renderTree();
+  };
+}
+$('#tree').addEventListener('contextmenu', ev => {
+  const n = ev.target.closest('.node[data-kind="instance"]');
+  if (!n || S?.mode !== 'assembly') return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  menuPezzoAssieme(n.dataset.ref, ev.clientX, ev.clientY);
+}, true);
+$('#tree').addEventListener('click', ev => {
+  const o = ev.target.closest('.occhio');
+  if (!o) return;
+  ev.stopPropagation(); ev.preventDefault();
+  const id = o.dataset.occhio;
+  const vede = VIS.solo ? VIS.solo.has(id) : !VIS.nascosti.has(id);
+  if (VIS.solo) { if (vede) VIS.solo.delete(id); else VIS.solo.add(id); } else if (vede) VIS.nascosti.add(id); else VIS.nascosti.delete(id);
+  applicaVisibilita(); renderTree();
+}, true);
 $('#tree').addEventListener('contextmenu', ev => {
   const n = ev.target.closest('.node[data-ref]');
   if (!n || S?.mode === 'assembly') return;
@@ -1471,13 +1743,18 @@ $('#params').addEventListener('focusout', ev => {
 // selGen cambia solo quando cambia cosa è selezionato (non quando si riseleziona la stessa cosa dopo una
 // ricostruzione): serve per sapere se, mentre una modifica girava, hai cliccato altro.
 let selTok = 0, selGen = 0;
-async function select(id, face = null, ids = null, silenzioso = false) {
+async function select(id, face = null, ids = null, silenzioso = false, nomeNoto = null) {
   const mio = ++selTok;
   if ($('#modal').hidden) anteprimaVia();             // l'anteprima del pannello di prima
-  if (!sel || sel.id !== id || sel.face !== face) selGen++;
-  sel = { id, face, ids };
+  const stessa = sel && sel.id === id && sel.face === face;
+  if (!stessa) { selGen++; MINI.faccia = false; }
+  MINI.stessa = !!stessa;
+  const eraMini = stessa && sel.soloMini, pannello = !!(stessa && sel.pannello);
+  sel = { id, face, ids, soloMini: eraMini, pannello };
   paint(); renderTree(); paintNodes();
-  const nome = face != null ? objs.get(id)?.data.faces?.find(x => x.index === face)?.name ?? null : null;
+  // il nome della faccia: dopo una modifica quello di quando l'hai cliccata (il numero, nel pezzo rifatto, può essere un'altra faccia)
+  const nome = face != null ? nomeNoto ?? objs.get(id)?.data.faces?.find(x => x.index === face)?.name ?? null : null;
+  sel.nome = nome;
   const r = await call('select', id, face, nome);
   if (mio !== selTok) return;
   if (!r.ok) { if (!silenzioso) toast(r.message, 'err'); return; }
@@ -1490,6 +1767,7 @@ async function select(id, face = null, ids = null, silenzioso = false) {
   aggiornaLayout();
 }
 function clearSelection() {
+  nascondiMini(); togliManiglie(); MINI.faccia = false; MINI.s = null;
   selTok++; selGen++;
   togliAnteprimaForo();
   if ($('#modal').hidden) anteprimaVia();
@@ -1622,7 +1900,452 @@ async function preparaDialog() {
 }
 
 let profili = null;
+// 29/10: «la minibar fa cagare». Al clic nel 3D solo una barretta di icone attaccata alla cosa scelta (la segue quando
+// giri la vista); le misure stanno SUL pezzo, come quote arancioni: clic e scrivi, oppure tira. Secondo clic sulla stessa
+// flangia: la sua faccia. «⋯» apre il pannello completo a destra, solo se lo chiedi.
+const MINI = { dove: null, ancora: null, faccia: false, stessa: false, s: null, tutti: true, nuova: false };
+const QUOTE = [];                                    // { el, p: punto nel 3D, dx, dy, fuori: verso cui staccarla dal pezzo }
+const SCELTE = { el: null, q: null, prova: null };   // il menu sotto una quota (45° 90° 135°, M6 M8…)
+function nascondiMini() {
+  document.getElementById('mini-barra')?.remove();
+  document.getElementById('sc-linea')?.remove();
+  togliQuote();
+}
+function togliQuote() { chiudiScelte(); for (const q of QUOTE) q.el.remove(); QUOTE.length = 0; }
+function chiudiScelte() { SCELTE.el?.remove(); SCELTE.el = null; SCELTE.q = null; SCELTE.prova = null; }
+const aSchermo = p => {
+  const r = canvas.getBoundingClientRect(), v = p.clone().project(camera);
+  return v.z > 1 ? null : [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
+};
+// a ogni disegno della vista: la barretta e le quote tornano sui loro punti del pezzo
+function placeBarra() {
+  const m = document.getElementById('mini-barra'), r = canvas.getBoundingClientRect();
+  if (m && MINI.ancora) {
+    const q = aSchermo(MINI.ancora);
+    m.style.visibility = q ? '' : 'hidden';
+    if (q && m.classList.contains('lato')) {
+      const w = m.offsetWidth, h = m.offsetHeight, destra = q[0] + 80 + w < r.right - 8;
+      const x = destra ? q[0] + 80 : Math.max(r.left + 8, q[0] - 80 - w), y = Math.max(r.top + 8, Math.min(q[1] - 70, r.bottom - h - 8));
+      m.style.left = x + 'px'; m.style.top = y + 'px';
+      let l = document.getElementById('sc-linea');
+      if (!l) { l = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); l.id = 'sc-linea'; document.body.appendChild(l); }
+      const ax = destra ? x : x + w, ay = Math.max(y + 20, Math.min(q[1], y + 60));
+      l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
+    } else if (q) {
+      const w = m.offsetWidth, h = m.offsetHeight;
+      m.style.left = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8)) + 'px';
+      m.style.top = Math.max(r.top + 34, Math.min(q[1] + 30, r.bottom - h - 8)) + 'px';
+    }
+    if (!q) document.getElementById('sc-linea')?.remove();
+  }
+  for (const x of QUOTE) {
+    const q = aSchermo(x.p);
+    x.el.style.display = q ? '' : 'none';
+    if (!q) continue;
+    let ox = x.dx || 0, oy = x.dy || 0;
+    if (x.fuori) {
+      const q2 = aSchermo(x.p.clone().add(x.fuori));
+      if (q2) { const vx = q2[0] - q[0], vy = q2[1] - q[1], n = Math.hypot(vx, vy) || 1; ox += vx / n * 42; oy += vy / n * 42; }
+    }
+    x.el.style.left = (q[0] + ox) + 'px'; x.el.style.top = (q[1] + oy) + 'px';
+  }
+  if (SCELTE.el && SCELTE.q) {
+    const b = SCELTE.q.getBoundingClientRect();
+    SCELTE.el.style.left = (b.left + b.width / 2) + 'px'; SCELTE.el.style.top = (b.bottom + 6) + 'px';
+  }
+}
+// la barretta. voci: [icona, suggerimento, fai, classe, anteprima(on)]; '|' = separatore. opz.chi: chi è (stessa
+// cosa = niente animazione), opz.piu: cosa fa «⋯» (di solito il pannello completo), opz.piu === false: niente «⋯»
+function barretta(nome, voci, opz = {}) {
+  const vecchia = document.getElementById('mini-barra'), chi = opz.chi || nome;
+  const uguale = vecchia?.dataset.chi === chi;
+  vecchia?.remove();
+  tip.style.display = 'none';
+  const m = document.createElement('div');
+  m.id = 'mini-barra'; m.dataset.chi = chi;
+  if (uguale) m.classList.add('fermo');
+  m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
+    : `<button data-i="${i}" data-t="${esc(t)}" aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}"><img src="icons/${ic}.svg" alt=""></button>`).join('')
+    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯</button>` : '');
+  document.body.appendChild(m);
+  m.querySelectorAll('[data-i]').forEach(b => {
+    const v = voci[+b.dataset.i];
+    b.onclick = () => v[2]();
+    if (v[4]) { b.onmouseenter = () => v[4](true); b.onmouseleave = () => v[4](false); }
+  });
+  m.querySelector('.piu')?.addEventListener('click', () => (opz.piu ? opz.piu() : tutteLeOpzioni()));
+  placeBarra();
+}
+function tutteLeOpzioni() { if (!sel) return; sel.pannello = true; sel.soloMini = false; aggiornaLayout(); }   // il pannello completo, a destra
+// mentre il pezzo si ricalcola: un segno accanto al nome (non sembra bloccata)
+function schedaCalcola(on) { document.getElementById('mini-barra')?.classList.toggle('calcolo', on); }
+// una quota sul pezzo. o: unita, num (il valore), etichetta, blu, dx/dy/fuori, titolo; e cosa fa:
+// scrivi(v) (clic: si scrive lì), scelte [[v, testo]] + sceglie(v) + libero (si può scrivere anche un altro valore),
+// clic(), tira { muovi(dx, dy, maiusc) → valore, fine() }, prova(v | null) (l'anteprima mentre scegli o scrivi), sopra(on)
+function quota(p, testo, o = {}) {
+  const el = document.createElement('div');
+  el.className = 'quota' + (o.blu ? ' blu' : '') + (o.tira ? ' tira' : '') + (o.pulsa ? ' pulsa' : '');
+  if (o.titolo) el.title = o.titolo;
+  const scrivi = t => {
+    el.innerHTML = `${o.etichetta ? `<span class="et">${esc(o.etichetta)}</span>` : ''}<span class="v">${esc(t)}</span>${o.unita ? `<span class="u">${o.unita}</span>` : ''}${o.tira ? '<span class="h" aria-hidden="true">↔</span>' : ''}`;
+  };
+  scrivi(testo);
+  document.body.appendChild(el);
+  const ent = { el, p, dx: o.dx || 0, dy: o.dy || 0, fuori: o.fuori || null };
+  QUOTE.push(ent);
+  let giu = null, mosso = false;
+  el.addEventListener('pointerdown', e => {
+    if (e.target.tagName === 'INPUT' || e.button !== 0) return;
+    e.stopPropagation();
+    giu = { x: e.clientX, y: e.clientY }; mosso = false;
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', e => {
+    if (!giu || !o.tira) return;
+    const dx = e.clientX - giu.x, dy = e.clientY - giu.y;
+    if (!mosso && Math.hypot(dx, dy) < 4) return;
+    mosso = true;
+    el.querySelector('.v').textContent = virgola(o.tira.muovi(dx, dy, e.shiftKey, ent));
+  });
+  el.addEventListener('pointerup', () => {
+    if (!giu) return;
+    giu = null;
+    if (mosso) { o.tira.fine(); return; }
+    if (o.clic) o.clic();
+    else if (o.scelte) apriScelte(el, o);
+    else if (o.scrivi) scriviQuota(el, o);
+  });
+  if (o.sopra) { el.onmouseenter = () => o.sopra(true); el.onmouseleave = () => o.sopra(false); }
+  ridisegna();
+  return ent;
+}
+const rifaiMini = () => { if (MINI.s && sel) miniBarra(MINI.s); };
+function scriviQuota(el, o) {
+  chiudiScelte();
+  el.classList.add('scrive');
+  el.innerHTML = `${o.etichetta ? `<span class="et">${esc(o.etichetta)}</span>` : ''}<input value="${esc(virgola(o.num ?? ''))}" aria-label="${esc(o.etichetta || 'Valore')}">${o.unita ? `<span class="u">${o.unita}</span>` : ''}`;
+  const i = el.querySelector('input');
+  i.focus(); i.select();
+  let chiuso = false;
+  const fine = ok => {
+    if (chiuso) return;
+    chiuso = true;
+    o.prova?.(null);
+    const t = i.value.trim().replace(',', '.'), v = parseFloat(t);
+    if (ok && t && Number.isFinite(v) && v > 0 && String(v) !== String(o.num)) o.scrivi(t);
+    else rifaiMini();
+  };
+  i.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') fine(true); if (e.key === 'Escape') fine(false); };
+  i.oninput = () => { const v = parseFloat(i.value.replace(',', '.')); if (Number.isFinite(v) && v > 0) o.prova?.(v); };
+  i.onblur = () => fine(true);
+}
+function apriScelte(el, o) {
+  chiudiScelte();
+  const sc = document.createElement('div');
+  sc.className = 'q-scelte';
+  sc.innerHTML = o.scelte.map(([v, t]) => `<button data-v="${esc(String(v))}" class="${String(v) === String(o.num) ? 'on' : ''}">${esc(t)}</button>`).join('')
+    + (o.libero ? `<input class="lib" placeholder="${esc(o.libero)}" aria-label="Un altro valore">` : '');
+  document.body.appendChild(sc);
+  Object.assign(SCELTE, { el: sc, q: el, prova: o.prova || null });
+  placeBarra();
+  sc.querySelectorAll('button').forEach(b => {
+    b.onmouseenter = () => o.prova?.(b.dataset.v);
+    b.onmouseleave = () => o.prova?.(null);
+    b.onclick = () => { chiudiScelte(); o.prova?.(null); if (String(b.dataset.v) !== String(o.num)) o.sceglie(b.dataset.v); };
+  });
+  const i = sc.querySelector('.lib');
+  if (!i) return;
+  setTimeout(() => i.focus(), 0);
+  i.oninput = () => { const v = parseFloat(i.value.replace(',', '.')); o.prova?.(Number.isFinite(v) && v > 0 ? String(v) : null); };
+  i.onkeydown = e => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && i.value.trim()) { const v = i.value.trim().replace(',', '.'); chiudiScelte(); o.prova?.(null); o.sceglie(v); }
+    if (e.key === 'Escape') { chiudiScelte(); o.prova?.(null); }
+  };
+}
+// fuori dal menu di una quota: si chiude
+document.addEventListener('pointerdown', e => {
+  if (SCELTE.el && !e.target.closest('.q-scelte, .quota')) { SCELTE.prova?.(null); chiudiScelte(); }
+}, true);
+// la punta della flangia (il bordo libero, con la direzione in cui la flangia si allunga)
+const puntaDi = s => bendEdges.find(x => x.kind === 'tip' && x.ref === s.flange && x.feature === s.feature && x.dir);
+// dove si attacca la barretta quando la selezione non viene da un clic nel 3D (dopo una piega, dall'albero…)
+function ancoraDi(s) {
+  if (s.kind === 'flange') {
+    const e = puntaDi(s);
+    if (e) return v3(e.a).lerp(v3(e.b), 0.5).addScaledVector(v3(e.dir).normalize(), -(+s.def?.length || 0) / 2);
+  }
+  const o = objs.get(sel?.id);
+  return o ? new THREE.Box3().setFromObject(o.mesh).getCenter(new THREE.Vector3()) : null;
+}
+function miniBarra(s) {
+  if (SK || DRESS || MIS) { if (!(sel?.soloMini)) nascondiMini(); return; }
+  const d = MINI.dove;
+  MINI.dove = null;
+  if (d && performance.now() - d.t < 2500) MINI.ancora = d.p ? d.p.clone() : null;
+  else if (!MINI.stessa) MINI.ancora = null;
+  const assieme = S.mode === 'assembly' && s.kind === 'instance';
+  if (!assieme && (S.mode === 'assembly' || !['body', 'flange', 'fold', 'sidebend', 'edgeflange', 'endmiter'].includes(s.kind) || s.flange_form)) { nascondiMini(); return; }
+  MINI.s = s;
+  if (!MINI.ancora) MINI.ancora = ancoraDi(s);
+  if (!MINI.ancora) { nascondiMini(); return; }
+  togliQuote();
+  sel.soloMini = !sel.pannello; aggiornaLayout();      // il pannello a destra solo se l'hai chiesto con «⋯»
+  if (assieme) {
+    const id = sel?.id;
+    barretta(s.title, [['open', 'Apri il pezzo', () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', id))); }],
+      ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
+      ['fastener', sel?.face != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
+      ['select', 'Solo questo', () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); }]], { chi: 'i:' + id });
+    return;
+  }
+  if (s.foro) { miniForo(s); return; }
+  if (s.contorno) { miniTaglio(s); return; }
+  const suFaccia = s.face?.planar && s.face?.name;
+  const foro = ['hole', 'Foro', () => inCoda(async () => { await disegnaSopra('Foro: clic sul centro, poi sul bordo (o scrivi il diametro); poi «Togli materiale».'); if (SK) setTool('circle'); })];
+  const taglio = ['cut', 'Taglio', () => azione('taglia')];
+  const faccia = s.face?.label ? s.face.label.replace(/ di "[^"]*"$/, '') : '';
+  if (s.kind === 'flange' && s.def && !MINI.faccia) { miniFlangia(s, suFaccia ? [foro, taglio] : []); return; }
+  const lavora = suFaccia ? [['project', 'Disegna qui', () => inCoda(() => disegnaSopra())], foro, taglio] : [];
+  const nome = MINI.faccia ? `Faccia di ${s.title.toLowerCase()}` : s.kind === 'body' ? (faccia || 'Faccia') : s.title;
+  barretta(nome, [...lavora, ['dimension', 'Misura', () => runCmd('misura')]], { chi: `${sel.id}:${sel.face}:${MINI.faccia}` });
+}
+// la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
+function miniFlangia(s, lavora) {
+  const f = s.def, e = puntaDi(s), L = +f.length;
+  const cambia = campi => {
+    schedaCalcola(true);
+    inCoda(async () => { const ok = await apply(await call('edit_flange', s.feature, s.flange, campi)); fantasmaFlangia(0); if (ok) await refreshSel(); schedaCalcola(false); });
+  };
+  barretta(s.title, [
+    ...(e ? [['flange', 'Piega sulla punta', () => { MINI.dove = { p: v3(e.a).lerp(v3(e.b), 0.5), t: performance.now() }; selectEdge(e); }]] : []),
+    ...lavora, '|',
+    ['delete', 'Togli la piega', () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); }]].map(v => (v === '|' ? ['|'] : v)),
+  { chi: `fl:${s.feature}/${s.flange}` });
+  const nuova = MINI.nuova;
+  MINI.nuova = false;
+  if (!e) return;
+  const a = v3(e.a), b = v3(e.b), d = v3(e.dir).normalize(), m = a.clone().lerp(b, 0.5);
+  let tiro = 0;
+  const pxmm = () => {                               // quanti pixel fa un millimetro lungo la flangia, adesso
+    const p0 = aSchermo(m), p1 = aSchermo(m.clone().addScaledVector(d, 100));
+    return p0 && p1 ? [(p1[0] - p0[0]) / 100, (p1[1] - p0[1]) / 100] : [1, 0];
+  };
+  quota(m.clone(), NUM(L), {
+    unita: 'mm', num: L, tira: {
+      muovi: (dx, dy, maiusc, ent) => {
+        const [ux, uy] = pxmm(), l2 = ux * ux + uy * uy || 1;
+        let dl = (dx * ux + dy * uy) / l2;
+        dl = Math.max(maiusc ? Math.round(dl / 5) * 5 : Math.round(dl), 1 - L);
+        tiro = dl;
+        ent.p = m.clone().addScaledVector(d, dl);
+        fantasmaFlangia(dl);
+        return L + dl;
+      },
+      fine: () => { if (tiro) cambia({ length: String(L + tiro) }); else fantasmaFlangia(0); tiro = 0; },
+    },
+    fuori: d.clone().multiplyScalar(10), pulsa: nuova, titolo: 'Clic: scrivi la lunghezza · trascina: allunga o accorcia (Maiusc: passi di 5)',
+    scrivi: v => cambia({ length: v }), prova: v => fantasmaFlangia(v == null ? 0 : v - L),
+  });
+  // angolo e verso vicino alla piega, dalla parte di «a»
+  const piega = a.clone().lerp(b, 0.06).addScaledVector(d, -L * 0.85), fuori = a.clone().sub(b).normalize().multiplyScalar(10);
+  const provaAng = v => (v == null ? anteprimaVia() : anteprima('edit_flange', () => [s.feature, s.flange, { angle: String(v) }], null));
+  quota(piega.clone(), `${NUM(f.angle)}°`, {
+    num: f.angle, fuori, dy: -14, titolo: 'Angolo della piega',
+    scelte: [[90, '90°'], [45, '45°'], [135, '135°']], libero: 'altro…', sceglie: v => cambia({ angle: v }), prova: provaAng,
+  });
+  const giu = f.direction === 'down', altro = giu ? 'up' : 'down';
+  quota(piega.clone(), '⇅', {
+    blu: true, fuori, dy: 16, titolo: `Verso: adesso ${giu ? 'in giù' : 'in su'} · clic per girarla`,
+    clic: () => { anteprimaVia(); cambia({ direction: altro }); },
+    sopra: on => (on ? anteprima('edit_flange', () => [s.feature, s.flange, { direction: altro }], null) : anteprimaVia()),
+  });
+}
+// 29/10 (opzione B): il foro ha la sua scheda accanto, legata da una linea. In alto i quattro tipi col disegnino in
+// sezione; in mezzo la sezione del foro con le misure scritte sul disegno (clic e scrivi); sotto «vale per tutti / solo
+// questo». Gli altri fori uguali si accendono sul pezzo, così si vede a quali vale la modifica.
+const TIPI_FORO = [['semplice', 'Passante'], ['svasato', 'Svasato'], ['filettato', 'Filettato'], ['inserto', 'Inserto']];
+// la sezione del foro (w × h px). t: lo spessore da disegnare; d, D, A: foro, svasatura, angolo
+function sezioneForo(tipo, d, D, A, t, w, h, spazio = 0) {
+  const sc = Math.min((w - 10) / 36, (h - 14 - spazio) / t), cx = w / 2, top = h / 2 - t * sc / 2, bot = top + t * sc;
+  const largo = 18 * sc, r = Math.min(d / 2 * sc, largo - 6), id = 'tr' + Math.random().toString(36).slice(2, 7);
+  let sx, dx, R = r;
+  if (tipo === 'svasato') {
+    R = Math.min(D / 2 * sc, largo - 3);
+    const hz = Math.min(t * sc, (R - r) / Math.tan(A / 2 * Math.PI / 180));
+    sx = `M${cx - largo} ${top}H${cx - R}L${cx - r} ${top + hz}V${bot}H${cx - largo}Z`;
+    dx = `M${cx + largo} ${top}H${cx + R}L${cx + r} ${top + hz}V${bot}H${cx + largo}Z`;
+  } else {
+    const g = tipo === 'inserto' ? 3 : 0;
+    sx = `M${cx - largo} ${top}H${cx - r - g}V${bot}H${cx - largo}Z`; dx = `M${cx + largo} ${top}H${cx + r + g}V${bot}H${cx + largo}Z`;
+  }
+  let g = `<defs><pattern id="${id}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#5E6B78" stroke-width="1.5"/></pattern></defs>
+    <path d="${sx}" fill="url(#${id})" stroke="#C7CFD8" stroke-width="1.5"/><path d="${dx}" fill="url(#${id})" stroke="#C7CFD8" stroke-width="1.5"/>
+    <line x1="${cx}" y1="${top - 12}" x2="${cx}" y2="${bot + 12}" stroke="#75808B" stroke-dasharray="8 3 2 3"/>`;
+  if (tipo === 'filettato') for (let y = top + 3; y < bot - 1; y += 4) g += `<path d="M${cx - r} ${y}l-3 2l3 2M${cx + r} ${y}l3 2l-3 2" stroke="#FFB000" fill="none" stroke-width="1.2"/>`;
+  if (tipo === 'inserto') g += `<rect x="${cx - r - 3}" y="${top - 4}" width="${2 * r + 6}" height="${bot - top + 4}" fill="none" stroke="#5AA9FF" stroke-width="2"/><rect x="${cx - r - 7}" y="${top - 6}" width="${2 * r + 14}" height="4" fill="#5AA9FF"/>`;
+  return { g, cx, top, bot, r, R };
+}
+const pittogrammaForo = tipo => `<svg width="46" height="28" viewBox="0 0 80 46" aria-hidden="true">${sezioneForo(tipo, 12, 26, 90, 9, 80, 46).g}</svg>`;
+function miniForo(s) {
+  const fo = s.foro, h = fo.hole || {}, n = fo.uguali.length, tipo = h.tipo || 'semplice', t = +fo.spessore || 0;
+  if (!MINI.stessa) MINI.tutti = true;
+  const c3 = fo.centri?.[fo.cerchio];
+  if (c3) MINI.ancora = v3(c3);                      // la scheda punta al centro del foro, non a dove hai cliccato
+  const cerchi = () => (MINI.tutti ? fo.uguali : [fo.cerchio]);
+  const fai = (spec, diam = fo.d) => {
+    schedaCalcola(true);
+    inCoda(async () => {
+      let r;
+      if (fo.importato) r = await call('hole_adopt', fo.faccia, cerchi().map(k => fo.centri[k]), diam, spec);
+      else {
+        if (Math.abs(diam - fo.d) > 1e-6 && !(await apply(await call('sketch_hole_diameter', fo.sketch, cerchi(), String(diam))))) { schedaCalcola(false); return; }
+        r = await call('sketch_hole_type', fo.sketch, cerchi(), spec);
+      }
+      if (await apply(r)) {
+        const f = c3 ? await call('faccia_del_foro', c3) : null;
+        if (f?.ok) await select('body', f.face, null, true); else await refreshSel();
+      }
+      schedaCalcola(false);
+    });
+  };
+  const spec = () => (tipo === 'svasato' ? { tipo, D: h.D, angolo: h.angolo } : tipo === 'filettato' ? { tipo, M: h.M } : tipo === 'inserto' ? { ...h } : null);
+  // la svasatura più larga che sta nello spessore (la stessa regola del messaggio d'errore), a mezzo millimetro
+  const okM = fo.min_d ? fo.filetti_ok || [] : FILETTI_M;   // un foro dello STEP può solo allargarsi
+  const piuLarga = ang => (t ? Math.floor((fo.d + 2 * t * Math.tan(ang / 2 * Math.PI / 180)) * 2 - 1e-6) / 2 : Math.round(fo.d * 2 * 10) / 10);
+  const scegli = k => {
+    if (k === tipo) return;
+    if (k === 'semplice') fai(null);
+    else if (k === 'svasato') fai({ tipo: 'svasato', D: String(piuLarga(90)), angolo: '90' });
+    else if (k === 'filettato') { if (okM.length) fai({ tipo: 'filettato', M: okM.includes(h.M) ? h.M : fo.min_d ? okM[0] : 'M6' }); }
+    else tutteLeOpzioni();                           // l'inserto vuole il codice del catalogo: il pannello completo
+  };
+  nascondiMini();
+  tip.style.display = 'none';
+  const W = 312, H = 168, sz = sezioneForo(tipo, fo.d, +h.D || fo.d, +h.angolo || 90, t || 3, W, H, 64);
+  const chip = (k, testo, x, y, titolo) => `<button class="quota in${k === 'd' || k === 'M' ? '' : ' blu'}" data-k="${k}" style="left:${x}px;top:${y}px" title="${esc(titolo)}"><span class="v">${esc(testo)}</span></button>`;
+  const chips = [];
+  if (tipo === 'filettato') chips.push(chip('M', h.M || 'M6', sz.cx, sz.bot + 26, 'Filetto'));
+  else chips.push(chip('d', `Ø${NUM(fo.d)}`, sz.cx, sz.bot + 26, 'Diametro del foro'));
+  if (tipo === 'svasato') chips.push(chip('D', `Ø${NUM(h.D)}`, sz.cx, sz.top - 24, 'Diametro della svasatura'), chip('A', `${NUM(h.angolo)}°`, sz.cx + sz.R + 34, sz.top + 4, 'Angolo della svasatura'));
+  if (tipo === 'inserto') chips.push(chip('ins', h.codice || 'inserto', sz.cx, sz.top - 24, 'Codice e misure: in «⋯»'));
+  const linee = `<line x1="${sz.cx - sz.r}" y1="${sz.bot + 12}" x2="${sz.cx + sz.r}" y2="${sz.bot + 12}" stroke="#FFB000"/>`
+    + (tipo === 'svasato' ? `<line x1="${sz.cx - sz.R}" y1="${sz.top - 10}" x2="${sz.cx + sz.R}" y2="${sz.top - 10}" stroke="#5AA9FF"/>` : '');
+  const m = document.createElement('div');
+  m.id = 'mini-barra'; m.className = 'lato scheda-foro'; m.dataset.chi = `foro:${fo.sketch || fo.faccia}:${fo.cerchio}`;
+  m.innerHTML = `<div class="sf-testa"><b>${esc(s.title)}</b>${n > 1 ? `<small>${n} uguali</small>` : ''}
+      <button class="sf-b" data-a="piu" title="Tutte le opzioni">⋯</button>${fo.sketch ? '<button class="sf-b via" data-a="togli" title="Togli il foro"><img src="icons/delete.svg" alt=""></button>' : ''}
+      <button class="sf-b" data-a="x" title="Chiudi (Esc)">×</button></div>
+    <div class="sf-tipi">${TIPI_FORO.map(([k, l]) => { const no = k === 'filettato' && !okM.length;
+      return `<button data-t="${k}" class="${k === tipo ? 'on' : ''}"${no ? ` disabled title="Il foro è già Ø${NUM(fo.min_d)}: troppo grande per i filetti in tabella"` : ''}>${pittogrammaForo(k)}${l}</button>`; }).join('')}</div>
+    <div class="sf-sez" style="height:${H}px"><svg width="${W}" height="${H}">${sz.g}${linee}</svg>${chips.join('')}</div>
+    ${fo.min_d ? `<div class="sf-nota">Foro già nel pezzo STEP: può solo allargarsi (da Ø${NUM(fo.min_d)} in su).</div>` : ''}
+    ${n > 1 ? `<div class="sf-piede"><span>Vale per</span><div class="sf-seg"><button data-tt="1" class="${MINI.tutti ? 'on' : ''}">tutti e ${n}</button><button data-tt="0" class="${MINI.tutti ? '' : 'on'}">solo questo</button></div></div>` : ''}`;
+  document.body.appendChild(m);
+  m.querySelector('[data-a="x"]').onclick = () => clearSelection();
+  m.querySelector('[data-a="piu"]').onclick = () => tutteLeOpzioni();
+  m.querySelector('[data-a="togli"]')?.addEventListener('click', () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro'));
+  m.querySelectorAll('[data-t]').forEach(b => { b.onclick = () => scegli(b.dataset.t); });
+  m.querySelectorAll('[data-tt]').forEach(b => { b.onclick = () => { MINI.tutti = b.dataset.tt === '1'; miniForo(s); }; });
+  const lega = (k, o) => { const b = m.querySelector(`[data-k="${k}"]`); if (b) b.onclick = e => { e.stopPropagation(); (o.scelte ? apriScelte : scriviQuota)(b, o); }; };
+  lega('d', { unita: 'mm', num: fo.d, scrivi: v => fai(spec(), parseFloat(v)) });
+  lega('D', { num: h.D, scrivi: v => fai({ ...spec(), D: v }) });
+  lega('A', { num: h.angolo, scelte: [[90, '90°'], [120, '120°']], libero: 'altro…', sceglie: v => fai({ ...spec(), angolo: v }) });
+  lega('M', { num: h.M, scelte: okM.map(x => [x, x]), sceglie: v => fai({ tipo: 'filettato', M: v }) });
+  m.querySelector('[data-k="ins"]')?.addEventListener('click', () => tutteLeOpzioni());
+  // gli anelli sui fori: arancio quello scelto, azzurri gli altri a cui vale la modifica
+  for (const k of fo.uguali) {
+    const p = fo.centri?.[k];
+    if (!p || (!MINI.tutti && k !== fo.cerchio)) continue;
+    const el = document.createElement('div');
+    el.className = 'q-anello' + (k === fo.cerchio ? ' scelto' : '');
+    document.body.appendChild(el);
+    QUOTE.push({ el, p: v3(p), dx: 0, dy: 0 });
+  }
+  placeBarra(); ridisegna();
+}
+// il taglio: le sue misure come quote accanto, una sotto l'altra
+function miniTaglio(s) {
+  const co = s.contorno, P = MINI.ancora.clone();
+  barretta(s.title, co.eids?.length ? [['delete', 'Togli il taglio', () => togliDalTaglio(co.sketch, co.eids, 'il taglio')]] : [], { chi: `taglio:${co.sketch}` });
+  (co.campi || []).forEach((c, i) => quota(P.clone(), NUM(c.value), {
+    etichetta: c.label, unita: c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm', num: c.value, dx: 96, dy: -46 + i * 30,
+    scrivi: v => { schedaCalcola(true); inCoda(async () => { const r = await call('cut_contour_set', co.sketch, [{ ...c, value: v }]); if (await apply(r, r.message)) await refreshSel(); schedaCalcola(false); }); },
+  }));
+}
+const NUM = v => virgola(Math.round(+v * 100) / 100);
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (e.target.closest?.('.quota, .q-scelte')) return;          // nel campo di una quota Esc annulla solo quello
+  if (document.getElementById('mini-barra')) { e.stopPropagation(); clearSelection(); }
+}, true);
+// 28/10: l'errore che dice dove e come uscirne. Il punto si accende in rosso (se c'è), le soluzioni si applicano con un
+// clic: la stessa chiamata di prima, coi valori corretti
+function mostraErrore(r) {
+  document.getElementById('err-card')?.remove();
+  const ch = ultimaChiamata;
+  const box = document.createElement('div');
+  box.id = 'err-card';
+  // il titolo è la frase del problema (senza «Non applicato:» davanti), il resto sotto; via il dato tra quadre per le soluzioni
+  const msg = String(r.message || 'Non riuscito.').replace(/^Non applicato:\s*/, '').replace(/\s*\[foro Ø[^\]]*\]/, '');
+  const cut = msg.search(/[:.]\s/);
+  const tit = cut > 0 ? msg.slice(0, cut) : msg, resto = cut > 0 ? [msg.slice(cut + 1).trim()] : [];
+  box.innerHTML = `<button class="ec-x" title="Chiudi">×</button><h5>${esc(tit)}</h5>${resto.length ? `<p>${esc(resto.join(' '))}</p>` : ''}
+    <div class="ec-sol">${(r.soluzioni || []).map((s, i) => `<button class="btn${i ? '' : ' primary'}" data-i="${i}">${esc(s.testo)}${s.sotto ? `<small>${esc(s.sotto)}</small>` : ''}</button>`).join('')}
+    ${r.evidenzia ? '<button class="btn" data-mostra>Mostrami il punto</button>' : ''}</div>`;
+  document.body.appendChild(box);
+  const accendi = () => {
+    const o = objs.get('body');
+    if (!o || !r.evidenzia) return;
+    for (const f of o.data.faces || []) if ((f.name || '').startsWith(r.evidenzia)) faceOverlay(o, f.index, new THREE.Color(0xE5484D));
+    ridisegna();
+  };
+  accendi();
+  const via = () => { box.remove(); paint(); };
+  box.querySelector('.ec-x').onclick = via;
+  box.querySelector('[data-mostra]')?.addEventListener('click', () => { accendi(); });
+  box.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => {
+    const s = r.soluzioni[+b.dataset.i];
+    via();
+    if (!ch) return;
+    // la stessa chiamata, con i campi della soluzione al posto di quelli di prima (nei dizionari degli argomenti)
+    const args = JSON.parse(JSON.stringify(ch[1])).map(a => a && typeof a === 'object' && !Array.isArray(a)
+      && Object.keys(s.cambia).some(k => k in a) ? { ...a, ...s.cambia } : a);
+    inCoda(async () => apply(await call(ch[0], ...args)));
+  }; });
+  clearTimeout(mostraErrore.t);
+  mostraErrore.t = setTimeout(() => { if (document.getElementById('err-card') === box && !r.soluzioni?.length) via(); }, 9000);
+}
+// l'anteprima azzurra della flangia più lunga o più corta di dl, mentre tiri o scrivi la sua quota (senza ricalcolare)
+const MAN = { g: null, e: null };
+const MAN_FANT = new THREE.MeshBasicMaterial({ color: 0x5AA9FF, transparent: true, opacity: 0.28, depthTest: false, side: THREE.DoubleSide });
+function fantasmaFlangia(dl) {
+  const E = MAN.e;
+  if (!E) return;
+  const A2 = E.a.clone().addScaledVector(E.d, dl), B2 = E.b.clone().addScaledVector(E.d, dl);
+  E.fant.geometry.dispose();
+  E.fant.geometry = new THREE.BufferGeometry().setFromPoints([E.a, E.b, B2, E.a, B2, A2]);
+  E.fant.visible = Math.abs(dl) > 1e-6;
+  ridisegna();
+}
+function togliManiglie() {
+  if (MAN.g) { MAN.g.traverse(o => o.geometry?.dispose()); scene.remove(MAN.g); MAN.g = null; }
+  MAN.e = null; ridisegna();
+}
+function maniglieFlangia(s) {
+  togliManiglie();
+  const e = puntaDi(s);
+  if (!e) return;
+  const fant = new THREE.Mesh(new THREE.BufferGeometry(), MAN_FANT);
+  fant.visible = false; fant.renderOrder = 30;
+  const g = new THREE.Group();
+  g.add(fant);
+  scene.add(g);
+  MAN.g = g; MAN.e = { a: v3(e.a), b: v3(e.b), d: v3(e.dir).normalize(), fant };
+}
 async function renderProps(s) {
+  if (s.kind !== 'flange') togliManiglie();
+  miniBarra(s);
   togliAnteprimaForo();
   selForo = null;
   const tab = rows => `<table class="grid">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
@@ -1713,6 +2436,7 @@ async function renderProps(s) {
   } else if (s.kind === 'flange') {
     $('#props').innerHTML = flangePanel(s) + faceSketchButton(s);
     wireFlange(s);
+    maniglieFlangia(s);
     return;
   } else if (s.kind === 'body' && s.flange_form) {
     $('#props').innerHTML = h + faceSketchButton(s) + newFlangePanel(s.flange_form);
@@ -1723,7 +2447,7 @@ async function renderProps(s) {
     wireNode(s);
     return;
   }
-  selForo = s.kind === 'body' && s.foro ? { sketch: s.foro.sketch, eids: [s.foro.cerchio], cosa: 'il foro' }
+  selForo = s.kind === 'body' && s.foro?.sketch ? { sketch: s.foro.sketch, eids: [s.foro.cerchio], cosa: 'il foro' }
     : s.kind === 'body' && s.contorno?.eids?.length ? { sketch: s.contorno.sketch, eids: s.contorno.eids, cosa: 'il taglio' } : null;
   if (s.kind === 'body' && s.contorno) {
     $('#props').innerHTML = h + pannelloContorno(s.contorno);
@@ -1734,9 +2458,20 @@ async function renderProps(s) {
     wireForo(s.foro);
     return;
   } else if (s.kind === 'body') {
+    if (s.step) {                          // pezzo da STEP: lo spessore di una lastra piana si cambia (28/10)
+      h += s.step.pieghe ? `<p class="hint">Pezzo da STEP con ${s.step.pieghe} ${s.step.pieghe === 1 ? 'piega' : 'pieghe'}: lo spessore (${virgola(s.step.t)} mm) segue il file 3D.</p>`
+        : `<div class="ff"><label>Spessore<span class="inp"><input class="field" id="st-sp" value="${esc(virgola(s.step.t))}"><i>mm</i></span></label>
+           <button class="btn primary" id="st-ok">Applica</button></div>
+           <p class="hint">La faccia di sotto (con i fori) resta dov’è: lo spessore cresce verso l’interno del pezzo.</p>`;
+    }
     h += faceSketchButton(s);              // esporta, spiega, sviluppo: sono nella barra in alto
   }
   $('#props').innerHTML = h;
+  if ($('#st-ok')) {
+    const vai = () => inCoda(async () => apply(await call('step_spessore', $('#st-sp').value.trim())));
+    $('#st-ok').onclick = vai;
+    $('#st-sp').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+  }
   if (s.kind !== 'member') return;
   const tutti = () => $('#p-all')?.checked ?? false;
   const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
@@ -1885,7 +2620,7 @@ function foroPanel(fo) {
       .map(([k, l]) => `<button type="button" data-k="${k}" class="${tipo === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="h-sva"${tipo === 'svasato' ? '' : ' hidden'}>${sv}</div><div id="h-fil"${tipo === 'filettato' ? '' : ' hidden'}>${fi}</div>
     <div id="h-ins"${tipo === 'inserto' ? '' : ' hidden'}>${ins}</div>
-    ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} di questo disegno</label>` : ''}
+    ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} ${fo.importato ? 'su questa faccia' : 'di questo disegno'}</label>` : ''}
     <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button>
       <button class="btn" id="h-sk" title="Apre il disegno del foro: lo sposti, cambi le quote, ne aggiungi altri">Modifica il disegno</button></div>
     <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button>
@@ -1987,8 +2722,13 @@ function wireForo(fo) {
   ['#h-D', '#h-ang'].forEach(q => { $(q).oninput = vedi; });
   if ($('#h-tutti')) $('#h-tutti').onchange = vedi;
   vedi();
-  $('#h-sk').onclick = () => { clearSelection(); enterSketch(fo.sketch); };
-  $('#h-togli').onclick = () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro');
+  // un foro del pezzo da STEP (28/10): non ha un disegno da aprire; «Applica» gli mette sotto il suo cerchio
+  if (fo.importato) {
+    $('#h-sk').hidden = true; $('#h-togli').hidden = true;
+  } else {
+    $('#h-sk').onclick = () => { clearSelection(); enterSketch(fo.sketch); };
+    $('#h-togli').onclick = () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro');
+  }
   const vai = () => {
     const spec = tipo === 'svasato' ? { tipo, D: $('#h-D').value.trim(), angolo: $('#h-ang').value.trim() }
       : tipo === 'filettato' ? { tipo, M: $('#h-M').value }
@@ -1996,6 +2736,11 @@ function wireForo(fo) {
     const cerchi = $('#h-tutti')?.checked ? fo.uguali : [fo.cerchio];
     const nuovo = parseFloat($('#h-d').value.trim().replace(',', '.'));
     const cambia = !$('#h-dia-w').hidden && Number.isFinite(nuovo) && Math.abs(nuovo - fo.d) > 1e-6;
+    if (fo.importato) {
+      if (!spec && !cambia) { toast('È già un foro semplice.'); return; }
+      inCoda(async () => { await apply(await call('hole_adopt', fo.faccia, cerchi.map(k => fo.centri[k]), cambia ? nuovo : fo.d, spec)); });
+      return;
+    }
     inCoda(async () => {
       // prima il diametro (la svasatura si controlla col foro nuovo), poi il tipo
       if (cambia && !await apply(await call('sketch_hole_diameter', fo.sketch, cerchi, $('#h-d').value.trim()))) return;
@@ -2151,7 +2896,7 @@ function askTipCorners(a) {
     });
   });
 }
-async function refreshSel() { if (sel) await select(sel.id, sel.face, sel.ids, true); }
+async function refreshSel() { if (sel) await select(sel.id, sel.face, sel.ids, true, sel.nome); }
 
 function flangePanel(s) {
   const riga = k => (s.rows.find(r => r[0] === k) || [])[1];
@@ -2229,7 +2974,7 @@ const MATE_UI = {
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
-  setHelp(`${u.nome}${u.clic.length > 2 ? ` (${k + 1} di ${u.clic.length})` : ''}: ${k ? 'ora ' : ''}clic su ${u.clic[k]} · Esc annulla`);
+  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic su ${u.clic[k]} · Esc annulla`);
 }
 function asmTool(t) {
   ASM.tool = t; ASM.clic = [];
@@ -2302,8 +3047,19 @@ async function viteriaDialog() {
     <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
     <div class="form"><label style="grid-column:1/-1">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
       <label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div>
-    ${foro ? '<label class="check"><input type="checkbox" id="vt-f" checked> nel foro che hai cliccato</label>' : '<p class="hint">Per metterla in un foro: clicca prima il foro, poi «Viteria».</p>'}
+    ${foro ? `<label class="check"><input type="checkbox" id="vt-f" checked> nel foro che hai cliccato</label>
+      <label class="check" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked> <span id="vt-tutti-t">anche negli altri fori uguali del pezzo</span></label>
+      <label class="check"><input type="checkbox" id="vt-app" checked> appoggiata sotto la testa (dal lato che stai guardando)</label>`
+      : `<div class="ff"><label>Quante<span class="inp"><input class="field" id="vt-n" value="${esc(String(ultimo.n || 1))}"></span></label><span></span></div>
+      <p class="hint">Per metterle nei fori: clicca prima un foro del pezzo, poi «Viteria»: le metto in quel foro e, se vuoi, in tutti i fori uguali.</p>`}
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Inserisci</button></div>`, close => {
+    if (foro) call('asm_fori_uguali', foro.inst, foro.face).then(x => {      // quanti fori uguali ha il pezzo
+      if (!x?.ok || x.n < 2 || !$('#vt-tutti-w')) return;
+      $('#vt-tutti-w').hidden = false;
+      $('#vt-tutti-t').textContent = `in tutti i ${x.n} fori uguali del pezzo (una vite per foro)`;
+      $('#m-ok').textContent = `Inserisci (${x.n})`;
+      $('#vt-tutti').onchange = () => { $('#m-ok').textContent = $('#vt-tutti').checked ? `Inserisci (${x.n})` : 'Inserisci'; };
+    });
     const rifai = () => {
       const c = cat[$('#vt-t').value];
       $('#vt-m').innerHTML = opz(c.misure, c.misure.includes(ultimo.misura) ? ultimo.misura : c.misure[Math.floor(c.misure.length / 2)]);
@@ -2314,10 +3070,14 @@ async function viteriaDialog() {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
       const tipo = $('#vt-t').value, misura = $('#vt-m').value, L = cat[tipo].lunghezze.length ? +$('#vt-l').value : null;
-      viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L };
+      const n = $('#vt-n') ? $('#vt-n').value.trim() : 1;
+      viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L, n };
       const dove = $('#vt-f')?.checked ? foro : null;
+      const verso = camera.position.clone().sub(controls.target).normalize();
+      const opz = { tutti: !!dove && !$('#vt-tutti-w')?.hidden && $('#vt-tutti')?.checked, quante: dove ? 1 : n,
+        appoggia: !!$('#vt-app')?.checked, verso: [verso.x, verso.y, verso.z] };
       close();
-      inCoda(async () => { const r2 = await call('asm_insert_libreria', tipo, misura, L, dove); if (await apply(r2, r2.message) && r2.select) await select(r2.select); });
+      inCoda(async () => { const r2 = await call('asm_insert_viteria', tipo, misura, L, dove, opz); if (await apply(r2, r2.message) && r2.select) await select(r2.select); });
     };
   });
 }
@@ -2757,6 +3517,59 @@ function saldaturaDialog(q, fatto) {
     setTimeout(() => $('#sd-a').focus(), 30);
   });
 }
+// la distinta della tavola d'assieme, da ritoccare a mano (28/10): una tabella come quella stampata. Le righe
+// automatiche si cambiano cella per cella (vuoto = come la fa Radius) o si tolgono; in fondo le righe in più.
+function distintaDialog(o, d, fatto) {
+  const celle = { ...(d.celle || {}) }, via = new Set((d.via || []).map(Number)), nuove = (d.nuove || []).map(r => [...r]);
+  const nc = o.intest.length;
+  const larghe = [46, 0, 56, 110, 80, 70];
+  const riga = (cls, i, valori, orig) => `<tr class="${cls}" data-r="${i}">${valori.map((v, j) =>
+    `<td><input class="field" data-c="${j}" value="${esc(v)}"${orig ? ` placeholder="${esc(orig[j] ?? '')}"` : ''}></td>`).join('')}
+    <td><button class="btn" data-via title="${cls === 'nuova' ? 'Togli questa riga' : 'Togli questa riga dalla distinta'}">×</button></td></tr>`;
+  const disegna = () => {
+    const corpo = o.righe.map((r, i) => via.has(i) ? '' : riga('auto', i, r.map((v, j) => celle[`${i}:${j}`] ?? v), r)).join('')
+      + nuove.map((r, i) => riga('nuova', i, Array.from({ length: nc }, (_, j) => r[j] ?? ''), null)).join('');
+    $('#dd-corpo').innerHTML = corpo;
+    $('#dd-tolte').hidden = !via.size;
+    $('#dd-tolte').textContent = `Rimetti le righe tolte (${via.size})`;
+    $('#dd-corpo').querySelectorAll('input').forEach(inp => { inp.oninput = () => {
+      const tr = inp.closest('tr'), i = +tr.dataset.r, j = +inp.dataset.c;
+      if (tr.classList.contains('nuova')) nuove[i][j] = inp.value;
+      else if (inp.value === String(o.righe[i][j] ?? '')) delete celle[`${i}:${j}`];
+      else celle[`${i}:${j}`] = inp.value;
+    }; });
+    $('#dd-corpo').querySelectorAll('[data-via]').forEach(b => { b.onclick = () => {
+      const tr = b.closest('tr'), i = +tr.dataset.r;
+      if (tr.classList.contains('nuova')) nuove.splice(i, 1); else via.add(i);
+      disegna();
+    }; });
+  };
+  modal(`<h3>Distinta</h3>
+    <p class="hint">Scrivi sopra le celle per cambiarle; × toglie una riga. Le righe automatiche seguono l’assieme: se cambi un pezzo, il resto si aggiorna.</p>
+    <div class="dd-scorri"><table class="dd-tab"><colgroup>${larghe.slice(0, nc).map(w => `<col${w ? ` style="width:${w}px"` : ''}>`).join('')}<col style="width:36px"></colgroup>
+      <thead><tr>${o.intest.map(t => `<th>${esc(t)}</th>`).join('')}<th></th></tr></thead><tbody id="dd-corpo"></tbody></table></div>
+    <div class="te-bott"><button class="btn" id="dd-piu">+ Riga in più</button><button class="btn" id="dd-tolte" hidden></button></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Applica</button></div>`, close => {
+    disegna();
+    $('#dd-piu').onclick = () => {
+      const pos = String(o.righe.length - via.size + nuove.length + 1);
+      nuove.push([pos, ...Array(nc - 1).fill('')]); disegna();
+      const ult = $('#dd-corpo').querySelector('tr.nuova:last-child input[data-c="1"]'); if (ult) ult.focus();
+    };
+    $('#dd-tolte').onclick = () => { via.clear(); disegna(); };
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const pulite = nuove.filter(r => r.some((v, j) => j > 0 && String(v).trim()));
+      const nuova = {};
+      if (Object.keys(celle).length) nuova.celle = celle;
+      if (via.size) nuova.via = [...via].sort((a, b) => a - b);
+      if (pulite.length) nuova.nuove = pulite;
+      close(); fatto(Object.keys(nuova).length ? nuova : null);
+    };
+  });
+  $('#modal-box').classList.add('wide');
+}
+
 async function drawingsDialog() {
   const r = await call('drawing_fields');
   if (!r.ok) { toast(r.message, 'err'); return; }
@@ -2767,12 +3580,12 @@ async function drawingsDialog() {
   const campo = (k, l) => `<label class="te-riga">${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
   const scelta = (k, l, opz) => `<label class="te-riga">${l}<select class="field" data-c="${k}">${opz.map(([v, t]) =>
     `<option value="${esc(v)}"${String(c[k] ?? opz[0][0]) === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
-  box.innerHTML = `<header class="te-testa"><b>Tavole — ${esc(S?.name || '')}</b><div class="te-tabs" id="te-tabs"></div><span class="te-spazio"></span>
-      <span class="hint te-zoom-aiuto">Rotella: zoom · tasto centrale: sposta</span>
-      <button class="btn" id="te-adatta" title="Il foglio intero">Adatta</button>
+  box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}">Tavole <span>${esc(S?.name || '')}</span></b><span class="te-spazio"></span>
+      <button class="btn" id="te-adatta" title="Il foglio intero (rotella: zoom · tasto centrale: sposta)">Adatta</button>
       <button class="btn" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)">Annulla</button>
       <button class="btn" id="te-dxf">Esporta DXF</button><button class="btn primary" id="te-pdf">Esporta PDF</button>
       <button class="btn" id="te-chiudi">Chiudi</button></header>
+    <div class="te-tabs" id="te-tabs" role="tablist"></div>
     <div class="te-corpo">
       <nav class="te-strumenti" aria-label="Strumenti">
         <button data-str="sel" class="on" title="Clicca una vista, una quota o una nota; trascina per spostarla"><img src="icons/select.svg" alt=""><span>Seleziona</span></button>
@@ -2866,7 +3679,7 @@ async function drawingsDialog() {
     if (!f) return;
     box.querySelector('#te-foglio').innerHTML = f.svg.replace(/width="[\d.]+mm" height="[\d.]+mm"/, 'width="100%" height="100%"');
     if (ED.vb && ED.vbFoglio === ED.k) svgDi().setAttribute('viewBox', ED.vb.join(' ')); else ED.vb = null;
-    box.querySelectorAll('#te-tabs button').forEach((b, i) => b.classList.toggle('on', i === ED.k));
+    box.querySelectorAll('#te-tabs button').forEach((b, i) => { b.classList.toggle('on', i === ED.k); if (i === ED.k) b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
     const t = f.ritocchi?.testi || {}, k = f.fattore || 1, base = { quote: 2.8, frecce: 2.5, note: 3.5, titoli: 2.5 };
     box.querySelectorAll('[data-t]').forEach(i => {
       i.placeholder = mm(base[i.dataset.t] * k * (i.dataset.t === 'frecce' && t.quote ? t.quote / (2.8 * k) : 1));
@@ -2878,7 +3691,11 @@ async function drawingsDialog() {
     if (!p.ok) { box.querySelector('#te-foglio').innerHTML = `<div class="msg err">${esc(p.message)}</div>`; return; }
     ED.fogli = p.sheets; ED.modificabili = p.modificabili !== false;
     if (ED.k >= ED.fogli.length) ED.k = 0;
-    box.querySelector('#te-tabs').innerHTML = ED.fogli.map((f, i) => `<button data-i="${i}">${i + 1} · ${esc(f.title)}</button>`).join('');
+    // «Cassone — sviluppo»: il nome del pezzo e, piccolo, che foglio è (sviluppo, esploso…)
+    box.querySelector('#te-tabs').innerHTML = ED.fogli.map((f, i) => {
+      const [nome, ...tipo] = String(f.title || '').split(' — ');
+      return `<button data-i="${i}" role="tab" title="${esc(f.title)}"><i>${i + 1}</i><span>${esc(nome)}</span>${tipo.length ? `<small>${esc(tipo.join(' — '))}</small>` : ''}</button>`;
+    }).join('');
     box.querySelectorAll('#te-tabs button').forEach(b => { b.onclick = () => { ED.k = +b.dataset.i; ED.sel = null; disegna(); }; });
     if (ED.sel && !foglio().oggetti.some(o => o.id === ED.sel)) ED.sel = null;
     disegna();
@@ -2974,11 +3791,21 @@ async function drawingsDialog() {
       if ($('#ts-testo')) $('#ts-testo').onchange = () => cambia(x => { const t = $('#ts-testo').value.trim(); if (t) x.testo = t; else delete x.testo; });
       if ($('#ts-modifica')) $('#ts-modifica').onclick = () => saldaturaDialog(m, q => cambia(x => Object.assign(x, q)));
       $('#ts-via').onclick = () => { const n = rit(); n[lista].splice(o.indice, 1); ED.sel = null; salva(n); };
+    } else if (o.kind === 'distinta') {
+      // 28/10: «la distinta non posso modificarla»: celle, righe tolte, righe in più (restano anche se l'assieme cambia)
+      const d = R_.distinta || {}, nc = Object.keys(d.celle || {}).length, nv = (d.via || []).length, nn = (d.nuove || []).length;
+      const cosa = [nc && `${nc} ${nc === 1 ? 'cella cambiata' : 'celle cambiate'}`, nv && `${nv} ${nv === 1 ? 'riga tolta' : 'righe tolte'}`,
+        nn && `${nn} ${nn === 1 ? 'riga in più' : 'righe in più'}`].filter(Boolean).join(', ');
+      sez.innerHTML = `<h4>Distinta</h4><p class="hint">${cosa ? 'Ritoccata: ' + esc(cosa) + '.' : 'Quella automatica, dai pezzi dell’assieme.'}</p>
+        <div class="te-bott"><button class="btn primary" id="ts-dist">Modifica la distinta…</button>
+          ${cosa ? '<button class="btn" id="ts-dist-auto">Torna automatica</button>' : ''}</div>`;
+      $('#ts-dist').onclick = () => distintaDialog(o, d, nuova => { const n = rit(); if (nuova) n.distinta = nuova; else delete n.distinta; salva(n); });
+      if ($('#ts-dist-auto')) $('#ts-dist-auto').onclick = () => { const n = rit(); delete n.distinta; salva(n); };
     } else if (o.kind === 'cartiglio') {
       // 29/10: il cartiglio si ingrandisce e si rimpicciolisce (resta nell'angolo in basso a destra)
       const k = +(R_.cartiglio || 1), pc = Math.round(k * 100);
       sez.innerHTML = `<h4>Cartiglio</h4><p class="hint">I campi stanno qui sotto, in «Cartiglio».</p>
-        <div class="te-riga">Grandezza<div class="fp-len"><button type="button" class="pm" id="ts-cmeno" aria-label="Più piccolo">−</button>
+        <div class="te-riga te-pila">Grandezza<div class="fp-len"><button type="button" class="pm" id="ts-cmeno" aria-label="Più piccolo">−</button>
           <span class="inp"><input class="field" id="ts-ck" value="${pc}"><i>%</i></span>
           <button type="button" class="pm" id="ts-cpiu" aria-label="Più grande">+</button></div></div>
         ${k !== 1 ? '<div class="te-bott"><button class="btn" id="ts-c100">Grandezza normale</button></div>' : ''}`;
@@ -3011,6 +3838,7 @@ async function drawingsDialog() {
     (R_.tolte || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} tolta`, n => { n.tolte.splice(i, 1); }]));
     (R_.libere || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} non allineata`, n => { n.libere.splice(i, 1); }]));
     if (R_.cartiglio) righe.push([`Cartiglio al ${Math.round(R_.cartiglio * 100)}%`, n => { delete n.cartiglio; }]);
+    if (R_.distinta) righe.push(['Distinta ritoccata', n => { delete n.distinta; }]);
     const NOMI_T = { quote: 'Testi delle quote', frecce: 'Frecce delle quote', note: 'Testi delle note', titoli: 'Titoli delle viste' };
     for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`${NOMI_T[k] || k}: ${mm(v)} mm`, n => { delete n.testi[k]; }]);
     const el = box.querySelector('#te-rit');
@@ -4357,6 +5185,7 @@ async function showHome(info) {
   $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
   $('#home').querySelectorAll('[data-chiudi-tipi]').forEach(b => { b.onclick = () => scegli(null); });
   scegli(null);
+  renderModelli();
   $('#home').querySelectorAll('[data-new]').forEach(b => {
     b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'step' ? stepDialog()
       : b.dataset.new === 'lamiera' ? nuovaLamiera() : newDialog(b.dataset.new, true));
@@ -4370,6 +5199,67 @@ async function showHome(info) {
   });
 }
 // la lamiera nuova si apre subito, senza finestra: 500 × 300 sp. 2 coi dati della piegatrice; le misure si cambiano a sinistra
+// 28/10: i modelli pronti. Si sceglie, si scrivono 4 misure guardando l'anteprima, «Crea»: il pezzo vero con le pieghe
+const MODELLI = [
+  { k: 'staffa', n: 'Staffa a L', d: 'base + parete', c: { larghezza: 300, profondita: 200, altezza: 120, spessore: 3 }, et: { altezza: 'Altezza parete' } },
+  { k: 'profilo_u', n: 'Profilo a U', d: 'due ali piegate', c: { larghezza: 1000, profondita: 120, altezza: 50, spessore: 2 }, et: { larghezza: 'Lunghezza', profondita: 'Larghezza fondo', altezza: 'Altezza ali' } },
+  { k: 'scatola', n: 'Scatola', d: '4 pareti piegate', c: { larghezza: 400, profondita: 300, altezza: 150, spessore: 1.5 } },
+  { k: 'coperchio', n: 'Coperchio', d: 'bordo piegato in giù', c: { larghezza: 600, profondita: 400, altezza: 25, spessore: 1.5 }, et: { altezza: 'Bordo' } },
+  { k: 'tramoggia_cassone', n: 'Tramoggia con cassone', d: 'in pezzi da piegare', img: 'tramoggia.png' },
+  { k: 'tramoggia', n: 'Raccordo quadro-tondo', d: 'anche fuori centro', img: 'raccordo.png' },
+  { k: 'cono', n: 'Cono', d: 'calandrato o a pieghe', img: 'cono.png' },
+  { k: 'telaio', n: 'Telaio in tubo', d: 'gambe e traversi', img: 'telaio.png' },
+];
+const ETICHETTE_MOD = { larghezza: 'Larghezza', profondita: 'Profondità', altezza: 'Altezza', spessore: 'Spessore' };
+function disegnoModello(k, c) {                       // l'anteprima in isometrica, che segue le misure
+  const C30 = Math.cos(Math.PI / 6), punti = [];
+  const P = (x, y, z) => { const p = [(x - y) * C30, (x + y) * 0.5 - z]; punti.push(p); return p; };
+  const poly = (pts, fill) => `<polygon points="${pts.map(p => P(...p).map(v => v.toFixed(1)).join(',')).join(' ')}" fill="${fill}" stroke="#20262D" stroke-width="${0.004 * Math.max(c.larghezza, c.profondita)}" stroke-linejoin="round"/>`;
+  const L = +c.larghezza || 1, Pp = +c.profondita || 1, Hh = +c.altezza || 1, t = Math.max(+c.spessore || 1, 0.006 * Math.max(L, Pp));
+  const box = (x0, y0, z0, x1, y1, z1, alto = '#C7CFD8') => poly([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], alto)
+    + poly([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], '#8A96A3') + poly([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], '#6E7A87');
+  let s = '';
+  if (k === 'staffa') s = box(0, 0, 0, L, Pp, t) + box(0, 0, t, L, t, Hh, '#DDE3E9');
+  else if (k === 'profilo_u') s = box(0, 0, t, L, t, Hh, '#DDE3E9') + box(0, 0, 0, L, Pp, t) + box(0, Pp - t, t, L, Pp, Hh, '#DDE3E9');
+  else if (k === 'scatola') s = box(0, 0, 0, L, Pp, t) + box(0, 0, t, L, t, Hh, '#DDE3E9') + box(0, t, t, t, Pp, Hh, '#B8C2CC') + box(L - t, t, t, L, Pp, Hh) + box(t, Pp - t, t, L - t, Pp, Hh);
+  else if (k === 'coperchio') s = box(0, Pp - t, 0, L, Pp, Hh) + box(L - t, 0, 0, L, Pp - t, Hh) + box(0, 0, Hh - t, L, Pp, Hh);
+  const xs = punti.map(p => p[0]), ys = punti.map(p => p[1]);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0, h = Math.max(...ys) - y0, m = Math.max(w, h) * 0.08;
+  return `<svg viewBox="${x0 - m} ${y0 - m} ${w + 2 * m} ${h + 2 * m}" preserveAspectRatio="xMidYMid meet">${s}</svg>`;
+}
+function renderModelli() {
+  const g = document.getElementById('home-modelli');
+  if (!g || g.childElementCount) return;
+  g.innerHTML = MODELLI.map(m => `<button class="home-mod" data-mod="${m.k}"><span class="pic">${m.img ? `<img src="img/modelli/${m.img}" alt="">` : disegnoModello(m.k, m.c)}</span>
+    <b>${esc(m.n)}</b><small>${esc(m.d)}</small></button>`).join('');
+  g.onclick = e => { const b = e.target.closest('[data-mod]'); if (!b) return; const m = MODELLI.find(x => x.k === b.dataset.mod);
+    if (m.img) newDialog(m.k, true); else modelloDialog(m); };
+}
+function modelloDialog(m) {
+  const c = { ...m.c };
+  modal(`<h3>${esc(m.n)}</h3>
+    <div class="mod-corpo"><div class="mod-ant" id="mod-ant">${disegnoModello(m.k, c)}</div>
+      <div class="mod-campi">${Object.keys(c).map(k => `<label class="campo-mod">${esc((m.et || {})[k] || ETICHETTE_MOD[k])}<span class="inp"><input class="field" data-k="${k}" value="${String(c[k]).replace('.', ',')}"><i>mm</i></span></label>`).join('')}
+      <div class="mod-piega"><b>Piegatrice</b>
+        <label class="campo-mod">Raggio interno<span class="inp"><input class="field" id="mod-r" value="${esc(virgola(S?.bend_default?.radius ?? ''))}" placeholder="dalla tua piegatrice"><i>mm</i></span></label>
+        <label class="campo-mod">K-factor<span class="inp"><input class="field" id="mod-k" value="${esc(virgola(S?.bend_default?.k ?? ''))}" placeholder="es. 0,33"><i></i></span></label>
+        ${S?.bend_default?.radius != null ? '<p class="hint">Dalle tue regole di piega.</p>' : '<p class="hint" style="color:var(--warn)">Scrivili tu: sono dati della tua piegatrice, Radius non li inventa. Li ricorda in «Regole piega».</p>'}</div>
+      <p class="hint">Le misure sono esterne (fuori tutto). Dopo si cambiano a sinistra, e le pieghe cliccandole.</p></div></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea il pezzo</button></div>`, close => {
+    const leggi = () => { document.querySelectorAll('.mod-campi input').forEach(x => { const v = parseFloat(x.value.replace(',', '.')); if (v > 0) c[x.dataset.k] = v; }); };
+    document.querySelectorAll('.mod-campi input').forEach(x => { x.oninput = () => { leggi(); $('#mod-ant').innerHTML = disegnoModello(m.k, c); }; });
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      leggi();
+      const raggio = $('#mod-r').value.trim(), k = $('#mod-k').value.trim();
+      if (!raggio || !k) { toast('Scrivi raggio interno e K della tua piegatrice: senza, le pieghe non si possono fare.', 'err'); (raggio ? $('#mod-k') : $('#mod-r')).focus(); return; }
+      close();
+      primaVolta = true; clearSelection(); if (SK) exitSketch();
+      inCoda(async () => { if (await apply(await call('crea_da_modello', m.k, { ...c, nome: m.n, raggio, k }))) hideHome(); });
+    };
+  });
+  $('#modal-box').classList.add('wide');
+}
 function nuovaLamiera() {
   primaVolta = true; sel = null; clearSelection();
   if (SK) exitSketch();
@@ -4867,7 +5757,34 @@ function setTool(t) {
   $('#sk-help').textContent = AIUTI[t] + ' · destro sposta, rotella ingrandisce';
   drawRubber();
 }
-function setHelp(t) { $('#sk-help').textContent = t; }
+// 28/10: la barra «cosa fare adesso», uguale per ogni comando. I comandi scrivono come prima («Nome: cosa fare · Esc
+// annulla»); qui diventa: il comando con la sua icona, i passi (2 di 3), cosa fare, e i tasti disegnati
+const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'joint', Quota: 'dimension', Angolo: 'plane_angle', Offset: 'offset',
+  Specchia: 'mirror', Copia: 'copy', Sposta: 'move', Poligono: 'polygon', Linea: 'line', Rettangolo: 'rect', Cerchio: 'circle', Arco: 'arc3',
+  Asola: 'slot', Testo: 'text', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'project', 'Foro su foro': 'hole',
+  'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
+  Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
+  Seleziona: 'select', Costruzione: 'construction' };
+function setHelp(t) {
+  const el = $('#sk-help');
+  t = String(t || '');
+  if (!t) { el.innerHTML = ''; return; }
+  const pezzi = t.split(/\s+·\s+/);
+  let principale = pezzi.shift(), cmd = '', passo = null;
+  const m = principale.match(/^([^:]{2,34}?)(?:\s*\((\d+) di (\d+)\))?:\s+(.+)$/);
+  if (m) { cmd = m[1].trim(); principale = m[4]; if (m[2]) passo = [+m[2], +m[3]]; }
+  const tasti = [], altro = [];
+  for (const p of pezzi) {
+    const k = p.match(/^(Esc|Invio|Canc|Maiusc|F\d+)\b\s*(?:per\s+)?(.*)$/i) || p.match(/^(tasto destro|destro|rotella|doppio clic)\s*(.*)$/i);
+    if (k) tasti.push([k[1].replace(/^destro$/i, 'tasto destro'), k[2]]); else altro.push(p);
+  }
+  const kbd = x => /^(tasto destro|rotella|doppio clic)$/i.test(x) ? `<b class="g-mouse">${esc(x)}</b>` : `<kbd>${esc(x)}</kbd>`;
+  const ic = ICONA_CMD[cmd.replace(/\s+\d.*$/, '')] || ICONA_CMD[cmd.split(' ')[0]];
+  el.innerHTML = (cmd ? `<span class="g-cmd">${ic ? `<img src="icons/${ic}.svg" alt="">` : ''}${esc(cmd)}</span>` : '')
+    + (passo ? `<span class="g-passi" title="Passo ${passo[0]} di ${passo[1]}">${Array.from({ length: passo[1] }, (_, i) => `<i class="${i < passo[0] ? 'on' : ''}"></i>`).join('')}</span>` : '')
+    + `<span class="g-testo">${esc(principale[0].toUpperCase() + principale.slice(1))}${altro.length ? `<small>${esc(altro.join(' · '))}</small>` : ''}</span>`
+    + (tasti.length ? `<span class="g-sep"></span>${tasti.map(([k, v]) => `<span class="g-tasto">${kbd(k)}${esc(v)}</span>`).join('')}` : '');
+}
 
 // le linee del disegno spesse (le linee normali di WebGL sono sempre di 1 pixel: sullo sfondo scuro si vedevano poco,
 // 21/10). Ogni linea diventa una Line2 con lo stesso colore e tratteggio; lo spessore in pixel per tipo di linea.
@@ -6407,6 +7324,17 @@ $('#ribbon').addEventListener('click', ev => {
 // la scheda giusta per il progetto aperto
 // si vedono solo le schede che servono al progetto aperto (tutte se è ancora un disegno vuoto)
 function ribbonTabs() {
+  const r = ribbonTabsDentro();
+  // 28/10: una scheda sola (Lamiera, Assieme…) non serve a niente da cliccare: via la riga, più spazio alla vista
+  const viste = [...document.querySelectorAll('.rtabs button')].filter(b => !b.hidden).length;
+  const una = viste <= 1 && !SK;
+  if (document.body.classList.contains('una-scheda') !== una) {
+    document.body.classList.toggle('una-scheda', una);
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+  return r;
+}
+function ribbonTabsDentro() {
   const assieme = S?.mode === 'assembly';
   document.querySelector('.rtabs [data-rtab="assieme"]').hidden = !assieme;
   if (assieme) {
@@ -6445,7 +7373,7 @@ function placeCube() {
   $('#cube').style.transform = `matrix3d(${M(0, 0)},${M(1, 0)},${M(2, 0)},0,${M(0, 1)},${M(1, 1)},${M(2, 1)},0,${M(0, 2)},${M(1, 2)},${M(2, 2)},0,0,0,0,1)`;
 }
 (function buildCube() {
-  const h = 30;
+  const h = 38;                                    // metà del lato del cubo (76 px, 28/10: più grande e leggibile)
   // per ogni faccia: normale, direzione "giù" del testo, nel mondo (Z in su)
   const F = { pz: [[0, 0, 1], [0, -1, 0]], nz: [[0, 0, -1], [0, 1, 0]], ny: [[0, -1, 0], [0, 0, -1]], py: [[0, 1, 0], [0, 0, -1]],
     px: [[1, 0, 0], [0, 0, -1]], nx: [[-1, 0, 0], [0, 0, -1]] };
@@ -6505,6 +7433,7 @@ async function start() {
   if (S?.version) { const v = document.querySelector('#intro .intro-versione'); if (v) v.textContent = 'versione ' + S.version; }
   introStato('Preparo l’interfaccia…', 0.7);
   renderPanels();
+  tastiNeiSuggerimenti();
   await loadScene();
   setInterval(() => call('autosave'), 60000);
   setTimeout(controllaAggiornamenti, 5000);
@@ -6516,6 +7445,7 @@ async function start() {
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), nuovo: k => newDialog(k), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, foto: p => fotoAnteprima(p), THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
+  window.__prova = { call, MAN, MINI, renderProps };            // per le prove automatiche dell'interfaccia
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo
 async function liveLoop() {
