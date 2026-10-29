@@ -1920,6 +1920,25 @@ const aSchermo = p => {
 // a ogni disegno della vista: la barretta e le quote tornano sui loro punti del pezzo
 function placeBarra() {
   const m = document.getElementById('mini-barra'), r = canvas.getBoundingClientRect();
+  for (const x of QUOTE) {
+    if (x.dopo) {                                    // in fila dopo un'altra quota (29/10: angolo e verso accanto alla lunghezza)
+      const d = x.dopo;
+      x.el.style.display = d.el.style.display;
+      if (d.el.style.display === 'none') continue;
+      const cx = parseFloat(d.el.style.left) + d.el.offsetWidth / 2 + 5 + x.el.offsetWidth / 2;
+      x.el.style.left = cx + 'px'; x.el.style.top = d.el.style.top;
+      continue;
+    }
+    const q = aSchermo(x.p);
+    x.el.style.display = q ? '' : 'none';
+    if (!q) continue;
+    let ox = x.dx || 0, oy = x.dy || 0;
+    if (x.fuori) {
+      const q2 = aSchermo(x.p.clone().add(x.fuori));
+      if (q2) { const vx = q2[0] - q[0], vy = q2[1] - q[1], n = Math.hypot(vx, vy) || 1; ox += vx / n * 42; oy += vy / n * 42; }
+    }
+    x.el.style.left = (q[0] + ox) + 'px'; x.el.style.top = (q[1] + oy) + 'px';
+  }
   if (m && MINI.ancora) {
     const q = aSchermo(MINI.ancora);
     m.style.visibility = q ? '' : 'hidden';
@@ -1933,21 +1952,23 @@ function placeBarra() {
       l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
-      m.style.left = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8)) + 'px';
-      m.style.top = Math.max(r.top + 34, Math.min(q[1] + 30, r.bottom - h - 8)) + 'px';
+      const x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
+      let y = Math.max(r.top + 34, Math.min(q[1] + 30, r.bottom - h - 8));
+      // 29/10: la barretta (col suo nome sopra, ~28 px) non copre le quote: sotto di loro, o sopra se sotto non c'è posto
+      const sopraNome = 28, tocca = yy => QUOTE.filter(z => z.el.style.display !== 'none').map(z => z.el.getBoundingClientRect())
+        .filter(b => b.right > x - 4 && b.left < x + w + 4 && b.bottom > yy - sopraNome - 4 && b.top < yy + h + 4);
+      let urti = tocca(y);
+      if (urti.length) {
+        const giu = Math.max(...urti.map(b => b.bottom)) + sopraNome + 8;
+        if (giu + h <= r.bottom - 8 && !tocca(giu).length) y = giu;
+        else {
+          const su = Math.min(...urti.map(b => b.top)) - h - 8;
+          if (su - sopraNome >= r.top) y = su;
+        }
+      }
+      m.style.left = x + 'px'; m.style.top = y + 'px';
     }
     if (!q) document.getElementById('sc-linea')?.remove();
-  }
-  for (const x of QUOTE) {
-    const q = aSchermo(x.p);
-    x.el.style.display = q ? '' : 'none';
-    if (!q) continue;
-    let ox = x.dx || 0, oy = x.dy || 0;
-    if (x.fuori) {
-      const q2 = aSchermo(x.p.clone().add(x.fuori));
-      if (q2) { const vx = q2[0] - q[0], vy = q2[1] - q[1], n = Math.hypot(vx, vy) || 1; ox += vx / n * 42; oy += vy / n * 42; }
-    }
-    x.el.style.left = (q[0] + ox) + 'px'; x.el.style.top = (q[1] + oy) + 'px';
   }
   if (SCELTE.el && SCELTE.q) {
     const b = SCELTE.q.getBoundingClientRect();
@@ -1991,7 +2012,7 @@ function quota(p, testo, o = {}) {
   };
   scrivi(testo);
   document.body.appendChild(el);
-  const ent = { el, p, dx: o.dx || 0, dy: o.dy || 0, fuori: o.fuori || null };
+  const ent = { el, p, dx: o.dx || 0, dy: o.dy || 0, fuori: o.fuori || null, dopo: o.dopo || null };
   QUOTE.push(ent);
   let giu = null, mosso = false;
   el.addEventListener('pointerdown', e => {
@@ -2131,7 +2152,7 @@ function miniFlangia(s, lavora) {
     const p0 = aSchermo(m), p1 = aSchermo(m.clone().addScaledVector(d, 100));
     return p0 && p1 ? [(p1[0] - p0[0]) / 100, (p1[1] - p0[1]) / 100] : [1, 0];
   };
-  quota(m.clone(), NUM(L), {
+  const qL = quota(m.clone(), NUM(L), {
     unita: 'mm', num: L, tira: {
       muovi: (dx, dy, maiusc, ent) => {
         const [ux, uy] = pxmm(), l2 = ux * ux + uy * uy || 1;
@@ -2147,16 +2168,15 @@ function miniFlangia(s, lavora) {
     fuori: d.clone().multiplyScalar(10), pulsa: nuova, titolo: 'Clic: scrivi la lunghezza · trascina: allunga o accorcia (Maiusc: passi di 5)',
     scrivi: v => cambia({ length: v }), prova: v => fantasmaFlangia(v == null ? 0 : v - L),
   });
-  // angolo e verso vicino alla piega, dalla parte di «a»
-  const piega = a.clone().lerp(b, 0.06).addScaledVector(d, -L * 0.85), fuori = a.clone().sub(b).normalize().multiplyScalar(10);
+  // 29/10: angolo e verso in fila subito dopo la lunghezza («deve stare vicino, senò lo perdi»)
   const provaAng = v => (v == null ? anteprimaVia() : anteprima('edit_flange', () => [s.feature, s.flange, { angle: String(v) }], null));
-  quota(piega.clone(), `${NUM(f.angle)}°`, {
-    num: f.angle, fuori, dy: -14, titolo: 'Angolo della piega',
+  const qA = quota(m.clone(), `${NUM(f.angle)}°`, {
+    num: f.angle, dopo: qL, titolo: 'Angolo della piega',
     scelte: [[90, '90°'], [45, '45°'], [135, '135°']], libero: 'altro…', sceglie: v => cambia({ angle: v }), prova: provaAng,
   });
   const giu = f.direction === 'down', altro = giu ? 'up' : 'down';
-  quota(piega.clone(), '⇅', {
-    blu: true, fuori, dy: 16, titolo: `Verso: adesso ${giu ? 'in giù' : 'in su'} · clic per girarla`,
+  quota(m.clone(), '⇅', {
+    blu: true, dopo: qA, titolo: `Verso: adesso ${giu ? 'in giù' : 'in su'} · clic per girarla`,
     clic: () => { anteprimaVia(); cambia({ direction: altro }); },
     sopra: on => (on ? anteprima('edit_flange', () => [s.feature, s.flange, { direction: altro }], null) : anteprimaVia()),
   });

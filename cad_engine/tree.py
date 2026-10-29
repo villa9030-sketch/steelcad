@@ -61,6 +61,10 @@ def _feature_label(doc, f, fr) -> str:
             gioco = f.get('gap')
             return (f'{nome or "Taglio di testa"} a {f.get("angle", 45)}° {teste}'
                     + (f', gioco {gioco}' if gioco not in (None, '', 0, 0.0) else ''))
+        if t == 'sheet_tab_fold':
+            altre = ''.join(f', poi {x.get("angle", 90)}° {"in giù" if x.get("direction") == "down" else "in su"}'
+                            for x in f.get('altre') or [])
+            return f'{nome or "Linguetta piegata"} a {f.get("angle", 90)}° {"in giù" if f.get("direction") == "down" else "in su"}{altre}'
         if t == 'sheet_edge_flange':
             a = f.get('angle', 90)
             ang = '' if a in (None, '', 90, 90.0) else f' a {a}°'

@@ -1667,8 +1667,61 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if colpi and len(tratti) > 1:
                 raise SteelCADError('I colpi col raggio grande si danno su una linea sola. Con più linee disegnate ogni linea è già un colpo: '
                                     'lascia vuoti colpi e raggio.', code='bump')
+            # 29/10: la linea che chiude un taglio a U (le punte sul taglio): si piega solo la linguetta
+            from cad_engine.sheetmetal import linguetta_piegata
+            # una linea dentro una linguetta già piegata: la sua piega successiva (la maniglia, 29/10)
+            sulla_linguetta = None
+            if len(tratti) == 1 and data.flat is not None:
+                (ax, ay), (bx, by) = tratti[0]
+                m3 = data.plane.from_local_coords(((ax + bx) / 2, (ay + by) / 2))
+                mezzo = lambda x: data.plane.from_local_coords(((x['a'][0] + x['b'][0]) / 2, (x['a'][1] + x['b'][1]) / 2))  # noqa: E731
+                nuova = linguetta_piegata.trova(data.flat, data.plane, *tratti[0])
+                for f in self.doc.features:
+                    if isinstance(f, Sketch) or f.get('type') != 'sheet_tab_fold' or f.get('disattiva'):
+                        continue
+                    sue = [f] + list(f.get('altre') or [])
+                    tr = linguetta_piegata.trova(data.flat, data.plane, f['a'], f['b'], bool(f.get('flip')))
+                    # dentro la sua linguetta (una piega in più sulla punta), o alla radice di una linguetta che
+                    # contiene già le sue pieghe (la piega dove finisce il taglio, fatta dopo quella a metà)
+                    if (tr is not None and tr[0].is_inside(m3)) or \
+                            (nuova is not None and any(nuova[0].is_inside(mezzo(x)) for x in sue)):
+                        sulla_linguetta = f
+                        break
+            if sulla_linguetta is not None and colpi:
+                raise SteelCADError('La piega della linguetta si fa con un colpo solo: lascia vuoti colpi e raggio.', code='bump')
+            linguetta = sulla_linguetta is None and len(tratti) == 1 and data.flat is not None and \
+                linguetta_piegata.trova(data.flat, data.plane, *tratti[0], flip=bool(flip)) is not None
+            if linguetta and colpi:
+                raise SteelCADError('La linguetta si piega con un colpo solo: lascia vuoti colpi e raggio.', code='bump')
         except SteelCADError as ex:
             return _err(ex)
+
+        if sulla_linguetta is not None:
+            def fn_a():
+                (a, b), = tratti
+                f = sulla_linguetta
+                riga = {'a': a, 'b': b, 'angle': _number(angle), 'direction': direction}
+                tr = linguetta_piegata.trova(data.flat, data.plane, f['a'], f['b'], bool(f.get('flip')))
+                if tr is not None and tr[0].is_inside(m3):
+                    f.setdefault('altre', []).append(riga)
+                else:                                     # la nuova è alla radice: diventa la prima piega
+                    vecchia = {'a': f['a'], 'b': f['b'], 'angle': f.get('angle', 90), 'direction': f.get('direction', 'up')}
+                    f.update(a=a, b=b, angle=riga['angle'], direction=direction, flip=False)
+                    f['altre'] = [vecchia] + list(f.get('altre') or [])
+                self.doc.features = [x for x in self.doc.features if x is not sk]
+            r = self._change('Piega sulla linguetta', fn_a)
+            if r['ok']:
+                r['message'] = f'Piegata ancora la linguetta {sulla_linguetta["id"]} lungo la linea: lo sviluppo resta quello disegnato.'
+            return r
+        if linguetta:
+            def fn_l():
+                (a, b), = tratti
+                self.doc.add_feature('sheet_tab_fold', '', a=a, b=b, angle=_number(angle), direction=direction, flip=bool(flip))
+                self.doc.features = [f for f in self.doc.features if f is not sk]
+            r = self._change('Linguetta piegata', fn_l)
+            if r['ok']:
+                r['message'] = 'Piegata la linguetta lungo la linea: il resto della lamiera resta fermo, lo sviluppo resta quello disegnato.'
+            return r
 
         def fn():
             folds = sm.setdefault('folds', [])

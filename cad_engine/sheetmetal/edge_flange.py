@@ -29,11 +29,11 @@ def mappa_faccia(nome: str, data, fid: str):
 
 
 def bordo_sulla_faccia(facce, a0: bd.Vector, b0: bd.Vector):
-    """Lo spigolo dritto (del contorno esterno delle facce) più vicino ai due punti salvati: (a, b) nello stesso
-    ordine, o None."""
+    """Lo spigolo dritto (del contorno esterno delle facce, o di un foro: la linguetta piegata) più vicino ai due
+    punti salvati: (a, b) nello stesso ordine, o None."""
     best = None
     for f in facce:
-        for e in bd.Face(f).outer_wire().edges():
+        for e in bd.Face(f).edges():
             if e.geom_type != bd.GeomType.LINE:
                 continue
             pa, pb = e.position_at(0), e.position_at(1)
@@ -125,7 +125,7 @@ def build_edge_flange(fdef: dict, ctx):
     fuori = None
     for f in facce:
         F = bd.Face(f)
-        for sp in F.outer_wire().edges():
+        for sp in F.edges():
             if sp.geom_type == bd.GeomType.LINE and (sp.position_at(0) - a).length + (sp.position_at(1) - b).length < 1e-6                     or sp.geom_type == bd.GeomType.LINE and (sp.position_at(1) - a).length + (sp.position_at(0) - b).length < 1e-6:
                 fuori = fuori_dalla_vicina(F, sp, mappa, -dentro)
                 break
@@ -216,6 +216,8 @@ def build_edge_flange(fdef: dict, ctx):
     E2 = (B2 - A2).normalized()
     lungo = piega.ba + dritto
     rett = _orienta(bd.Face(bd.Wire.make_polygon([A2, B2, B2 + F2 * lungo, A2 + F2 * lungo], close=True)), data.plane)
+    if fdef.get('_sviluppo') is not None:              # la linguetta piegata: nello sviluppo torna la sua forma esatta
+        rett = _orienta(fdef['_sviluppo'], data.plane)
     prima = data.flat.area
     n_prima = len(data.flat.faces()) if not isinstance(data.flat, bd.Face) else 1      # tramogge: più pezzi
     unito = data.flat.fuse(rett)
