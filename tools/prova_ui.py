@@ -269,6 +269,7 @@ def scatola(pg, ok):
     pg.screenshot(path=str(SHOTS_G / '9_su_faccia.png'))
     area1 = pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
     pg.click('#sk-face [data-make="cut"]')
+    pg.wait_for_selector('#pr-ok:not([disabled])', timeout=20000); pg.click('#pr-ok')   # 29/10: prima la prova sul pezzo
     pg.wait_for_function("(a) => !window.__steelcad.sketch && window.__steelcad.state.sheet.data.flat_area < a - 1", arg=area1)
     diff = area1 - pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
     ok(f'foro Ø8 disegnato sulla faccia della flangia, anche nello sviluppo (−{diff:.2f} mm²)', abs(diff - math.pi * 16) < 0.5)

@@ -450,6 +450,17 @@ class DrawingsMixin:
             from app.service import _err
             return _err(ex)
 
+    def prepara_tavole(self) -> dict:
+        """29/10: le tavole calcolate prima che le apri (quando il programma è fermo): all'apertura sono già pronte.
+        Non manda niente indietro (i fogli restano in memoria)."""
+        try:
+            if self.asm is None and (self.result is None or self.result.body is None):
+                return {'ok': True, 'fatto': False}
+            self._fogli(self.drawing_fields()['fields'], False)
+            return {'ok': True, 'fatto': True}
+        except Exception:  # noqa: BLE001 - è solo un anticipo: se non viene, si fa all'apertura
+            return {'ok': True, 'fatto': False}
+
     def export_drawings(self, path: str, campi: dict, tutte: bool = False) -> dict:
         """PDF (una pagina per foglio) o DXF (fogli affiancati), secondo l'estensione."""
         try:

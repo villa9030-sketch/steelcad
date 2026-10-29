@@ -558,10 +558,15 @@ def ombre_iso(shape) -> list:
         vis = ok & (n @ d > 1e-4)                         # solo quelli girati verso chi guarda
         lum = np.clip(n @ luce, 0, 1) * 0.75 + 0.25
         prof = (A + B + C) @ d / 3
-        for i in np.nonzero(vis)[0]:
-            col = tuple(float(x) for x in scuro + (chiaro - scuro) * lum[i])
-            pts = [(float(q @ xd), float(q @ up)) for q in (A[i], B[i], C[i])]
-            tri.append((float(prof[i]), col, pts))
+        iv = np.nonzero(vis)[0]
+        if not len(iv):
+            continue
+        # 29/10: tutti i triangoli insieme (prima uno alla volta: 0,7 s sull'assieme della cassettiera)
+        cols = (scuro + (chiaro - scuro) * lum[iv, None]).tolist()
+        T3 = np.stack([A[iv], B[iv], C[iv]], axis=1)
+        U, V = (T3 @ xd).tolist(), (T3 @ up).tolist()
+        for j, pr in enumerate(prof[iv].tolist()):
+            tri.append((pr, tuple(cols[j]), list(zip(U[j], V[j]))))
     tri.sort(key=lambda x: x[0])
     res = [(c, p) for _, c, p in tri]
     if len(_OMBRE) > 50:
@@ -1404,12 +1409,16 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
     upv = np.array([upv.X(), upv.Y(), upv.Z()])
     xv = np.cross(upv, dv)
 
+    # 29/10: gli spigoli dell'ingombro di ogni pezzo, una volta sola (prima a ogni prova: 0,4 s sulla cassettiera)
+    angoli = {}
+
     def impronta(k, d):
-        b = forme[k][1].bounding_box()
-        pts = [np.array([x, y, z]) + d for x in (b.min.X, b.max.X) for y in (b.min.Y, b.max.Y) for z in (b.min.Z, b.max.Z)]
-        u = [float(np.dot(q, xv)) for q in pts]
-        v = [float(np.dot(q, upv)) for q in pts]
-        return min(u), min(v), max(u), max(v)
+        if k not in angoli:
+            b = forme[k][1].bounding_box()
+            angoli[k] = np.array([[x, y, z] for x in (b.min.X, b.max.X) for y in (b.min.Y, b.max.Y) for z in (b.min.Z, b.max.Z)])
+        pts = angoli[k] + d
+        u, v = pts @ xv, pts @ upv
+        return float(u.min()), float(v.min()), float(u.max()), float(v.max())
 
     def si_coprono(a, b):
         return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
@@ -1417,6 +1426,7 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
         b = forme[k][1].bounding_box()
         ax = int(np.argmin([b.size.X, b.size.Y, b.size.Z]))
         return ax
+    diagonali = {k: forme[k][1].bounding_box().diagonal for k in range(len(forme))}
 
     def area(r):
         return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
@@ -1431,12 +1441,19 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
             spost[k] = dd
     # poi, dal più grande: un pezzo coperto per buona parte da uno già messo (nella vista) esce lungo il suo spessore
     # finché si vede
-    ordine = sorted((k for k in range(len(forme)) if figli[k] is None), key=lambda k: -forme[k][1].bounding_box().diagonal)
+    ordine = sorted((k for k in range(len(forme)) if figli[k] is None), key=lambda k: -diagonali[k])
     messi = []
     for k in ordine:
         dd = np.array(spost[k], dtype=float)
         imp = impronta(k, dd)
-        coperto = lambda r: max([comune(r, m) / max(area(r), 1e-9) for _, m in messi] or [0.0])  # noqa: E731
+        M = np.array([m for _, m in messi]) if messi else None
+
+        def coperto(r, M=M):
+            if M is None:
+                return 0.0
+            w = np.clip(np.minimum(r[2], M[:, 2]) - np.maximum(r[0], M[:, 0]), 0, None)
+            h = np.clip(np.minimum(r[3], M[:, 3]) - np.maximum(r[1], M[:, 1]), 0, None)
+            return float((w * h).max()) / max(area(r), 1e-9)
         if coperto(imp) > 0.5:
             ax = spessore(k)
             altro = max(messi, key=lambda m: comune(imp, m[1]))[0]

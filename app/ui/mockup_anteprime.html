@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radius · anteprime e albero</title>
+<style>
+:root {
+  --bg: #121519; --app: #16191D; --panel: #1E232A; --panel2: #232932; --line: #2E353E; --ink: #E4E9EE; --ink2: #AAB4BE; --ink3: #75808B;
+  --blu: #3D7FD0; --blu2: #5AA9FF; --ambra: #FFB000; --rosso: #E5484D; --verde: #3FB27F;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header.pag { padding: 28px 40px 8px; max-width: 1280px; margin: 0 auto; }
+header.pag h1 { margin: 0 0 4px; font-size: 24px; }
+header.pag p { margin: 0; color: var(--ink2); max-width: 900px; }
+nav.indice { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+nav.indice a { color: var(--ink2); text-decoration: none; padding: 5px 11px; border: 1px solid var(--line); border-radius: 16px; font-size: 13px; }
+nav.indice a:hover { color: var(--ink); border-color: var(--blu); }
+section.prop { max-width: 1280px; margin: 30px auto; padding: 0 40px; }
+section.prop > h2 { font-size: 18px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+section.prop > h2 .n { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--blu); color: #fff; font-size: 14px; }
+section.prop > p.cosa { margin: 0 0 12px; color: var(--ink2); max-width: 920px; }
+.schermo { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--app); box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+.finestra { display: grid; grid-template-columns: 250px 1fr; height: 480px; }
+.sx { background: var(--panel); border-right: 1px solid var(--line); padding: 12px; overflow: hidden; }
+.sx h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: .08em; color: var(--ink3); text-transform: uppercase; }
+.vista { position: relative; background: radial-gradient(ellipse at 50% 40%, #2A313A, #181C21 75%); overflow: hidden; }
+.vista svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scelte { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.scelte button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 16px; border: 1px solid var(--line); background: none; color: var(--ink2); cursor: pointer; }
+.scelte button.on { border-color: var(--blu); color: var(--ink); background: rgba(61, 127, 208, .15); }
+.btn { font: inherit; font-size: 13px; color: var(--ink); background: #2A313A; border: 1px solid #3A434E; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.btn.pri { background: var(--blu); border-color: var(--blu); color: #fff; }
+kbd { font: 600 11px "Segoe UI"; color: var(--ink); background: #2C333D; border: 1px solid #434C57; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; }
+
+/* 1. albero */
+.due { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.due .tit { font-size: 13px; color: var(--ink3); margin: 0 0 6px; }
+.albero { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; height: 470px; overflow: hidden; }
+.albero .r { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 5px; font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.albero .r:hover { background: #2A313A; color: var(--ink); }
+.albero .r.f { padding-left: 24px; }
+.albero .r.ff { padding-left: 42px; color: var(--ink3); font-size: 12.5px; }
+.albero .r i { flex: none; width: 14px; height: 14px; border-radius: 3px; background: #4E5B69; }
+.albero .r i.sk { background: none; border: 1.5px solid #5D6B7A; border-radius: 50%; width: 12px; height: 12px; }
+.albero .r i.pg { background: #5AA9FF; }
+.albero .r i.tg { background: #8B98A6; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 60%, 0 100%); }
+.albero .r i.ln { background: #FFB000; }
+.albero .r .q { margin-left: auto; color: var(--ink3); font-size: 11.5px; }
+.albero .r .caret { width: 10px; color: var(--ink3); font-size: 10px; margin-left: -14px; }
+.albero .grp { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.albero .grp .r { opacity: .55; }
+.albero .vecchio .r { font-size: 12.5px; }
+
+/* 2-4. sul pezzo */
+.quota { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 9px; border-radius: 7px;
+  background: #FFB000; color: #1A1305; font: 700 13.5px "Segoe UI"; box-shadow: 0 3px 10px rgba(0, 0, 0, .4); cursor: pointer; user-select: none; white-space: nowrap; }
+.quota.blu { background: #5AA9FF; color: #06182B; padding: 2px 8px; }
+.quota .u { font-weight: 400; opacity: .7; }
+.quota:hover { filter: brightness(1.08); }
+.q-scelte { position: absolute; transform: translateX(-50%); display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 10px 24px rgba(0, 0, 0, .45); }
+.q-scelte button { border: 0; background: none; color: var(--ink2); font: 600 12.5px "Segoe UI"; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.q-scelte button.on, .q-scelte button:hover { background: #2E3640; color: var(--ink); }
+/* la frase di cosa succede, sempre in basso al centro */
+.dice { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; white-space: nowrap;
+  background: rgba(30, 35, 42, .97); border: 1px solid #3A4450; border-radius: 12px; padding: 9px 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.dice .pallino { width: 12px; height: 12px; border-radius: 50%; background: var(--blu2); box-shadow: 0 0 0 4px rgba(90, 169, 255, .22); }
+.dice.no .pallino { background: var(--rosso); box-shadow: 0 0 0 4px rgba(229, 72, 77, .25); }
+.dice .frase { font-weight: 600; }
+.dice .frase small { display: block; font-weight: 400; color: var(--ink3); font-size: 12px; }
+.dice.no .frase small { color: #E2A4A6; }
+.dice .sep { width: 1px; height: 28px; background: var(--line); }
+.dice .tasti { display: flex; gap: 12px; color: var(--ink2); font-size: 12.5px; }
+.dice .sol { display: flex; gap: 6px; }
+.etich { position: absolute; font-size: 12px; color: #FFD27A; background: rgba(0, 0, 0, .55); border: 1px dashed rgba(255, 210, 122, .6); padding: 4px 8px; border-radius: 6px; max-width: 230px; pointer-events: none; }
+
+/* 4. galleria */
+.galleria { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cella { border: 1px solid var(--line); border-radius: 10px; background: var(--app); overflow: hidden; }
+.cella .v { position: relative; height: 210px; background: radial-gradient(ellipse at 50% 40%, #2A313A, #181C21 75%); }
+.cella .v svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cella .t { display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px 11px; border-top: 1px solid var(--line); }
+.cella .t .pallino { flex: none; margin-top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--blu2); }
+.cella.no .t .pallino { background: var(--rosso); }
+.cella .t b { display: block; font-size: 13.5px; }
+.cella .t span { color: var(--ink3); font-size: 12.5px; }
+.cella.no .t span { color: #E2A4A6; }
+.cella .cmd { position: absolute; left: 10px; top: 8px; font-size: 12px; color: var(--ink2); background: rgba(0, 0, 0, .35); padding: 2px 8px; border-radius: 10px; }
+.leggenda { display: flex; gap: 18px; margin: 0 0 12px; color: var(--ink2); font-size: 13px; }
+.leggenda i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+footer { max-width: 1280px; margin: 30px auto 50px; padding: 0 40px; color: var(--ink3); font-size: 13px; }
+</style>
+</head>
+<body>
+<header class="pag">
+  <h1>Radius: anteprime per ogni comando, piega senza finestra, albero pulito</h1>
+  <p>Mockup dei punti 1, 2, 3 e delle anteprime per ogni lavorazione. Dati inventati. La regola per tutti i comandi: <b>prima di confermare vedi sempre il risultato</b>, in azzurro se si può fare, in rosso se no. Sotto c'è sempre una frase in parole semplici con quello che succede.</p>
+  <nav class="indice"><a href="#p1">1 · Albero pulito</a><a href="#p2">2 · Piega senza finestra</a><a href="#p3">3 · Rosso: non si può, e come uscirne</a><a href="#p4">4 · Un'anteprima per ogni lavorazione</a></nav>
+</header>
+
+<!-- ======================================================================== 1 -->
+<section class="prop" id="p1">
+  <h2><span class="n">1</span>L'albero del progetto: solo quello che hai fatto</h2>
+  <p class="cosa">Gli sketch non sono più righe a sé: stanno dentro la lavorazione che li usa (la freccina li apre). Quelli vuoti o rimasti da un tentativo spariscono quando esci dallo sketch; quelli con un disegno ma senza lavorazione vanno in fondo, in grigio, sotto «Disegni non usati». I nomi dicono la misura, corti, senza «Sketch: la faccia di sopra di…».</p>
+  <div class="due">
+    <div><p class="tit">Oggi (il tuo frontalino)</p>
+      <div class="albero vecchio">
+        <div class="r"><i></i><b>Frontalino 1</b></div>
+        <div class="r f"><i></i>Frontalino 1 416×68,5×16 S235</div>
+        <div class="r ff"><i class="sk"></i>Base</div><div class="r ff"><i></i>Lamiera sp. 1,5</div>
+        <div class="r ff"><i class="pg"></i>Piega davanti, 10 mm in giù</div><div class="r ff"><i class="pg"></i>Piega dietro, 16 mm in giù</div>
+        <div class="r ff"><i class="pg"></i>Piega sulla piega dietro, 7 mm in…</div><div class="r ff"><i class="pg"></i>Piega sulla piega davanti, 10 m…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div><div class="r ff"><i class="tg"></i>Marcatura laser: «MASCHI M3…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div><div class="r ff"><i class="tg"></i>Taglio sagomato</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div><div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: raccordo spigolo</div><div class="r ff"><i class="tg"></i>Raccordo spigolo R5: taglio sag…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: raccordo spigolo</div><div class="r ff"><i class="tg"></i>Raccordo spigolo R5: taglio sag…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: sullo sviluppo <span class="q">parziale</span></div><div class="r ff"><i class="tg"></i>Finestra e taglio sagomato (sul…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div><div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div>
+        <div class="r ff"><i class="ln"></i>Linguetta piegata a 10° in giù</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div><div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div><div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div>
+        <div class="r ff"><i class="sk"></i>Sketch: la faccia di sopra di Fro…</div>
+      </div></div>
+    <div><p class="tit">Proposta</p>
+      <div class="albero">
+        <div class="r"><i></i><b>Frontalino 1</b><span class="q">416 × 68,5 × 16 · S235 sp. 1,5</span></div>
+        <div class="r f"><i class="sk"></i>Base 416 × 60</div>
+        <div class="r f"><i class="pg"></i>Piega davanti 10 giù</div>
+        <div class="r f"><i class="pg"></i>Piega dietro 16 giù</div>
+        <div class="r f"><i class="pg"></i>Piega su piega dietro 7</div>
+        <div class="r f"><i class="pg"></i>Piega su piega davanti 10</div>
+        <div class="r f"><i class="tg"></i>Scritta «MASCHI M3 – M12» <span class="q">marcatura</span></div>
+        <div class="r f"><span class="caret">▾</span><i class="tg"></i>Taglio sagomato 156 × 15</div>
+        <div class="r ff"><i class="sk"></i>il suo disegno</div>
+        <div class="r f"><i class="tg"></i>Raccordo R5 sugli spigoli <span class="q">× 2</span></div>
+        <div class="r f"><i class="tg"></i>Finestra 156 × 20</div>
+        <div class="r f"><span class="caret">▾</span><i class="ln"></i>Linguetta piegata 30° giù, poi 10° giù</div>
+        <div class="r ff"><i class="pg"></i>piega 1 · 30° giù alla radice</div>
+        <div class="r ff"><i class="pg"></i>piega 2 · 10° giù a 9 mm</div>
+        <div class="grp">
+          <div class="r"><span class="caret">▸</span><i class="sk"></i>Disegni non usati <span class="q">1</span></div>
+        </div>
+        <div class="etich" style="position:static;margin-top:18px;display:inline-block">7 sketch vuoti o ripetuti: tolti da soli all'uscita dallo sketch (si possono riavere con Annulla)</div>
+      </div></div>
+  </div>
+</section>
+
+<!-- ======================================================================== 2 -->
+<section class="prop" id="p2">
+  <h2><span class="n">2</span>Piega su linea senza la finestra</h2>
+  <p class="cosa">Disegni la linea e premi <b>Piega</b>: la piega compare subito, già fatta in azzurro (90°, in su, la parte più piccola). Le scelte stanno sul pezzo: clic sull'angolo, clic su <b>⇅</b> per il verso, clic su <b>↔</b> per piegare l'altra parte. <kbd>Invio</kbd> conferma, <kbd>Esc</kbd> annulla. Bumping e cose rare restano nel «⋯». <b>Prova: clicca le quote.</b></p>
+  <div class="schermo"><div class="finestra"><div class="sx"><h4>Progetto</h4><div class="albero" style="border:0;padding:0;height:auto;background:none">
+      <div class="r"><i></i><b>Staffa</b></div><div class="r f"><i class="sk"></i>Base 300 × 140</div><div class="r f"><i class="ln"></i>Piega… <span class="q">in prova</span></div></div></div>
+    <div class="vista" id="v2"><svg id="s2"></svg></div></div></div>
+</section>
+
+<!-- ======================================================================== 3 -->
+<section class="prop" id="p3">
+  <h2><span class="n">3</span>Rosso: non si può fare, ecco perché e come uscirne</h2>
+  <p class="cosa">L'anteprima non sparisce: diventa <b>rossa</b>, e dove sta il problema si accende più forte. Sotto, una frase sola e uno o due pulsanti che lo sistemano. Il pulsante fa la modifica e l'anteprima torna azzurra. Non si conferma niente finché è rossa. <b>Prova: scegli un caso.</b></p>
+  <div class="scelte" id="sc3"><button data-k="corta" class="on">Piega troppo corta</button><button data-k="tocca">Linguetta che tocca</button><button data-k="foro">Foro troppo vicino alla piega</button></div>
+  <div class="schermo"><div class="finestra"><div class="sx"><h4>Progetto</h4><div class="albero" style="border:0;padding:0;height:auto;background:none">
+      <div class="r"><i></i><b>Staffa</b></div><div class="r f"><i class="sk"></i>Base 300 × 140</div><div class="r f"><i class="pg"></i>Piega 40 su</div></div></div>
+    <div class="vista" id="v3"><svg id="s3"></svg></div></div></div>
+</section>
+
+<!-- ======================================================================== 4 -->
+<section class="prop" id="p4">
+  <h2><span class="n">4</span>Un'anteprima per ogni lavorazione</h2>
+  <p class="cosa">Ogni comando, dalla barra in alto, dalla barretta sul pezzo o dalla scheda del foro, mostra il risultato mentre scegli: <b>quello che si aggiunge in azzurro</b>, <b>quello che si toglie in arancio scuro trasparente</b> (si vede attraverso il pezzo), <b>rosso se non si può</b>. Arriva in un istante perché prima compare una forma veloce e subito dopo quella esatta calcolata dal motore. La frase sotto dice cosa succede, come lo direbbe un collega.</p>
+  <div class="leggenda"><span><i style="background:#5AA9FF"></i>si aggiunge / si piega</span><span><i style="background:#E8833A"></i>si toglie</span><span><i style="background:#E5484D"></i>non si può</span></div>
+  <div class="galleria" id="gal"></div>
+</section>
+<footer>Mockup: le forme sono disegnate a mano, nel programma vero l'anteprima è il pezzo calcolato dal motore.</footer>
+
+<script>
+// ------------------------------------------------------------ disegno isometrico minimo
+const C30 = Math.cos(Math.PI / 6), S30 = 0.5;
+function vista(svg, sc, ox, oy) {
+  const P = ([x, y, z]) => [ox + (x - y) * C30 * sc, oy + (x + y) * S30 * sc - z * sc];
+  const out = [];
+  const poli = (pts, fill, o = {}) => out.push(`<polygon points="${pts.map(P).map(p => p.join(',')).join(' ')}" fill="${fill}" fill-opacity="${o.op ?? 1}" stroke="${o.st || 'rgba(0,0,0,.35)'}" stroke-width="${o.sw || 1}" ${o.dash ? `stroke-dasharray="${o.dash}"` : ''}/>`);
+  const linea = (a, b, col, o = {}) => { const [p, q] = [P(a), P(b)]; out.push(`<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" stroke="${col}" stroke-width="${o.sw || 2}" ${o.dash ? `stroke-dasharray="${o.dash}"` : ''}/>`); };
+  // scatola dritta (lastra) da x0..x1, y0..y1, z0..z1, con colori per faccia
+  const lastra = (x0, x1, y0, y1, z0, z1, col, o = {}) => {
+    const [top, lato, fronte] = col;
+    poli([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], fronte, o);
+    poli([[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], lato, o);
+    poli([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], top, o);
+  };
+  // lastra girata attorno a una retta parallela a y, in x = xa, z = za, di ang gradi verso l'alto; lunga L, spessa t
+  const piegata = (xa, za, y0, y1, L, t, ang, col, o = {}) => {
+    const a = ang * Math.PI / 180, u = [Math.cos(a), Math.sin(a)], n = [-Math.sin(a), Math.cos(a)];
+    const q = (s, h, y) => [xa + u[0] * s + n[0] * h, y, za + u[1] * s + n[1] * h];
+    const [top, lato, fronte] = col;
+    poli([q(0, 0, y1), q(L, 0, y1), q(L, t, y1), q(0, t, y1)], fronte, o);
+    poli([q(L, 0, y0), q(L, 0, y1), q(L, t, y1), q(L, t, y0)], lato, o);
+    poli([q(0, t, y0), q(L, t, y0), q(L, t, y1), q(0, t, y1)], top, o);
+    return q;
+  };
+  return { P, poli, linea, lastra, piegata, fine: () => { svg.innerHTML = out.join(''); } };
+}
+const ACC = ['#AEB8C3', '#7E8995', '#97A2AE'];                          // acciaio
+const BLU = ['rgba(95,168,245,.80)', 'rgba(70,140,220,.80)', 'rgba(82,154,232,.80)'];
+const ROS = ['rgba(229,72,77,.78)', 'rgba(190,50,56,.78)', 'rgba(210,60,66,.78)'];
+const ARA = ['rgba(232,131,58,.55)', 'rgba(200,105,40,.55)', 'rgba(216,118,48,.55)'];
+const BLU_O = { st: '#9CCBFF' }, ROS_O = { st: '#FF9B9E' };
+
+function quota(box, x, y, testo, o = {}) {
+  const q = document.createElement('div');
+  q.className = 'quota' + (o.blu ? ' blu' : '');
+  q.innerHTML = testo;
+  q.style.left = x + 'px'; q.style.top = y + 'px';
+  if (o.title) q.title = o.title;
+  box.appendChild(q);
+  return q;
+}
+function dice(box, frase, sotto, o = {}) {
+  const d = document.createElement('div');
+  d.className = 'dice' + (o.no ? ' no' : '');
+  d.innerHTML = `<span class="pallino"></span><span class="frase">${frase}<small>${sotto}</small></span>` +
+    (o.sol ? `<span class="sep"></span><span class="sol">${o.sol.map((s, i) => `<button class="btn${i ? '' : ' pri'}" data-i="${i}">${s}</button>`).join('')}</span>` : '') +
+    `<span class="sep"></span><span class="tasti">${o.no ? '<span><kbd>Esc</kbd> annulla</span>' : '<span><kbd>Invio</kbd> conferma</span><span><kbd>Esc</kbd> annulla</span>'}</span>`;
+  box.appendChild(d);
+  return d;
+}
+
+// ------------------------------------------------------------ 2. la piega senza finestra
+const S2 = { ang: 90, su: true, altra: false };
+function disegna2() {
+  const box = document.getElementById('v2'), svg = document.getElementById('s2');
+  box.querySelectorAll('.quota, .dice, .q-scelte').forEach(e => e.remove());
+  const v = vista(svg, 1.55, 470, 70);
+  const t = 4, xl = 210;                                     // la linea a x = 210 su una lastra 300 × 140
+  const ferma = S2.altra ? [xl, 300] : [0, xl], gira = S2.altra ? [0, xl] : [xl, 300];
+  const L = gira[1] - gira[0];
+  const ang = (S2.su ? 1 : -1) * S2.ang;
+  if (!S2.altra) {
+    v.lastra(ferma[0], ferma[1], 0, 140, 0, t, ACC);
+    v.linea([xl, 0, t], [xl, 140, t], '#FFB000', { sw: 1.5, dash: '6 4' });
+    v.lastra(gira[0], gira[1], 0, 140, 0, t, ['rgba(174,184,195,.18)', 'rgba(126,137,149,.18)', 'rgba(151,162,174,.18)'], { dash: '4 4', st: 'rgba(255,255,255,.25)' });
+    v.piegata(xl, S2.su ? 0 : t, 0, 140, L, t, ang, BLU, BLU_O);
+  } else {
+    // si piega la parte grande (a sinistra): gira attorno alla linea verso sinistra
+    v.lastra(gira[0], gira[1], 0, 140, 0, t, ['rgba(174,184,195,.18)', 'rgba(126,137,149,.18)', 'rgba(151,162,174,.18)'], { dash: '4 4', st: 'rgba(255,255,255,.25)' });
+    v.piegata(xl, S2.su ? 0 : t, 0, 140, -L, t, -ang, BLU, BLU_O);
+    v.lastra(ferma[0], ferma[1], 0, 140, 0, t, ACC);
+    v.linea([xl, 0, t], [xl, 140, t], '#FFB000', { sw: 1.5, dash: '6 4' });
+  }
+  v.fine();
+  const [px, py] = v.P([xl, 70, t]);
+  const qa = quota(box, px + 2, py - 64, `${S2.ang}°`, { title: 'Angolo: clic e scegli' });
+  quota(box, px + 52, py - 64, '⇅', { blu: true, title: 'Verso: clic per girarla' }).onclick = () => { S2.su = !S2.su; disegna2(); };
+  quota(box, px + 92, py - 64, '↔', { blu: true, title: 'Piega l’altra parte' }).onclick = () => { S2.altra = !S2.altra; disegna2(); };
+  qa.onclick = e => {
+    e.stopPropagation();
+    box.querySelector('.q-scelte')?.remove();
+    const m = document.createElement('div'); m.className = 'q-scelte';
+    m.innerHTML = [45, 90, 120, 135].map(a => `<button class="${a === S2.ang ? 'on' : ''}">${a}°</button>`).join('');
+    m.style.left = qa.style.left; m.style.top = (parseFloat(qa.style.top) + 18) + 'px';
+    box.appendChild(m);
+    m.querySelectorAll('button').forEach(b => { b.onmouseenter = () => {}; b.onclick = () => { S2.ang = parseInt(b.textContent); disegna2(); }; });
+  };
+  dice(box, `Piega ${S2.su ? 'in su' : 'in giù'} di ${S2.ang}° ${S2.altra ? 'la parte grande (210 mm)' : 'la parte piccola (90 mm)'}`,
+    'Lo sviluppo resta quello disegnato · la linea tratteggiata è lo spigolo esterno');
+}
+disegna2();
+
+// ------------------------------------------------------------ 3. rosso
+const CASI3 = {
+  corta: () => {
+    const box = document.getElementById('v3'), v = vista(document.getElementById('s3'), 1.55, 470, 90), t = 4;
+    v.lastra(0, 300, 0, 140, 0, t, ACC);
+    v.piegata(300, 0, 0, 140, 3, t, 90, ROS, ROS_O);
+    v.fine();
+    const [px, py] = v.P([300, 70, 30]);
+    quota(box, px + 40, py, '3 <span class="u">mm</span>');
+    const d = dice(box, 'Così corta non si piega', 'Con raggio 4 e spessore 4 la piega dev’essere alta almeno 8,4 mm', { no: true, sol: ['Falla di 9 mm', 'Togli la piega'] });
+    d.querySelector('[data-i="0"]').onclick = () => { box.querySelectorAll('.quota, .dice').forEach(e => e.remove());
+      const v2 = vista(document.getElementById('s3'), 1.55, 470, 90); v2.lastra(0, 300, 0, 140, 0, t, ACC); v2.piegata(300, 0, 0, 140, 9, t, 90, BLU, BLU_O); v2.fine();
+      quota(box, px + 40, py - 10, '9 <span class="u">mm</span>'); dice(box, 'Piega in su di 90°, alta 9 mm', 'Sistemato: ora si può fare'); };
+  },
+  tocca: () => {
+    const box = document.getElementById('v3'), v = vista(document.getElementById('s3'), 1.55, 470, 90), t = 4;
+    v.lastra(0, 300, 0, 140, 0, t, ACC);
+    v.piegata(300, 0, 0, 140, 60, t, 90, ACC);                       // la parete che c'è già
+    // la linguetta lunga 70 dal taglio a x 200, in su verso la parete: la tocca
+    v.lastra(170, 280, 40, 100, 0, t + 0.3, ['rgba(20,24,28,.95)', 'rgba(20,24,28,.95)', 'rgba(20,24,28,.95)'], { st: 'rgba(0,0,0,0)' });
+    v.piegata(280, 0, 40, 100, 110, t, 40, ROS, ROS_O);           // girata di 140° attorno alla radice: passa nella parete
+    v.fine();
+    const [px, py] = v.P([300, 70, 60]);
+    const e = document.createElement('div'); e.className = 'etich'; e.style.left = (px - 40) + 'px'; e.style.top = (py - 34) + 'px';
+    e.textContent = 'tocca qui la parete'; box.appendChild(e);
+    dice(box, 'La linguetta sbatte contro la parete', 'Piegata a 140° in su passa 54 mm dentro la parete', { no: true, sol: ['Piegala in giù', 'Angolo 30°'] });
+  },
+  foro: () => {
+    const box = document.getElementById('v3'), v = vista(document.getElementById('s3'), 1.55, 470, 90), t = 4;
+    v.lastra(0, 300, 0, 140, 0, t, ACC);
+    v.piegata(300, 0, 0, 140, 60, t, 90, ACC);
+    v.fine();
+    const s = document.getElementById('s3');
+    const [cx, cy] = v.P([292, 70, t]);
+    s.insertAdjacentHTML('beforeend', `<ellipse cx="${cx}" cy="${cy}" rx="15" ry="8.6" fill="rgba(229,72,77,.8)" stroke="#FF9B9E" stroke-width="2"/>`);
+    const [ax, ay] = v.P([300, 0, t]), [bx, by] = v.P([300, 140, t]);
+    s.insertAdjacentHTML('beforeend', `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#FF9B9E" stroke-width="3" stroke-dasharray="5 4"/>`);
+    dice(box, 'Il foro è troppo vicino alla piega', 'A 3 mm dalla piega si deforma: servono almeno 10 mm (2,5 × spessore)', { no: true, sol: ['Spostalo a 10 mm', 'Fallo dopo la piega'] });
+  },
+};
+function disegna3(k) { document.getElementById('v3').querySelectorAll('.quota, .dice, .etich').forEach(e => e.remove()); CASI3[k](); }
+document.querySelectorAll('#sc3 button').forEach(b => b.onclick = () => { document.querySelectorAll('#sc3 button').forEach(x => x.classList.toggle('on', x === b)); disegna3(b.dataset.k); });
+disegna3('corta');
+
+// ------------------------------------------------------------ 4. galleria
+const GAL = [
+  ['Foro', 'Foro Ø10 passante', 'Si toglie dal pezzo · il cerchio arancio è dove taglia il laser', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.fine(); return s => { const [x, y] = v.P([100, 60, 4]); s.insertAdjacentHTML('beforeend', `<ellipse cx="${x}" cy="${y}" rx="17" ry="9.8" fill="rgba(232,131,58,.6)" stroke="#FFB27A" stroke-width="2"/><line x1="${x}" y1="${y - 40}" x2="${x}" y2="${y + 40}" stroke="#FFB27A" stroke-dasharray="6 3 2 3"/>`); }; }],
+  ['Svasa / filetta', 'Svasato M6 a 90° su 4 fori', 'Le teste delle viti vanno a filo · gli altri 3 uguali si accendono', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.fine(); return s => { for (const [x0, y0] of [[40, 30], [160, 30], [40, 90], [160, 90]]) { const [x, y] = v.P([x0, y0, 4]); s.insertAdjacentHTML('beforeend', `<ellipse cx="${x}" cy="${y}" rx="13" ry="7.5" fill="rgba(232,131,58,.45)" stroke="#FFB27A" stroke-width="1.5"/><ellipse cx="${x}" cy="${y}" rx="7" ry="4" fill="rgba(232,131,58,.8)"/>`); } }; }],
+  ['Taglio', 'Asola 40 × 10', 'Si toglie dal pezzo, attraverso la piega se la tocca', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.lastra(70, 130, 55, 65, 0, 4.2, ARA, { st: '#FFB27A' }); v.fine(); }],
+  ['Piega su un bordo', 'Piega in su di 90°, alta 30', 'Si aggiunge oltre il bordo · ⇅ per girarla', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.piegata(200, 0, 0, 120, 30, 4, 90, BLU, BLU_O); v.fine(); }],
+  ['Linguetta', 'Linguetta 30 × 20 sul bordo', 'Materiale in più, stesso spessore', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.lastra(200, 230, 50, 70, 0, 4, BLU, BLU_O); v.fine(); }],
+  ['Linguetta piegata', 'Piega la linguetta del taglio a U', 'Il resto della lamiera resta fermo', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.lastra(70, 130, 35, 85, 0, 4, ['rgba(20,24,28,.9)', 'rgba(20,24,28,.9)', 'rgba(20,24,28,.9)']); v.piegata(130, 0, 35, 85, 50, 4, 150, BLU, BLU_O); v.fine(); }],
+  ['Raccordo spigolo', 'Raccordo R10 sui 4 spigoli', 'Si toglie l’angolo vivo, nello sviluppo e nel pezzo', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.fine(); return s => { for (const [x0, y0] of [[0, 0], [200, 0], [0, 120], [200, 120]]) { const [x, y] = v.P([x0, y0, 4]); s.insertAdjacentHTML('beforeend', `<circle cx="${x}" cy="${y}" r="9" fill="rgba(232,131,58,.6)" stroke="#FFB27A" stroke-width="1.5"/>`); } }; }],
+  ['Saldatura', 'Saldatura su 2 spigoli, cordone 3', 'Nel 3D e nelle tavole · non cambia lo sviluppo', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.piegata(200, 0, 0, 120, 60, 4, 90, ACC); v.fine(); return s => { const [a, b] = [v.P([200, 0, 4]), v.P([200, 120, 4])]; s.insertAdjacentHTML('beforeend', `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#5AA9FF" stroke-width="7" stroke-linecap="round" opacity=".85"/>`); }; }],
+  ['Chiudi angoli', 'Chiude l’angolo tra le due pieghe', 'Gioco 0,2 mm · si piegano senza toccarsi', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.piegata(200, 0, 0, 120, 50, 4, 90, ACC); v.fine(); return s => { const [a, b, c] = [v.P([200, 120, 4]), v.P([200, 120, 54]), v.P([150, 120, 4])]; s.insertAdjacentHTML('beforeend', `<polygon points="${a} ${b} ${c}" fill="rgba(95,168,245,.8)" stroke="#9CCBFF"/>`); }; }],
+  ['Persiane, bugne', 'Persiana 60 × 8, in su', 'Si stampa sulla lamiera · nel DXF il segno per il punzone', false, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); for (let i = 0; i < 4; i++) v.piegata(60 + i * 22, 4, 40, 80, 9, 2, 160, BLU, BLU_O); v.fine(); }],
+  ['Piega su linea', 'Non si può: la linea non arriva ai bordi', 'Allungala fino ai bordi, o fino al taglio della linguetta', true, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.fine(); return s => { const [a, b] = [v.P([140, 30, 4]), v.P([140, 90, 4])]; s.insertAdjacentHTML('beforeend', `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#E5484D" stroke-width="4"/><circle cx="${a[0]}" cy="${a[1]}" r="6" fill="#E5484D"/><circle cx="${b[0]}" cy="${b[1]}" r="6" fill="#E5484D"/>`); }; }],
+  ['Piega su un bordo', 'Non si può: tocca l’altra piega', 'Accorciala di 4 mm o lascia il gioco agli angoli', true, v => {
+    v.lastra(0, 200, 0, 120, 0, 4, ACC); v.piegata(200, 0, 0, 120, 50, 4, 90, ACC); v.lastra(0, 200, 120, 124, 0, 50, ROS, ROS_O); v.fine(); }],
+];
+const gal = document.getElementById('gal');
+for (const [cmd, tit, sotto, no, fa] of GAL) {
+  const c = document.createElement('div'); c.className = 'cella' + (no ? ' no' : '');
+  c.innerHTML = `<div class="v"><svg></svg><span class="cmd">${cmd}</span></div><div class="t"><span class="pallino"></span><div><b>${tit}</b><span>${sotto}</span></div></div>`;
+  gal.appendChild(c);
+  const svg = c.querySelector('svg');
+  requestAnimationFrame(() => {
+    const w = svg.clientWidth || 380;
+    const v = vista(svg, 0.92, w / 2 - 22, 40);
+    const dopo = fa(v);
+    if (dopo) dopo(svg);
+  });
+}
+</script>
+</body>
+</html>

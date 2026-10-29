@@ -2785,8 +2785,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             sk = self.doc.sketch(sid)
         except SteelCADError:
             return _ok(state=self.state())
-        vuoto = not any(e['kind'] in ('line', 'circle', 'arc') and not e.get('ref') for e in sk.entities.values())
-        usato = any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features)
+        vuoto = not any(e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref') for e in sk.entities.values())
+        usato = any(not isinstance(f, Sketch) and (f.get('sketch') == sid or sid in self.doc._sketch_refs(f))
+                    for f in self.doc.features)
         ultimo = self.history.labels()['undo'][:1]
         if isinstance(sk.plane, dict) and vuoto and not usato and ultimo and ultimo[0] in ('Sketch su faccia',
                                                                                            'Sketch sullo sviluppo',
@@ -2794,6 +2795,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             self.history.undo()
             self.history.undone.pop()
             self._rebuild()
+        elif isinstance(sk.plane, dict) and vuoto and not usato:
+            # 29/10: anche uno sketch rimasto vuoto dopo averci lavorato (cancellato tutto) non resta nell'albero;
+            # con Annulla torna
+            def fn():
+                self.doc.features = [f for f in self.doc.features if f is not sk]
+            return self._change('Tolto lo sketch vuoto', fn)
         return _ok(state=self.state())
 
     def sketch_on_flat(self, fid: str | None = None) -> dict:
@@ -4318,7 +4325,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
     ANTEPRIMA_OK = {'fai_tubi', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
-                    'edit_flange'}
+                    'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
+                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter'}
 
     def anteprima(self, metodo: str, args: list) -> dict:
         """L'anteprima di un comando (22/10, «ci deve essere SEMPRE una preview»): lo stesso comando provato su una
@@ -4333,17 +4341,96 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         prova.doc = Document.from_dict(_copy.deepcopy(self.doc.to_dict()))
         prova.doc._cache = self.doc._cache                      # i pezzi già fatti: la prova rifà solo il nuovo
         prova.doc._cache_vecchie = list(getattr(self.doc, '_cache_vecchie', []))
+        prova.doc._sketch_results = dict(getattr(self.doc, '_sketch_results', None) or {})   # i contorni già risolti
         prova.history = History(prova.doc)
         prova._mesh_tenute = []
         try:
             r = getattr(prova, metodo)(*(args or []))
         except Exception as ex:  # noqa: BLE001
-            return _err(ex)
+            return {**_err(ex), 'vero': True, 'fantasma': self._fantasma(metodo, args)}
+        if prova.doc._cache is not self.doc._cache:
+            self.doc.ricorda_anteprima(prova.doc._cache)
         if not r.get('ok'):
-            return {'ok': False, 'message': r.get('message') or 'Così non si può fare.'}
+            # 29/10, «al massimo la preview è rossa che non si può fare»: quello che hai chiesto, in rosso, e perché
+            return {'ok': False, 'message': r.get('message') or 'Così non si può fare.', 'vero': True, 'code': r.get('code'),
+                    'fantasma': self._fantasma(metodo, args), 'soluzioni': r.get('soluzioni') or []}
         oggetti = [{'positions': o['positions'], 'indices': o['indices'], 'edges': o['edges']}
                    for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member')]
-        return {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}
+        out = {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}
+        # 29/10: cosa succede, in parole semplici; e quello che si toglie (in arancio sopra il pezzo)
+        try:
+            out['frase'] = self._frase(metodo, args, prova)
+            if metodo == 'create_from_sketch' and len(args) > 1 and args[1] == 'cut':
+                out['togli'] = self._fantasma(metodo, args)
+        except Exception:  # noqa: BLE001 - solo un aiuto
+            pass
+        return out
+
+    def _frase(self, metodo: str, args: list, prova) -> str:
+        """La frase dell'anteprima: «Toglie dal pezzo: asola 40 × 10», «Scrive col laser «PP-001»»."""
+        from cad_engine.tree import _cosa_taglia, _punti
+        if metodo == 'create_from_sketch' and args:
+            sk = self.doc.sketch(args[0])
+            kind = args[1] if len(args) > 1 else ''
+            if kind == 'cut':
+                cosa = _cosa_taglia(sk, '', _punti(self.doc, sk)).replace(' (sullo sviluppo)', '')
+                return f'Toglie dal pezzo: {cosa[0].lower() + cosa[1:]}'
+            if kind == 'mark':
+                testi = [e['text'] for e in sk.entities.values() if e['kind'] == 'text']
+                return 'Scrive col laser ' + (', '.join(f'«{t}»' for t in testi[:2]) or 'quello che hai disegnato')
+        if metodo == 'sheet_tab':
+            return 'Aggiunge materiale nel piano della faccia (linguetta)'
+        if metodo in ('togli_dal_taglio', 'togli_fori_da_taglio'):
+            n = len(args[1]) if len(args) > 1 and isinstance(args[1], list) else 1
+            return 'Chiude il foro: la lamiera torna piena' if n == 1 else f'Chiude {n} fori: la lamiera torna piena'
+        if metodo == 'add_end_miter':
+            return 'Taglia la testa del profilo in obliquo'
+        if metodo == 'contour_flange':
+            return 'Piega la lamiera lungo il contorno disegnato'
+        return ''
+
+    def _fantasma(self, metodo: str, args: list):
+        """Quello che il comando voleva fare, anche se non si può: per gli sketch, i contorni disegnati (pieni, spessi
+        quanto la lamiera) e le linee (una striscia sottile). L'interfaccia lo mostra in rosso. None se non c'è."""
+        if metodo not in ('create_from_sketch', 'sheet_fold') or not args:
+            return None
+        try:
+            import build123d as bd
+
+            from cad_engine.mesh import tessellate
+            sid = args[0]
+            sk = self.doc.sketch(sid)
+            ss = self.doc.solved_sketch(sid)
+            fatto = self.doc._sketch_results.get(sid)
+            prof = fatto[1] if fatto else None
+            pl = prof.plane if prof is not None else self.doc._plane(sk, self.result.body)
+            data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+            t = data.thickness if data is not None else 2.0
+            n = pl.z_dir
+            pezzi = []
+            facce = list(prof.faces) if prof is not None and metodo != 'sheet_fold' else []
+            for f in facce:
+                pezzi.append(bd.extrude(f.moved(bd.Location(tuple(n * 0.15))), amount=t + 0.3, dir=tuple(-n)))
+            if not facce:
+                w = max(1.5, 1.2 * t)
+                for eid, (a, b) in ss.lines.items():
+                    e = sk.entities[eid]
+                    if e.get('construction') or e.get('ref'):
+                        continue
+                    A, B = pl.from_local_coords(ss.points[a]), pl.from_local_coords(ss.points[b])
+                    if (B - A).length < 1e-6:
+                        continue
+                    u = (B - A).normalized()
+                    v = n.cross(u) * (w / 2)
+                    rett = bd.Face(bd.Wire.make_polygon([A - v, B - v, B + v, A + v], close=True))
+                    pezzi.append(bd.extrude(rett.moved(bd.Location(tuple(n * 0.15))), amount=t + 0.3, dir=tuple(-n)))
+            if not pezzi:
+                return None
+            tutto = pezzi[0] if len(pezzi) == 1 else bd.Compound(children=pezzi)
+            m = tessellate(tutto.wrapped)
+            return [{'positions': m['positions'], 'indices': m['indices'], 'edges': m['edges']}]
+        except Exception:  # noqa: BLE001 - il fantasma è un aiuto: se non viene, resta il messaggio
+            return None
 
     def save_thumbnail(self, path: str, data_url: str) -> dict:
         """L'anteprima del lavoro (la vista 3D, presa dall'interfaccia quando apri o salvi) per la pagina iniziale.

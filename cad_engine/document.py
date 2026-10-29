@@ -25,7 +25,22 @@ from .sketch.model import DIMENSIONS
 from .topology import NamedShape
 
 FORMAT_VERSION = 1
-PREFIX = {'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'solido_step': 'IP', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB', 'sheet_tab_fold': 'LP', 'sheet_miter': 'TT', 'tube_cut': 'LT'}
+# 29/10: i pezzi già costruiti, per tutto il programma (l'impronta dice tutto quello da cui dipendono): riaprire un
+# progetto, o tornare dal pezzo all'assieme, non rifà quello che è già stato fatto. I più vecchi escono per primi
+from collections import OrderedDict
+_CACHE_GLOBALE: OrderedDict = OrderedDict()
+_GLOBALE_MAX = 600
+
+
+def _ricorda_globale(cache: dict) -> None:
+    for h, v in cache.items():
+        _CACHE_GLOBALE[h] = v
+        _CACHE_GLOBALE.move_to_end(h)
+    while len(_CACHE_GLOBALE) > _GLOBALE_MAX:
+        _CACHE_GLOBALE.popitem(last=False)
+
+
+PREFIX ={'sketch': 'S', 'extrude': 'E', 'revolve': 'RV', 'step_lamiera': 'IM', 'solido_step': 'IP', 'hole': 'H', 'fillet': 'F', 'chamfer': 'CH', 'structure': 'ST', 'sheet': 'SM', 'sheet_shape': 'FM', 'sheet_cut': 'TG', 'sheet_form': 'FM', 'sheet_edge_flange': 'PB', 'sheet_tab_fold': 'LP', 'sheet_miter': 'TT', 'tube_cut': 'LT'}
 NOMI = {'sketch': 'Sketch', 'extrude': 'Estrusione', 'revolve': 'Rivoluzione', 'step_lamiera': 'Lamiera da STEP', 'solido_step': 'Pezzo importato', 'hole': 'Foro', 'fillet': 'Raccordo', 'chamfer': 'Smusso',
         'structure': 'Struttura', 'sheet': 'Lamiera', 'sheet_shape': 'Forma', 'sheet_cut': 'Taglio', 'sheet_form': 'Forma', 'sheet_edge_flange': 'Piega su un bordo', 'sheet_tab_fold': 'Linguetta piegata', 'sheet_miter': 'Taglio di testa', 'tube_cut': 'Lavorazione tubo'}
 
@@ -179,11 +194,20 @@ class Document:
     def _dalla_cache(self, h: str):
         r = self._cache.get(h)
         if r is None:
-            for vecchia in getattr(self, '_cache_vecchie', ()):
+            for vecchia in (*getattr(self, '_cache_vecchie', ()), *getattr(self, '_cache_anteprime', ())):
                 r = vecchia.get(h)
                 if r is not None:
                     break
+        if r is None:
+            r = _CACHE_GLOBALE.get(h)                      # un altro progetto aperto prima, lo stesso pezzo
+            if r is not None:
+                _CACHE_GLOBALE.move_to_end(h)
         return r
+
+    def ricorda_anteprima(self, cache: dict) -> None:
+        """29/10: i pezzi calcolati da un'anteprima restano: confermando la stessa cosa non si rifanno (la piega
+        sulla cassa: 3,6 s di anteprima, poi altri 3,6 s alla conferma)."""
+        self._cache_anteprime = ([cache] + list(getattr(self, '_cache_anteprime', [])))[:3]
 
     def rebuild(self) -> RebuildResult:
         t0 = time.perf_counter()
@@ -349,6 +373,7 @@ class Document:
         # (con 400 fori Annulla era 3,6 secondi, 22/10)
         self._cache_vecchie = ([self._cache] + getattr(self, '_cache_vecchie', []))[:self.VERSIONI_TENUTE]
         self._cache = nuova_cache
+        _ricorda_globale(nuova_cache)
         res.body = body
         res.seconds = time.perf_counter() - t0
         self.last = res

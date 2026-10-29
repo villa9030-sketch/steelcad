@@ -46,10 +46,21 @@ def label(fdef: dict) -> str:
     return f'{base} "{fdef["name"]}"' if fdef.get('name') else f'{base} {fdef["id"]}'
 
 
+_VOLUMI: dict = {}       # 29/10: la stessa forma misurata più volte (prima e dopo ogni taglio della catena)
+
+
 def volume(shape) -> float:
+    k = hash(shape)
+    gia = _VOLUMI.get(k)
+    if gia is not None and gia[0].IsSame(shape):
+        return gia[1]
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape, props)
-    return props.Mass()
+    v = props.Mass()
+    if len(_VOLUMI) > 400:
+        _VOLUMI.clear()
+    _VOLUMI[k] = (shape, v)
+    return v
 
 
 def n_solids(shape) -> int:

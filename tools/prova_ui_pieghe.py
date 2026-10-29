@@ -188,6 +188,7 @@ def main():
             pg.screenshot(path=str(SHOTS / '3b_offset_dal_bordo.png'))
             v0 = pg.evaluate('window.__steelcad.state.info.part.volume_mm3')
             pg.click('[data-make="cut"]')
+            pg.wait_for_selector('#pr-ok:not([disabled])', timeout=20000); pg.click('#pr-ok')   # 29/10: prima la prova sul pezzo
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             ok(f'finestra tagliata nella parete FL3 ({v0 - st["info"]["part"]["volume_mm3"]:.0f} mm³)',
@@ -242,6 +243,7 @@ def main():
             pg.screenshot(path=str(SHOTS / '5_disegno_sviluppo.png'))
             v0 = pg.evaluate('window.__steelcad.state.info.part.volume_mm3')
             pg.click('[data-make="cut"]')
+            pg.wait_for_selector('#pr-ok:not([disabled])', timeout=20000); pg.click('#pr-ok')   # 29/10: prima la prova sul pezzo
             try:
                 pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             except Exception:

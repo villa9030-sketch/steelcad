@@ -27,7 +27,7 @@ def test_marcatura_nel_dxf_anche_sulla_flangia(tmp_path):
     assert s.sketch_add_text(sk, [20, 40], 'PP-001 Ø10', 8)['ok']
     r = s.create_from_sketch(sk, 'mark', {})
     assert r['ok'], r.get('message')
-    assert 'Marcatura laser: «PP-001 Ø10»' in str(s.state()['tree'])
+    assert 'Scritta «PP-001 Ø10»' in str(s.state()['tree'])
     sk2 = s.sketch_on_face('SM1/FL1/interno')['sketch']
     assert s.sketch_add_text(sk2, [10, 8], 'LATO A', 6)['ok']
     assert s.create_from_sketch(sk2, 'mark', {})['ok']

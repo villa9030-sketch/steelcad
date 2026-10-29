@@ -1,4 +1,4 @@
-﻿"""Linguetta tagliata e piegata (29/10, Stefano: «ho fatto questo taglio a U nella lamiera, poi ho disegnato la linea
+"""Linguetta tagliata e piegata (29/10, Stefano: «ho fatto questo taglio a U nella lamiera, poi ho disegnato la linea
 dove piegare per creare una specie di maniglia ma non lo posso fare»).
 
 La linea di piega non attraversa tutta la lamiera: le sue punte toccano un taglio (a U, a C…) e la parte chiusa tra

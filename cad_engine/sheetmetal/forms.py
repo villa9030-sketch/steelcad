@@ -115,9 +115,11 @@ def build_form(fdef: dict, ctx):
     flat = data.flat
     if lance:
         piani = _face_planes(parti, data, fid)
+        nello_sviluppo = []
         for f in lance:
             src, dst, _, _ = _pick_flange(f, piani, parti, data)
-            flat = flat.cut(_orienta(f.moved(dst.location * src.location.inverse()), data.plane))
+            nello_sviluppo.append(_orienta(f.moved(dst.location * src.location.inverse()), data.plane))
+        flat = flat.cut(*nello_sviluppo)                  # 29/10: tutte le lance in un taglio solo (erano una alla volta)
         flat = flat.clean() if hasattr(flat, 'clean') else flat
         facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
         if len(facce) != 1:
@@ -128,9 +130,25 @@ def build_form(fdef: dict, ctx):
     return ns
 
 
+_CAPPE: dict = {}      # 29/10: (L, w, h, t) → la cappa costruita una volta, nell'origine; le altre sono copie spostate
+_BUGNE: dict = {}
+
+
 def _cappa(A, u, lato, fuori, L, w, h, t):
     """La cappa della persiana: una lamiera che parte dal bordo lontano (a filo della faccia) e sale fino a h sul
-    bordo aperto, con le due fiancate triangolari stirate."""
+    bordo aperto, con le due fiancate triangolari stirate. Le persiane uguali sono la stessa cappa spostata: costruirla
+    ogni volta costava 0,65 s sulla cassa del quadro (24 persiane)."""
+    k = tuple(round(x, 9) for x in (L, w, h, t))
+    base = _CAPPE.get(k)
+    if base is None:
+        if len(_CAPPE) > 200:
+            _CAPPE.clear()
+        base = _CAPPE[k] = _cappa_nell_origine(L, w, h, t)
+    return base.moved(bd.Location(bd.Plane(origin=A, x_dir=u, z_dir=fuori)))
+
+
+def _cappa_nell_origine(L, w, h, t):
+    A, u, lato, fuori = bd.Vector(0, 0, 0), bd.Vector(1, 0, 0), bd.Vector(0, 1, 0), bd.Vector(0, 0, 1)
     P = lambda s, z: A + lato * s + fuori * z  # noqa: E731
     sez = bd.Face(bd.Wire.make_polygon([P(w, 0), P(0, h), P(0, h - t), P(w, -t)], close=True))
     cappa = bd.extrude(sez, amount=L, dir=tuple(u))
@@ -141,7 +159,18 @@ def _cappa(A, u, lato, fuori, L, w, h, t):
 
 
 def _bugna(C, fuori, r, h, t):
-    """L'imbutitura: una calotta sferica spessa t che sporge di h, raccordata al foro di diametro 2r."""
+    """L'imbutitura: una calotta sferica spessa t che sporge di h, raccordata al foro di diametro 2r. Come le cappe:
+    una per misura, le altre spostate."""
+    k = tuple(round(x, 9) for x in (r, h, t))
+    base = _BUGNE.get(k)
+    if base is None:
+        if len(_BUGNE) > 200:
+            _BUGNE.clear()
+        base = _BUGNE[k] = _bugna_nell_origine(bd.Vector(0, 0, 0), bd.Vector(0, 0, 1), r, h, t)
+    return base.moved(bd.Location(bd.Plane(origin=C, z_dir=fuori)))
+
+
+def _bugna_nell_origine(C, fuori, r, h, t):
     Rs = (r * r + h * h) / (2 * h)
     centro = C - fuori * (Rs - h)
     guscio = bd.Solid.make_sphere(Rs).moved(bd.Location(centro)) - bd.Solid.make_sphere(Rs - t).moved(bd.Location(centro))

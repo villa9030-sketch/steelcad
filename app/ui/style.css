@@ -1367,3 +1367,29 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 .q-anello.scelto { border: 3px solid #FFB000; width: 30px; height: 30px; }
 .scheda-foro .sf-nota { padding: 0 12px 8px; font-size: 12px; color: var(--ink-3); }
 .scheda-foro .sf-tipi button:disabled { opacity: .35; cursor: not-allowed; background: none; }
+
+/* 29/10: l'albero pulito, la freccina che apre il disegno di una lavorazione */
+#tree .freccia { flex: none; margin-left: auto; width: 22px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none;
+  color: var(--ink-3); font-size: 11px; line-height: 1; cursor: pointer; }
+#tree .freccia:hover { color: var(--ink); background: var(--row); }
+#tree .node.group[data-ref="non_usati"] { opacity: .6; }#tree .node .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 29/10: la prova sul pezzo, la frase di cosa succede sempre in basso al centro */
+#prova-barra { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 45; display: flex; align-items: center; gap: 14px;
+  max-width: calc(100vw - 40px); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px 9px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+#prova-barra .pallino { flex: none; width: 12px; height: 12px; border-radius: 50%; background: #5AA9FF; box-shadow: 0 0 0 4px rgba(90, 169, 255, .22); }
+#prova-barra.no .pallino { background: #E5484D; box-shadow: 0 0 0 4px rgba(229, 72, 77, .25); }
+#prova-barra.calcolo .pallino { animation: provaPulsa .8s ease-in-out infinite alternate; }
+@keyframes provaPulsa { to { opacity: .35; } }
+#prova-barra .frase { min-width: 0; }
+#prova-barra .frase b { display: block; font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#prova-barra .frase small { display: block; font-size: 12px; color: var(--ink-3); max-width: 560px; }
+#prova-barra.no .frase small { color: #C9383D; }
+#prova-barra .sep { flex: none; width: 1px; height: 28px; background: var(--line); }
+#prova-barra .tasti { flex: none; display: flex; gap: 6px; }
+#prova-barra kbd { font: 600 10.5px "Segoe UI", sans-serif; padding: 0 5px; border-radius: 4px; border: 1px solid rgba(0, 0, 0, .2); margin-left: 4px; opacity: .8; }
+body.in-prova #sk-foot { display: none !important; }
+#prova-barra .btn:disabled { opacity: .38; cursor: not-allowed; filter: grayscale(.6); }
+.ant-stato .ant-sol { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+#props .btn:disabled, #modal-box .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }

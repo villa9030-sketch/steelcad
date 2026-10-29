@@ -1290,6 +1290,7 @@ class AssemblyMixin:
                 'thickness_mm': None if r.get('acquisto') else r['thickness'], 'acquisto': bool(r.get('acquisto')),
                 'kg_each': r['mass_kg'], 'kg_total': r['mass_tot'], 'file': r['file']} for k, r in enumerate(righe)]
         totale = sum(r['kg_total'] for r in bom)
+        nome_pezzo = {r['file']: r['name'] for r in righe}         # il gruppo delle copie nell'albero si chiama come il pezzo
         avvisi = list(getattr(asm, 'warnings', []) or [])
         for f, p in self.asm_parts.items():
             avvisi += [f'{Path(f).stem}: {e}' for e in p.errors]
@@ -1311,7 +1312,8 @@ class AssemblyMixin:
                 'info': {'rebuild_ms': round(getattr(self, 'asm_ms', 0), 1), 'rebuilt': len(self.asm_parts), 'cached': 0,
                          'material': '—'},
                 'scene_version': self.scene_version, 'dimensions': [], 'sheet': None,
-                'instances': [{'id': i['id'], 'name': i['name'], 'file': i['file'], 'fixed': bool(i.get('fixed'))} for i in asm.instances],
+                'instances': [{'id': i['id'], 'name': i['name'], 'file': i['file'], 'fixed': bool(i.get('fixed')),
+                               'pezzo': nome_pezzo.get(i['file'])} for i in asm.instances],
                 'mate_types': A.MATE_TYPES, 'can_back': False}
 
     # ------------------------------------------------------------ saldature nell'assieme (28/10)

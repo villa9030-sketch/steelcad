@@ -41,6 +41,14 @@ def _cartella_programma(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _memoria_pulita():
+    """Ogni test costruisce da zero: la memoria dei pezzi già fatti (comune a tutto il programma) si svuota."""
+    from cad_engine import document
+    document._CACHE_GLOBALE.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _regole_isolate(tmp_path, monkeypatch):
     """I test non leggono né scrivono le regole di lamiera (e il predefinito) dell'utente nei Documenti."""
     monkeypatch.setenv('STEELCAD_RULES', str(tmp_path / 'regole_lamiera.json'))

@@ -19,8 +19,55 @@ from .sketch import Sketch
 from .units import fmt_mm
 
 
-def _n(label, kind, ref=None, children=None, status=None):
-    return {'label': label, 'kind': kind, 'ref': ref, 'children': children or [], 'status': status}
+def _n(label, kind, ref=None, children=None, status=None, **extra):
+    return {'label': label, 'kind': kind, 'ref': ref, 'children': children or [], 'status': status, **extra}
+
+
+def _punti(doc, sk) -> dict:
+    """I punti dello sketch dove stanno davvero (risolti), o quelli scritti se lo sketch non è risolto."""
+    try:
+        return {k: tuple(v) for k, v in doc.solved_sketch(sk.id).points.items()}
+    except Exception:  # noqa: BLE001 - per un nome: mai fermare l'albero
+        return {k: (e['x'], e['y']) for k, e in sk.entities.items() if e['kind'] == 'point'}
+
+
+def _misura(pts) -> str:
+    """«156 × 15»: l'ingombro di un gruppo di punti."""
+    if not pts:
+        return ''
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    a, b = sorted((max(xs) - min(xs), max(ys) - min(ys)), reverse=True)
+    return f'{fmt_mm(round(a, 1))} × {fmt_mm(round(b, 1))}' if b > 1e-6 else ''
+
+
+def _cosa_disegnato(doc, sk) -> str:
+    """Il nome di uno sketch senza lavorazione da quello che c'è dentro: «Linea 154», «2 linee, cerchio Ø10»."""
+    import math
+    pts = _punti(doc, sk)
+    linee = [e for e in sk.entities.values() if e['kind'] == 'line' and not e.get('ref') and not e.get('construction')]
+    cerchi = [e for e in sk.entities.values() if e['kind'] == 'circle' and not e.get('ref') and not e.get('construction')]
+    archi = [e for e in sk.entities.values() if e['kind'] == 'arc' and not e.get('ref') and not e.get('construction')]
+    testi = [e for e in sk.entities.values() if e['kind'] == 'text']
+    parti = []
+    if len(linee) == 1 and linee[0]['a'] in pts and linee[0]['b'] in pts:
+        (ax, ay), (bx, by) = pts[linee[0]['a']], pts[linee[0]['b']]
+        parti.append(f'Linea {fmt_mm(round(math.hypot(bx - ax, by - ay), 1))}')
+    elif linee:
+        parti.append(f'{len(linee)} linee')
+    if len(cerchi) == 1:
+        parti.append(f'cerchio Ø{fmt_mm(round(2 * cerchi[0]["r"], 2))}')
+    elif cerchi:
+        parti.append(f'{len(cerchi)} cerchi')
+    if archi:
+        parti.append('1 arco' if len(archi) == 1 else f'{len(archi)} archi')
+    if testi:
+        parti.append(f'testo «{testi[0].get("text", "")}»')
+    t = ', '.join(parti) or 'vuoto'
+    return t[0].upper() + t[1:]
+
+
+def _vuoto(sk) -> bool:
+    return not any(e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref') for e in sk.entities.values())
 
 
 def _feature_label(doc, f, fr) -> str:
@@ -62,9 +109,9 @@ def _feature_label(doc, f, fr) -> str:
             return (f'{nome or "Taglio di testa"} a {f.get("angle", 45)}° {teste}'
                     + (f', gioco {gioco}' if gioco not in (None, '', 0, 0.0) else ''))
         if t == 'sheet_tab_fold':
-            altre = ''.join(f', poi {x.get("angle", 90)}° {"in giù" if x.get("direction") == "down" else "in su"}'
+            altre = ''.join(f', poi {x.get("angle", 90)}° {"giù" if x.get("direction") == "down" else "su"}'
                             for x in f.get('altre') or [])
-            return f'{nome or "Linguetta piegata"} a {f.get("angle", 90)}° {"in giù" if f.get("direction") == "down" else "in su"}{altre}'
+            return f'{nome or "Linguetta piegata"} {f.get("angle", 90)}° {"giù" if f.get("direction") == "down" else "su"}{altre}'
         if t == 'sheet_edge_flange':
             a = f.get('angle', 90)
             ang = '' if a in (None, '', 90, 90.0) else f' a {a}°'
@@ -96,9 +143,10 @@ def _feature_label(doc, f, fr) -> str:
                     testi = [e['text'] for e in doc.sketch(f['sketch']).entities.values() if e['kind'] == 'text']
                 except Exception:  # noqa: BLE001
                     testi = []
-                return f'{nome or "Marcatura"} laser: ' + (', '.join(f'«{t}»' for t in testi[:3]) or 'testi') +                     (' …' if len(testi) > 3 else '')
+                return f'{nome if nome not in ("", "Marcatura") else "Scritta"} ' + (', '.join(f'«{t}»' for t in testi[:3]) or 'laser') + (' …' if len(testi) > 3 else '')
             try:
-                return _cosa_taglia(doc.sketch(f['sketch']), nome)
+                sk_t = doc.sketch(f['sketch'])
+                return _cosa_taglia(sk_t, nome, _punti(doc, sk_t))
             except (SteelCADError, KeyError):
                 return f'{nome or "Taglio"} attraverso la lamiera'
 
@@ -107,7 +155,7 @@ def _feature_label(doc, f, fr) -> str:
     return nome or f['id']
 
 
-def _cosa_taglia(sk, nome) -> str:
+def _cosa_taglia(sk, nome, coord=None) -> str:
     """Il nome di un taglio da quello che c'è nel disegno (28/10: tutti si chiamavano «Taglio attraverso la
     lamiera»): «Fori 3 × Ø10», «Fori 2 × M6, 2 × svasati Ø8», «Taglio sagomato», «Fori 4 × Ø8 e 2 tagli sagomati»."""
     fori = {}
@@ -137,9 +185,13 @@ def _cosa_taglia(sk, nome) -> str:
         for q in pts[1:]:
             padre[radice(q)] = radice(pts[0])
     gruppi: dict = {}
+    punti_g: dict = {}
     for e in segni:
-        g = gruppi.setdefault(radice(next(e[k] for k in ('a', 'start') if k in e)), [0, 0])
+        r = radice(next(e[k] for k in ('a', 'start') if k in e))
+        g = gruppi.setdefault(r, [0, 0])
         g[0 if e['kind'] == 'line' else 1] += 1
+        if coord:
+            punti_g.setdefault(r, []).extend(coord[q] for q in (e.get(k) for k in ('a', 'b', 'start', 'end')) if q in coord)
     tipi = {'asola': 0, 'rettangolo': 0, 'sagoma': 0}
     for linee, archi in gruppi.values():
         tipi['asola' if (linee, archi) == (2, 2) else 'rettangolo' if (linee, archi) == (4, 0) else 'sagoma'] += 1
@@ -152,8 +204,14 @@ def _cosa_taglia(sk, nome) -> str:
         n = tipi[k]
         if n:
             pezzi.append(uno if n == 1 else f'{n} {tanti}')
+    if len(pezzi) == 1 and not parti and len(punti_g) == 1:            # una cosa sola: con la sua misura (29/10)
+        m = _misura(next(iter(punti_g.values())))
+        if m:
+            pezzi[0] += f' {m}'
     testo = ' e '.join([', '.join(pezzi[:-1]), pezzi[-1]] if len(pezzi) > 1 else pezzi) if pezzi else ''
     testo = testo[0].upper() + testo[1:] if testo else 'Taglio attraverso la lamiera'
+    if nome and nome.startswith('Raccordo'):                          # «Raccordo spigolo R5»: dice già tutto
+        return nome
     if nome and nome not in ('Taglio', 'Fori', 'Asole', 'Finestre', 'Togli materiale'):
         testo = f'{nome}: {testo[0].lower() + testo[1:]}'          # un nome dato da te resta davanti
     if isinstance(sk.plane, dict) and sk.plane.get('flat'):
@@ -172,21 +230,37 @@ def project_tree(doc, result) -> dict:
             s = sorted(properties(result.body.shape, doc.material)['bbox_mm']['size'], reverse=True)
             label = f'{label} {"×".join(fmt_mm(round(v, 1)) for v in s)} {doc.material}'
         part = _n(label, 'part')
+        # 29/10, «l'albero pulito»: lo sketch di una lavorazione sta dentro di lei (la freccina lo apre); quelli
+        # sulle facce senza lavorazione vanno in fondo, in «Disegni non usati»; i vuoti si vedono solo mentre ci lavori
+        disegni: dict = {}
+        non_usati = []
         for f in doc.features:
             fid = Document_id(f)
             fr = stati.get(fid)
             if isinstance(f, Sketch):
-                if any(x.get('sketch') == fid for x in solid_feats) or (isinstance(f.plane, dict) and not f.plane.get('tube')):
-                    st = (fr.sketch_status or {}).get('state') if fr else None
-                    part['children'].append(_n(f'{f.name or "Sketch"}', 'sketch', fid,
-                                               status=None if fr and fr.ok else 'errore',
-                                               ))
-                    if st and st != 'completo':
-                        part['children'][-1]['status'] = 'errore' if not fr.ok else st
+                chi = [x for x in solid_feats if x.get('sketch') == fid]
+                if not chi and not (isinstance(f.plane, dict) and not f.plane.get('tube')):
+                    continue
+                st = (fr.sketch_status or {}).get('state') if fr else None
+                stato = None if fr and fr.ok else 'errore'
+                if st and st != 'completo':
+                    stato = 'errore' if not fr.ok else st
+                if chi and chi[0]['type'] == 'sheet':
+                    m = _misura(list(_punti(doc, f).values()))
+                    part['children'].append(_n(f'{f.name or "Base"}{" " + m if m and (f.name or "Base") == "Base" else ""}',
+                                               'sketch', fid, status=stato))
+                elif chi:
+                    disegni[fid] = _n('il suo disegno', 'sketch', fid, status=stato)
+                else:
+                    nome_sk = f.name if f.name and not f.name.startswith('Sketch') else _cosa_disegnato(doc, f)
+                    non_usati.append(_n(nome_sk, 'sketch', fid, status=stato, vuoto=_vuoto(f)))
                 continue
             if f in solid_feats:
                 part['children'].append(_n(f.get('etichetta') or _feature_label(doc, f, fr), f['type'], fid,
                                            status='disattivata' if f.get('disattiva') else (None if fr and fr.ok else 'errore')))
+                if f.get('sketch') in disegni:
+                    part['children'][-1]['children'].append(disegni.pop(f['sketch']))
+                    part['children'][-1]['chiuso'] = True
                 if f['type'] == 'sheet':
                     sk = doc.sketch(f['sketch']) if f.get('sketch') else None
                     # in parole di officina: "Piega davanti, 40 mm in su", "Orlo sulla piega davanti, 10 mm"
@@ -211,26 +285,30 @@ def project_tree(doc, result) -> dict:
                     for fo in f.get('folds') or []:
                         verso = 'in su' if fo.get('direction', 'up') == 'up' else 'in giù'
                         dove[fo['id']] = 'in mezzo'
-                        part['children'].append(_n(f'Piega in mezzo al pezzo{_ang(fo.get("angle", 90)) or " a 90°"} {verso}',
+                        part['children'].append(_n(f'Piega in mezzo{_ang(fo.get("angle", 90)) or " 90°"} {verso[3:]}',
                                                    'flange', f'{fid}/{fo["id"]}'))
                     for fl in f.get('flanges') or []:
-                        verso = 'in su' if fl.get('direction', 'up') == 'up' else 'in giù'
+                        verso = 'su' if fl.get('direction', 'up') == 'up' else 'giù'
                         ang = fl.get('angle', 90)
                         if fl.get('parent'):
                             sopra = dove.get(fl['parent'], fl['parent'])
                             cosa = 'Orlo' if abs(_v(ang) or 0) >= 170 else 'Piega'
-                            testo = f'{cosa} sulla piega {sopra}, {_mm(fl.get("length"))} mm' + ('' if cosa == 'Orlo' else f'{_ang(ang)} {verso}')
+                            testo = f'{cosa} su piega {sopra} {_mm(fl.get("length"))}' + ('' if cosa == 'Orlo' else f'{_ang(ang)} {verso}')
                         else:
                             lato = sk.describe(fl.get('edge')) if sk else fl.get('edge')
                             nome = {'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra',
                                     'lato sinistro': 'a sinistra'}.get(lato, f'sul {lato}' if str(lato).startswith('lato') else f'su {lato}')
                             dove[fl['id']] = nome
-                            testo = f'Piega {nome}, {_mm(fl.get("length"))} mm{_ang(ang)} {verso}'
+                            testo = f'Piega {nome} {_mm(fl.get("length"))}{_ang(ang)} {verso}'
                         part['children'].append(_n(testo, 'flange', f'{fid}/{fl["id"]}'))
                         for e in fl.get('ears') or []:
                             verso_e = 'verso fuori' if e.get('side') == 'out' else 'verso dentro'
                             part['children'].append(_n(f'Piega {_mm(e.get("length"))} mm{_ang(e.get("angle", 90))} {verso_e}',
                                                        'flange', f'{fid}/{fl["id"]}/{e.get("end")}'))
+        if non_usati:
+            pieni = [x for x in non_usati if not x.get('vuoto')]
+            part['children'].append(_n('Disegni non usati', 'group', 'non_usati', non_usati, chiuso=True,
+                                       qta=len(pieni), vuoto=not pieni))
         root['children'].append(part)
     # le strutture, per gruppo e per misura
     for st in result.structures:

@@ -569,6 +569,15 @@ class Api:
     def drawing_preview(self, campi=None, tutte=False):
         return self._call(self._svc.drawing_preview, campi, tutte)
 
+    def prepara_tavole(self):
+        # in sottofondo: solo se il motore è libero (non si mette mai in coda davanti a quello che fai)
+        if not self._lock.acquire(blocking=False):
+            return {'ok': True, 'fatto': False}
+        try:
+            return self._svc.prepara_tavole()
+        finally:
+            self._lock.release()
+
     def export_drawings_dialog(self, fmt, campi, tutte=False):
         nome = ((self._svc.asm.name if self._svc.asm is not None else self._svc.doc.meta.get('name')) or 'tavole') + '_tavole'
         filtro = ('PDF (*.pdf)',) if fmt == 'pdf' else ('DXF (*.dxf)',)

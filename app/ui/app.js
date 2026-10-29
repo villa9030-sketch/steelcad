@@ -68,7 +68,20 @@ async function call(name, ...args) {
 
 // le chiamate al motore vanno una alla volta, nell'ordine in cui le fai
 let coda = Promise.resolve();
-const inCoda = fn => (coda = coda.then(fn).catch(e => toast(String(e), 'err')));
+let inCorso = 0;                                     // quanti comandi in coda adesso
+const inCoda = fn => { inCorso++; return (coda = coda.then(fn).catch(e => toast(String(e), 'err')).finally(() => { inCorso--; })); };
+// 29/10: le tavole si preparano quando il programma è fermo (4 s senza mouse né tasti, niente in coda): aprendole
+// sono già pronte. Il motore le fa solo se è libero, quindi non passano mai davanti a quello che fai
+let ultimaAttivita = Date.now(), tavolePronte = null;
+for (const t of ['pointerdown', 'keydown', 'wheel']) window.addEventListener(t, () => { ultimaAttivita = Date.now(); }, true);
+setInterval(() => {
+  if (!S || SK || PROVA || inCorso || Date.now() - ultimaAttivita < 4000) return;
+  if (!S.tree?.children?.length && S.mode !== 'assembly') return;
+  const v = `${S.path || S.name}:${sceneVersion}`;
+  if (v === tavolePronte) return;
+  tavolePronte = v;
+  chiamaMuto('prepara_tavole').catch(() => {});
+}, 1500);
 
 let S = null;            // ultimo stato del progetto
 let sceneVersion = 0;
@@ -1486,9 +1499,15 @@ function renderTop() {
 
 const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole: '◯', fillet: '◜', chamfer: '◿', sheet: '▱', flange: '⌐',
   structure: '⌗', group: '▾', members: '│' };
+// 29/10, «l'albero pulito»: le voci con dentro il loro disegno (e i «Disegni non usati») si aprono con la freccina;
+// gli sketch vuoti si vedono solo mentre ci lavori
+const APERTI = new Set();
+const chiaveNodo = n => `${n.kind}:${n.ref}`;
+const contieneSketch = (n, sid) => (n.kind === 'sketch' && n.ref === sid) || n.children.some(c => contieneSketch(c, sid));
 function renderTree() {
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
+    if (n.vuoto && !(SK && contieneSketch(n, SK.sid))) return '';
     const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? ['struct=' + n.ref]
       : n.kind === 'flange' ? ['flange=' + n.ref] : n.kind === 'sheet_edge_flange' ? ['pb=' + n.ref] : n.kind === 'sheet_miter' ? ['tt=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
@@ -1499,7 +1518,14 @@ function renderTree() {
       ids && ids.length && ids.every(i => selIds.has(i)) && n.kind !== 'structure' && !(n.kind !== 'part' && ids[0] === 'body') ? 'sel' : ''];
     const st = n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
     const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
-    const figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
+    let figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
+    let freccia = '';
+    if (n.chiuso && figli) {
+      const aperto = APERTI.has(chiaveNodo(n)) || (SK && contieneSketch(n, SK.sid));
+      freccia = `<button class="freccia" data-apri="${esc(chiaveNodo(n))}" title="${aperto ? 'Chiudi' : 'Apri: il suo disegno'}">${aperto ? '▾' : '▸'}</button>`;
+      if (!aperto) figli = '';
+      cls.push('apribile');
+    }
     let occhio = '';
     if (n.kind === 'instance') {                     // 28/10: l'occhio per nascondere, e come si vede adesso
       const vede = VIS.solo ? VIS.solo.has(n.ref) : !VIS.nascosti.has(n.ref);
@@ -1508,12 +1534,13 @@ function renderTree() {
       occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
     }
     const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${esc(n.label)}${q}${st}${occhio}</div>${figli}</li>`;
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${st}${occhio}${freccia}</div>${figli}</li>`;
   };
   // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
   let albero = S.tree;
   if (S.mode === 'assembly' && S.tree) {
     const file = Object.fromEntries((S.instances || []).map(i => [i.id, i.file]));
+    const pezzo = Object.fromEntries((S.instances || []).map(i => [i.file, i.pezzo]));   // 29/10: il gruppo col nome del pezzo
     const figli = [], gruppi = {};
     for (const c of S.tree.children) {
       if (c.kind !== 'instance') { figli.push(c); continue; }
@@ -1525,7 +1552,7 @@ function renderTree() {
       if (!c._gruppo) return [c];
       const g = gruppi[c._gruppo];
       if (g.length < 3) return g;
-      return [{ label: g[0].label.replace(/\s*\(\d+\)$/, ''), kind: 'members', ref: g.map(x => x.ref), qta: g.length, status: null, children: g }];
+      return [{ label: pezzo[c._gruppo] || g[0].label.replace(/\s*\(\d+\)$/, ''), kind: 'members', ref: g.map(x => x.ref), qta: g.length, status: null, children: g }];
     }) };
   }
   const cerca = ($('#tree-cerca')?.value || '').trim().toLowerCase();
@@ -1610,6 +1637,14 @@ $('#tree').addEventListener('contextmenu', ev => {
   if (!n || S?.mode !== 'assembly') return;
   ev.preventDefault(); ev.stopImmediatePropagation();
   menuPezzoAssieme(n.dataset.ref, ev.clientX, ev.clientY);
+}, true);
+$('#tree').addEventListener('click', ev => {
+  const f = ev.target.closest('[data-apri]');
+  if (!f) return;
+  ev.stopPropagation(); ev.preventDefault();
+  const k = f.dataset.apri;
+  if (APERTI.has(k)) APERTI.delete(k); else APERTI.add(k);
+  renderTree();
 }, true);
 $('#tree').addEventListener('click', ev => {
   const o = ev.target.closest('.occhio');
@@ -1805,6 +1840,7 @@ function tagliaTesta() {
     $('#m-ok').onclick = () => { const v = leggiTesta(); close(); inCoda(async () => { const r = await call('add_end_miter', v); if (await apply(r) && r.select) await select(r.select); }); };
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
     $('#tt-gap').focus(); $('#tt-gap').select();
+    conAnteprima('add_end_miter', () => [leggiTesta()]);
   });
 }
 function pannelloTesta(s) {
@@ -2265,7 +2301,17 @@ function miniForo(s) {
   m.querySelector('[data-a="x"]').onclick = () => clearSelection();
   m.querySelector('[data-a="piu"]').onclick = () => tutteLeOpzioni();
   m.querySelector('[data-a="togli"]')?.addEventListener('click', () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro'));
-  m.querySelectorAll('[data-t]').forEach(b => { b.onclick = () => scegli(b.dataset.t); });
+  m.querySelectorAll('[data-t]').forEach(b => { b.onclick = () => { anteprimaVia(); scegli(b.dataset.t); }; });
+  // 29/10: passando col mouse su un tipo il foro si vede già così (svasato, filettato) sul pezzo
+  const specDi = k => (k === 'semplice' ? null : k === 'svasato' ? { tipo: 'svasato', D: String(piuLarga(90)), angolo: '90' }
+    : k === 'filettato' && okM.length ? { tipo: 'filettato', M: okM.includes(h.M) ? h.M : fo.min_d ? okM[0] : 'M6' } : undefined);
+  m.querySelectorAll('[data-t]').forEach(b => {
+    const k = b.dataset.t, sp = specDi(k);
+    if (k === tipo || sp === undefined) return;
+    b.onmouseenter = () => anteprima(fo.importato ? 'hole_adopt' : 'sketch_hole_type',
+      () => (fo.importato ? [fo.faccia, cerchi().map(i => fo.centri[i]), fo.d, sp] : [fo.sketch, cerchi(), sp]), null);
+    b.onmouseleave = () => anteprimaVia();
+  });
   m.querySelectorAll('[data-tt]').forEach(b => { b.onclick = () => { MINI.tutti = b.dataset.tt === '1'; miniForo(s); }; });
   const lega = (k, o) => { const b = m.querySelector(`[data-k="${k}"]`); if (b) b.onclick = e => { e.stopPropagation(); (o.scelte ? apriScelte : scriviQuota)(b, o); }; };
   lega('d', { unita: 'mm', num: fo.d, scrivi: v => fai(spec(), parseFloat(v)) });
@@ -2619,11 +2665,15 @@ function wireContorno(co) {
 function togliDalTaglio(sid, eids, cosa) {
   if (!sid || !eids?.length) return;
   clearSelection();
-  inCoda(async () => {
-    const r = await call('togli_dal_taglio', sid, eids);
-    if (!r.ok && r.code === 'ultimo') { confermaElimina('feature', r.feature, `${r.nome} (${r.feature}): era l’unico contorno, si toglie ${cosa} e il suo taglio`); return; }
-    await apply(r, r.message);
-  });
+  provaSulPezzo({ metodo: 'togli_dal_taglio', argomenti: () => [sid, eids],
+    accetta: r => r.code === 'ultimo',                  // era l'unico contorno: va via tutto il taglio (si chiede dopo)
+    frase: r => (r?.code === 'ultimo' ? `Toglie ${cosa} e il suo taglio (era l’unico contorno)` : r?.frase || `Toglie ${cosa}: la lamiera torna piena`),
+    sotto: () => 'Lo sviluppo torna senza quel contorno · si annulla con Ctrl+Z',
+    fai: () => inCoda(async () => {
+      const r = await call('togli_dal_taglio', sid, eids);
+      if (!r.ok && r.code === 'ultimo') { confermaElimina('feature', r.feature, `${r.nome} (${r.feature}): era l’unico contorno, si toglie ${cosa} e il suo taglio`); return; }
+      await apply(r, r.message);
+    }) });
 }
 function foroPanel(fo) {
   const h = fo.hole || {}, tipo = h.tipo || 'semplice', n = fo.uguali.length;
@@ -2913,6 +2963,8 @@ function askTipCorners(a) {
     $('#m-no').onclick = close;
     $('#modal-box').querySelectorAll('.choice button').forEach(b => {
       b.onclick = () => { close(); inCoda(async () => { if (await apply(await call('set_tip_corners', a.feature, b.dataset.k))) await refreshSel(); }); };
+      b.onmouseenter = () => anteprima('set_tip_corners', () => [a.feature, b.dataset.k], null);   // 29/10: si vede prima di scegliere
+      b.onmouseleave = () => anteprimaVia();
     });
   });
 }
@@ -4665,7 +4717,34 @@ async function controllaAggiornamenti() {
 const ANT_MAT = new THREE.MeshStandardMaterial({ color: 0x5FA8F5, metalness: 0.1, roughness: 0.6, transparent: true, opacity: 0.75,
   polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 const ANT_EDGE = new THREE.LineBasicMaterial({ color: 0x8CC0FF });
-let antGruppo = null, antTimer = null, antN = 0, antCamera = null, antUltimi = '', antNascosto = false;
+// 29/10: quando non si può fare, quello che hai chiesto si vede lo stesso, in rosso (sopra al pezzo, che resta)
+const ANT_ROSSO = new THREE.MeshStandardMaterial({ color: 0xE5484D, metalness: 0.05, roughness: 0.6, transparent: true, opacity: 0.8,
+  depthTest: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+const ANT_ROSSO_EDGE = new THREE.LineBasicMaterial({ color: 0xFF9B9E, depthTest: false });
+function gruppoAnteprima(oggetti, mat, edge) {
+  const gr = new THREE.Group();
+  for (const d of oggetti) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3)); g.setIndex(d.indices); g.computeVertexNormals();
+    const seg = [];
+    for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+    const m = new THREE.Mesh(g, mat), l = new THREE.LineSegments(lg, edge);
+    m.raycast = () => {}; l.raycast = () => {}; m.renderOrder = l.renderOrder = 6;
+    gr.add(m, l);
+  }
+  return gr;
+}
+const ANT_TOGLI = new THREE.MeshStandardMaterial({ color: 0xE8833A, transparent: true, opacity: 0.55, depthTest: false });
+const ANT_TOGLI_EDGE = new THREE.LineBasicMaterial({ color: 0xFFB27A, depthTest: false });
+// il pulsante che conferma, spento finché l'anteprima è rossa
+function confermaAccesa(stato, si) {
+  const b = stato?.closest('#modal-box, #props')?.querySelector('#m-ok, #f-add');
+  if (!b) return;
+  b.disabled = !si;
+  b.title = si ? '' : 'Prima sistema quello in rosso';
+}
+let antGruppo = null, antTimer = null, antN = 0, antCamera = null, antUltimi = '', antNascosto = false, antInVolo = false, antDopo = null;
 function anteprimaVia() {
   clearTimeout(antTimer); antN++; antUltimi = '';
   if (camera.view?.enabled) { camera.clearViewOffset(); ridisegna(); }
@@ -4709,17 +4788,45 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     stato.classList.add('calcolo');
     if (!stato.textContent) stato.textContent = 'Preparo l’anteprima…';
   }
-  antTimer = setTimeout(async () => {
+  // 29/10: parte dopo 0,12 s; se il motore ne sta già facendo una, questa aspetta e poi si fa solo l'ultima (prima
+  // scrivendo «12» si calcolava anche quella per «1»: 2 secondi buttati)
+  antTimer = setTimeout(async function giro() {
+    if (n !== antN) return;                       // annullata o superata da una più nuova
+    if (antInVolo) { antDopo = giro; return; }
+    antInVolo = true;
     let r;
     try { r = await chiamaMuto('anteprima', metodo, argomenti()); } catch (e) { r = { ok: false, message: String(e) }; }
+    finally { antInVolo = false; }
+    const dopo = antDopo; antDopo = null;
+    if (dopo) { dopo(); }
     if (n !== antN) return;                       // nel frattempo hai cambiato un valore: vale l'ultima
     if (antGruppo) { scene.remove(antGruppo); antGruppo.traverse(o => o.geometry?.dispose()); antGruppo = null; }
+    if (r.message) r.message = r.message.replace(/^Non applicato:\s*/, '');
+    opz.dopo?.(r);
     if (!r.ok) {
       if (antNascosto) { model.visible = true; overlay.visible = true; antNascosto = false; }
       if (stato) { stato.className = 'ant-stato no'; stato.textContent = r.message || 'Così non si può fare.'; }
+      // 29/10: la soluzione con un clic, dentro l'anteprima rossa: scrive il valore giusto nel campo e l'anteprima si rifà
+      const box = stato?.closest('#modal-box, #props');
+      const CAMPI_SOL = { length: '[id$="-len"]', angle: '[id$="-ang"]', D: '#h-D', angolo: '#h-ang' };
+      const sol = (r.soluzioni || []).filter(x => Object.keys(x.cambia || {}).every(k => CAMPI_SOL[k] && box?.querySelector(CAMPI_SOL[k])));
+      if (sol.length) {
+        stato.insertAdjacentHTML('beforeend', `<span class="ant-sol">${sol.map((x, i) => `<button type="button" class="btn" data-sol="${i}" title="${esc(x.sotto || '')}">${esc(x.testo)}</button>`).join('')}</span>`);
+        stato.querySelectorAll('[data-sol]').forEach(b => {
+          b.onclick = () => {
+            for (const [k, v] of Object.entries(sol[+b.dataset.sol].cambia)) {
+              const i = box.querySelector(CAMPI_SOL[k]);
+              i.value = virgola(v); i.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          };
+        });
+      }
+      if (r.fantasma?.length) { antGruppo = gruppoAnteprima(r.fantasma, ANT_ROSSO, ANT_ROSSO_EDGE); scene.add(antGruppo); }
+      if (r.vero) confermaAccesa(stato, false);
       paint();
       return;
     }
+    confermaAccesa(stato, true);
     if (model.visible) { model.visible = false; overlay.visible = false; antNascosto = true; }   // al posto del pezzo di adesso, quello che verrà
     antGruppo = new THREE.Group();
     for (const d of r.objects) {
@@ -4732,8 +4839,9 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
       m.raycast = () => {}; l.raycast = () => {}; m.renderOrder = l.renderOrder = 5;
       antGruppo.add(m, l);
     }
+    if (r.togli?.length) antGruppo.add(gruppoAnteprima(r.togli, ANT_TOGLI, ANT_TOGLI_EDGE));   // quello che si toglie, in arancio
     scene.add(antGruppo);
-    if (stato) { stato.className = 'ant-stato ok'; stato.textContent = 'Anteprima: in azzurro il pezzo come verrà.'; }
+    if (stato) { stato.className = 'ant-stato ok'; stato.textContent = opz.frase ? '' : 'Anteprima: in azzurro il pezzo come verrà.'; }
     // se il risultato esce dalla vista, si allarga l'inquadratura per vederlo tutto
     const box = new THREE.Box3().setFromObject(antGruppo);
     if (!box.isEmpty() && opz.vista === 'iso' && !antCamera) {
@@ -4744,7 +4852,7 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
       if (!fr.containsPoint(box.min) || !fr.containsPoint(box.max)) fitBox(box.union(new THREE.Box3().setFromObject(model)), null, true);
     }
     paint();
-  }, 300);
+  }, 120);
 }
 // l'anteprima nel pannello a destra (le pieghe sui bordi: 23/10, «anche per le pieghe la preview del su/giù,
 // così non sbaglio il senso»): sotto i campi la riga dello stato; ogni campo cambiato, o Verso/Misura, la rifà.
@@ -5706,6 +5814,7 @@ async function enterSketch(sid) {
 }
 function exitSketch() {
   if (!SK) return;
+  provaVia();
   const era = SK;
   SK = null;
   aggiornaLayout();
@@ -5970,7 +6079,10 @@ async function origineBordi(ids) {
       <button class="btn" id="or-chiudi" aria-label="Chiudi">×</button></div>`;
   document.body.appendChild(box);
   $('#or-chiudi').onclick = chiudiOrigine;
-  if ($('#or-togli')) $('#or-togli').onclick = () => { chiudiOrigine(); inCoda(async () => { const x = await call('togli_fori_da_taglio', sid, ids); await apply(x, x.message); }); };
+  if ($('#or-togli')) $('#or-togli').onclick = () => { chiudiOrigine();
+    provaSulPezzo({ metodo: 'togli_fori_da_taglio', argomenti: () => [sid, ids], frase: r => r?.frase || 'Chiude i fori scelti',
+      sotto: () => 'La lamiera torna piena dove c’erano · si annulla con Ctrl+Z',
+      fai: () => inCoda(async () => { const x = await call('togli_fori_da_taglio', sid, ids); await apply(x, x.message); }) }); };
   $('#or-apri').onclick = () => { chiudiOrigine(); exitSketch(); inCoda(() => enterSketch(r.sketch)); };
   $('#or-tutto').onclick = () => { chiudiOrigine(); confermaElimina('feature', r.feature, `${r.nome} (${r.feature}): tutti i suoi fori e tagli`); };
 }
@@ -7081,18 +7193,116 @@ async function structureDialog() {
   });
 }
 
+// 29/10, «anteprime rapide per ogni lavorazione, che chiunque capisca cosa sta facendo»: i comandi che prima partivano
+// subito (taglio, linguetta, flangia sul contorno, scritta) e la piega su linea si provano sul pezzo. Il risultato in
+// azzurro (quello che si toglie in arancio), in rosso se non si può; sotto una frase che dice cosa succede.
+// Invio conferma, Esc annulla; la piega ha le sue scelte sul pezzo (angolo, verso, l'altra parte)
+let PROVA = null;
+function provaSulPezzo(o) {
+  provaVia();
+  const b = document.createElement('div');
+  b.id = 'prova-barra';
+  b.innerHTML = `<span class="pallino"></span><span class="frase"><b></b><small></small></span><span class="sep"></span>
+    <span class="tasti"><button class="btn primary" id="pr-ok">Conferma <kbd>Invio</kbd></button><button class="btn" id="pr-no">Annulla <kbd>Esc</kbd></button>${o.altro ? '<button class="btn" id="pr-altro" title="Tutte le opzioni">⋯</button>' : ''}</span>`;
+  document.body.appendChild(b);
+  document.body.classList.add('in-prova');
+  PROVA = { ...o, el: b, r: null };
+  const stato = document.createElement('span');            // dove l'anteprima scrive come è andata (la frase lo dice)
+  const rifai = () => {
+    if (!PROVA) return;
+    b.querySelector('.frase b').textContent = o.frase();
+    b.classList.add('calcolo');
+    anteprima(o.metodo, o.argomenti, stato, { vista: SK ? 'iso' : undefined, frase: true, dopo: r => {
+      if (!PROVA) return;
+      const va = r.ok || !!o.accetta?.(r);
+      PROVA.r = { ...r, ok: va };
+      b.classList.remove('calcolo');
+      b.classList.toggle('no', !va);
+      b.querySelector('.frase b').textContent = va ? o.frase(r) : 'Così non si può fare';
+      b.querySelector('.frase small').textContent = va ? (o.sotto ? o.sotto(r) : '') : (r.message || '');
+      $('#pr-ok').disabled = !va;
+    } });
+  };
+  PROVA.rifai = rifai;
+  $('#pr-ok').onclick = () => provaConferma();
+  $('#pr-no').onclick = () => provaVia();
+  if (o.altro) $('#pr-altro').onclick = () => { provaVia(); o.altro(); };
+  o.quote?.(rifai);
+  rifai();
+}
+function provaVia() {
+  if (!PROVA) return;
+  PROVA.el.remove();
+  document.body.classList.remove('in-prova');
+  togliQuote();
+  PROVA = null;
+  anteprimaVia();
+}
+function provaConferma() {
+  if (!PROVA || !PROVA.r?.ok) return;
+  const fai = PROVA.fai;
+  provaVia();
+  fai();
+}
+window.addEventListener('keydown', e => {
+  if (!PROVA || e.target.closest?.('input, textarea')) return;
+  if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); provaConferma(); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); provaVia(); }
+}, true);
+// 29/10, «il conferma del togli materiale è fastidioso»: taglio, linguetta, flangia sul contorno e scritta si fanno
+// subito (Ctrl+Z se non andava). La barra di prova, rossa col motivo, compare solo quando non si può fare
+function subitoOProva(o, chiama, okMsg) {
+  inCoda(async () => {
+    const r = await chiama();
+    if (r?.ok) { if (await apply(r, okMsg || r.message)) exitSketch(); }
+    else if (r && !r.cancelled) provaSulPezzo(o);
+  });
+}
+// la piega su una linea dello sketch, provata sul pezzo: 90° in su, la parte piccola; le scelte sono quote sulla linea
+function provaPiega() {
+  const l = SK.v.lines.find(x => !x.ref && !x.construction && !x.xray);
+  const pa = SK.v.points.find(p => p.id === l.a), pb = SK.v.points.find(p => p.id === l.b);
+  const mezzo = v3(pa.xyz).lerp(v3(pb.xyz), 0.5);
+  const P = { ang: '90', dir: 'up', flip: false };
+  const sid = SK.sid;
+  provaSulPezzo({
+    metodo: 'sheet_fold', argomenti: () => [sid, P.ang, P.dir, P.flip, null],
+    frase: r => (r?.message?.includes('linguetta') ? `Piega la linguetta ${P.dir === 'up' ? 'in su' : 'in giù'} di ${virgola(P.ang)}°`
+      : `Piega ${P.dir === 'up' ? 'in su' : 'in giù'} di ${virgola(P.ang)}° ${P.flip ? 'la parte più grande' : 'la parte più piccola'}`),
+    sotto: () => 'Lo sviluppo resta quello disegnato · la linea è lo spigolo esterno della piega',
+    fai: () => inCoda(async () => { const r = await call('sheet_fold', sid, P.ang, P.dir, P.flip, null); if (await apply(r)) exitSketch(); }),
+    altro: () => makeDialog('fold_finestra'),
+    quote: rifai => {
+      const metti = () => {
+        togliQuote();
+        const qa = quota(mezzo.clone(), `${virgola(P.ang)}°`, { num: P.ang, dy: -40, titolo: 'Angolo della piega',
+          scelte: [[45, '45°'], [90, '90°'], [120, '120°'], [135, '135°']], libero: 'altro…',
+          sceglie: v => { P.ang = String(v); metti(); rifai(); } });
+        const qv = quota(mezzo.clone(), '⇅', { blu: true, dopo: qa, titolo: `Verso: ${P.dir === 'up' ? 'in su' : 'in giù'} · clic per girarla`,
+          clic: () => { P.dir = P.dir === 'up' ? 'down' : 'up'; metti(); rifai(); } });
+        quota(mezzo.clone(), '↔', { blu: true, dopo: qv, titolo: P.flip ? 'Si piega la parte più grande · clic: la più piccola' : 'Si piega la parte più piccola · clic: l’altra',
+          clic: () => { P.flip = !P.flip; metti(); rifai(); } });
+      };
+      metti();
+    },
+  });
+}
 function makeDialog(kind) {
   if (kind === 'structure') { structureDialog(); return; }
   if (kind === 'tubi') { faiTubiDialog(); return; }
   if (kind === 'cut' && SK.v.on_tube) { lavorazioneTuboDialog(); return; }
   if (kind === 'tab') {
     const sid = SK.sid;
-    inCoda(async () => { if (await apply(await call('sheet_tab', sid))) exitSketch(); });
+    subitoOProva({ metodo: 'sheet_tab', argomenti: () => [sid], frase: r => r?.frase || 'Aggiunge materiale nel piano della faccia',
+      sotto: () => 'Stesso spessore della lamiera · nello sviluppo si aggiunge anche lì',
+      fai: () => inCoda(async () => { if (await apply(await call('sheet_tab', sid))) exitSketch(); }) }, () => call('sheet_tab', sid));
     return;
   }
   if (kind === 'contour') {
     const sid = SK.sid;
-    inCoda(async () => { if (await apply(await call('contour_flange', sid))) exitSketch(); });
+    subitoOProva({ metodo: 'contour_flange', argomenti: () => [sid], frase: r => r?.frase || 'Piega lungo il contorno disegnato',
+      sotto: () => 'La lamiera segue la linea disegnata, con le pieghe dove la linea gira',
+      fai: () => inCoda(async () => { if (await apply(await call('contour_flange', sid))) exitSketch(); }) }, () => call('contour_flange', sid));
     return;
   }
   if (kind === 'revolve') {
@@ -7114,18 +7324,24 @@ function makeDialog(kind) {
   }
   if (kind === 'mark') {
     const sid = SK.sid;
-    inCoda(async () => { const r = await call('create_from_sketch', sid, 'mark', {}); if (await apply(r, r.message)) exitSketch(); });
+    subitoOProva({ metodo: 'create_from_sketch', argomenti: () => [sid, 'mark', {}], frase: r => r?.frase || 'Scrive col laser sul pezzo',
+      sotto: () => 'Il laser segna senza tagliare · nel DXF su un livello a parte',
+      fai: () => inCoda(async () => { const r = await call('create_from_sketch', sid, 'mark', {}); if (await apply(r, r.message)) exitSketch(); }) }, () => call('create_from_sketch', sid, 'mark', {}));
     return;
   }
   if (kind === 'cut') {
     const sid = SK.sid;
-    inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'cut', {}), 'Tagliato.')) exitSketch(); });
+    subitoOProva({ metodo: 'create_from_sketch', argomenti: () => [sid, 'cut', {}], frase: r => r?.frase || 'Toglie dal pezzo quello che hai disegnato',
+      sotto: () => 'In arancio quello che va via · nello sviluppo è il contorno che taglia il laser',
+      fai: () => inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'cut', {}), 'Tagliato.')) exitSketch(); }) },
+      () => call('create_from_sketch', sid, 'cut', {}), 'Tagliato.');
     return;
   }
-  if (kind === 'fold') {
+  if (kind === 'fold' || kind === 'fold_finestra') {
     // più linee = pieghe in serie (calandratura a colpi, "bumping"): si scrive l'angolo totale, si divide per i colpi
     const n = SK.v.lines.filter(l => !l.ref && !l.construction && !l.xray).length;
     const serie = n > 1;
+    if (kind === 'fold' && n === 1) { provaPiega(); return; }     // 29/10: senza finestra, le scelte sul pezzo
     modal(`<h3>${serie ? `${n} pieghe in serie (a colpi)` : 'Piega su questa linea'}</h3>
       <p class="hint">${serie ? `Ogni linea è un colpo di piega. La parte più grande resta ferma, le altre strisce girano tutte dallo stesso verso. Lo sviluppo resta quello che hai disegnato.`
         : 'La linea è lo spigolo esterno della piega. Si piega la parte più piccola; lo sviluppo resta quello che hai disegnato.'}</p>
