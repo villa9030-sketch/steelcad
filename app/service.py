@@ -5,6 +5,8 @@ grafico e niente di OpenCascade esposto all'esterno.
 """
 from __future__ import annotations
 
+import copy
+
 import math
 import re
 import sys
@@ -1536,6 +1538,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     # ---------------------------------------------------------------- disegno libero
     def sketch_view(self, sid: str) -> dict:
         try:
+            sk = self.doc.sketch(sid)
+            # 30/10: i bordi arancio delle lettere tagliate (sketch fatti prima) pesano e non servono: via da soli
+            if sum(1 for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref')) > 60:
+                from app import sketch_border
+                prova = copy.deepcopy(sk)
+                if sketch_border.togli_lettere(prova):
+                    self._change('Tolti i bordi delle lettere tagliate (pesavano)',
+                                 lambda: sketch_border.togli_lettere(self.doc.sketch(sid)), keep_broken=True)
             return _ok(sketch=sketch_ops.view(self.doc, sid, self.result.body))
         except Exception as ex:  # noqa: BLE001
             return _err(ex)

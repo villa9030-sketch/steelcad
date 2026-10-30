@@ -21,6 +21,86 @@ TOL = 1e-4
 SUL_BORDO = 0.05         # mm: un punto a meno di così dal bordo arancio ci sta sopra
 
 
+def e_lettera(pts: list) -> bool:
+    """Un contorno fatto di tanti trattini corti: una lettera tagliata di una scritta stencil (30/10, «ho fatto una
+    scritta, ora non posso più disegnare niente»: 540 bordi arancio per «10/15»). Un foro, un'asola, un poligono no."""
+    n = len(pts)
+    if n < 16:
+        return False
+    lati = sorted(math.dist(pts[i], pts[(i + 1) % n]) for i in range(n))
+    d = max(max(q[i] for q in pts) - min(q[i] for q in pts) for i in range(len(pts[0])))
+    return d > 0 and lati[n // 2] < 0.1 * d
+
+
+def _e_lettera_wire(w) -> bool:
+    ed = w.order_edges() if hasattr(w, 'order_edges') else w.edges()
+    if len(ed) < 16 or any(e.geom_type != bd.GeomType.LINE for e in ed):
+        return False
+    return e_lettera([tuple(e.start_point()) for e in ed])
+
+
+def spigoli_senza_lettere(face) -> list:
+    """Gli spigoli della faccia, senza i contorni delle lettere tagliate (non servono come riferimento e pesano)."""
+    try:
+        dentro = face.inner_wires()
+    except Exception:  # noqa: BLE001
+        return list(face.edges())
+    if not any(_e_lettera_wire(w) for w in dentro):
+        return list(face.edges())
+    return [e for w in [face.outer_wire()] + [w for w in dentro if not _e_lettera_wire(w)] for e in w.edges()]
+
+
+def togli_lettere(sk) -> int:
+    """Toglie da uno sketch i bordi arancio che ricalcano le lettere tagliate (fatti prima del 30/10), se nessuno ci è
+    attaccato. Ritorna quante linee ha tolto."""
+    linee = {k: e for k, e in sk.entities.items() if e['kind'] == 'line' and e.get('ref')}
+    vicini: dict = {}
+    for k, e in linee.items():
+        for p in (e['a'], e['b']):
+            vicini.setdefault(p, []).append(k)
+    usati = set()                                  # punti e linee a cui è attaccato qualcosa di disegnato
+    for k, e in sk.entities.items():
+        if e.get('ref'):
+            continue
+        usati.update(v for v in e.values() if isinstance(v, str))
+    for c in sk.constraints.values():
+        if c['type'] != 'fix':
+            usati.update(c.get('refs') or [])
+    tolte, visti = 0, set()
+    for k0 in linee:
+        if k0 in visti:
+            continue
+        gruppo, pila = set(), [k0]                 # le linee collegate fra loro (un contorno)
+        while pila:
+            k = pila.pop()
+            if k in gruppo:
+                continue
+            gruppo.add(k)
+            for p in (linee[k]['a'], linee[k]['b']):
+                pila.extend(vicini[p])
+        visti |= gruppo
+        punti = {p for k in gruppo for p in (linee[k]['a'], linee[k]['b'])}
+        if len(gruppo) < 16 or any(len(vicini[p]) != 2 for p in punti) or (gruppo | punti) & usati:
+            continue
+        # in fila, per misurare i lati come in e_lettera
+        ordine, k = [], k0
+        p = linee[k]['a']
+        for _ in range(len(gruppo)):
+            ordine.append((sk.entities[p]['x'], sk.entities[p]['y']))
+            p = linee[k]['b'] if linee[k]['a'] == p else linee[k]['a']
+            k = next((x for x in vicini[p] if x != k), k)
+        if not e_lettera(ordine):
+            continue
+        for x in gruppo:
+            del sk.entities[x]
+        for x in punti:
+            del sk.entities[x]
+        for cid in [c for c, v in sk.constraints.items() if v['type'] == 'fix' and set(v.get('refs') or []) & punti]:
+            del sk.constraints[cid]
+        tolte += len(gruppo)
+    return tolte
+
+
 def add_nearby_edges(sk, body, face, plane, fino_a: float) -> int:
     """Proietta sul piano dello sketch i bordi delle facce parallele che stanno davanti alla faccia (dalla
     parte della sua normale) entro ``fino_a`` mm e che le si sovrappongono. Ritorna quante linee ha messo."""
@@ -79,7 +159,7 @@ def project_edges(sk, body, face, plane, fino_a: float | None = None, xray: bool
             if any(lo[i] > HI[i] + fino_a or hi[i] < LO[i] - fino_a for i in range(3)):
                 continue
         segna = {'ref': True, 'proj': True, **({'xray': True} if xray else {}), **({'ctx': True} if facce is not None else {})}
-        for e in bf.edges():
+        for e in spigoli_senza_lettere(bf):
             if e.geom_type == bd.GeomType.LINE:
                 a, b = pt(e.start_point()), pt(e.end_point())
                 if a == b or frozenset((a, b)) in gia:

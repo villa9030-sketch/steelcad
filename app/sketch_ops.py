@@ -211,7 +211,8 @@ def add_reference_edges(sk, face, plane, body_shape=None) -> list[str]:
 
     pieghe = _bend_edges(body_shape, face) if body_shape is not None else set()
     fatte = []
-    for e in face.edges():
+    from app.sketch_border import spigoli_senza_lettere
+    for e in spigoli_senza_lettere(face):
         if e.geom_type == bd.GeomType.LINE:
             a, b = pt(e.start_point()), pt(e.end_point())
             if a != b:
