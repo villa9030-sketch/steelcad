@@ -285,8 +285,14 @@ class Api:
     def add_edge_dress(self, tipo, punti, valore):
         return self._call(self._svc.add_edge_dress, tipo, punti, valore)
 
-    def sketch_add_text(self, sid, pos, testo, h, angolo=0, stencil=None):
-        return self._call(self._svc.sketch_add_text, sid, pos, testo, h, angolo, stencil)
+    def sketch_add_text(self, sid, pos, testo, h, angolo=0, stencil=None, centrato=False):
+        return self._call(self._svc.sketch_add_text, sid, pos, testo, h, angolo, stencil, centrato)
+
+    def sketch_edit_text(self, sid, tid, testo, h, angolo=0, stencil=None):
+        return self._call(self._svc.sketch_edit_text, sid, tid, testo, h, angolo, stencil)
+
+    def testo_anteprima(self, testo, h, angolo=0, stencil=None, centrato=False):
+        return self._call(self._svc.testo_anteprima, testo, h, angolo, stencil, centrato)
 
     def sketch_add_slot(self, sid, c1, c2, r, construction=False):
         return self._call(self._svc.sketch_add_slot, sid, c1, c2, r, construction)
@@ -562,6 +568,9 @@ class Api:
 
     def asm_tabs(self, iid, face, n, w, gioco, sporgenza=0):
         return self._call(self._svc.asm_tabs, iid, face, n, w, gioco, sporgenza)
+
+    def asm_scassi(self, iid, face, gioco=0.5, prova=False):
+        return self._call(self._svc.asm_scassi, iid, face, gioco, prova)
 
     def drawing_fields(self):
         return self._call(self._svc.drawing_fields)

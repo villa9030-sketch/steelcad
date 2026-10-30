@@ -1778,7 +1778,7 @@ def _marca(fdef, body, data, ss, prof, fid):
     tratti = []
     for e in sk.entities.values():
         if e['kind'] == 'text' and e['center'] in ss.points and not e.get('stencil'):
-            x, y = ss.points[e['center']]
+            x, y = testo_mod.origine(e, *ss.points[e['center']])
             tratti += testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0))
     if not tratti:
         raise FeatureError('Nello sketch non c’è nessun testo da marcare.', feature=fid)

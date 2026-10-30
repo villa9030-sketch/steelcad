@@ -739,6 +739,112 @@ class AssemblyMixin:
         return _ok(state=self.state(), message=f'{n} linguette su {ia["name"]} e {n} asole su {ib["name"]} (salvati i due '
                    'file dei pezzi; resta la copia .bak).' + extra)
 
+    # ------------------------------------------------------------ scassi dai pezzi che entrano (30/10)
+    def _asm_scassi(self, iid: str, face_index, gioco: float):
+        """Sulla faccia piana scelta: le sagome dei pezzi che entrano nel pezzo, allargate del gioco.
+        Ritorna (nome della faccia, [(nome dell'altro pezzo, faccia 3D nel pezzo)], piano della faccia nel pezzo)."""
+        import build123d as bd
+
+        from app import impronte
+        f = self._asm_face(iid, face_index)
+        if f['kind'] != 'piana' or not f.get('name'):
+            raise SteelCADError('Scegli una faccia piana del pezzo da scassare (quella dove entrano gli altri pezzi).')
+        i = self.asm.instance(iid)
+        part = self.asm_parts[i['file']]
+        if getattr(part.result.body, 'sheet', None) is None:
+            raise SteelCADError('Gli scassi si fanno su una lamiera.')
+        piano = bd.Plane(origin=tuple(f['p']), z_dir=tuple(f['n']))
+        Rp, Tp = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+        trovate = []
+        for j in self.asm.instances:
+            if j['id'] == iid or j['file'] not in self.asm_parts:
+                continue
+            altro = A.placed_shape(self.asm_parts[j['file']], (Rp.T @ np.array(j['R'], dtype=float)).tolist(),
+                                   (Rp.T @ (np.array(j['T'], dtype=float) - Tp)).tolist())
+            trovate += [(j['name'], s) for s in impronte.penetrazioni(part.shape, altro, piano)]
+        return f['name'], trovate, piano
+
+    def _frase_scassi(self, trovate, gioco) -> str:
+        misure = {}
+        for _, s in trovate:
+            b = s.bounding_box().size
+            m = [round(v + 2 * gioco, 1) for v in sorted((b.X, b.Y, b.Z), reverse=True)[:2]]
+            k = f'{fmt_mm(m[1])} × {fmt_mm(m[0])}'
+            misure[k] = misure.get(k, 0) + 1
+        chi = sorted({n for n, _ in trovate})
+        quali = (f'da {next(iter(misure))}' if len(misure) == 1 else ', '.join(f'{q} da {k}' for k, q in misure.items()))
+        return (f'{len(trovate)} scass{"o" if len(trovate) == 1 else "i"} {quali} mm (gioco {fmt_mm(gioco)} per lato), '
+                f'per {", ".join(chi)}.')
+
+    def asm_scassi(self, iid: str, face_index, gioco=0.5, prova: bool = False) -> dict:
+        """Gli scassi nel pezzo dove entrano gli altri pezzi (le linguette nella piastra): con ``prova`` solo le sagome
+        da far vedere (nel mondo) e la frase; senza, il taglio nel file del pezzo (resta la copia .bak)."""
+        if self.asm is None:
+            return {'ok': False, 'message': 'Non c’è un assieme aperto.'}
+        import build123d as bd
+
+        from app import impronte, sketch_ops
+        from app.service import _number
+        from cad_engine import project_io
+        from cad_engine.sketch.face_plane import plane_of
+        try:
+            c = _number(gioco)
+            if c < 0:
+                raise SteelCADError('Il gioco non può essere negativo.')
+            nome, trovate, piano = self._asm_scassi(iid, face_index, c)
+            if not trovate:
+                raise SteelCADError('Nessun pezzo entra in questo pezzo: non c’è niente da scassare. (Se le linguette sono '
+                                    'appena appoggiate, falle sporgere dentro lo spessore.)')
+            i = self.asm.instance(iid)
+            R, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+            if prova:
+                anelli = []
+                for _, s in trovate:
+                    for a in impronte.anelli(s, piano, c):
+                        if a[0] == 'cerchio':
+                            (x, y), r = a[1], a[2]
+                            a = ('poli', [(x + r * np.cos(t), y + r * np.sin(t)) for t in np.linspace(0, 2 * np.pi, 48, endpoint=False)])
+                        anelli.append([(R @ np.array(tuple(piano.from_local_coords((x, y)))) + T).tolist() for x, y in a[1]])
+                return _ok(anelli=anelli, n=len(trovate), message=self._frase_scassi(trovate, c))
+            doc = project_io.load(i['file'])
+            r0 = doc.rebuild()
+            body, prima = r0.body, {e.message for e in r0.errors}        # gli avvisi che il pezzo aveva già
+            if nome not in body.names:
+                raise SteelCADError('La faccia non si ritrova nel file del pezzo: salvalo e riprova.')
+            chi = ', '.join(sorted({n for n, _ in trovate}))
+            sk = doc.add_sketch({'face': nome}, f'Sketch: scassi per {chi}')
+            pl = plane_of(body, nome, sk)
+            sketch_ops.add_reference_edges(sk, bd.Face(body.face(nome)[0]), pl, body.shape)
+            for _, s in trovate:
+                for a in impronte.anelli(s, pl, c):
+                    if a[0] == 'cerchio':
+                        pid = sk.point(*a[1])
+                        sk.constrain('fix', pid)
+                        sk.circle(pid, a[2])
+                        continue
+                    ids = [sk.point(x, y) for x, y in a[1]]
+                    for pid in ids:
+                        sk.constrain('fix', pid)
+                    for x, y in zip(ids, ids[1:] + ids[:1]):
+                        sk.line(x, y)
+            doc.add_feature('sheet_cut', f'Scassi per {chi}', sketch=sk.id)
+            nuovi = [e.message for e in doc.rebuild().errors if e.message not in prima]
+            if nuovi:
+                rotto = (re.search(r"l'errore in (\w+)", nuovi[0]) or [None, None])[1]
+                if rotto:
+                    raise SteelCADError(f'Nel pezzo c’è già un errore in {rotto}: quello che viene dopo non si costruisce. '
+                                        f'Apri il pezzo, sistema o togli {rotto}, e riprova.')
+                raise SteelCADError('Gli scassi non si riescono a fare: ' + nuovi[0])
+            project_io.save(doc, i['file'])
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message, 'code': ex.code}
+        frase = self._frase_scassi(trovate, c)
+        self._asm_reload()
+        self.asm_dirty = True
+        self.scene_version += 1
+        return _ok(state=self.state(), message='Fatto: ' + frase[0].lower() + frase[1:] + f' Salvato «{Path(i["file"]).name}» '
+                   '(resta la copia .bak); nel pezzo è un taglio che si modifica come gli altri.')
+
     def _asm_face_at(self, iid, punto, normale):
         """La faccia piana dell'istanza che passa per il punto (nel mondo) con quella normale: riferimento per un
         accoppiamento, o None."""
@@ -1487,6 +1593,13 @@ class AssemblyMixin:
                 cont = self._asm_tip_contact(obj_id, face_index)
                 if cont:
                     sel['tabs_with'] = self.asm.instance(cont[1])['name']
+                if f['kind'] == 'piana' and getattr(part.result.body, 'sheet', None) is not None:
+                    try:
+                        sc = self.asm_scassi(obj_id, face_index, 0.5, prova=True)
+                    except Exception:  # noqa: BLE001 - è solo un aiuto: la selezione va avanti senza
+                        sc = {}
+                    if sc.get('ok'):
+                        sel['scassi'] = {'n': sc['n'], 'frase': sc['message'], 'anelli': sc['anelli']}
             except SteelCADError:
                 pass
         return _ok(selection=sel)

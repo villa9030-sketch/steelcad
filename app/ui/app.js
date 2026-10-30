@@ -21,7 +21,7 @@ const ATTESA = {
   asm_delete_mate: 'Ricalcolo l’assieme…', asm_move: 'Ricalcolo l’assieme…', asm_rotate: 'Ricalcolo l’assieme…',
   asm_insert: 'Inserisco il pezzo…', asm_insert_dialog: 'Inserisco il pezzo…', asm_insert_libreria: 'Preparo la viteria…',
   asm_interferences: 'Controllo le interferenze…', asm_open_part: 'Apro il pezzo…', asm_back: 'Torno all’assieme…',
-  asm_set_finitura: 'Cambio la finitura…', asm_set_acquisto: 'Aggiorno la distinta…', asm_new_part: 'Preparo il pezzo nuovo…',
+  asm_scassi: 'Faccio gli scassi…', asm_set_finitura: 'Cambio la finitura…', asm_set_acquisto: 'Aggiorno la distinta…', asm_new_part: 'Preparo il pezzo nuovo…',
   create_from_sketch: 'Costruisco il pezzo…', add_flange: 'Piego…', edit_flange: 'Piego…', add_edge_dress: 'Raccordo gli spigoli…',
   import_step: 'Spiego lo STEP…', import_step_dialog: 'Spiego lo STEP…', import_dxf: 'Leggo il DXF…', import_dxf_dialog: 'Leggo il DXF…',
   export: 'Esporto…', export_drawings_dialog: 'Preparo le tavole…', drawing_preview: 'Preparo le tavole…', prepara: 'Preparo i file…',
@@ -56,13 +56,14 @@ function attesaFine() {
 let ultimaChiamata = null;                          // per ripetere la stessa chiamata con la soluzione di un errore
 async function call(name, ...args) {
   if (!/^(state|scene|select|autosave|update_check|anteprima|.*_preview|libreria_catalogo|asm_fori_uguali|tree_menu|drawing_fields)$/.test(name)) ultimaChiamata = [name, args];
-  attesaInizio(name);
+  const attende = !/^live_/.test(name);             // la diretta aspetta il passo dopo: non è «Sto lavorando»
+  if (attende) attesaInizio(name);
   try {
     if (!DEV) return await window.pywebview.api[name](...args);
     const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
     return await r.json();
   } finally {
-    attesaFine();
+    if (attende) attesaFine();
   }
 }
 
@@ -156,10 +157,26 @@ function aggiornaSuolo() {
   if (box.isEmpty()) { suolo.visible = false; return; }
   const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
   const r = Math.max(sz.x, sz.y, sz.z, 1);
-  suolo.position.set(c.x, c.y, box.min.z - r * 0.004);
-  suolo.scale.set(sz.x + r * 1.6, sz.y + r * 1.6, 1);
-  luceOmbra.position.set(c.x - r * 0.55, c.y - r * 0.75, box.max.z + r * 1.6);   // di sbieco: l'ombra si vede di lato
-  luceOmbra.target.position.set(c.x, c.y, box.min.z);
+  const su = camera.up.clone().normalize();
+  if (Math.abs(su.z) > 0.9999) {
+    suolo.quaternion.identity();
+    suolo.position.set(c.x, c.y, box.min.z - r * 0.004);
+    suolo.scale.set(sz.x + r * 1.6, sz.y + r * 1.6, 1);
+    luceOmbra.position.set(c.x - r * 0.55, c.y - r * 0.75, box.max.z + r * 1.6);   // di sbieco: l'ombra si vede di lato
+    luceOmbra.target.position.set(c.x, c.y, box.min.z);
+  } else {                                       // pezzo aperto dall'assieme: il pavimento è quello dell'assieme
+    const q = [];
+    for (const i of [0, 1]) for (const j of [0, 1]) for (const k of [0, 1])
+      q.push(new THREE.Vector3(i ? box.max.x : box.min.x, j ? box.max.y : box.min.y, k ? box.max.z : box.min.z).sub(c).dot(su));
+    const giu = Math.min(...q), su_ = Math.max(...q);
+    const a = new THREE.Vector3(1, 0, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(Z_SU, su));
+    const b = su.clone().cross(a);
+    suolo.quaternion.setFromUnitVectors(Z_SU, su);
+    suolo.position.copy(c).addScaledVector(su, giu - r * 0.004);
+    suolo.scale.set(r * 2.6, r * 2.6, 1);
+    luceOmbra.position.copy(c).addScaledVector(a, -r * 0.55).addScaledVector(b, -r * 0.75).addScaledVector(su, su_ + r * 1.6);
+    luceOmbra.target.position.copy(c).addScaledVector(su, giu);
+  }
   luceOmbra.target.updateMatrixWorld();
   const cam = luceOmbra.shadow.camera;
   cam.left = -r * 1.1; cam.right = r * 1.1; cam.top = r * 1.1; cam.bottom = -r * 1.1;
@@ -171,6 +188,7 @@ function aggiornaSuolo() {
 
 const model = new THREE.Group();
 const overlay = new THREE.Group();
+let SCASSI = null;                              // le sagome degli scassi da far vedere sul pezzo scelto nell'assieme
 const dimLines = new THREE.Group();
 scene.add(model, overlay, dimLines);
 const objs = new Map();
@@ -229,7 +247,7 @@ function tastiNeiSuggerimenti() {
     try { const r = Function(`"use strict"; return (${s})`)(); return Number.isFinite(r) ? Math.round(r * 1000) / 1000 : null; } catch { return null; }
   };
   const testo = n => String(n).replace('.', ',');
-  const adatto = el => el && el.tagName === 'INPUT' && (!el.type || el.type === 'text') && !el.closest('#sk-cmd, .dd-tab, #tav-ed .te-lato, #te-sel') && !el.dataset.c && !el.list && !/ral|nome|name|cod|desc|forn|cerca/i.test(el.id || '');
+  const adatto = el => el && el.tagName === 'INPUT' && (!el.type || el.type === 'text') && !el.closest('#sk-cmd, .dd-tab, #tav-ed .te-lato, #te-sel') && !el.dataset.c && !el.list && !/ral|nome|name|cod|desc|forn|cerca|testo|tx-t|lt-n/i.test(el.id || '');
   let tip = null;
   const mostra = (el, r) => {
     if (!tip) { tip = document.createElement('div'); tip.id = 'conto-tip'; document.body.appendChild(tip); }
@@ -342,16 +360,61 @@ function buildScene(sc) {
   paint();
 }
 
-// ---- vista esplosa: ogni pezzo spostato dal centro dell'assieme in proporzione (solo a video, l'assieme non cambia)
-let ESPLOSO = 0;
+// ---- vista esplosa: ogni pezzo spostato dal centro dell'assieme in proporzione (solo a video, l'assieme non cambia).
+// 29/10, «quando lo esplodo non si capisce niente» (pannello a doppia pelle): i pezzi uno dentro l'altro hanno quasi
+// lo stesso centro e si spostavano insieme. Quelli che dopo lo spostamento dal centro si sovrappongono ancora si
+// aprono a strati, in fila, nella direzione in cui il loro gruppo è più sottile (lo spessore della parete)
+let ESPLOSO = 0, pianoEspl = null;
+function pianoEsploso(ist) {
+  const chiave = ist.map(o => o.mesh.uuid + ':' + o.pos.elements.map(x => x.toFixed(2)).join(',')).join('|');
+  if (pianoEspl?.chiave === chiave) return pianoEspl;
+  const scatole = ist.map(o => { o.mesh.geometry.computeBoundingBox(); return o.mesh.geometry.boundingBox.clone().applyMatrix4(o.pos); });
+  const centri = scatole.map(b => b.getCenter(new THREE.Vector3()));
+  const C = centri.reduce((a, b) => a.clone().add(b), new THREE.Vector3()).multiplyScalar(1 / centri.length);
+  const radiale = centri.map(c => c.clone().sub(C));
+  const F = 0.8;                                    // a esploso aperto: chi si sovrappone ancora va a strati
+  const dopo = scatole.map((b, i) => b.clone().translate(radiale[i].clone().multiplyScalar(F)).expandByScalar(-0.5));
+  const capo = ist.map((_, i) => i);
+  const trova = i => (capo[i] === i ? i : (capo[i] = trova(capo[i])));
+  const vol = b => { const v = b.getSize(new THREE.Vector3()); return Math.max(v.x, 1) * Math.max(v.y, 1) * Math.max(v.z, 1); };
+  // solo le lastre (pareti, pelli, vetri, cornici: sottili rispetto alle altre due misure), con lo spessore nello
+  // stesso verso: cassetti, mobili e telai restano come prima
+  const lastra = scatole.map(b => {
+    const v = b.getSize(new THREE.Vector3()), m = [['x', v.x], ['y', v.y], ['z', v.z]].sort((a, c) => a[1] - c[1]);
+    return m[0][1] <= 0.2 * m[1][1] ? m[0][0] : null;
+  });
+  if (ist.length <= 400) {                          // uno dentro l'altro: per più di metà del più piccolo, anche dopo
+    for (let i = 0; i < ist.length; i++) for (let j = i + 1; j < ist.length; j++) {
+      if (!lastra[i] || lastra[i] !== lastra[j]) continue;
+      if (dopo[i].isEmpty() || dopo[j].isEmpty() || !dopo[i].intersectsBox(dopo[j])) continue;
+      const comune = dopo[i].clone().intersect(dopo[j]);
+      if (vol(comune) > 0.5 * Math.min(vol(dopo[i]), vol(dopo[j]))) capo[trova(i)] = trova(j);
+    }
+  }
+  const gruppi = {};
+  ist.forEach((_, i) => (gruppi[trova(i)] = gruppi[trova(i)] || []).push(i));
+  const strato = ist.map(() => new THREE.Vector3());
+  for (const g of Object.values(gruppi)) {
+    if (g.length < 2 || g.length > 8) continue;     // un gruppo grande è un mobile intero: resta com'era
+    const tutto = new THREE.Box3();
+    g.forEach(i => tutto.union(scatole[i]));
+    const dim = tutto.getSize(new THREE.Vector3());
+    const ax = dim.x <= dim.y && dim.x <= dim.z ? 'x' : dim.y <= dim.z ? 'y' : 'z';
+    const passo = 0.25 * Math.max(dim.x, dim.y, dim.z) / F;
+    // in fila dalla faccia di partenza (la pelle esterna di una parete parte da fuori: il centro la metteva dietro al vetro)
+    const fila = [...g].sort((a, b) => (scatole[a].min[ax] - scatole[b].min[ax]) || (scatole[a].max[ax] - scatole[b].max[ax]));
+    fila.forEach((i, k) => { strato[i][ax] = (k - (fila.length - 1) / 2) * passo; });
+  }
+  pianoEspl = { chiave, spost: radiale.map((r, i) => r.add(strato[i])) };
+  return pianoEspl;
+}
 function esplodi(f) {
   ESPLOSO = f;
   const ist = [...objs.values()].filter(o => o.data.kind === 'instance' && o.pos);
   if (!ist.length) return;
-  const centri = ist.map(o => { o.mesh.geometry.computeBoundingBox(); return o.mesh.geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(o.pos); });
-  const C = centri.reduce((a, b) => a.add(b), new THREE.Vector3()).multiplyScalar(1 / centri.length);
+  const { spost } = pianoEsploso(ist);
   ist.forEach((o, i) => {
-    const d = centri[i].clone().sub(C).multiplyScalar(f);
+    const d = spost[i].clone().multiplyScalar(f);
     const M = new THREE.Matrix4().makeTranslation(d.x, d.y, d.z).multiply(o.pos);
     for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(M); x.updateMatrixWorld(true); }
   });
@@ -392,6 +455,7 @@ function paint() {
   if (sel && sel.hl && objs.has('body')) for (const i of sel.hl) faceOverlay(objs.get('body'), i, C_SEL);
   if (hover && hover.face != null && objs.has(hover.id) && !(sel && sel.id === hover.id && sel.face === hover.face))
     faceOverlay(objs.get(hover.id), hover.face, C_HOVER);
+  paintScassi();
   paintEdges();
   ridisegna();
 }
@@ -772,7 +836,7 @@ canvas.addEventListener('pointermove', ev => {
 canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; tip.style.display = 'none'; paint(); });
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
-  if (SK) { skClick(ev); return; }
+  if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D)
   if (MIS) { misClick(ev); return; }
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
@@ -892,6 +956,38 @@ function faiTubiDialog() {
 
 // --------------------------------------------------------------- viste
 let anim = null;
+// 30/10 (porta ugelli): un pezzo aperto dall'assieme si guarda girato come nell'assieme, con l'alto dell'assieme e dal
+// punto da cui lo guardavi; tornando all'assieme, lo stesso al contrario. Il pezzo dentro non cambia: è solo la vista.
+const Z_SU = new THREE.Vector3(0, 0, 1);
+let vistaDaRiprendere = null;                   // la direzione della vista nel mondo da cui si arriva
+function rotContesto() {
+  const R = S?.mode !== 'assembly' && S?.contesto_R;
+  return R ? new THREE.Matrix3().set(...R.flat()) : null;
+}
+const nelPezzo = v => { const R = rotContesto(); return R ? v.clone().applyMatrix3(R.transpose()).normalize() : v.clone(); };
+const nelMondo = v => { const R = rotContesto(); return R ? v.clone().applyMatrix3(R).normalize() : v.clone(); };
+function altoVista() { return nelPezzo(Z_SU); }
+function vistaIso() { return nelPezzo(VISTE.view_iso.clone().normalize()); }
+function dirCamera() { return camera.position.clone().sub(controls.target).normalize(); }
+function vistaIniziale() {
+  const v = vistaDaRiprendere;
+  vistaDaRiprendere = null;
+  return v ? nelPezzo(v) : vistaIso();
+}
+function apriPezzoAssieme(id) {
+  clearSelection(); primaVolta = true;
+  vistaDaRiprendere = dirCamera();
+  inCoda(async () => { const r = await call('asm_open_part', id); if (!r.ok) vistaDaRiprendere = null; await apply(r); });
+}
+function tornaAllAssieme() {
+  inCoda(async () => {
+    primaVolta = true; clearSelection();
+    vistaDaRiprendere = nelMondo(dirCamera());
+    const r = await call('asm_back');
+    if (!r.ok) vistaDaRiprendere = null;
+    await apply(r);
+  });
+}
 function goTo(dir, keepDir = false) {
   if (!objs.size) return;
   fitBox(new THREE.Box3().setFromObject(model), dir, keepDir);
@@ -914,6 +1010,10 @@ function fitBox(box, dir, keepDir = false, subito = false, tutto3d = false) {
     dist = Math.max(w / 2 / Math.tan(hf / 2), h / 2 / Math.tan(fov / 2), 20) * 1.45;   // margine per casella e aiuto in basso
   }
   const d = keepDir ? camera.position.clone().sub(controls.target).normalize() : dir.clone().normalize();
+  if (Math.abs(d.dot(camera.up)) > 0.9999) {     // guardando lungo l'alto la vista non sa dov'è il nord: un filo di lato
+    const lato = Math.abs(camera.up.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    d.addScaledVector(lato.cross(camera.up).cross(camera.up).normalize(), 0.0001).normalize();
+  }
   const to = { pos: c.clone().add(d.multiplyScalar(dist)), target: c };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches || primaVolta || subito) {
     camera.position.copy(to.pos); controls.target.copy(to.target); controls.update(); ridisegna(); return;
@@ -1067,7 +1167,7 @@ async function toggleFlat(on = !flatView, anima = false) {   // animazione spent
   if (on && !S?.sheet?.data) { toast('Lo sviluppo c’è quando la lamiera è costruita: guarda la scheda Lamiera.', 'err'); return; }
   if (on) { clearSelection(); if (anima) await animaPiega(true); }
   else if (anima) {                                   // si ripiega guardandolo di sbieco, se no dall'alto non si vede salire
-    goTo(VISTE.view_iso);
+    goTo(vistaIso());
     await new Promise(res => setTimeout(res, 280));
     flatView = false; applyLook();
     await animaPiega(false);
@@ -1348,7 +1448,7 @@ function tuboDaFreccia(n, dir) {
     const capo = nodes.find(x => x.id === r.node);
     if (capo) {
       const q = new THREE.Vector3(...capo.xyz).project(camera);
-      if (Math.abs(q.x) > 0.75 || Math.abs(q.y) > 0.75) { goTo(VISTE.view_iso); setTimeout(placeDims, 450); }
+      if (Math.abs(q.x) > 0.75 || Math.abs(q.y) > 0.75) { goTo(vistaIso()); setTimeout(placeDims, 450); }
     }
   });
 }
@@ -1379,6 +1479,8 @@ async function apply(res, okMsg) {
     if (S.scene_version !== sceneVersion && S.mode === 'assembly' && S.geo && S.geo === geoCaricata && S.poses) {
       spostaPezzi(S.poses);                         // si è mosso solo qualcosa: niente scena intera
       sceneVersion = S.scene_version;
+      camera.up.copy(altoVista());
+      if (vistaDaRiprendere) goTo(vistaIniziale());
     } else if (S.scene_version !== sceneVersion) await loadScene();
     else buildDims();
     if (SK) await refreshSketch();
@@ -1423,7 +1525,8 @@ async function caricaScena() {
   bendEdges = sc.bend_edges || [];
   hoverEdge = null;
   modelRadius = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere()).radius || 100;
-  if (primaVolta || (eraVuota && objs.size)) { goTo(VISTE.view_iso); primaVolta = !objs.size && primaVolta; ribbonForProject(); }
+  camera.up.copy(altoVista());
+  if (primaVolta || (eraVuota && objs.size)) { goTo(vistaIniziale()); primaVolta = !objs.size && primaVolta; ribbonForProject(); }
   else if (objs.size && raggio() > prima * 1.15) goTo(null, true);   // il modello è cresciuto: si riadatta
   buildDims();
   buildNodes();
@@ -1622,7 +1725,7 @@ function menuPezzoAssieme(id, x, y) {
     const v = e.target.closest('button')?.dataset.v;
     if (!v) return;
     chiudiMenuAlbero();
-    if (v === 'apri') { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', id))); return; }
+    if (v === 'apri') { apriPezzoAssieme(id); return; }
     if (v === 'nascondi') { if (VIS.solo) VIS.solo.delete(id); else VIS.nascosti.add(id); if (sel && (sel.ids || [sel.id]).includes(id)) clearSelection(); }
     if (v === 'mostra') { if (VIS.solo) VIS.solo.add(id); else VIS.nascosti.delete(id); }
     if (v === 'solo') { VIS.solo = new Set([id]); VIS.nascosti.clear(); }
@@ -2150,10 +2253,11 @@ function miniBarra(s) {
   sel.soloMini = !sel.pannello; aggiornaLayout();      // il pannello a destra solo se l'hai chiesto con «⋯»
   if (assieme) {
     const id = sel?.id;
-    barretta(s.title, [['open', 'Apri il pezzo', () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', id))); }],
+    barretta(s.title, [['open', 'Apri il pezzo', () => apriPezzoAssieme(id)],
       ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
       ['fastener', sel?.face != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
-      ['select', 'Solo questo', () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); }]], { chi: 'i:' + id });
+      ['select', 'Solo questo', () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); }],
+      ...(s.scassi ? [['cut', `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, () => tutteLeOpzioni()]] : [])], { chi: 'i:' + id });
     return;
   }
   if (s.foro) { miniForo(s); return; }
@@ -3216,9 +3320,13 @@ function instancePanel(s) {
       <label>Gioco<span class="inp"><input class="field" id="t-c" value="0,2"><i>mm</i></span></label>
       <label>Sporgenza<span class="inp"><input class="field" id="t-s" value="0"><i>mm</i></span></label></div>
     <div class="row-btns"><button class="btn primary" id="t-go">Crea gli incastri</button></div></details>` : '';
+  const scassi = s.scassi ? `<details class="fsec" open><summary>Scassi per i pezzi che entrano</summary>
+    <p class="hint" id="sc-frase">${esc(s.scassi.frase)} In rosso dove taglia.</p>
+    <div class="ff"><label>Gioco per lato<span class="inp"><input class="field" id="sc-c" value="0,5"><i>mm</i></span></label><span></span></div>
+    <div class="row-btns"><button class="btn primary" id="sc-go">Fai gli scassi</button></div></details>` : '';
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
       <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
-    ${tab}${faccia}${incastri}
+    ${tab}${faccia}${incastri}${scassi}
     ${(s.movimenti || []).map((m, k) => {
       const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
       return `<div class="sub">${esc(m.nome)}</div>
@@ -3259,7 +3367,7 @@ function wireInstance(s) {
   }
   ['#a-acq-d', '#a-acq-c', '#a-acq-f'].forEach(id => { if ($(id)) $(id).onchange = () => fai('asm_set_acquisto', s.id, acq()); });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
-  $('#a-open').onclick = () => { clearSelection(); primaVolta = true; inCoda(async () => apply(await call('asm_open_part', s.id))); };
+  $('#a-open').onclick = () => apriPezzoAssieme(s.id);
   if ($('#a-nuovo')) $('#a-nuovo').onclick = () => modal(`<h3>Nuovo pezzo su questa faccia</h3>
       <p class="hint">Lo disegni sul piano della faccia, vedendo gli altri pezzi; tornando all’assieme si monta da solo.</p>
       <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="np-nome" value="Lamiera di collegamento"></label></div>
@@ -3275,6 +3383,29 @@ function wireInstance(s) {
   });
   if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
     $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
+  // scassi: le sagome in rosso sul pezzo mentre cambi il gioco, poi il taglio nel file del pezzo
+  SCASSI = s.scassi ? { id: s.id, face: s.face.index, anelli: s.scassi.anelli } : null;
+  if (SCASSI) paint();
+  if ($('#sc-c')) {
+    let t = null;
+    $('#sc-c').oninput = () => { clearTimeout(t); t = setTimeout(async () => {
+      const r = await call('asm_scassi', s.id, s.face.index, $('#sc-c').value.trim(), true);
+      if (!$('#sc-frase')) return;
+      $('#sc-frase').textContent = r.ok ? r.message + ' In rosso dove taglia.' : r.message;
+      if (r.ok) { SCASSI = { id: s.id, face: s.face.index, anelli: r.anelli }; paint(); }
+    }, 250); };
+    $('#sc-go').onclick = () => { const c = $('#sc-c').value.trim(); SCASSI = null;
+      inCoda(async () => { if (await apply(await call('asm_scassi', s.id, s.face.index, c, false))) await refreshSel(); }); };
+  }
+}
+const SCASSI_MAT = new THREE.LineBasicMaterial({ color: 0xDC2626, depthTest: false, transparent: true });
+function paintScassi() {
+  if (!SCASSI || !sel || sel.id !== SCASSI.id || sel.face !== SCASSI.face) return;
+  const pts = [];
+  for (const a of SCASSI.anelli) a.forEach((p, k) => { const q = a[(k + 1) % a.length]; pts.push(new THREE.Vector3(...p), new THREE.Vector3(...q)); });
+  const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), SCASSI_MAT.clone());
+  l.renderOrder = 20;
+  overlay.add(l);
 }
 // il campo del valore e il pulsante «gira» di ogni accoppiamento (niente = non serve)
 const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco', centra: 'Fuori centro', testa: 'Gioco di saldatura' };
@@ -4846,7 +4977,7 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     const box = new THREE.Box3().setFromObject(antGruppo);
     if (!box.isEmpty() && opz.vista === 'iso' && !antCamera) {
       antCamera = { pos: camera.position.clone(), target: controls.target.clone() };
-      fitBox(box.union(new THREE.Box3().setFromObject(model)), VISTE.view_iso, false, true, true);
+      fitBox(box.union(new THREE.Box3().setFromObject(model)), vistaIso(), false, true, true);
     } else if (!box.isEmpty()) {
       const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
       if (!fr.containsPoint(box.min) || !fr.containsPoint(box.max)) fitBox(box.union(new THREE.Box3().setFromObject(model)), null, true);
@@ -4878,13 +5009,14 @@ function conAnteprima(metodo, argomenti, opz = {}) {
   let st = box.querySelector('.ant-stato');
   if (!st) { st = document.createElement('div'); st.className = 'ant-stato'; (box.querySelector('.acts') || box).before(st); }
   const o = { vista: SK ? 'iso' : undefined, ...opz };
+  if (SK) controls.enableRotate = true;               // 30/10: l'anteprima si gira col mouse anche dal disegno
   const vai = () => anteprima(metodo, argomenti, st, o);
   box.querySelectorAll('input, select').forEach(i => { i.addEventListener('input', vai); i.addEventListener('change', vai); });
   box.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setTimeout(vai)));
   vai();
 }
 // la finestra si chiude (Annulla, Esc, OK): l'anteprima sparisce
-new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal').classList.remove('laterale'); } })
+new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal').classList.remove('laterale'); if (SK) controls.enableRotate = false; } })
   .observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
 
 function modal(html, wire) {
@@ -5286,14 +5418,6 @@ async function showHome(info) {
     }); });
     $('#home').querySelectorAll('[data-forget]').forEach(b => { b.onclick = () => inCoda(async () => showHome(await call('forget_recent', b.dataset.forget))); });
   };
-  // esempi pronti (24/10): un clic e si apre un pezzo vero da guardare e cambiare
-  $('#home-esempi').hidden = !(info.esempi || []).length;
-  $('#home-esempi-riga').innerHTML = (info.esempi || []).map(e => `<button class="home-esempio" data-esempio="${esc(e.id)}" title="Si apre come lavoro nuovo: cambialo come vuoi">
-      <span class="pic"><img src="img/modelli/${esc(e.img)}" alt=""></span><span><b>${esc(e.nome)}</b><small>${esc(e.testo)}</small></span></button>`).join('');
-  $('#home-esempi-riga').querySelectorAll('[data-esempio]').forEach(b => { b.onclick = () => inCoda(async () => {
-    const r = await call('esempio', b.dataset.esempio);
-    if (await apply(r)) { hideHome(); toast(r.avviso || 'Esempio aperto: cambia le misure a sinistra o clicca il pezzo. Per tenerlo, Salva.'); }
-  }); });
   $('#home-filtro').innerHTML = [['tutti', 'Tutti'], ['pezzi', 'Pezzi'], ['assiemi', 'Assiemi']]
     .map(([k, t]) => `<button data-filtro="${k}" class="${homeFiltro === k ? 'on' : ''}">${t}<i>${conta[k]}</i></button>`).join('');
   $('#home-filtro').querySelectorAll('button').forEach(b => { b.onclick = () => { homeFiltro = b.dataset.filtro; showHome(info); }; });
@@ -5485,7 +5609,7 @@ const CMDS = [
     sel = { id: r.interferences[0].a, ids: [...new Set(r.interferences.flatMap(x => [x.a, x.b]))] }; paint(); renderTree();
     toast('Interferenze: ' + r.interferences.map(x => x.label).join(' · '), 'err');
   }) },
-  { id: 'asm_back', label: 'Torna all’assieme', run: () => inCoda(async () => { primaVolta = true; clearSelection(); await apply(await call('asm_back')); }) },
+  { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
   { id: 'import_step', label: 'Apri STEP di una lamiera (fa lo sviluppo)…', run: () => stepDialog() },
@@ -5506,7 +5630,7 @@ const CMDS = [
   { id: 'export_dxf', label: 'Esporta DXF di taglio…', run: () => inCoda(async () => apply(await call('export', 'dxf'))) },
   { id: 'undo', label: 'Annulla', keys: 'Ctrl+Z', run: () => S?.undo[0] && inCoda(async () => apply(await call('undo'))) },
   { id: 'redo', label: 'Ripeti', keys: 'Ctrl+Y', run: () => S?.redo[0] && inCoda(async () => apply(await call('redo'))) },
-  { id: 'view_iso', label: 'Vista isometrica', keys: '0', run: () => goTo(VISTE.view_iso) },
+  { id: 'view_iso', label: 'Vista isometrica', keys: '0', run: () => goTo(vistaIso()) },
   { id: 'view_top', label: 'Vista dall’alto', keys: '7', run: () => goTo(VISTE.view_top) },
   { id: 'view_front', label: 'Vista di fronte', keys: '1', run: () => goTo(VISTE.view_front) },
   { id: 'view_right', label: 'Vista da destra', keys: '3', run: () => goTo(VISTE.view_right) },
@@ -5741,7 +5865,7 @@ const AIUTI = {
   dim: 'Clic su una linea (lunghezza) o un cerchio (diametro) · oppure su due punti, o un punto e una linea (distanza)',
   trim: 'Accorcia: passa sul pezzo di linea da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
   extend: 'Allunga: passa vicino all’estremità di una linea (l’allungamento tratteggiato) e clicca · Esc finisce',
-  text: 'Testo: clic dove comincia (in basso a sinistra), poi scrivi il testo e l’altezza · per marcarlo col laser: «Marca col laser»',
+  text: 'Testo: clic sul punto (il centro del foro, se la vuoi centrata lì), poi scrivi testo, altezza e angolo · per cambiarla dopo: doppio clic con Seleziona · per marcarla: «Marca col laser»',
 };
 
 const v3 = a => new THREE.Vector3(...a);
@@ -5836,7 +5960,7 @@ function exitSketch() {
   for (const g of [skGroup, skGrid, skRubber, skOver]) { g.traverse(x => x.geometry?.dispose()); g.clear(); }
   skBase = null;
   chiudiOrigine();
-  goTo(VISTE.view_iso);
+  goTo(vistaIso());
   renderTree();
   buildDims();
 }
@@ -5884,6 +6008,7 @@ function setTool(t) {
   document.body.classList.toggle('disegno-attivo', !['select', 'dim'].includes(t));
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   $('#sk-help').textContent = AIUTI[t] + ' · destro sposta, rotella ingrandisce';
+  if (t === 'text' && SK.lastText && !SK.provaTesto) provaTesto(SK.lastText);    // la scritta di prima segue il mouse
   drawRubber();
 }
 // 28/10: la barra «cosa fare adesso», uguale per ogni comando. I comandi scrivono come prima («Nome: cosa fare · Esc
@@ -6322,6 +6447,12 @@ function drawRubber() {
   skRubber.traverse(x => x.geometry?.dispose());
   skRubber.clear();
   if (SK) updateCmd();
+  // la scritta in prova: al punto cliccato (finestra aperta) o sotto il mouse col comando Testo (le ultime misure)
+  const pt = SK?.provaTesto;
+  if (pt?.tratti?.length && (pt.at || (SK.tool === 'text' && SK.cursor && $('#modal').hidden))) {
+    const o = pt.at || SK.cursor.xy;
+    for (const tr of pt.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + o[0], q[1] + o[1]]))), SK_TESTO));
+  }
   const tip = $('#sk-tip');
   if (SK?.pick?.what === 'corner') { drawSnap({ tipo: 'punto', xy: SK.pick.xy }); updateCmd(); ridisegna(); return; }
   if (SK && (SK.tool === 'trim' || SK.tool === 'extend') && !SK.pick) {
@@ -6651,39 +6782,72 @@ function skPlace(c) {
     }
   } else if (SK.tool === 'text') {
     const sid = SK.sid;
-    const ultimo = SK.lastText || { text: '', h: 5, angle: 0, come: '' };
-    modal(`<h3>Testo</h3>
-      <div class="form"><label style="grid-column:1/-1">Testo<input class="field" id="tx-t" value="${esc(ultimo.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
-        <label style="grid-column:1/-1">Come<select class="field" id="tx-c">
-          <option value=""${!ultimo.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option>
-          <option value="saira"${ultimo.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
-          <option value="allerta"${ultimo.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option></select></label>
-        <label>Altezza<span class="inp"><input class="field" id="tx-h" value="${esc(String(ultimo.h).replace('.', ','))}"><i>mm</i></span></label>
-        <label>Angolo<span class="inp"><input class="field" id="tx-a" value="${esc(String(ultimo.angle).replace('.', ','))}"><i>°</i></span></label></div>
-      <p class="hint" id="tx-hint"></p>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti il testo</button></div>`, close => {
-      $('#m-no').onclick = close;
-      const spiega = () => { $('#tx-hint').textContent = $('#tx-c').value
-        ? 'Lettere stencil a contorno chiuso, coi ponticelli (le isole di O, A, B… non cadono): poi «Togli materiale».'
-        : 'Il laser lo segna in una passata (lettere a tratto singolo): poi «Marca col laser».'; };
-      $('#tx-c').onchange = spiega; spiega();
-      const vai = () => {
-        const t = $('#tx-t').value, h = $('#tx-h').value.trim(), a = $('#tx-a').value.trim() || '0', come = $('#tx-c').value;
-        if (!t.trim()) { toast('Scrivi il testo.', 'err'); return; }
-        SK.lastText = { text: t, h, angle: a, come };
-        close();
-        inCoda(async () => { await apply(await call('sketch_add_text', sid, ptArg(p), t, h, a, come || null)); });
-      };
-      $('#m-ok').onclick = vai;
-      $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
-      $('#tx-t').focus();
-    });
+    finestraTesto({ valori: SK.lastText, at: p.xy, nuova: true, ok: (v, close) => {
+      SK.lastText = v;
+      close();
+      inCoda(async () => { await apply(await call('sketch_add_text', sid, ptArg(p), v.text, v.h, v.angle, v.come || null, v.centro)); });
+    } });
   } else if (SK.tool === 'circle') {
     if (!SK.pts.length) { SK.pts.push(p); }
     else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; const r = Math.hypot(c.xy[0] - a.xy[0], c.xy[1] - a.xy[1]); if (r > 0) inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), r, k)); }); }
   }
   SK.buf = '';
   drawRubber();
+}
+// la finestra del testo (30/10): nuova, al punto cliccato, o per cambiare una scritta già messa (doppio clic). Mentre
+// scrivi, la scritta si vede al suo posto; «al centro» = il punto cliccato è il centro della scritta (sul centro del foro)
+const TESTO_BASE = { text: '', h: 5, angle: 0, come: '', centro: true };
+async function provaTesto(v, at = null) {
+  if (!SK) return;
+  const chiave = JSON.stringify([v.text, v.h, v.angle, v.come, v.centro]);
+  if (SK.provaTesto?.chiave !== chiave) {
+    const r = v.text?.trim() ? await call('testo_anteprima', v.text, v.h, v.angle || 0, v.come || null, !!v.centro) : null;
+    if (!SK) return;
+    SK.provaTesto = { chiave, tratti: r?.ok ? r.tratti : [] };
+  }
+  SK.provaTesto.at = at;
+  drawRubber();
+}
+function finestraTesto({ valori, at, nuova, ok }) {
+  const u = { ...TESTO_BASE, ...(valori || {}) };
+  const virg = x => esc(String(x).replace('.', ','));
+  modal(`<h3>${nuova ? 'Testo' : 'Cambia il testo'}</h3>
+    <div class="form"><label style="grid-column:1/-1">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
+      <label style="grid-column:1/-1">Come<select class="field" id="tx-c">
+        <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option>
+        <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
+        <option value="allerta"${u.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option></select></label>
+      <label>Altezza delle lettere<span class="inp"><input class="field" id="tx-h" value="${virg(u.h)}"><i>mm</i></span></label>
+      <label>Angolo<span class="inp"><input class="field" id="tx-a" value="${virg(u.angle)}"><i>°</i></span></label>
+      ${nuova ? `<label style="grid-column:1/-1">Il punto che hai cliccato è<select class="field" id="tx-p">
+        <option value="1"${u.centro ? ' selected' : ''}>il centro della scritta (clicca il centro del foro)</option>
+        <option value=""${!u.centro ? ' selected' : ''}>l’angolo in basso a sinistra</option></select></label>` : ''}</div>
+    <p class="hint" id="tx-hint"></p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">${nuova ? 'Metti il testo' : 'Cambia'}</button></div>`, close => {
+    $('#modal').classList.add('laterale');           // di lato: la scritta in prova sul foro si vede
+    const chiudi = () => { if (SK) { SK.provaTesto = null; drawRubber(); } close(); };
+    $('#m-no').onclick = chiudi;
+    const leggi = () => ({ text: $('#tx-t').value, h: $('#tx-h').value.trim().replace(',', '.'), angle: ($('#tx-a').value.trim() || '0').replace(',', '.'),
+      come: $('#tx-c').value, centro: nuova ? !!$('#tx-p').value : u.centro });
+    const spiega = () => { $('#tx-hint').textContent = ($('#tx-c').value
+      ? 'Lettere stencil a contorno chiuso, coi ponticelli (le isole di O, A, B… non cadono): poi «Togli materiale».'
+      : 'Il laser lo segna in una passata (lettere a tratto singolo): poi «Marca col laser».') +
+      ' L’altezza è quella delle maiuscole; la scritta la vedi già al suo posto.'; };
+    let t = null;
+    const aggiorna = () => { spiega(); clearTimeout(t); t = setTimeout(() => provaTesto(leggi(), at), 150); };
+    for (const id of ['#tx-t', '#tx-h', '#tx-a']) $(id).addEventListener('input', aggiorna);
+    for (const id of ['#tx-c', '#tx-p']) $(id)?.addEventListener('change', aggiorna);
+    aggiorna();
+    const vai = () => {
+      const v = leggi();
+      if (!v.text.trim()) { toast('Scrivi il testo.', 'err'); return; }
+      ok(v, chiudi);
+      if (SK) { SK.provaTesto = null; if (SK.tool === 'text') provaTesto(v); }
+    };
+    $('#m-ok').onclick = vai;
+    $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+    $('#tx-t').focus();
+  });
 }
 // asola: la larghezza è il doppio della distanza del mouse dalla linea dei centri
 // l'arco per tre punti, come punti da disegnare (con il raggio)
@@ -7375,23 +7539,39 @@ function makeDialog(kind) {
     const sid = SK.sid, BD = S?.bend_default || {};
     const archi = SK.v.arcs.filter(a => !a.construction && !a.ref).length;
     modal(`<h3>Estrudi in lamiera</h3>
-      <p class="hint">Il profilo disegnato (aperto) diventa lamiera piegata: ogni spigolo è una piega${archi ? `, ogni arco (qui ${archi}) si fa a colpi (bumping)` : ''}. La linea disegnata è la faccia interna: lo spessore va dalla parte esterna.</p>
+      <p class="hint">Il profilo disegnato (aperto) diventa lamiera piegata: ogni spigolo è una piega${archi ? `, ogni arco (qui ${archi}) si fa a colpi (bumping)` : ''}, col raggio del punzone.</p>
+      <div class="sub">La linea che hai disegnato è…</div>
+      <div class="choice" id="pf-lato"><button type="button" data-gira="0"><b>l’interno</b> della lamiera<small>lo spessore va verso fuori</small></button>
+        <button type="button" data-gira="1"><b>l’esterno</b> della lamiera<small>lo spessore va verso dentro</small></button></div>
       <div class="ff"><label>Lunghezza (di quanto estrudere)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
         <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
       ${archi ? `<div class="ff"><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm"></span></label><span></span></div>` : ''}
       <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>
         <label>K-factor<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
-      <label class="check"><input type="checkbox" id="pf-gira"> lo spessore va dall’altra parte (la linea è la faccia esterna)</label>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Estrudi in lamiera</button></div>`, close => {
+      <p class="hint">Il 3D si gira trascinando col mouse e si ingrandisce con la rotella, anche con questa finestra aperta.</p>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok" disabled title="Prima scegli: interno o esterno">Estrudi in lamiera</button></div>`, close => {
+      // 30/10, Stefano: «non mi chiede se il profilo è l'interno o l'esterno»: si sceglie per forza, e l'anteprima lo fa vedere
+      let gira = null, avviata = false;
+      const valori = () => ({ lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(), colpi: $('#pf-colpi')?.value.trim() || '',
+        raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: !!gira });
       $('#m-no').onclick = close;
+      document.querySelectorAll('#pf-lato button').forEach(b => {
+        b.onclick = () => {
+          gira = b.dataset.gira === '1';
+          document.querySelectorAll('#pf-lato button').forEach(x => x.classList.toggle('on', x === b));
+          $('#m-ok').disabled = false; $('#m-ok').title = '';
+          if (!avviata) { avviata = true; conAnteprima('create_from_sketch', () => [sid, 'profilo', valori()]); }
+          else $('#pf-L').dispatchEvent(new Event('input'));
+        };
+      });
       $('#m-ok').onclick = () => {
-        const v = { lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(), colpi: $('#pf-colpi')?.value.trim() || '',
-          raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: $('#pf-gira').checked };
+        if (gira === null) return;
+        const v = valori();
         close();
         inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'profilo', v))) exitSketch(); });
       };
-      conAnteprima('create_from_sketch', () => [sid, 'profilo', { lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(),
-        colpi: $('#pf-colpi')?.value.trim() || '', raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: $('#pf-gira').checked }]);
+      $('#modal').classList.add('laterale');                // il 3D resta libero già prima della scelta
+      if (SK) controls.enableRotate = true;
     });
     return;
   }
@@ -7467,6 +7647,14 @@ function chainOf(h) {
 canvas.addEventListener('dblclick', ev => {
   if (!SK || (SK.tool !== 'select' || SK.pick) && SK.pick?.stage !== 'sel') return;
   const h = skHit(ev);
+  const tx = h && (SK.v.texts || []).find(t => t.id === h);
+  if (tx) {                                       // 30/10: doppio clic su una scritta = cambiala (il suo punto resta fermo)
+    const sid = SK.sid, pa = SK.v.points.find(q => q.id === tx.anchor_id);
+    const at = pa ? [...skToLocal(v3(pa.xyz))].slice(0, 2) : null;
+    finestraTesto({ valori: { text: tx.text, h: tx.h, angle: tx.angle, come: tx.stencil || '', centro: tx.centrato }, at, nuova: false,
+      ok: (v, close) => { close(); inCoda(async () => { await apply(await call('sketch_edit_text', sid, tx.id, v.text, v.h, v.angle, v.come || null)); }); } });
+    return;
+  }
   if (!h || !SK.v.lines.some(l => l.id === h)) return;
   if (SK.pick?.stage === 'sel') { for (const x of chainOf(h)) SK.sel.add(x); } else SK.sel = chainOf(h);
   drawSketch();
@@ -7681,7 +7869,7 @@ async function start() {
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), nuovo: k => newDialog(k), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, foto: p => fotoAnteprima(p), THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
-  window.__prova = { call, MAN, MINI, renderProps };            // per le prove automatiche dell'interfaccia
+  window.__prova = { call, MAN, MINI, renderProps, apriPezzoAssieme, tornaAllAssieme };            // per le prove automatiche dell'interfaccia
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo
 async function liveLoop() {
@@ -7699,6 +7887,9 @@ async function liveLoop() {
           hideHome();
           if (ev.sketch && !SK) await enterSketch(ev.sketch);
           if (ev.key) document.dispatchEvent(new KeyboardEvent('keydown', { key: ev.key, bubbles: true }));
+        } else if (ev.type === 'select') {                 // come un clic sul pezzo (e la sua faccia); pannello = «⋯»
+          await select(ev.id, ev.face ?? null);
+          if (ev.pannello) tutteLeOpzioni();
         }
       } catch (e) { console.error(e); }
     }

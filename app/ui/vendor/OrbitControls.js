@@ -185,6 +185,10 @@ class OrbitControls extends EventDispatcher {
 
 			return function update( deltaTime = null ) {
 
+				// Radius 30/10: l'alto si può cambiare (pezzo aperto dall'assieme, girato come lì)
+				quat.setFromUnitVectors( scope.object.up, new Vector3( 0, 1, 0 ) );
+				quatInverse.copy( quat ).invert();
+
 				const position = scope.object.position;
 
 				offset.copy( position ).sub( scope.target );

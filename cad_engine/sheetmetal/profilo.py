@@ -43,6 +43,15 @@ def catena(ss, fid) -> list:
     if any(e['kind'] == 'circle' and not e.get('construction') for e in sk.entities.values()):
         raise FeatureError('Nel profilo non ci vanno cerchi interi: usa archi.', feature=fid)
     uguale = lambda p, q: math.dist(p, q) < TOL  # noqa: E731
+    # una linea disegnata due volte (andata e ritorno sullo stesso tratto, 30/10 porta ugelli): conta una volta
+    unici = []
+    for e in pezzi:
+        doppio = any(f['k'] == e['k'] == 'L' and ((uguale(e['p'][0], f['p'][0]) and uguale(e['p'][1], f['p'][1])) or
+                                                  (uguale(e['p'][0], f['p'][1]) and uguale(e['p'][1], f['p'][0])))
+                     for f in unici)
+        if not doppio:
+            unici.append(e)
+    pezzi = unici
     capi = []
     for e in pezzi:
         for q in e['p']:
@@ -150,6 +159,58 @@ def _sposta(pts, t, lato):
     return out
 
 
+def _raccorda(P, giri, raggi, fid):
+    """Un lato della sezione con le pieghe vere: a ogni spigolo un arco di raggio raggi[j] tangente ai due tratti.
+    Ritorna i tratti [('L', p, q) | ('A', p, metà, q)]."""
+    out, cur = [], P[0]
+    for i in range(1, len(P) - 1):
+        a, b, c = P[i - 1], P[i], P[i + 1]
+        R, phi = raggi[i - 1], abs(giri[i - 1])
+        if R <= TOL or phi < 1e-9:
+            out.append(('L', cur, b))
+            cur = b
+            continue
+        lu, lv = math.dist(a, b), math.dist(b, c)
+        u = ((b[0] - a[0]) / lu, (b[1] - a[1]) / lu)
+        v = ((c[0] - b[0]) / lv, (c[1] - b[1]) / lv)
+        s = R * math.tan(phi / 2)                                   # dallo spigolo a dove comincia l'arco
+        if s > math.dist(cur, b) + TOL or s > lv + TOL:
+            raise FeatureError(f'Il raggio di piega {fmt_mm(round(R, 2))} non sta sul tratto {i}: è troppo corto per '
+                               'la piega. Raggio più piccolo o tratto più lungo.', feature=fid)
+        t1 = (b[0] - u[0] * s, b[1] - u[1] * s)
+        t2 = (b[0] + v[0] * s, b[1] + v[1] * s)
+        bx, by = v[0] - u[0], v[1] - u[1]                           # bisettrice, verso l'interno della curva
+        nb = math.hypot(bx, by)
+        bx, by = bx / nb, by / nb
+        d = R / math.cos(phi / 2)
+        m = (b[0] + bx * (d - R), b[1] + by * (d - R))              # metà dell'arco
+        if math.dist(cur, t1) > TOL:
+            out.append(('L', cur, t1))
+        out.append(('A', t1, m, t2))
+        cur = t2
+    if math.dist(cur, P[-1]) > TOL:
+        out.append(('L', cur, P[-1]))
+    return out
+
+
+def _sezione(plane, pts, altro, giri, lato, rp, t, fid):
+    """La sezione chiusa nel piano dello sketch. Con il raggio (30/10, Stefano: «gli angoli rimangono spigolo vivo»)
+    ogni piega è un arco: rp dalla parte interna della piega, rp + t da quella esterna. Senza raggio: spigoli vivi."""
+    if rp is None:
+        return bd.Face(bd.Wire.make_polygon([plane.from_local_coords(q) for q in pts + list(reversed(altro))], close=True))
+    dentro = [(phi > 0 and lato < 0) or (phi < 0 and lato > 0) for phi in giri]   # la linea disegnata dentro la piega
+    A = _raccorda(pts, giri, [rp if d else rp + t for d in dentro], fid)
+    B = _raccorda(altro, giri, [rp + t if d else rp for d in dentro], fid)
+    giro = A + [('L', pts[-1], altro[-1])]
+    for x in reversed(B):
+        giro.append(('L', x[2], x[1]) if x[0] == 'L' else ('A', x[3], x[2], x[1]))
+    giro.append(('L', altro[0], pts[0]))
+    p3 = plane.from_local_coords
+    edges = [bd.Edge.make_line(p3(x[1]), p3(x[2])) if x[0] == 'L'
+             else bd.Edge.make_three_point_arc(p3(x[1]), p3(x[2]), p3(x[3])) for x in giro]
+    return bd.Face(bd.Wire(edges))
+
+
 def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
     """Solido, sviluppo (rettangolo con le linee dei colpi), righe della tabella e info."""
     fila = catena(ss, fid)
@@ -160,10 +221,11 @@ def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
     if gira:
         lato = -lato
     altro = _sposta(pts, t, lato)
-    sezione = [plane.from_local_coords(q) for q in pts + list(reversed(altro))]
     try:
-        faccia = bd.Face(bd.Wire.make_polygon(sezione, close=True))
+        faccia = _sezione(plane, pts, altro, giri, lato, r_piega, t, fid)
         solido = bd.extrude(faccia, amount=L, dir=plane.z_dir)
+    except FeatureError:
+        raise
     except Exception as ex:  # noqa: BLE001
         raise FeatureError(f'La sezione del profilo non si chiude ({ex}): pieghe troppo strette per lo spessore?',
                            feature=fid) from None

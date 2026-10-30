@@ -91,13 +91,14 @@ def view(doc, sid: str, body=None) -> dict:
     for k, e in sk.entities.items():
         if e['kind'] != 'text' or e['center'] not in pts:
             continue
-        x, y = pts[e['center']]
+        x, y = testo_mod.origine(e, *pts[e['center']])
         if e.get('stencil'):
             tr = [c + c[:1] for c in testo_mod.contorni(e['text'], e['h'], x, y, e.get('angle', 0), e['stencil'])]
             w = testo_mod.larghezza_stencil(e['text'], e['h'], e['stencil'])
         else:
             tr, w = testo_mod.tratti(e['text'], e['h'], x, y, e.get('angle', 0)), testo_mod.larghezza(e['text'], e['h'])
         out['texts'].append({'id': k, 'text': e['text'], 'h': e['h'], 'angle': e.get('angle', 0), 'xy': [x, y],
+                             'centrato': bool(e.get('centrato')),
                              'anchor_id': e['center'], 'strokes': [[g(q) for q in t] for t in tr], 'w': w,
                              'stencil': e.get('stencil')})
     if out['texts'] and isinstance(sk.plane, dict) and not out['profiles'] and not any(t.get('stencil') for t in out['texts']):
@@ -422,13 +423,30 @@ def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = Fa
             raise SketchError('Per chiudere un contorno servono almeno tre punti.')
         ids.append(ids[0])
         xy.append(xy[0])
-    linee = [sk.line(ids[i], ids[i + 1]) for i in range(len(ids) - 1)]
+    # un tratto esattamente sopra una linea che c'è già (si torna indietro sulla stessa linea): non si rifà,
+    # se no il profilo «si dirama» (30/10, porta ugelli)
+    def _esiste(i):
+        a, b = xy[i], xy[i + 1]
+        for e in sk.entities.values():
+            if e['kind'] != 'line' or e.get('ref') or bool(e.get('construction')) != bool(construction):
+                continue
+            qa = risolti.get(e['a'], (sk.entities[e['a']].get('x'), sk.entities[e['a']].get('y')))
+            qb = risolti.get(e['b'], (sk.entities[e['b']].get('x'), sk.entities[e['b']].get('y')))
+            if None in qa or None in qb:
+                continue
+            if (math.dist(a, qa) < 1e-4 and math.dist(b, qb) < 1e-4) or (math.dist(a, qb) < 1e-4 and math.dist(b, qa) < 1e-4):
+                return True
+        return False
+    doppi = {i for i in range(len(ids) - 1) if _esiste(i)}
+    linee = [None if i in doppi else sk.line(ids[i], ids[i + 1]) for i in range(len(ids) - 1)]
     for lid in linee:
+        if lid is None:
+            continue
         sk.entities[lid]['label'] = f'lato {lid}'     # "il fianco sul lato L3", non "linea L3"
         sk.entities[lid]['construction'] = bool(construction)
     tipi = [_snap_hv(xy[i], xy[i + 1]) for i in range(len(linee))]
     for lid, t in zip(linee, tipi):
-        if t:
+        if t and lid:
             sk.constrain(t, lid, auto=True)
     salta = set()
     if closed:
@@ -439,11 +457,11 @@ def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = Fa
         if tipi[-1] is None:
             salta.add(len(linee) - 1)
     for i, lid in enumerate(linee):
-        if i not in salta:
+        if i not in salta and lid:
             sk.dimension('length', lid, value=_r(math.dist(xy[i], xy[i + 1])))
     # angolo scritto ("100<30"): resta quello, misurato dall'asse X con una guida orizzontale corta
     for i, ang in enumerate(angles or []):
-        if ang is None or i >= len(linee) or tipi[i]:
+        if ang is None or i >= len(linee) or tipi[i] or not linee[i]:
             continue
         x0, y0 = xy[i]
         q = sk.point(x0 + 20, y0, construction=True)
@@ -456,13 +474,15 @@ def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = Fa
         if not isinstance(p, dict) or not linee:
             continue
         seg = linee[i - 1] if i > 0 else linee[0]
+        if not seg:
+            continue
         if 'tan' in p:
             sk.constrain('tangent', seg, p['tan'])
         if 'perp' in p:
             sk.constrain('perpendicular', seg, p['perp'])
     if refs[0][2]:
         _position(sk, ids[0], xy[0])
-    return linee
+    return [lid for lid in linee if lid]
 
 
 def add_rectangle(doc, sid: str, p0, p1, construction: bool = False) -> dict:
@@ -501,11 +521,15 @@ def add_circle(doc, sid: str, center, r: float, construction: bool = False) -> s
     return cid
 
 
-def add_text(doc, sid: str, pos, testo: str, h: float, angolo: float = 0.0, stencil: str | None = None) -> str:
-    """Un testo col punto in basso a sinistra in pos: da marcare col laser, o da tagliare (stencil = 'saira'/'allerta')."""
+def add_text(doc, sid: str, pos, testo: str, h: float, angolo: float = 0.0, stencil: str | None = None,
+             centrato: bool = False) -> str:
+    """Un testo col punto in basso a sinistra in pos (o col centro, se centrato): da marcare col laser, o da tagliare
+    (stencil = 'saira'/'allerta')."""
     sk = doc.sketch(sid)
     pid, xy, nuovo = _point_ref(sk, pos)
     tid = sk.text(pid, testo, float(h), float(angolo or 0), stencil or None)
+    if centrato:
+        sk.entities[tid]['centrato'] = True
     if nuovo:
         _position(sk, pid, xy)
     return tid
@@ -617,3 +641,20 @@ add_polyline = guarded(add_polyline)
 add_rectangle = guarded(add_rectangle)
 add_circle = guarded(add_circle)
 add_slot = guarded(add_slot)
+
+
+def edit_text(doc, sid: str, tid: str, testo: str, h: float, angolo: float = 0.0, stencil: str | None = None) -> None:
+    """Cambia testo, altezza, angolo e tipo di una scritta già messa: il suo punto (centro o angolo) resta fermo."""
+    sk = doc.sketch(sid)
+    e = sk.entities.get(tid)
+    if not e or e['kind'] != 'text':
+        raise SketchError('La scritta non c’è più.')
+    if not str(testo).strip():
+        raise SketchError('Scrivi il testo da marcare.')
+    if float(h) <= 0:
+        raise SketchError('L’altezza del testo deve essere maggiore di zero.')
+    e.update(text=str(testo), h=float(h), angle=float(angolo or 0))
+    if stencil:
+        e['stencil'] = stencil
+    else:
+        e.pop('stencil', None)

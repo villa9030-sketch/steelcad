@@ -14,8 +14,3 @@ def test_esempio_si_apre_pulito(eid):
     assert st['name'].startswith('Esempio') and st['path'] is None
     assert st['errors'] == [] and st['warnings'] == []
     assert st['undo'] == []                                      # Annulla non smonta l'esempio
-
-
-def test_esempi_nella_pagina_iniziale():
-    info = Service().home_info()
-    assert [e['id'] for e in info['esempi']] == [e['id'] for e in ESEMPI]

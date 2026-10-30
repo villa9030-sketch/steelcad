@@ -138,7 +138,7 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
         if e['kind'] != 'text' or not e.get('stencil') or e['center'] not in ss.points:
             continue
         from . import testo as testo_mod
-        x, y = ss.points[e['center']]
+        x, y = testo_mod.origine(e, *ss.points[e['center']])
         for giro in testo_mod.contorni(e['text'], e['h'], x, y, e.get('angle', 0), e['stencil']):
             if len(giro) >= 3 and abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(giro, giro[1:] + giro[:1]))) > 1e-4:
                 loops.append(bd.Wire.make_polygon([plane.from_local_coords(q) for q in giro], close=True))

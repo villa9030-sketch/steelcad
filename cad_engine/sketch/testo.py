@@ -211,3 +211,21 @@ def contorni(testo: str, h: float, x: float = 0.0, y: float = 0.0, angolo: float
 def larghezza_stencil(testo: str, h: float, font: str = 'saira') -> float:
     *_, alto = _font_stencil(font)
     return max((sum(_glifo_stencil(font, ch)[1] for ch in riga) for riga in str(testo).split('\n')), default=0) * h / alto
+
+
+def origine(e: dict, x: float, y: float) -> tuple:
+    """Il punto in basso a sinistra da cui si scrive il testo ``e``. Un testo centrato (30/10, «che fatica centrare
+    una scritta in un foro») ha (x, y) al centro: in larghezza e in altezza delle maiuscole, anche girato."""
+    if not e.get('centrato'):
+        return x, y
+    h = float(e['h'])
+    # il centro del disegno vero delle lettere (non della larghezza col passo dell'ultima lettera)
+    tr = contorni(e['text'], h, 0, 0, 0, e['stencil']) if e.get('stencil') else tratti(e['text'], h, 0, 0, 0)
+    xs = [q[0] for t in tr for q in t]
+    if not xs:
+        return x, y
+    n = len(str(e['text']).split(chr(10)))
+    u = -(min(xs) + max(xs)) / 2
+    v = -(h - (n - 1) * 1.6 * h) / 2                  # in altezza: le maiuscole (le code di g, p… non spostano)
+    ca, sa = math.cos(math.radians(e.get('angle', 0))), math.sin(math.radians(e.get('angle', 0)))
+    return x + u * ca - v * sa, y + u * sa + v * ca

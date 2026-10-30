@@ -197,6 +197,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             'redo': self.history.labels()['redo'][:1],
             'tree': self._albero(doc, r), 'parameters': self._parameters(), 'mode': 'part',
             'can_back': bool(getattr(self, '_asm_ritorno', None)),
+            'contesto_R': (getattr(self, '_contesto', None) or {}).get('R'),   # per guardarlo girato come nell'assieme
             'errors': [f.to_dict() for f in r.errors], 'warnings': avvisi,
             'bom': righe, 'bom_kg': total_kg(righe), 'cutlist': cl, 'info': info,
             'dimensions': self._dimensions(), 'scene_version': self.scene_version, 'sheet': sheet,
@@ -1588,7 +1589,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
                                    lambda: sketch_ops.add_circle(self.doc, sid, center, r, construction))
 
-    def sketch_add_text(self, sid: str, pos, testo: str, h, angolo=0, stencil=None) -> dict:
+    def sketch_add_text(self, sid: str, pos, testo: str, h, angolo=0, stencil=None, centrato=False) -> dict:
         """Un testo da marcare col laser (numeri, codici, sigle): poi «Marca col laser». Con stencil ('saira' o
         'allerta') le lettere sono contorni chiusi da tagliare: poi «Togli materiale»."""
         try:
@@ -1599,7 +1600,41 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except SteelCADError as ex:
             return _err(ex)
         return self._sketch_change(f'Testo «{str(testo)[:20]}»',
-                                   lambda: sketch_ops.add_text(self.doc, sid, pos, testo, h, angolo, stencil or None))
+                                   lambda: sketch_ops.add_text(self.doc, sid, pos, testo, h, angolo, stencil or None,
+                                                               bool(centrato)))
+
+    def _dati_testo(self, h, angolo, stencil):
+        h, angolo = _numero(h, 'l’altezza'), _numero(angolo or 0, 'l’angolo')
+        if stencil and stencil not in ('saira', 'allerta'):
+            raise SteelCADError(f'Carattere «{stencil}» sconosciuto.', code='testo')
+        return h, angolo
+
+    def sketch_edit_text(self, sid: str, tid: str, testo: str, h, angolo=0, stencil=None) -> dict:
+        """Doppio clic su una scritta (30/10): testo, altezza, angolo e tipo cambiano, il suo punto resta fermo."""
+        try:
+            h, angolo = self._dati_testo(h, angolo, stencil)
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Testo «{str(testo)[:20]}» cambiato',
+                                   lambda: sketch_ops.edit_text(self.doc, sid, tid, testo, h, angolo, stencil or None))
+
+    def testo_anteprima(self, testo: str, h, angolo=0, stencil=None, centrato=False) -> dict:
+        """I tratti del testo attorno a (0, 0), per l'anteprima che segue il mouse: non cambia niente."""
+        from cad_engine.sketch import testo as testo_mod
+        try:
+            h, angolo = self._dati_testo(h, angolo, stencil)
+            if not str(testo).strip() or h <= 0:
+                return _ok(tratti=[])
+            e = {'text': str(testo), 'h': float(h), 'angle': float(angolo), 'stencil': stencil or None,
+                 'centrato': bool(centrato)}
+            x, y = testo_mod.origine(e, 0.0, 0.0)
+            if stencil:
+                tr = [c + c[:1] for c in testo_mod.contorni(e['text'], h, x, y, angolo, stencil)]
+            else:
+                tr = testo_mod.tratti(e['text'], h, x, y, angolo)
+        except SteelCADError as ex:
+            return _err(ex)
+        return _ok(tratti=[[[round(q[0], 4), round(q[1], 4)] for q in t] for t in tr])
 
     def sketch_add_slot(self, sid: str, c1, c2, r, construction: bool = False) -> dict:
         try:
@@ -2653,7 +2688,42 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         data = getattr(self.result.body, 'sheet', None)
         from app import sketch_border
         sketch_border.add_nearby_edges(sk, self.result.body, faccia, piano, 3 * data.thickness if data else 5.0)
+        # aperto dall'assieme: in arancio dove gli altri pezzi entrano nel pezzo o appoggiano sulla faccia (30/10)
+        from app import impronte
+        try:
+            facce = []
+            for altro in self._forme_contesto():
+                facce += impronte.penetrazioni(self.result.body.shape, altro, piano)
+                facce += impronte.appoggi(altro, piano, faccia)
+            if facce:
+                sketch_border.project_edges(sk, None, None, piano, facce=facce)
+        except Exception:  # noqa: BLE001 - le impronte sono un aiuto: se non riescono si disegna lo stesso
+            pass
         return sk
+
+    def _forme_contesto(self) -> list:
+        """Aperto dall'assieme: gli altri pezzi, messi nelle coordinate di questo pezzo."""
+        ctx = getattr(self, '_contesto', None)
+        if not ctx:
+            return []
+        import numpy as np
+
+        from cad_engine import assembly as A
+        Rp, Tp = np.array(ctx['R'], dtype=float), np.array(ctx['T'], dtype=float)
+        cache = self.__dict__.setdefault('_ctx_forme', {})
+        out = []
+        for file, R, T in ctx['altri']:
+            if file == str(self.path):
+                continue
+            try:
+                chiave = (file, Path(file).stat().st_mtime)
+                if chiave not in cache:
+                    cache[chiave] = A.load_part(file)
+                out.append(A.placed_shape(cache[chiave], (Rp.T @ np.array(R, dtype=float)).tolist(),
+                                          (Rp.T @ (np.array(T, dtype=float) - Tp)).tolist()))
+            except Exception:  # noqa: BLE001 - un pezzo vicino che non si legge: si va avanti senza
+                continue
+        return out
 
     # ------------------------------------------------------------ fori e asole guidati (senza sketch)
     def fori_faccia(self) -> str | None:
@@ -4231,8 +4301,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         nonsalvato = None
         if auto.exists():
             nonsalvato = {'when': _quando(auto.stat().st_mtime)}
-        from app.esempi import ESEMPI
-        return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato, esempi=ESEMPI)
+        return _ok(show=self.blank, recent=recenti, unsaved=nonsalvato)
 
     def impostazioni(self) -> dict:
         """Le impostazioni in un colpo per la loro finestra: piegatrice, materiale predefinito, cartiglio, cartelle, tema."""

@@ -28,11 +28,12 @@ def add_nearby_edges(sk, body, face, plane, fino_a: float) -> int:
 
 
 def project_edges(sk, body, face, plane, fino_a: float | None = None, xray: bool = False, salta: str | None = None,
-                  spessore: float = 0.0, entro: float | None = None) -> int:
+                  spessore: float = 0.0, entro: float | None = None, facce: list | None = None) -> int:
     """Proietta sul piano dello sketch i bordi (linee, archi, cerchi) delle facce parallele.
     Normale: solo davanti alla faccia, entro ``fino_a``. ``xray`` ("vedi attraverso"): davanti e dietro a qualsiasi
     distanza, segnati ``xray`` per poterli togliere; si salta l'altra faccia della stessa parete (``salta`` = nome
-    della parete, entro lo ``spessore``), che ripeterebbe il bordo."""
+    della parete, entro lo ``spessore``), che ripeterebbe il bordo. ``facce``: proprio queste (le impronte degli
+    altri pezzi dell'assieme), senza scegliere."""
     n = plane.z_dir
     io = face.wrapped if face is not None else None
     bb = face.bounding_box() if face is not None else None
@@ -54,14 +55,16 @@ def project_edges(sk, body, face, plane, fino_a: float | None = None, xray: bool
 
     gia = {frozenset((e['a'], e['b'])) for e in sk.entities.values() if e['kind'] == 'line' and e.get('ref')}
     fatte = 0
-    for f in _faces_of(body.shape):
+    for f in ([x.wrapped for x in facce] if facce is not None else _faces_of(body.shape)):
         if (io is not None and f.IsSame(io)) or BRepAdaptor_Surface(f).GetType() != GeomAbs_Plane:
             continue
         bf = bd.Face(f)
         if abs(abs(bf.normal_at().dot(n)) - 1) > 1e-6:
             continue
         d = (bf.center() - plane.origin).dot(n)
-        if entro is not None:
+        if facce is not None:
+            pass
+        elif entro is not None:
             # pezzo nuovo nell'assieme: i bordi delle facce che stanno sul piano (sopra o sotto di poco)
             if abs(d) > entro:
                 continue
@@ -75,13 +78,14 @@ def project_edges(sk, body, face, plane, fino_a: float | None = None, xray: bool
             lo, hi, LO, HI = tuple(fb.min), tuple(fb.max), tuple(bb.min), tuple(bb.max)
             if any(lo[i] > HI[i] + fino_a or hi[i] < LO[i] - fino_a for i in range(3)):
                 continue
-        segna = {'ref': True, 'proj': True, **({'xray': True} if xray else {})}
+        segna = {'ref': True, 'proj': True, **({'xray': True} if xray else {}), **({'ctx': True} if facce is not None else {})}
         for e in bf.edges():
             if e.geom_type == bd.GeomType.LINE:
                 a, b = pt(e.start_point()), pt(e.end_point())
                 if a == b or frozenset((a, b)) in gia:
                     continue
-                lid = sk.line(a, b, construction=True, label='vista attraverso' if xray else 'sagoma vicina')
+                lid = sk.line(a, b, construction=True, label='pezzo vicino' if facce is not None else
+                              'vista attraverso' if xray else 'sagoma vicina')
                 sk.entities[lid].update(segna)
                 gia.add(frozenset((a, b)))
                 fatte += 1

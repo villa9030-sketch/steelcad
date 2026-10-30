@@ -106,3 +106,22 @@ def test_fori_sul_profilo_a_colpi_anche_nello_sviluppo(tmp_path):
     assert abs(c2.X - (150 - c3.Y)) < 1e-6 and abs(c2.Y - c3.Z) < 1e-6      # la sponda parte da y = 150
     r = s.export_dxf(str(tmp_path / 'canala.dxf'))
     assert r['ok'] and 'Controlli superati' in r['message']
+
+
+def test_linea_doppia_non_blocca():
+    """30/10 porta ugelli: un tratto rifatto all'indietro sopra sé stesso faceva «il profilo si dirama». Disegnandolo
+    non si crea; se nel file c'è già una linea doppia, nel profilo conta una volta."""
+    s = Service()
+    assert s.new_project('zero', {'name': 'Porta ugelli'})['ok']
+    sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
+    assert s.sketch_add_polyline(sid, [[20, 0], [0, 0], [0, 120], [20, 120], [28, 102]], False)['ok']
+    assert s.sketch_add_polyline(sid, [[28, 102], [20, 120]], False)['ok']          # ritorno sulla stessa linea
+    sk = s.doc.sketch(sid)
+    linee = [k for k, e in sk.entities.items() if e['kind'] == 'line' and not e.get('ref')]
+    assert len(linee) == 4
+    # linea doppia già nel file (come dal disegno di Stefano): un punto nuovo nello stesso posto e una linea in più
+    a = sk.entities[sk.entities[linee[-1]]['a']]
+    p = sk.point(a['x'], a['y'])
+    sk.line(p, sk.entities[linee[-1]]['b'])
+    r = s.create_from_sketch(sid, 'profilo', {'lunghezza': 100, 'spessore': 3, **DATI})
+    assert r['ok'], r.get('message')
