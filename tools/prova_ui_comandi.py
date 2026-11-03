@@ -271,7 +271,7 @@ def main():
             ok('progetto in lamiera: niente scheda Cut list (non ci sono strutture)',
                pg.evaluate("document.querySelector('.tabs [data-tab=cut]').hidden"))
             for tab in ('lamiera',):
-                # nella schermata del pezzo la barra non si vede (c'è "Cosa puoi fare adesso"): i suoi comandi si
+                # nella schermata del pezzo la barra non si vede (c'è "Cosa puoi fare"): i suoi comandi si
                 # lanciano per nome, come da Ctrl+K e dai pannelli
                 for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].filter(b => !(b.closest('.drop') && b.hidden)).map(b => (b.closest('.rmenu:not(.ralt) .drop') ? 'menu:' : '') + b.dataset.cmd)", tab):
                     # (le voci di Esporta nascoste qui non servono: la distinta Excel c'è solo negli assiemi;

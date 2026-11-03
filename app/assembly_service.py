@@ -220,9 +220,9 @@ class AssemblyMixin:
                 self.asm.instances[0]['fixed'] = True
         self.asm_undo.clear()                       # Annulla non torna all'assieme vuoto: è il punto di partenza
         r = _ok(state=self.state())
-        r['message'] = (f'Assieme con {len(lista)} {"pezzo" if len(lista) == 1 else "pezzi"}: «{self.asm.instances[0]["name"]}» è fermo, '
-                        'gli altri sono a fianco.' + (' Per metterli al loro posto: «Appoggia», clic sul pezzo e poi sulla faccia dove va '
-                                                      '(parte al centro); per i fori: «Foro su foro».' if len(lista) > 1 else ''))
+        # 04/11 (occhio): come metterli al loro posto lo dice la riga «prossimo passo» in basso: il messaggio non lo ripete
+        r['message'] = (f'Assieme con {len(lista)} {"pezzo" if len(lista) == 1 else "pezzi"}: «{self.asm.instances[0]["name"]}» è fermo'
+                        + (', gli altri sono a fianco.' if len(lista) > 1 else '.'))
         return r
 
     def _asm_change(self, label: str, fn):

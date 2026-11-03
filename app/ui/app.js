@@ -281,11 +281,17 @@ function tastiNeiSuggerimenti() {
   }, { passive: false, capture: true });
 })();
 
+// 04/11 notte (occhio): un progetto appena aperto o creato si inquadra; se subito dopo la vista cambia misura (si chiude
+// la pagina iniziale, compaiono la barra dei comandi o il cassetto) si inquadra di nuovo: prima a 1366 i pezzi restavano
+// piccoli in un angolo, con la vista del progetto di prima
+let appenaInquadrato = 0;
 function resize() {
   const w = view.clientWidth, h = view.clientHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / Math.max(h, 1);
   camera.updateProjectionMatrix();
+  if (performance.now() - appenaInquadrato < 1500 && !SK && !anim && objs.size)
+    fitBox(new THREE.Box3().setFromObject(model), null, true, true);
   ridisegna();
 }
 new ResizeObserver(resize).observe(view);
@@ -1827,7 +1833,10 @@ async function caricaScena() {
   hoverEdge = null;
   modelRadius = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere()).radius || 100;
   camera.up.copy(altoVista());
-  if (primaVolta || (eraVuota && objs.size)) { goTo(vistaIniziale()); primaVolta = !objs.size && primaVolta; ribbonForProject(); }
+  if (primaVolta || (eraVuota && objs.size)) {
+    goTo(vistaIniziale()); primaVolta = !objs.size && primaVolta; ribbonForProject();
+    if (objs.size) appenaInquadrato = performance.now();
+  }
   else if (objs.size && raggio() > prima * 1.15) goTo(null, true);   // il modello è cresciuto: si riadatta
   buildDims();
   buildNodes();
@@ -2002,7 +2011,8 @@ function renderTree() {
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
       ids && ids.length && ids.every(i => selIds.has(i)) && n.kind !== 'structure' && !(n.kind !== 'part' && ids[0] === 'body') ? 'sel' : ''];
     // 04/11: «fisso» (il pezzo fermo dell'assieme) è un'informazione, non un allarme: grigio col lucchetto
-    const st = n.status === 'fisso' ? `<span class="st fisso" title="Il pezzo fermo: gli altri si appoggiano a lui"><img src="icons/c_fix.svg" alt="">fisso</span>`
+    // 04/11 notte (occhio): solo il lucchetto, piccolo a destra; «fisso» scritto passando col mouse (il nome resta su una riga)
+    const st = n.status === 'fisso' ? `<span class="st fisso" title="Fisso: il pezzo fermo, gli altri si appoggiano a lui" aria-label="fisso"><img src="icons/c_fix.svg" alt="fisso"></span>`
       : n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
     const conta = S.mode === 'assembly' && n.kind === 'group' && n.children.length ? `<span class="n-conta">${n.children.length}</span>` : '';
     const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
@@ -6512,7 +6522,7 @@ function pannelloStruttura(s) {
   const fuori = c?.fuori_tutto?.length ? `fuori tutto ${c.fuori_tutto.join(' × ')} mm` : '';
   const cose = [t ? `${t.title} da modello` : 'Struttura disegnata', fuori].filter(Boolean).join(', ');
   let h = `<div class="t-pan"><h3>${esc(s.title)}</h3><p class="t-cose">${esc(cose)}</p>`;
-  if (c) h += `<section class="sezione"><h4>Cosa puoi fare adesso</h4><div class="cosa t-azioni">
+  if (c) h += `<section class="sezione"><h4>Cosa puoi fare</h4><div class="cosa t-azioni">
     ${tAzione('data-azione="dividi"', 'pattern_rect', 'Dividi un lato', 'Montanti e traversi in mezzo, quadri uguali')}
     ${tAzione('data-azione="traverso"', 'traverso', 'Aggiungi un traverso', 'Clicca due tubi, poi scrivi l’altezza')}
     ${tAzione('data-azione="giunti"', 'giunto', 'Come sono saldati gli angoli', 'Clicca un angolo, scegli col disegnino')}
@@ -6561,7 +6571,7 @@ function pannelloTubo(s, quanti) {
     <button class="btn piccolo" data-lav-sk="${esc(l.sketch)}">Modifica</button></div>`).join('');
   $('#props').innerHTML = `<div class="t-pan"><h3>${esc(s.title)}${quanti}</h3><p class="t-cose">${esc(cose)}</p>
     <section class="sezione t-misure">${tRighe(s.rows.filter(r => r[0] === 'Da tagliare' || r[0] === 'Batte contro'))}</section>
-    <section class="sezione"><h4>Cosa puoi fare adesso</h4><div class="cosa t-azioni">
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="cosa t-azioni">
       ${tb.facce?.length ? tAzione('id="p-dividi"', 'pattern_rect', 'Dividi il lato', `Montanti e traversi in mezzo: ${tb.facce.join(' o ').toLowerCase()}`) : ''}
       ${tAzione('id="p-trav"', 'traverso', 'Traverso da qui', 'Parte da questo tubo, poi clicchi dove arriva')}
       ${tAzione('id="p-punto"', 'tubo', 'Tubo nuovo da un punto di questo tubo', `${tb.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia`)}
@@ -8261,11 +8271,20 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
   Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Vite nei fori': 'fastener' };
+let misuraSkFoot = () => {};
 // 04/11: la casella di comando (#sk-cmd) sta sopra la barra d'aiuto anche quando la barra va su due righe (avviso del
 // profilo aperto): l'altezza della barra in una variabile CSS
 {
   const f = document.getElementById('sk-foot');      // il modulo parte a pagina già letta: #sk-foot c'è
-  if (f && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--sk-foot-h', (f.offsetHeight || 38) + 'px')).observe(f);
+  // 04/11 notte (occhio): conta anche quanto la barra sta alta dal fondo della vista (non solo la sua altezza): la casella
+  // della distanza (Offset) non la copre mai
+  const misura = () => {
+    document.documentElement.style.setProperty('--sk-foot-h', (f.offsetHeight || 38) + 'px');
+    const sopra = f.offsetParent ? f.offsetParent.clientHeight - f.offsetTop : 0;
+    if (sopra > 0) document.documentElement.style.setProperty('--sk-foot-sopra', sopra + 'px');
+  };
+  if (f && window.ResizeObserver) { new ResizeObserver(misura).observe(f); new ResizeObserver(misura).observe(document.getElementById('view')); }
+  if (f) misuraSkFoot = misura;
 }
 function setHelp(t) {
   const el = $('#sk-help');
@@ -9482,8 +9501,8 @@ function promptCmd() {
   const P = SK?.pick;
   if (!SK) return null;
   if (P?.what === 'corner') return P.tool === 'fillet' ? 'Raggio del raccordo' : 'Misura dello smusso';
-  if (P?.what === 'offset') return P.stage === 'dist' ? 'Distanza dell’offset'
-    : `Offset · ${P.stage === 'obj' ? 'clic sulla linea da copiare' : 'clic dalla parte dove va'} · distanza`;
+  // 04/11 (occhio): cosa cliccare lo dice già la barra «prossimo passo» sotto; qui solo cosa scrivere
+  if (P?.what === 'offset') return 'Distanza dell’offset';
   if ((P?.what === 'copy' || P?.what === 'move') && P.base) return 'Distanza (nella direzione del mouse)';
   if (P) return null;
   if (SK.tool === 'polygon' && !SK.pts.length) return 'Numero di lati';
@@ -9506,6 +9525,7 @@ function updateCmd() {
   const extra = $('#sk-cmd-extra'), vuole = testo && SK?.tool === 'arcr' && !SK.pick ? 'arcr' : '';
   if (extra && extra.dataset.cosa !== vuole) { extra.dataset.cosa = vuole; extra.innerHTML = vuole ? arcrScelte() : ''; }
   if (!testo) { if (document.activeElement === inp) inp.blur(); return; }
+  misuraSkFoot();
   $('#sk-cmd-label').textContent = testo;
   if (document.activeElement !== inp) {
     const P = SK.pick;

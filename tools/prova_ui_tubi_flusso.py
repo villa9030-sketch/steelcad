@@ -1,5 +1,5 @@
 r"""Prova del flusso nuovo dei tubi dall'interfaccia, come una persona (22/10, tela «SteelCAD tubi: flusso nuovo»):
-banco fuori tutto → «Cosa puoi fare adesso» → angoli a 45° su tutti → mensola con le frecce → traverso cliccando due
+banco fuori tutto → «Cosa puoi fare» → angoli a 45° su tutti → mensola con le frecce → traverso cliccando due
 gambe → tubo cliccato con i nomi da officina → sagoma disegnata e «Fai i tubi» → telaio da zero con le frecce.
 
     .venv\Scripts\python.exe tools\prova_ui_tubi_flusso.py cartella_screenshot     (Edge, già sul PC; niente finestre)
@@ -78,8 +78,8 @@ def main():
             pg.wait_for_selector('.cosa-b')
             pannello = pg.text_content('#props')
             ok('appena creato: fuori tutto 1600 × 700 × 850', '1600 × 700 × 850' in pannello)
-            ok('«Cosa puoi fare adesso» con traverso, angoli, fori, officina',
-               all(x in pannello for x in ('Cosa puoi fare adesso', 'Aggiungi un traverso', 'Come sono saldati gli angoli',
+            ok('«Cosa puoi fare» con traverso, angoli, fori, officina',
+               all(x in pannello for x in ('Cosa puoi fare', 'Aggiungi un traverso', 'Come sono saldati gli angoli',
                                            'Fori sui tubi', 'Prepara per l’officina')))
             nomi = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.data.name)")
             ok('nessuna sigla nei nomi dei tubi', not any(' M1 ' in x or ' G1 ' in x for x in nomi)

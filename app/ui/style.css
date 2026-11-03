@@ -2775,3 +2775,72 @@ body:not(.bottom-closed):not(.sketching) { grid-template-rows: var(--alt-top) va
 body:not(.bottom-closed) #bottom { min-height: 160px; max-height: min(46vh, 400px); }
 /* nei menu del gruppo i comandi passati lì perché la barra non ci stava hanno lo stesso peso delle altre voci */
 #ribbon .drop .rb.rb-m { font-weight: 400; }
+
+/* ==================================================================================================================
+   OCCHIO (notte 03→04/11): una mano sola. Le aree rifatte una per una usavano stili un po' diversi per la stessa cosa;
+   qui si mettono d'accordo. Sta in fondo: vince sulle sezioni di area. Solo token e componenti delle FONDAMENTA.
+   ================================================================================================================== */
+/* la modalità in alto è un'etichetta colorata, non un pulsante: in Lamiera il segmento blu pieno accanto a «Prepara»
+   (blu) sembrava un secondo pulsante principale. Fondo tenue e scritta del colore di modalità, in tutte le modalità */
+#top .rtabs button.on, #top .rtabs button.ctx.on, body.dark #top .rtabs button.on, body.dark #top .rtabs button.ctx.on,
+body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on,
+body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on:hover, #top .rtabs button.on:hover {
+  background: color-mix(in srgb, var(--modo) 13%, var(--c-pannello)); color: color-mix(in srgb, var(--modo) 72%, #000);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--modo) 35%, transparent); font-weight: 650; }
+body.dark #top .rtabs button.on, body.dark #top .rtabs button.ctx.on, body.dark #top .rtabs button.on:hover {
+  background: color-mix(in srgb, var(--modo) 22%, var(--c-pannello)); color: color-mix(in srgb, var(--modo) 55%, #fff); }
+/* il pulsante grande (in fondo a una finestra o al pannello) ha la scritta come gli altri: cambia l'altezza, non il carattere */
+.btn.big { font-size: var(--fs-testo); }
+.acts:has(.btn.big) > .btn { min-height: 40px; font-size: var(--fs-testo); }
+/* Storia a sinistra: il titolo allineato a «Progetto» e «Misure», la freccina dopo il nome (come una sezione che si apre) */
+#storia-box > summary { gap: var(--s-2); min-height: 24px; }
+#storia-box > summary h2 { margin: 0; }
+#storia-box > summary::before { order: 2; margin: 0 0 0 2px; }
+#storia-box > summary .storia-n { order: 3; margin-left: auto; font-size: var(--fs-piccolo); color: var(--c-spento); }
+/* un campo con l'elenco (Tubo: 40x40x3): la stessa freccina dei menu a tendina, non il triangolo di Windows */
+.field[list] { padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238C98A4' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; }
+.field[list]::-webkit-calendar-picker-indicator { opacity: 0; width: 18px; margin-right: -22px; cursor: pointer; }
+/* «Cosa puoi fare»: in tutte le aree righe con icona e nome, senza bordo (assieme, piastra, accoppiamenti come la lamiera) */
+.asm-azioni { gap: 0 var(--s-1); margin: 0 calc(-1 * var(--s-2)); }
+.asm-azioni .btn { border-color: transparent; background: none; min-height: var(--h-riga); }
+.asm-azioni .btn:hover { background: var(--c-sopra); border-color: transparent; }
+.asm-azioni .btn.on { background: var(--c-blu-tenue); border-color: var(--c-blu-linea); }
+.asm-azioni .btn.danger:hover { background: var(--c-err-tenue); }
+.asm-azioni .btn :is(img, .ico), .cosa-b.t-az :is(img, .ico) { width: 18px; height: 18px; }
+.cosa-b.t-az { grid-template-columns: 18px 1fr; column-gap: var(--s-2); padding: var(--s-1) var(--s-2); min-height: var(--h-riga); }
+/* albero: il nome prende lo spazio, «fisso» è un segnetto a destra (prima «SPALLETTE 8MM» andava su due righe) */
+#tree .node .lb { flex: 1 1 auto; }
+#tree .node .st.fisso { flex: none; justify-content: center; width: 20px; height: 20px; margin-left: var(--s-1); padding: 0; border-radius: 50%;
+  background: var(--c-incavo); }
+#tree .node .st.fisso :is(img, .ico) { width: 12px; height: 12px; opacity: .75; }
+#tree .node .st.fisso + .occhio, #tree .node .n-q + .occhio { margin-left: var(--s-1); }
+/* disegno: la casella della distanza (Offset, Linea…) sempre sopra la barra «prossimo passo», con lo stesso spazio */
+#sk-cmd { bottom: calc(var(--sk-foot-sopra, calc(var(--sk-foot-h, 38px) + 10px)) + var(--s-2)); }
+/* le righe «prossimo passo» in basso stanno tutte allo stesso posto: in fondo alla vista, con Inquadra / Quote / Tema
+   sopra (come nel disegno e in Quota). Prima tubi e assieme le mettevano sopra la barretta, il disegno sotto */
+#trav-hint, #link-hint, #asm-passo { bottom: 10px; }
+body:has(:is(#trav-hint, #link-hint, #asm-passo):not([hidden])) #navbar { bottom: 76px; }
+body.bottom-closed:has(:is(#sk-foot, #trav-hint, #link-hint, #asm-passo):not([hidden])) #toasts,
+body:has(#asm-passo:not([hidden])) #toasts { bottom: 168px; }
+/* col pannello a destra aperto (sopra la vista) anche Inquadra / Quote / Tema va al centro di quello che si vede,
+   in colonna con la riga «prossimo passo» */
+body:not(.senza-destra) #navbar { left: calc(50% - 155px); }
+/* «Nuovo pezzo» dai modelli (cono, raccordo, telaio…): «mm» DENTRO il campo, come nella finestra della scatola e in tutti
+   gli altri campi (prima stava fuori, a destra) */
+.nc .nv { position: relative; }
+.nc .nv small { position: absolute; right: 12px; width: auto; pointer-events: none; }
+.nc .nv:has(small) .field { padding-right: 40px; }
+/* tema scuro, contrasto: il grigio «spento» si usa anche per cose da leggere (nelle formule: W, mm, X Y Z, — non salvato):
+   3,5:1 era poco, ora 4,7:1. Il blu pieno dei pulsanti principali un filo più scuro: la scritta bianca passa da 3,6 a 5:1
+   (il blu dei link e del focus resta quello chiaro, che sul fondo scuro si legge) */
+body.dark { --c-spento: #808D9A; --c-blu-pieno: #2F62F5; --c-blu-pieno-sopra: #3D6EFF; }
+body.dark :is(.btn.primary, .rb.primary, .cosa-b.primary, #b-prepara, .quota.blu, #views button.on, #sk-cmd-extra button.on) {
+  --c-blu: var(--c-blu-pieno); --c-blu-sopra: var(--c-blu-pieno-sopra); --action: var(--c-blu-pieno); --hover: var(--c-blu-pieno-sopra); }
+/* le etichette dei campi X / Y / Z (Dove sta, Sposta di, Sposta l'angolo) come tutte le altre etichette dei pannelli:
+   12,5 e grigio secondario (prima 11 px in grigio spento, residuo dello stile vecchio) */
+.xyz { gap: var(--s-2); }
+.xyz label { gap: 4px; font-size: var(--fs-etichetta); color: var(--c-testo-2); }
+/* testi da leggere, non disattivi: grigio secondario */
+#doctab #docname .doc-stato, #storia-box > summary .storia-n { color: var(--c-testo-2); }
