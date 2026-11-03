@@ -5135,15 +5135,19 @@ async function drawingsDialog() {
   const campo = (k, l) => `<label class="te-riga">${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
   const scelta = (k, l, opz) => `<label class="te-riga">${l}<select class="field" data-c="${k}">${opz.map(([v, t]) =>
     `<option value="${esc(v)}"${String(c[k] ?? opz[0][0]) === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
-  box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}">Tavole <span>${esc(S?.name || '')}</span></b><span class="te-spazio"></span>
-      <button class="btn" id="te-adatta" title="Il foglio intero (rotella: zoom · tasto centrale: sposta)">Adatta</button>
-      <button class="btn" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)">Annulla</button>
-      <button class="btn" id="te-dxf">Esporta DXF</button><button class="btn primary" id="te-pdf">Esporta PDF</button>
-      <button class="btn" id="te-chiudi">Chiudi</button></header>
+  box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}"><i class="te-modo">Tavole</i><span>${esc(S?.name || '')}</span></b>
+      <span class="te-sepv"></span>
+      <button class="btn te-quieto" id="te-adatta" title="Il foglio intero (rotella: zoom; tasto centrale: sposta)"><img src="icons/fit.svg" alt="">Adatta</button>
+      <button class="btn te-quieto" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)"><img src="icons/undo.svg" alt="">Annulla</button>
+      <span class="te-spazio"></span>
+      <button class="btn" id="te-dxf" title="Le tavole in DXF, per chi le apre col CAD">Esporta DXF</button><button class="btn primary" id="te-pdf" title="Le tavole in PDF, da stampare o mandare">Esporta PDF</button>
+      <span class="te-sepv"></span>
+      <button class="btn te-quieto" id="te-chiudi" title="Torna al pezzo (Esc)">Chiudi</button></header>
     <div class="te-tabs" id="te-tabs" role="tablist"></div>
     <div class="te-corpo">
       <nav class="te-strumenti" aria-label="Strumenti">
         <button data-str="sel" class="on" title="Clicca una vista, una quota o una nota; trascina per spostarla"><img src="icons/select.svg" alt=""><span>Seleziona</span></button>
+        <span class="te-gruppo">Aggiungi</span>
         <button data-str="quota" title="Una quota nuova: clicca due punti della stessa vista (si agganciano agli spigoli). Maiusc = inclinata"><img src="icons/dimension.svg" alt=""><span>Quota</span></button>
         <button data-str="nota" title="Una nota: clicca dove va e scrivi"><img src="icons/text.svg" alt=""><span>Nota</span></button>
         <button data-str="diametro" title="Diametro o raggio: clicca un cerchio o un arco di una vista, dove vuoi la scritta"><img src="icons/hole.svg" alt=""><span>Ø / R</span></button>
@@ -5151,7 +5155,8 @@ async function drawingsDialog() {
         <button data-str="saldatura" title="Saldatura: clicca il giunto (la punta della freccia), poi dove va il simbolo"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button>
         <button data-str="dettaglio" title="Dettaglio ingrandito: clicca il centro della zona su una vista, poi quanto è grande il cerchio"><img src="icons/zoom.svg" alt=""><span>Dettaglio</span></button>
       </nav>
-      <main class="te-foglio" id="te-foglio"><p class="hint">Preparo la tavola…</p></main>
+      <div class="te-centro"><main class="te-foglio" id="te-foglio"><p class="hint te-attesa">Preparo la tavola…</p></main>
+        <div class="te-passo" id="te-passo" hidden></div></div>
       <aside class="te-lato">
         <section id="te-persi" hidden></section>
         <section id="te-sel" hidden></section>
@@ -5181,7 +5186,7 @@ async function drawingsDialog() {
             ${[0, 1, 2].map(i => ['rev', 'data', 'descrizione', 'da'].map(k => `<input class="field" data-rev="${i}:${k}" value="${esc(((c.revisioni || [])[i] || {})[k] || '')}">`).join('')).join('')}</div></div>
           <p class="hint">${r.logo ? 'Il logo dell’azienda è nel cartiglio.' : 'Il logo dell’azienda si mette in Impostazioni → Tavole e cartiglio.'}</p>
         </details>
-        <details class="te-sez" open><summary>I tuoi ritocchi</summary><div id="te-rit"></div>
+        <details class="te-sez" open><summary>I tuoi ritocchi <span class="te-conta" id="te-rit-n" hidden></span></summary><div id="te-rit"></div>
           <button class="btn" id="te-auto" title="Toglie tutti i ritocchi di questo foglio: torna come la fa il programma">Rimetti automatico</button></details>
       </aside>
     </div>`;
@@ -5372,7 +5377,7 @@ async function drawingsDialog() {
       sez.innerHTML = `<h4>Distinta</h4><p class="hint">${cosa ? 'Ritoccata: ' + esc(cosa) + '.' : 'Quella automatica, dai pezzi dell’assieme.'}
         Trascinala per spostarla.</p>
         ${grandezzaHtml(o.id)}
-        <div class="te-bott"><button class="btn primary" id="ts-dist">Modifica la distinta…</button>
+        <div class="te-bott"><button class="btn" id="ts-dist">Modifica la distinta…</button>
           ${cosa ? '<button class="btn" id="ts-dist-auto">Torna automatica</button>' : ''}</div>`;
       grandezzaTabella(o.id);
       $('#ts-dist').onclick = () => distintaDialog(o, d, nuova => { const n = rit(); if (nuova) n.distinta = nuova; else delete n.distinta; salva(n); });
@@ -5452,6 +5457,8 @@ async function drawingsDialog() {
     const el = box.querySelector('#te-rit');
     el.innerHTML = righe.length ? righe.map(([t], i) => `<div class="te-r"><span>${esc(t)}</span><button class="btn" data-ri="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')
       : '<p class="hint">Nessun ritocco: la tavola è come la fa il programma.</p>';
+    const nr = box.querySelector('#te-rit-n'); nr.hidden = !righe.length; nr.textContent = righe.length;
+    box.querySelector('#te-auto').hidden = !righe.length;
     el.querySelectorAll('[data-ri]').forEach(b => { b.onclick = () => { const n = rit(); righe[+b.dataset.ri][1](n); salva(n); }; });
     avvisoPersi();
   }
@@ -5460,7 +5467,7 @@ async function drawingsDialog() {
     const el = box.querySelector('#te-persi'), persi = foglio()?.persi || [];
     el.hidden = !persi.length;
     if (!persi.length) { el.innerHTML = ''; return; }
-    el.innerHTML = `<h4>⚠ ${persi.length === 1 ? 'Un ritocco non trova più' : persi.length + ' ritocchi non trovano più'} il suo posto</h4>
+    el.innerHTML = `<h4>${persi.length === 1 ? 'Un ritocco non trova più' : persi.length + ' ritocchi non trovano più'} il suo posto</h4>
       <p class="hint">Il pezzo è cambiato. Toglili, o rifalli dove servono.</p>
       ${persi.map((x, i) => `<div class="te-r"><span>${esc(x.testo)}</span><button class="btn" data-pi="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')}
       ${persi.length > 1 ? '<div class="te-bott"><button class="btn" id="te-persi-tutti">Togli tutti</button></div>' : ''}`;
@@ -5549,7 +5556,7 @@ async function drawingsDialog() {
     }
     if (ED.strumento === 'angolo') {
       const a = aggancia(p, ED.ang[0]?.vista.id);
-      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
+      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in blu.'); return; }
       ED.ang.push(a); segno(a.p, 'te-p1');
       if (ED.ang.length < 3) return;
       const [A, V, B] = ED.ang, v = V.vista;
@@ -5576,7 +5583,7 @@ async function drawingsDialog() {
     }
     if (ED.strumento === 'quota') {
       const a = aggancia(p, ED.punto1?.vista.id);
-      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
+      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in blu.'); return; }
       if (!ED.punto1) { ED.punto1 = a; segno(a.p, 'te-p1'); return; }
       const v = a.vista, [s, tx, ty] = v.T, inV = q => [(q[0] - tx) / s, (q[1] - ty) / s];
       const A = ED.punto1.p, B = a.p, dx = Math.abs(B[0] - A[0]), dy = Math.abs(B[1] - A[1]);
@@ -5714,11 +5721,36 @@ async function drawingsDialog() {
   foglioEl.addEventListener('mouseleave', lascia);
 
   // ---- strumenti, testi, campi, esporta
-  box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => {
-    ED.strumento = b.dataset.str; ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
-    box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x === b));
+  // notte 03/11: con uno strumento acceso, una riga in basso sul foglio dice cosa cliccare adesso (prima solo nel title)
+  const PASSI = {
+    quota: ['Quota', 'dimension', [['Clicca il primo punto', 'vicino a uno spigolo di una vista: il punto si accende'], ['Clicca il secondo punto', 'sulla stessa vista; con Maiusc la quota viene inclinata']]],
+    nota: ['Nota', 'text', [['Clicca dove va la nota', 'poi scrivi il testo']]],
+    diametro: ['Ø / R', 'hole', [['Clicca il bordo di un cerchio o di un arco', 'la scritta va dove clicchi']]],
+    angolo: ['Angolo', 'plane_angle', [['Clicca un punto sul primo lato', 'vicino a uno spigolo'], ['Clicca il vertice', 'dove si incontrano i due lati'], ['Clicca un punto sull’altro lato', 'e l’angolo è fatto']]],
+    saldatura: ['Saldatura', 'joint', [['Clicca il giunto', 'lì va la punta della freccia'], ['Clicca dove va il simbolo', 'poi scegli che saldatura è']]],
+    dettaglio: ['Dettaglio', 'zoom', [['Clicca il centro della zona da ingrandire', 'dentro una vista'], ['Clicca quanto è grande il cerchio', 'il dettaglio va a destra, poi lo sposti']]],
+  };
+  const passo = () => {
+    const el = box.querySelector('#te-passo'), d = PASSI[ED.strumento];
+    el.hidden = !d;
+    if (!d) { el.innerHTML = ''; return; }
+    const [nome, icona, passi] = d;
+    const k = Math.min(passi.length - 1, ED.strumento === 'quota' ? (ED.punto1 ? 1 : 0) : ED.strumento === 'angolo' ? ED.ang.length
+      : ED.strumento === 'saldatura' ? (ED.sald ? 1 : 0) : ED.strumento === 'dettaglio' ? (ED.det ? 1 : 0) : 0);
+    const [t, sm] = passi[k];
+    el.innerHTML = `<div class="sk-help"><span class="g-cmd"><img src="icons/${icona}.svg" alt="">${esc(nome)}</span>
+      ${passi.length > 1 ? `<span class="g-passi">${passi.map((_, i) => `<i class="${i <= k ? 'on' : ''}"></i>`).join('')}</span>` : ''}
+      <span class="g-testo">${esc(t)}<small>${esc(sm)}</small></span><span class="g-sep"></span>
+      <span class="g-tasto"><kbd>Esc</kbd>${k > 0 ? 'ricomincia' : 'basta'}</span></div>`;
+  };
+  const strumento = nome => {
+    ED.strumento = nome; ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
+    box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x.dataset.str === nome));
     foglioEl.dataset.strumento = ED.strumento;
-  }; });
+    passo();
+  };
+  box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => strumento(b.dataset.str); });
+  foglioEl.addEventListener('mousedown', () => passo());          // dopo il clic dello strumento: il passo dopo
   box.querySelectorAll('[data-t]').forEach(i => { i.onchange = () => {
     const n = rit(); n.testi = n.testi || {}; const v = num(i.value);
     if (v) n.testi[i.dataset.t] = v; else delete n.testi[i.dataset.t];
@@ -5737,7 +5769,11 @@ async function drawingsDialog() {
   box.querySelector('#te-adatta').onclick = () => { ED.vb = null; if (svgDi()) svgDi().setAttribute('viewBox', `0 0 ${foglio().size[0]} ${foglio().size[1]}`); };
   function tasti(ev) {
     if (!document.body.contains(box) || !$('#modal').hidden) return;
-    if (ev.key === 'Escape') { if (ED.punto1 || ED.ang.length || ED.sald || ED.det) { ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
+    if (ev.key === 'Escape') {
+      if (ED.punto1 || ED.ang.length || ED.sald || ED.det) { ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; segno(null, 'te-p1'); passo(); }
+      else if (ED.strumento !== 'sel') strumento('sel');          // notte 03/11: Esc spegne lo strumento, non chiude le tavole
+      else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi();
+      ev.stopPropagation(); ev.preventDefault(); }
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && ED.sel && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       $('#ts-via')?.click(); ev.preventDefault(); ev.stopPropagation();
     }
