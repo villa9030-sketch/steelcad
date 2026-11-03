@@ -4958,6 +4958,8 @@ function wireMate(s) {
   $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
   document.querySelectorAll('[data-vai-pezzo]').forEach(b => { if (b.dataset.vaiPezzo) b.onclick = () => inCoda(() => select(b.dataset.vaiPezzo)); });
   $('#m-fatto').onclick = () => { document.activeElement?.blur?.(); setTimeout(clearSelection, 30); };
+  // 04/11: nel 3D, in giallo, il pezzo che questo accoppiamento muove (prima non si vedeva niente: di chi parla?)
+  if (sel && sel.id === 'mate=' + s.id && s.def.b && objs.has(s.def.b)) { sel.ids = [sel.id, s.def.b]; paint(); }
 }
 // il cursore che muove un pezzo: mentre lo trascini si spostano i pezzi già disegnati (una chiamata alla volta);
 // lasciato, la modifica si registra una volta (annulla torna a prima)
