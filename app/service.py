@@ -577,6 +577,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         bb = bd.Solid(r.body.shape).bounding_box() if hasattr(r.body.shape, 'ShapeType') else None
         diag = (bb.size.X ** 2 + bb.size.Y ** 2 + bb.size.Z ** 2) ** 0.5 if bb is not None else 0.0
         sp = getattr(getattr(r.body, 'sheet', None), 'thickness', None)
+        cilindri = None
         for t in self.doc.features:
             if isinstance(t, Sketch) or not t.get('sketch'):
                 continue
@@ -593,24 +594,36 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     continue
                 q = pl.from_local_coords(ss.points[c])
                 n = -pl.z_dir                                   # il foro entra nel pezzo dalla faccia dello sketch
+                if cilindri is None:
+                    cilindri = self._cilindri()
                 lungo = sp if sp else min(diag, 200.0)
                 out.append({'c': [q.X, q.Y, q.Z], 'n': [n.X, n.Y, n.Z], 'r': FILETTI[h['M']][1] / 2, 'r0': rr, 'len': lungo,
-                            'M': h['M'], 'passo': PASSI.get(h['M'], 1.0), 'faces': self._facce_del_foro(q, n, rr)})
+                            'M': h['M'], 'passo': PASSI.get(h['M'], 1.0), 'faces': self._facce_del_foro(q, n, rr, cilindri)})
         return out
 
-    def _facce_del_foro(self, q, n, rr) -> list:
-        """Le facce (indici della scena) della parete liscia del foro: nel 3D al loro posto si disegnano i filetti."""
+    def _cilindri(self) -> list:
+        """Le facce cilindriche del pezzo: (indice della scena, raggio, punto e direzione dell'asse)."""
         from OCP.BRepAdaptor import BRepAdaptor_Surface
         from OCP.GeomAbs import GeomAbs_Cylinder
         from cad_engine.topology.naming import _faces_of
         out = []
         for i, f in enumerate(_faces_of(self.result.body.shape)):
             su = BRepAdaptor_Surface(f)
-            if su.GetType() != GeomAbs_Cylinder or abs(su.Cylinder().Radius() - rr) > 1e-3:
+            if su.GetType() == GeomAbs_Cylinder:
+                c = su.Cylinder()
+                o, d = c.Axis().Location(), c.Axis().Direction()
+                out.append((i, c.Radius(), (o.X(), o.Y(), o.Z()), (d.X(), d.Y(), d.Z())))
+        return out
+
+    def _facce_del_foro(self, q, n, rr, cilindri=None) -> list:
+        """Le facce (indici della scena) della parete liscia del foro: nel 3D al loro posto si disegnano i filetti.
+        cilindri: quelli del pezzo già cercati (03/11: rifatti per ogni foro filettato, tutte le facce ogni volta)."""
+        out = []
+        for i, raggio, o, d in (cilindri if cilindri is not None else self._cilindri()):
+            if abs(raggio - rr) > 1e-3:
                 continue
-            o, d = su.Cylinder().Axis().Location(), su.Cylinder().Axis().Direction()
-            v = (q.X - o.X(), q.Y - o.Y(), q.Z - o.Z())
-            lungo = v[0] * d.X() + v[1] * d.Y() + v[2] * d.Z()
+            v = (q.X - o[0], q.Y - o[1], q.Z - o[2])
+            lungo = v[0] * d[0] + v[1] * d[1] + v[2] * d[2]
             if max(0.0, v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - lungo ** 2) < 1e-6:
                 out.append(i)
         return out

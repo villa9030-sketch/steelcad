@@ -215,3 +215,39 @@ def test_quote_sul_pezzo_ricordate_stessi_numeri():
     nuove = {x['dim']: x for x in s._dimensions()}
     assert nuove[d['dim']]['value'] == pytest.approx(d['value'] + 50)
     assert nuove[d['dim']]['a'] != d['a'] or nuove[d['dim']]['b'] != d['b']
+
+
+def test_filetti_nel_3d_stesse_facce_di_prima():
+    """I fori filettati nel 3D: le facce cilindriche si cercano una volta per tutti i fori; stesse facce di prima."""
+    import os
+    import tempfile
+    os.environ.setdefault('STEELCAD_HOME', tempfile.mkdtemp())
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+    from app.service import Service
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'P', 'larghezza': 200, 'profondita': 100, 'spessore': 4, 'raggio': 1, 'k': 0.4})['ok']
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    for x in (30, 70, 110, 150):
+        assert s.sketch_add_circle(sid, [x, 50], 2.5)['ok']
+    assert s.sketch_add_circle(sid, [180, 50], 4)['ok']
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    cerchi = [k for k, e in s.doc.sketch(sid).entities.items() if e['kind'] == 'circle' and abs(e['r'] - 2.5) < 1e-6]
+    assert s.sketch_hole_type(sid, cerchi, {'tipo': 'filettato', 'M': 'M6'})['ok']
+    fil = s._filettature()
+    assert len(fil) == 4
+
+    def come_prima(q, rr):                 # una faccia alla volta, come prima del 03/11
+        out = []
+        for i, f in enumerate(_faces_of(s.result.body.shape)):
+            su = BRepAdaptor_Surface(f)
+            if su.GetType() != GeomAbs_Cylinder or abs(su.Cylinder().Radius() - rr) > 1e-3:
+                continue
+            o, d = su.Cylinder().Axis().Location(), su.Cylinder().Axis().Direction()
+            v = (q[0] - o.X(), q[1] - o.Y(), q[2] - o.Z())
+            lungo = v[0] * d.X() + v[1] * d.Y() + v[2] * d.Z()
+            if max(0.0, v[0] ** 2 + v[1] ** 2 + v[2] ** 2 - lungo ** 2) < 1e-6:
+                out.append(i)
+        return out
+    for t in fil:
+        assert t['faces'] and t['faces'] == come_prima(t['c'], t['r0'])
