@@ -32,7 +32,10 @@ def _area(f):
 
 
 def _firma(doc):
+    from cad_engine import document
+    document._CACHE_GLOBALE.clear()            # se no il secondo pezzo uguale verrebbe dalla memoria, senza rifarlo
     res = doc.rebuild()
+    assert res.cached == 0
     assert res.ok, [f.message for f in res.errors]
     b = res.body
     nomi = sorted((k, len(v), round(sum(_area(f) for f in v), 6)) for k, v in b.names.items())
@@ -132,3 +135,57 @@ def test_storia_senza_copie_stesso_testo():
     assert json.dumps(doc.to_dict()) == h.done[-1].after
     h.undo()
     assert json.dumps(doc.to_dict()) == prima
+
+
+def _svasature_una_alla_volta(ns, ss, prof, ritorni, t, fid, fori=None):
+    """Le svasature come si facevano prima del 03/11 (un taglio per cono): il riferimento."""
+    import math
+    import build123d as bd
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    import cad_engine.sheetmetal as SM
+    if fori is None:
+        fori = [(cerchio, spec, ritorni[i][1]) for i, cerchio, spec in SM._hole_specs(ss, prof)]
+    for cerchio, spec, verso in fori:
+        if spec.get('tipo') != 'svasato':
+            continue
+        d, D = 2 * cerchio.radius, float(spec.get('D', 0))
+        ang = math.radians(float(spec.get('angolo', 90)))
+        if D <= d or (D - d) / 2 / math.tan(ang / 2) > t + 1e-6:
+            continue
+        h = (D - d) / 2 / math.tan(ang / 2)
+        asse = bd.Vector(*verso).normalized()
+        c = cerchio.arc_center
+        e = 0.05
+        cono = bd.Solid.make_cone(D / 2 + e * math.tan(ang / 2), d / 2, h + e, plane=bd.Plane(origin=c - asse * e, z_dir=asse))
+        op = BRepAlgoAPI_Cut(ns.shape, cono.wrapped)
+        sheet = ns.sheet
+        ns = ns.after(op, op.Shape())
+        ns.sheet = sheet
+        for f in ns.senza_nome():
+            ns.names.setdefault(f'{fid}/svasatura', []).append(f)
+    return ns
+
+
+def test_tante_svasature_in_un_taglio_uguale_a_prima(monkeypatch):
+    """Le svasature (32 sul porta punte) in un taglio solo: stesso pezzo, stesse facce e stessi nomi."""
+    import os
+    import tempfile
+    os.environ.setdefault('STEELCAD_HOME', tempfile.mkdtemp())
+    import cad_engine.sheetmetal as SM
+    from app.service import Service
+    from cad_engine.document import Document
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'P', 'larghezza': 300, 'profondita': 120, 'spessore': 4, 'raggio': 1, 'k': 0.4})['ok']
+    sid = s.sketch_on_face('SM1/sopra')['sketch']
+    for x in range(30, 290, 30):
+        for y in (35, 85):
+            assert s.sketch_add_circle(sid, [x, y], 3)['ok']
+    assert s.create_from_sketch(sid, 'cut', {})['ok']
+    cerchi = [k for k, e in s.doc.sketch(sid).entities.items() if e['kind'] == 'circle']
+    assert s.sketch_hole_type(sid, cerchi, {'tipo': 'svasato', 'D': '12', 'angolo': '90'})['ok']
+    assert s.state()['errors'] == []
+    dopo = _firma(Document.from_dict(s.doc.to_dict()))
+    monkeypatch.setattr(SM, '_countersinks', _svasature_una_alla_volta)
+    prima = _firma(Document.from_dict(s.doc.to_dict()))
+    assert dopo == prima
+    assert sum(n for k, n, _ in dopo[2] if k.endswith('/svasatura')) >= 18

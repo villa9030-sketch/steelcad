@@ -2325,6 +2325,7 @@ def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     if fori is None:
         fori = [(cerchio, spec, ritorni[i][1]) for i, cerchio, spec in _hole_specs(ss, prof)]
+    coni = []
     for cerchio, spec, verso in fori:
         if spec.get('tipo') != 'svasato':
             continue
@@ -2348,16 +2349,28 @@ def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
         asse = bd.Vector(*verso).normalized()
         c = cerchio.arc_center
         e = 0.05
-        cono = bd.Solid.make_cone(D / 2 + e * math.tan(ang / 2), d / 2, h + e,
-                                  plane=bd.Plane(origin=c - asse * e, z_dir=asse))
-        op = BRepAlgoAPI_Cut(ns.shape, cono.wrapped)
-        if not op.IsDone():
-            raise FeatureError('Il kernel non è riuscito a fare la svasatura.', feature=fid)
-        sheet = ns.sheet
-        ns = ns.after(op, op.Shape())
-        ns.sheet = sheet
-        for f in ns.senza_nome():
-            ns.names.setdefault(f'{fid}/svasatura', []).append(f)
+        coni.append(bd.Solid.make_cone(D / 2 + e * math.tan(ang / 2), d / 2, h + e,
+                                       plane=bd.Plane(origin=c - asse * e, z_dir=asse)))
+    if not coni:
+        return ns
+    # tutti i coni in un taglio solo (03/11: uno alla volta, le 32 svasature del porta punte erano metà
+    # della ricostruzione del pezzo)
+    from OCP.collections import List_TopoDS_Shape
+    argomenti, utensili = List_TopoDS_Shape(), List_TopoDS_Shape()
+    argomenti.Append(ns.shape)
+    for cono in coni:
+        utensili.Append(cono.wrapped)
+    op = BRepAlgoAPI_Cut()
+    op.SetArguments(argomenti)
+    op.SetTools(utensili)
+    op.Build()
+    if not op.IsDone():
+        raise FeatureError('Il kernel non è riuscito a fare la svasatura.', feature=fid)
+    sheet = ns.sheet
+    ns = ns.after(op, op.Shape())
+    ns.sheet = sheet
+    for f in ns.senza_nome():
+        ns.names.setdefault(f'{fid}/svasatura', []).append(f)
     return ns
 
 
