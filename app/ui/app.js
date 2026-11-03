@@ -2187,15 +2187,19 @@ function renderParams() {
     // 03/11: i parametri nati dai comandi (la Serie, l'offset) col loro nome da officina; la sigla resta per le formule
     if (p.auto && p.label) return `<tr><td title="Nelle formule si scrive ${esc(p.name)}"><b>${esc(p.label)}</b><small>nelle formule: ${esc(p.name)}</small></td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
       `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
+    // 03/11: anche le misure normali col nome per esteso in grande (Larghezza, Spessore…); la sigla piccola sotto, per le formule
+    if (p.label && p.label.toLowerCase() !== p.name.toLowerCase())
+      return `<tr><td title="${esc(p.label)}: nelle formule si scrive ${esc(p.name)}"><b>${esc(p.label.replace(/ (\S{1,2})$/, String.fromCharCode(160) + '$1'))}</b><small>nelle formule: ${esc(p.name)}</small></td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
+        `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
     return `<tr><td title="${esc(p.label || p.name)}"><b>${esc(p.name)}</b>${nome}</td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
       `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
   }).join('');
   // 03/11: raggio e K della piegatrice accanto alle misure della lamiera (prima solo nella scheda in basso, da trovare)
   const sh = S.sheet, d = sh?.def || {}, manca = new Set(sh?.missing || []);
-  const riga = (k, sig, nome, miss) => `<tr><td title="${esc(nome)} (dato della piegatrice; vale per tutte le pieghe)"><b>${sig}</b><small>${esc(nome)}</small></td>
+  const riga = (k, sig, nome, miss) => `<tr><td title="${esc(nome)} (dato della piegatrice; vale per tutte le pieghe)"><b>${esc(nome)}</b><small>dato della piegatrice</small></td>
     <td><input class="field${miss ? ' missing' : ''}" data-tech-sx="${k}" value="${esc(d[k] == null ? '' : String(d[k]).replace('.', ','))}" placeholder="${miss ? 'manca' : ''}"></td><td class="res"></td></tr>`;
-  const piega = sh ? riga('radius', 'R', 'Raggio interno di piega', manca.has('raggio interno'))
-    + (d.method === 'bd90' ? riga('bd90', 'BD', 'Deduzione a 90°', manca.has('deduzione a 90°')) : d.method === 'din6935' ? '' : riga('k', 'K', 'K-factor', manca.has('K-factor'))) : '';
+  const piega = sh ? riga('radius', 'R', 'Raggio di piega', manca.has('raggio interno'))
+    + (d.method === 'bd90' ? riga('bd90', 'BD', 'Deduzione a 90°', manca.has('deduzione a 90°')) : d.method === 'din6935' ? '' : riga('k', 'K', 'Fattore K', manca.has('K-factor'))) : '';
   $('#params').innerHTML = (righe + piega) || '<tr><td class="hint">Nessuna misura con nome.</td></tr>';
   document.querySelectorAll('[data-tech-sx]').forEach(i => {
     const ora = i.value, salva = () => inCoda(async () => apply(await call('set_sheet_tech', sh.feature, { [i.dataset.techSx]: i.value })));

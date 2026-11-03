@@ -40,7 +40,7 @@ try:
         if idx is not None:
             pg.evaluate("i => window.__steelcad.select('body', i)", idx); time.sleep(1)
             pg.click('#ribbon [data-azione="taglia"]'); pg.wait_for_function('window.__steelcad.sketch', timeout=10000); time.sleep(0.8)
-            faccia = pg.evaluate('window.__steelcad.sketch.v.on_face')   # (lo sketch nuovo nell'albero si chiama «Vuoto» finché è vuoto)
+            faccia = pg.evaluate('window.__steelcad.sketch.v.on_face')   # (lo sketch nuovo nell'albero si chiama «Disegno 1» finché è vuoto)
             chk(f'Taglio: sketch sulla parete cliccata ({faccia})', 'cassone_destra' in str(faccia))
             pg.screenshot(path=str(OUT / '2_sketch_parete.png'))
             pg.evaluate("window.__steelcad.exitSketch()"); time.sleep(0.8)

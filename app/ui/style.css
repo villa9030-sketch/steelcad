@@ -111,6 +111,8 @@ body:not(.senza-destra) #viewcube { right: 326px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 #tree .node.clickable { cursor: pointer; }
+/* 03/11: gli accoppiamenti si leggono interi («Piastra base su Telaio»): vanno a capo tra le parole invece di tagliarsi */
+#tree .node[data-kind="mate"] { white-space: normal; }
 #tree .node.clickable:hover { background: #E6EEF8; }
 #tree .node.sel { background: #FFF0C7; }
 #tree .node .k { color: var(--ink-3); font-size: 11px; width: 14px; flex: none; text-align: center; }
@@ -122,9 +124,10 @@ body:not(.senza-destra) #viewcube { right: 326px; }
 table.grid { width: 100%; border-collapse: collapse; }
 table.grid td, table.grid th { padding: 3px 4px; border-bottom: 1px solid var(--row); text-align: left; vertical-align: middle; }
 table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
-#params td:first-child { width: 40%; line-height: 1.2; }
+#params td:first-child { width: 52%; line-height: 1.2; }
+#params td:first-child b { font-weight: 600; }
 #params td:first-child small { display: block; color: var(--ink-3); font-size: 11px; font-weight: 400;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; }
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 #params-box > summary, #params-new > summary { cursor: pointer; font-size: 12px; color: var(--ink-2); padding: 4px 0; }
 #params-panel:not(.tpl) #params-box > summary { display: none; }
 #params-panel.tpl #params-new > summary { display: none; }
@@ -134,7 +137,7 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 .piega-riga { font-size: 12px; color: var(--ink-2); margin: 10px 0 0; }
 .piega-riga a { color: var(--hover); }
 .tech label small { color: var(--ink-3); }
-#params td.res { color: var(--ink-3); text-align: right; width: 28%; font-variant-numeric: tabular-nums; }
+#params td.res { color: var(--ink-3); text-align: right; width: 18%; font-variant-numeric: tabular-nums; }
 .field {
   width: 100%; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface);
 }

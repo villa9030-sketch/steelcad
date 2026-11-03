@@ -90,7 +90,7 @@ try:
         ok('il pannello si apre con la distanza che c’è (55) già selezionata',
            pg.input_value('#m-off').startswith('55') and pg.evaluate("document.activeElement.id") == 'm-off')
         pg.keyboard.type('40'); pg.keyboard.press('Enter')
-        pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children[0].label.includes('distanza 40')", timeout=15000)
+        pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children[0].label.includes('a 40 mm da')", timeout=15000)
         pg.keyboard.press('Escape'); time.sleep(0.6)
         # il pezzo cliccato: la barretta mostra la misura che lo tiene (come aprire un cassetto); clic → il pannello
         # col campo pronto e il cursore. 03/11: col clic sul pezzo si apre solo la barretta, il pannello no
@@ -106,9 +106,9 @@ try:
         ok('clic sul pezzo: il cursore nel suo pannello lo muove', True)
         pg.keyboard.press('Escape'); time.sleep(0.6)
         m = [x for x in pg.evaluate("window.__steelcad.state.tree.children") if x['label'] == 'Accoppiamenti'][0]['children']
-        ok(f'distanza scritta e poi mossa col cursore: {m[0]["label"]}', 'distanza 70' in m[0]['label'])
+        ok(f'distanza scritta e poi mossa col cursore: {m[0]["label"]}', 'a 70 mm da' in m[0]['label'])
         pg.screenshot(path=str(SHOTS / '2_distanza.png'))
-        pg.click('#tree .node:has-text("M1")'); pg.wait_for_selector('#m-del'); pg.click('#m-del'); time.sleep(0.8)
+        pg.click('#tree .node[data-kind="mate"][data-ref="M1"]'); pg.wait_for_selector('#m-del'); pg.click('#m-del'); time.sleep(0.8)
 
         # Angolo: sopra della base, fianco del piatto (+X): 90° adesso, poi 30
         pg.click('#ribbon [data-asm-tool="angolo"]')
@@ -116,7 +116,7 @@ try:
         pg.wait_for_selector('#m-ang', timeout=15000)
         ok(f'Angolo: parte da quello che c’è ({pg.input_value("#m-ang")}°)', pg.input_value('#m-ang').startswith('90'))
         pg.keyboard.type('30'); pg.keyboard.press('Enter')
-        pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children.some(c => c.label.includes(', 30°'))", timeout=15000)
+        pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children.some(c => c.label.includes('a 30° con'))", timeout=15000)
         pg.keyboard.press('Escape'); time.sleep(0.6)
         st = pg.evaluate('window.__steelcad.state')
         ok('angolo 30° rispettato, senza avvisi', not st['warnings'])
@@ -131,7 +131,7 @@ try:
         pg.keyboard.press('Escape'); time.sleep(0.6)
         dopo = pg.evaluate("window.__steelcad.objs.get('I2').data.matrix.map(x => x.toFixed(3)).join()")
         ok('Blocca: il piatto non si è mosso', prima == dopo)
-        pg.click('#tree .node:has-text("M2")'); pg.wait_for_selector('#m-del')
+        pg.click('#tree .node[data-kind="mate"][data-ref="M2"]'); pg.wait_for_selector('#m-del')
         ok('pannello di Blocca: niente campo e niente «gira»', not pg.is_visible('#m-off') and not pg.is_visible('#m-flip'))
         pg.mouse.move(5, 895)
         pg.screenshot(path=str(SHOTS / '4_blocca.png'))

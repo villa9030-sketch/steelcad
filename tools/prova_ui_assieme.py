@@ -71,7 +71,7 @@ try:
         time.sleep(0.8)
         pg.screenshot(path=str(out / '2_accoppiati.png'))
         # pannello accoppiamento: distanza
-        pg.click('#tree .node:has-text("M1")')
+        pg.click('#tree .node[data-kind="mate"][data-ref="M1"]')
         pg.wait_for_selector('#m-off'); pg.fill('#m-off', '10'); pg.keyboard.press('Enter')
         pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children[0].label.includes('distanza 10')", timeout=15000)
         ok('distanza 10 dal pannello dell’accoppiamento', True)

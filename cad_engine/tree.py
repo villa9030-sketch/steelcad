@@ -263,7 +263,9 @@ def project_tree(doc, result) -> dict:
                 elif chi:
                     disegni[fid] = _n('il suo disegno', 'sketch', fid, status=stato)
                 else:
-                    nome_sk = f.name if f.name and not f.name.startswith('Sketch') else _cosa_disegnato(doc, f)
+                    # 03/11: uno sketch ancora vuoto si chiama «Disegno 1», «Disegno 2»… (prima «Vuoto», che non diceva cos'è)
+                    nome_sk = f.name if f.name and not f.name.startswith('Sketch') else (
+                        f'Disegno {len(non_usati) + 1}' if _vuoto(f) else _cosa_disegnato(doc, f))
                     non_usati.append(_n(nome_sk, 'sketch', fid, status=stato, vuoto=_vuoto(f)))
                 continue
             if f in solid_feats:

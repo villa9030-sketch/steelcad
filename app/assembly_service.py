@@ -1896,11 +1896,7 @@ class AssemblyMixin:
         for i in asm.instances:
             st = 'errore' if any(e['id'] == i['id'] for e in self.asm_errors) else ('fisso' if i.get('fixed') else None)
             figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': [], 'status': st})
-        acc = [{'label': f'{m["id"]}: {A.MATE_TYPES[m["type"]]} — {nomi.get(m["a"]["inst"], "?")} / {nomi.get(m["b"]["inst"], "?")}'
-                + (f', distanza {fmt_mm((m.get("offset") or 0) * (m.get("segno") or 1))}' if m['type'] in ('faccia', 'distanza', 'tangente', 'centra')
-                   and m.get('offset') else '')
-                + (f', {fmt_mm(round(m.get("angle") or 0, 2))}°' if m['type'] == 'angolo' else '')
-                + (' (sospeso)' if m.get('off') else ''),
+        acc = [{'label': _frase_mate(m, nomi),
                 'kind': 'mate', 'ref': m['id'], 'children': [], 'status': None} for m in asm.mates]
         if acc:
             figli.append({'label': 'Accoppiamenti', 'kind': 'group', 'ref': None, 'children': acc, 'status': None})
@@ -2129,7 +2125,7 @@ class AssemblyMixin:
             err = A.mate_error(m, {i['id']: (np.array(i['R']), np.array(i['T'])) for i in self.asm.instances}, self.asm_parts, self.asm)
             rows = [['Tipo', A.MATE_TYPES[m['type']]], ['Fermo', nomi.get(m['a']['inst'], '?')], ['Si muove', nomi.get(m['b']['inst'], '?')],
                     ['Scarto', '—' if err is None else f'{err:.4f}']]
-            return _ok(selection={'kind': 'mate', 'id': mid, 'title': f'Accoppiamento {mid}', 'rows': rows,
+            return _ok(selection={'kind': 'mate', 'id': mid, 'title': _frase_mate(m, nomi), 'rows': rows,
                                   'def': {'type': m['type'], 'offset': (m.get('offset') or 0) * (m.get('segno') or 1),
                                           'flip': bool(m.get('flip')), 'da': m.get('da'),
                                           'angle': m.get('angle') or 0,
@@ -2166,3 +2162,29 @@ class AssemblyMixin:
             except SteelCADError:
                 pass
         return _ok(selection=sel)
+
+
+# 03/11: l'accoppiamento nell'albero in parole, con i due pezzi: «Piastra base su Telaio» (il codice M1 resta interno).
+# Prima «M1: faccia su faccia — Piastra bas…», con il codice e tagliato a metà. «a» è il pezzo fermo, «b» quello che si muove.
+_FRASI_MATE = {'faccia': '{b} su {a}', 'asse': '{b} in asse con {a}', 'distanza': '{b} a distanza da {a}',
+               'parallelo': '{b} parallelo a {a}', 'perpendicolare': '{b} a squadra con {a}', 'angolo': '{b} ad angolo con {a}',
+               'tangente': '{b} tangente a {a}', 'centra': '{b} in mezzo a {a}', 'blocca': '{b} bloccato su {a}',
+               'spigolo': '{b} spigolo su spigolo con {a}', 'spigolo_faccia': '{b} con lo spigolo su {a}',
+               'cono': '{b} cono su cono con {a}', 'testa': '{b} di testa con {a} (a cornice)'}
+
+
+def _frase_mate(m: dict, nomi: dict) -> str:
+    a, b = nomi.get(m['a']['inst'], '?'), nomi.get(m['b']['inst'], '?')
+    t = m['type']
+    off = (m.get('offset') or 0) * (m.get('segno') or 1)
+    if t == 'faccia' and m.get('flip'):
+        frase = f'{b} a filo di {a}'
+    elif t == 'distanza':
+        frase = f'{b} a {fmt_mm(off)} mm da {a}'
+    elif t == 'angolo':
+        frase = f'{b} a {fmt_mm(round(m.get("angle") or 0, 2))}° con {a}'
+    else:
+        frase = _FRASI_MATE.get(t, '{b} con {a}').format(a=a, b=b)
+        if t in ('faccia', 'tangente', 'centra') and off:
+            frase += f', distanza {fmt_mm(off)} mm'
+    return frase + (' (sospeso)' if m.get('off') else '')
