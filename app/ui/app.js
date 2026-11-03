@@ -2399,6 +2399,8 @@ function prepControllo(c, laserNo) {
 }
 // il tipo del file, da mettere accanto al nome (DXF, PDF, STEP…)
 const tipoFile = f => { const m = /\.([a-z0-9]+)$/i.exec(String(f || '')); return m ? m[1].toUpperCase() : ''; };
+// un percorso lungo va a capo dopo una \ (non a metà di un nome)
+const percorsoHtml = f => esc(f).replace(/\\/g, '\\<wbr>');
 const rigaFile = f => `<li><span class="pf-tipo">${esc(tipoFile(f))}</span><span class="pf-nome">${esc(f)}</span></li>`;
 async function preparaDialog() {
   const info = await call('prepara_info');
@@ -2415,7 +2417,7 @@ async function preparaDialog() {
   modal(`<h3>Cosa ti serve?</h3>
     ${prepControllo(c, laserNo)}
     <div class="prep-voci" role="group" aria-label="Cosa salvare">${voci}</div>
-    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Si salvano in</span><b id="prep-dir" title="${esc(cartella)}">${esc(cartella)}</b>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Si salvano in</span><b id="prep-dir" title="${esc(cartella)}">${percorsoHtml(cartella)}</b>
       <button class="btn piccolo" id="prep-cambia">Cambia cartella</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
     $('#modal-box').classList.add('prepara');
@@ -2427,7 +2429,7 @@ async function preparaDialog() {
     document.querySelectorAll('#modal-box [data-voce]').forEach(i => { i.onchange = conta; });
     conta();
     $('#m-no').onclick = close;
-    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; $('#prep-dir').title = cartella; } });
+    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').innerHTML = percorsoHtml(cartella); $('#prep-dir').title = cartella; } });
     // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
     const tav = $('#prep-tavole');
     if (tav) tav.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); close(); runCmd('drawings'); };
@@ -2449,7 +2451,7 @@ function preparaFatto(r) {
   modal(`<h3>File pronti</h3>
     <div class="prep-ok"><div class="prep-stato"><b>Salvat${r.files.length === 1 ? 'o 1 file' : `i ${r.files.length} file`}.</b><small>Li trovi nella cartella qui sotto.</small></div></div>
     <ul class="prep-fatti">${r.files.map(rigaFile).join('')}</ul>
-    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="prep-dir">${esc(r.cartella)}</b></div>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="prep-dir">${percorsoHtml(r.cartella)}</b></div>
     <div class="acts"><button class="btn" id="prep-tav">Guarda le tavole</button><button class="btn" id="prep-apri">Apri la cartella</button>
       <button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
     $('#modal-box').classList.add('prepara');
@@ -2471,7 +2473,7 @@ function fileFatto(r, titolo = 'File salvato') {
     <div class="prep-ok${avvisi ? ' no' : ''}"><div class="prep-stato"><b>${avvisi ? 'Salvato, ma c’è da guardare' : 'Salvato.'}</b>
       ${r.message ? `<small class="fatto-msg">${esc(r.message)}</small>` : ''}</div></div>
     <ul class="prep-fatti">${rigaFile(nome)}</ul>
-    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="fatto-dir">${esc(cartella)}</b></div>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="fatto-dir">${percorsoHtml(cartella)}</b></div>
     <div class="acts"><button class="btn" id="fatto-apri">Apri la cartella</button><button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
     $('#m-ok').onclick = close;
     $('#m-ok').focus();
