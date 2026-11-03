@@ -9508,7 +9508,7 @@ const BARRA_GRANDI = {
   lamiera: ['flange_help', 'foro', 'asola', 'tipo_foro', 'taglia', 'face_help', 'unfold', 'misura'],
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
-  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'faccia', 'asse', 'centra', 'asm_interf', 'asm_esploso', 'misura'],
+  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
   sketch: ['line', 'rect', 'circle', 'arc3', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };

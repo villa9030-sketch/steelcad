@@ -73,8 +73,13 @@ try:
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8)
         tutti = ['faccia', 'asse', 'distanza', 'angolo', 'tangente', 'parallelo', 'perpendicolare', 'centra', 'blocca',
                  'spigolo', 'spigolo_faccia']
-        ok('nella barra in alto ci sono tutti e 11 gli accoppiamenti',
+        ok('nella barra in alto ci sono tutti e 11 gli accoppiamenti (i meno usati in «Altro ▾»)',
            all(comando_visibile(pg, f'#ribbon [data-asm-tool="{t}"]') for t in tutti))
+        ok('grandi nella barra: Appoggia, Foro su foro, Distanza, Angolo',
+           all(pg.is_visible(f'#ribbon [data-asm-tool="{t}"]') for t in ('appoggia', 'asse', 'distanza', 'angolo')))
+        pg.click('#palette-btn'); pg.fill('#pal-input', 'perpendic'); time.sleep(0.3)
+        ok('«Cerca un comando» trova anche quelli dentro «Altro» (Perpendicolari)', 'Perpendicolari' in pg.inner_text('#pal-list'))
+        pg.keyboard.press('Escape'); time.sleep(0.2)
         pg.screenshot(path=str(SHOTS / '1_barra.png'))
 
         def clic(iid, n):

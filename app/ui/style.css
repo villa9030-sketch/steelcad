@@ -2077,3 +2077,14 @@ body.at-home #top .rtabs { visibility: hidden; }
   #top .rtabs button { padding: 0 10px; }
   #top .rtabs { margin: 0 var(--s-1); }
 }
+/* un solo pulsante blu per schermata: se il pannello di destra o il disegno hanno il loro pulsante principale
+   (Crea lamiera, Applica…), «Prepara» in alto torna un pulsante normale (resta lì, stesso posto, stesso nome) */
+body.sketching #b-prepara,
+body:not(.senza-destra):has(#right .btn.primary:not([hidden]):not(:disabled)) #b-prepara {
+  background: var(--c-pannello); color: var(--c-testo); box-shadow: inset 0 0 0 1px var(--c-linea-forte); }
+body.sketching #b-prepara:hover,
+body:not(.senza-destra):has(#right .btn.primary:not([hidden]):not(:disabled)) #b-prepara:hover { background: var(--c-sopra); }
+/* la barra «prossimo passo» in basso al centro non copre Inquadra / Quote / Tema: la barrina sale sopra di lei */
+body:has(#sk-foot:not([hidden])) #navbar { bottom: 76px; }
+#navbar { transition: bottom var(--t-veloce); }
+@media (prefers-reduced-motion: reduce) { #navbar { transition: none; } }
