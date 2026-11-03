@@ -818,9 +818,10 @@ body.dark #home .home-cerca :is(img, .ico) { filter: invert(1); opacity: .6; }
 @media (max-width: 1180px) { #home .home-partenze { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-height: 800px) {
   #home .home-pagina { padding-top: var(--s-5); gap: var(--s-5); }
-  #home .home-nuovo .pic { height: 80px; } #home .home-nuovo img { height: 64px; }
-  #home .home-mod .pic { height: 60px; } #home .home-mod .pic svg, #home .home-mod .pic img { height: 58px; }
-  #home .home-rec .pic { height: 136px; } #home .home-rec .pic img { max-height: 124px; }
+  /* :is(img, .ico) come sopra, se no vince la regola grande e a 768 px i disegni coprono i titoli (collaudo 04/11) */
+  #home .home-nuovo .pic { height: 80px; } #home .home-nuovo :is(img, .ico) { height: 64px; }
+  #home .home-mod .pic { height: 60px; } #home .home-mod .pic svg, #home .home-mod .pic :is(img, .ico) { height: 58px; }
+  #home .home-rec .pic { height: 136px; } #home .home-rec .pic :is(img, .ico) { max-height: 124px; }
 }
 /* sottomenu (Apri recenti, Importa, Esporta) */
 .sub-item { position: relative; }
