@@ -4984,7 +4984,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         from app.drawings_service import _leggi_fissi
         cartella = Path.home() / 'Documents' / 'SteelCAD'
         r = self.sheet_rules()
-        imp = _leggi_impostazioni()
+        imp = _impostazioni_tema_nuovo()
         return _ok(bend_default=self.bend_default(), rules=r.get('rules', []), cartiglio=_leggi_fissi(),
                    cartelle={'lavori': str(cartella), 'libreria': str(cartella / 'Libreria')},
                    tema=imp.get('tema', 'chiaro'), materiale=imp.get('materiale', 'S235'), materiali=_materiali(),
@@ -4999,6 +4999,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if v['tema'] not in ('scuro', 'chiaro'):
                 return {'ok': False, 'message': 'Il tema è scuro o chiaro.'}
             imp['tema'] = v['tema']
+            imp['tema_nuovo_visto'] = True      # scelto da te: il «chiaro una volta» della versione nuova non lo tocca più
         if 'materiale' in v:
             if v['materiale'] not in {m['code'] for m in _materiali()}:
                 return {'ok': False, 'message': f'Materiale «{v["materiale"]}» sconosciuto.'}
@@ -5912,6 +5913,20 @@ def _leggi_impostazioni() -> dict:
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def _impostazioni_tema_nuovo() -> dict:
+    """04/11, interfaccia nuova: si parte CHIARI una volta, anche chi aveva salvato lo scuro (la spunta
+    «tema_nuovo_visto» ricorda che è già successo); dopo vale la scelta fatta col pulsante Tema o nelle Impostazioni."""
+    imp = _leggi_impostazioni()
+    if not imp.get('tema_nuovo_visto'):
+        imp['tema'] = 'chiaro'
+        imp['tema_nuovo_visto'] = True
+        try:
+            _scrivi_impostazioni(imp)
+        except OSError:
+            pass                            # non si scrive: si parte chiari lo stesso, ci si riprova al prossimo avvio
+    return imp
 
 
 def _scrivi_impostazioni(d: dict) -> None:
