@@ -2444,10 +2444,15 @@ const tipoFile = f => { const m = /\.([a-z0-9]+)$/i.exec(String(f || '')); retur
 // un percorso lungo va a capo dopo una \ (non a metà di un nome)
 const percorsoHtml = f => esc(f).replace(/\\/g, '\\<wbr>');
 const rigaFile = f => `<li><span class="pf-tipo">${esc(tipoFile(f))}</span><span class="pf-nome">${esc(f)}</span></li>`;
-async function preparaDialog() {
+// 04/11 (percorsi A, B, C, telaio): «Guarda le tavole» da Prepara e poi «Chiudi» riporta qui, con le stesse spunte e
+// la stessa cartella (prima si tornava al pezzo e la spunta del PDF era persa: 3 clic in più ogni volta)
+let tornaPrepara = null;
+async function preparaDialog(ricorda = null) {
+  if (!Array.isArray(ricorda?.scelte)) ricorda = null;
   const info = await call('prepara_info');
   if (!info.ok) { toast(info.message, 'err'); return; }
-  let cartella = info.cartella;
+  let cartella = ricorda?.cartella || info.cartella;
+  if (ricorda) info.voci.forEach(v => { if (v.si) v.scelta = ricorda.scelte.includes(v.id); });
   const c = info.controllo;
   // notte 03/11: prima quello che si può fare, in fondo (spente) le voci non disponibili per questo pezzo
   const voci = [...info.voci.filter(v => v.si), ...info.voci.filter(v => !v.si)].map(v => `<label class="prep-voce${v.si ? '' : ' no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
@@ -2474,7 +2479,11 @@ async function preparaDialog() {
     $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').innerHTML = percorsoHtml(cartella); $('#prep-dir').title = cartella; } });
     // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
     const tav = $('#prep-tavole');
-    if (tav) tav.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); close(); runCmd('drawings'); };
+    if (tav) tav.onclick = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      tornaPrepara = { scelte: [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce), cartella };
+      close(); runCmd('drawings');
+    };
     $('#m-ok').onclick = () => {
       const scelte = [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
       close();
@@ -5422,6 +5431,7 @@ function distintaDialog(o, d, fatto) {
 }
 
 async function drawingsDialog() {
+  const torna = tornaPrepara; tornaPrepara = null;              // aperte da «Prepara»: alla chiusura si torna lì
   const r = await call('drawing_fields');
   if (!r.ok) { toast(r.message, 'err'); return; }
   const c = r.fields;
@@ -5488,7 +5498,8 @@ async function drawingsDialog() {
     </div>`;
   document.body.appendChild(box);
   const chiudi = () => { box.remove(); document.removeEventListener('keydown', tasti, true);
-    if (ED.toccato) inCoda(async () => { const st = await call('state'); if (st && st.version) { S = st; renderPanels(); } }); };
+    if (ED.toccato) inCoda(async () => { const st = await call('state'); if (st && st.version) { S = st; renderPanels(); } });
+    if (torna) inCoda(() => preparaDialog(torna)); };
   const leggi = () => {
     const o = {};
     box.querySelectorAll('[data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); });
@@ -6963,7 +6974,10 @@ function modal(html, wire) {
   $('#modal').hidden = false;
   const close = () => { $('#modal').hidden = true; };
   wire(close);
-  $('#modal-box').querySelector('input, button.primary')?.focus();
+  const primo = $('#modal-box').querySelector('input, button.primary');
+  primo?.focus();
+  // il primo campo col testo già scelto: chi scrive 30 sopra «1000» ha 30, non «100030» (04/11, percorsi A e D)
+  if (primo?.tagName === 'INPUT' && /^(text|number|search|)$/.test(primo.type)) primo.select();
 }
 
 const virgola = v => (v === null || v === undefined ? '' : String(v).replace('.', ','));
@@ -6976,7 +6990,7 @@ const DISEGNI = (() => {
   const b = (x, y, l) => `<g class="lt"><circle cx="${x}" cy="${y}" r="15"/><text x="${x}" y="${y + 6}">${l}</text></g>`;
   const qo = (x1, x2, y) => `<path class="q" d="M${x1} ${y}H${x2}M${x1} ${y - 7}v14M${x2} ${y - 7}v14"/>`;
   const qv = (x, y1, y2) => `<path class="q" d="M${x} ${y1}V${y2}M${x - 7} ${y1}h14M${x - 7} ${y2}h14"/>`;
-  const svg = c => `<svg viewBox="0 0 520 380" role="img" aria-label="Disegno con le misure">${c}</svg>`;
+  const svg = (c, h = 380) => `<svg viewBox="0 0 520 ${h}" role="img" aria-label="Disegno con le misure">${c}</svg>`;
   const scaff = (chiuso) => svg(`<g class="ln">
       <rect x="150" y="50" width="200" height="280"/>${chiuso ? '' : ''}
       <path d="M150 120h200M150 190h200M150 260h200"/><path d="M350 50l60-28v280l-60 28M150 50l60-28h200"/></g>
@@ -6993,7 +7007,7 @@ const DISEGNI = (() => {
       <path class="q" d="M206 170h68"/>${b(240, 120, 'C')}${qo(430, 448, 315)}${b(439, 345, 'D')}`),
     telaio: svg(`<g class="ln"><path d="M80 120l250 60 140-70-250-50z"/><path d="M80 120v190M330 180v190M470 110v190M220 60v150"/></g>
       <path class="q" d="M70 330l250 60"/>${b(190, 372, 'A')}<path class="q" d="M345 392l140-70"/>${b(430, 372, 'B')}
-      ${qv(40, 120, 310)}${b(40, 215, 'C')}`),
+      ${qv(40, 120, 310)}${b(40, 215, 'C')}`, 410),            // 410: le lettere A e B in basso non si tagliano
     scaffale: scaff(false),
     armadio: scaff(true),
     cancello: svg(`<g class="ln"><rect class="pz" x="60" y="60" width="400" height="240"/><rect x="72" y="72" width="376" height="216"/>
@@ -7041,7 +7055,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
         { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
     zero: { titolo: 'Da zero', bottone: 'Inizia a disegnare', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera o piastra; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
-    telaio: { titolo: 'Banco', bottone: 'Crea il banco', nota: 'Misure fuori tutto: il banco finito è grande così, i tubi stanno dentro.', nome: 'Banco',
+    telaio: { titolo: 'Telaio in tubo', bottone: 'Crea il telaio', nota: 'Misure fuori tutto: il telaio finito è grande così, i tubi stanno dentro.', nome: 'Banco',
       campi: [{ k: 'L', l: 'Lunghezza', v: 1600, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 700, lettera: 'B' },
         { k: 'H', l: 'Altezza (piano di lavoro)', v: 850, lettera: 'C' },
         { k: 'ripiano', l: 'Ripiano sotto, da terra (0 = senza)', v: 150 },
@@ -7631,7 +7645,7 @@ const CMDS = [
   { id: 'home', label: 'Pagina iniziale', run: () => inCoda(() => showHome()) },
   { id: 'new_asm', label: 'Nuovo assieme…', run: newAssemblyDialog },
   { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
-  { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(preparaDialog) },
+  { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(() => preparaDialog()) },
   { id: 'asm_insert', label: 'Assieme: inserisci pezzo…', run: () => inCoda(async () => { const r = await call('asm_insert_dialog'); if (await apply(r) && r.select) await select(r.select); }) },
   { id: 'asm_esploso', label: 'Assieme: vista esplosa (apri / chiudi)', run: () => {
     if (S?.mode !== 'assembly') { toast('La vista esplosa è degli assiemi.', 'err'); return; }
