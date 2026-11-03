@@ -938,6 +938,11 @@ function pannelloTraverso() {
   const pronto = TRAV.primo && TRAV.secondo;
   passoTubi(!TRAV.primo ? 'Clicca il primo tubo, per esempio una gamba' : !TRAV.secondo ? `Ora clicca il secondo tubo (il primo è «${nome(TRAV.primo)}»)`
     : 'Scrivi a che misura va il traverso, a destra', pronto ? [['Invio', 'aggiungi'], ['Esc', 'annulla']] : [['Esc', 'annulla']]);
+  // 04/11 notte (attriti, E 7): il primo tubo è del telaio sopra: la croce si fa prima con «Dividi»
+  if (TRAV.primo && !TRAV.secondo && tuboDaDividere(TRAV.primo)) {
+    passoTubi('Ora clicca il secondo tubo');          // corta: accanto c'è il consiglio (il primo è già giallo)
+    consiglioDividi(TRAV.primo, true);
+  }
   const inPiedi = pronto && (TRAV.info ? TRAV.info.in_piedi : [TRAV.primo, TRAV.secondo].every(id => /^(Gamba|Montante|Sbarra)/.test(nome(id))));
   const rif = TRAV.rif || (inPiedi ? 'sotto' : 'centro');
   const scelte = inPiedi ? [['sotto', 'Sotto il tubo'], ['meta', 'A metà tubo'], ['sopra', 'Sopra il tubo']]
@@ -1587,7 +1592,9 @@ function buildDims() {
 function quoteIngombro() {
   const box = new THREE.Box3();
   model.updateMatrixWorld(true);
-  model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
+  // 04/11 notte (attriti, D 15): un pezzo aperto dall'assieme ha attorno gli altri pezzi, trasparenti: l'ingombro è
+  // quello del pezzo (la staffa 100 × 80), non dell'assieme (88 × 300 × 200)
+  model.traverse(o => { if (o.isMesh && o.visible && o.geometry && o.material !== CTX_MAT) box.expandByObject(o); });
   if (box.isEmpty()) return;
   const mn = box.min, mx = box.max, sz = box.getSize(new THREE.Vector3());
   const off = Math.max(30, box.getBoundingSphere(new THREE.Sphere()).radius * 0.16);
@@ -1877,6 +1884,26 @@ function renderPanels() {
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi(); renderStoria();
   aggiornaLayout();
   if (!sel && !SK) $('#props').innerHTML = '';
+  passoAssieme();
+}
+// 04/11 notte (attriti, D 12): appena creato l'assieme i pezzi sono a fianco e non si sa cosa fare: una riga «prossimo
+// passo» in basso, finché non c'è un accoppiamento (o la chiudi). Durante Appoggia & c. parla la loro barra
+const ASM_PASSO_CHIUSO = new Set();
+function passoAssieme() {
+  let b = document.getElementById('asm-passo');
+  const chi = S?.path || S?.name || '', ist = S?.instances || [];
+  const mostra = S?.mode === 'assembly' && ist.length >= 2 && ist.some(i => !i.fixed) && !SK && !ASM.tool && !APP.el
+    && !JSON.stringify(S.tree || {}).includes('"kind":"mate"') && !ASM_PASSO_CHIUSO.has(chi);
+  if (!mostra) { if (b) b.hidden = true; return; }
+  if (!b) {
+    b = document.createElement('div'); b.id = 'asm-passo';
+    b.innerHTML = `<span class="t-passo">Metti i pezzi al loro posto:</span><button type="button" class="btn piccolo" id="asm-passo-ok"><img src="icons/appoggia.svg" alt="">Appoggia</button>`
+      + `<span class="t-poi">poi clic sul pezzo e sulla faccia dove va</span><button type="button" class="asm-passo-x" title="Chiudi" aria-label="Chiudi">×</button>`;
+    $('#trav-hint').after(b);
+    b.querySelector('#asm-passo-ok').onclick = () => asmTool('appoggia');
+    b.querySelector('.asm-passo-x').onclick = () => { ASM_PASSO_CHIUSO.add(S?.path || S?.name || ''); b.hidden = true; };
+  }
+  b.hidden = false;
 }
 // il pannello a destra si apre solo quando c'è qualcosa di selezionato (le proprietà); i comandi stanno nella barra in alto
 function aggiornaLayout() {
@@ -2277,7 +2304,27 @@ $('#params-panel').addEventListener('keydown', ev => {
 });
 function provaParametro(t) {
   t.dataset.tentato = t.value;
-  inCoda(async () => { if (!await apply(await call('set_parameter', t.dataset.p, t.value))) t.classList.add('bad'); });
+  inCoda(async () => { if (!await apply(await call('set_parameter', t.dataset.p, t.value))) t.classList.add('bad'); else inquadraSeServe(); });
+}
+// 04/11 notte (attriti, B 4): cambiata una misura a sinistra, il pezzo usciva dalla vista (o restava un puntino in un
+// angolo) e serviva «Inquadra». Adesso, solo in quei casi, la vista si riadatta da sola, dolcemente, dalla stessa parte
+function inquadraSeServe() {
+  requestAnimationFrame(() => {
+    if (SK || MIS || !objs.size || anim) return;
+    const box = new THREE.Box3().setFromObject(model);
+    if (box.isEmpty()) return;
+    const A = areaLibera(), W = canvas.clientWidth, H = canvas.clientHeight;
+    let fuori = false, x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const X of [box.min.x, box.max.x]) for (const Y of [box.min.y, box.max.y]) for (const Z of [box.min.z, box.max.z]) {
+      const q = new THREE.Vector3(X, Y, Z).project(camera);
+      if (q.z > 1) { fuori = true; continue; }
+      const x = (q.x + 1) / 2 * W, y = (1 - q.y) / 2 * H;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      if (x < A.l - 2 || x > A.r + 2 || y < A.t - 2 || y > A.b + 2) fuori = true;
+    }
+    const piccolo = Math.max((x1 - x0) / (A.r - A.l), (y1 - y0) / (A.b - A.t)) < 0.35;   // un terzo della vista, nei due versi
+    if (fuori || piccolo) goTo(null, true);
+  });
 }
 $('#params').addEventListener('focusout', ev => {
   const t = ev.target;
@@ -2669,15 +2716,15 @@ function placeBarra() {
       if (!l) { l = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); l.id = 'sc-linea'; document.body.appendChild(l); }
       const ax = destra ? x : x + w, ay = Math.max(y + 20, Math.min(q[1], y + 60));
       l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
-    } else if (q && m._evita && mettiAccanto(m, m._evita(), r)) {
+    } else if (q && m._evita && mettiAccanto(m, m._evita(), { left: r.left, right: r.right, top: r.top, bottom: Math.min(r.bottom, sopraRiga(r) + 8) })) {
       // (assieme) sotto, sopra o di lato al pezzo: non sopra
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
       let x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
-      let y = Math.max(r.top + 34, Math.min(q[1] + (+m.dataset.giu || 30), r.bottom - h - 8));
+      let y = Math.max(r.top + 34, Math.min(q[1] + (+m.dataset.giu || 30), sopraRiga(r) - h));
       // 04/11 (regola 3): la barretta non copre quello che hai cliccato. Sotto la faccia (o la piega) scelta, se no
       // sopra, se no di lato; solo se la scelta riempie la vista resta dov'era
-      const sc = rettScelta(r), basso = r.bottom - 62, nome = 28;     // 62: la barra Inquadra/Quote/Tema in fondo
+      const sc = rettScelta(r), basso = sopraRiga(r), nome = 28;     // sopra la barra Inquadra/Quote/Tema (e la riga «prossimo passo»)
       if (sc) {
         const cx = Math.max(r.left + 8, Math.min((sc.left + sc.right) / 2 - w / 2, r.right - w - 8));
         const cy = Math.max(r.top + nome + 8, Math.min((sc.top + sc.bottom) / 2 - h / 2, basso - h));
@@ -2707,6 +2754,16 @@ function placeBarra() {
     SCELTE.el.style.left = (b.left + b.width / 2) + 'px'; SCELTE.el.style.top = (b.bottom + 6) + 'px';
   }
 }
+// 04/11 notte (attriti): fin dove può scendere la barretta: sopra la barretta Inquadra/Quote/Tema (62 px dal fondo) e
+// sopra la riga «prossimo passo» se c'è (assieme appena creato, tubi): prima ci finiva sopra
+function sopraRiga(r) {
+  let y = r.bottom - 62;
+  for (const id of ['asm-passo', 'trav-hint']) {
+    const e = document.getElementById(id);
+    if (e && !e.hidden && e.offsetParent) y = Math.min(y, e.getBoundingClientRect().top - 10);
+  }
+  return y;
+}
 // 04/11: la barretta accanto al riquadro del pezzo, mai sopra: sotto (col nome sopra di lei), se no sopra, se no a
 // destra o a sinistra. Se il pezzo riempie la vista: in basso nella vista, sopra la barrina Inquadra/Quote
 function mettiAccanto(m, p, r) {
@@ -2729,21 +2786,23 @@ function mettiAccanto(m, p, r) {
 }
 // la barretta. voci: [icona, suggerimento, fai, classe, anteprima(on)]; '|' = separatore. opz.chi: chi è (stessa
 // cosa = niente animazione), opz.piu: cosa fa «⋯» (di solito il pannello completo), opz.piu === false: niente «⋯»
+// 04/11 notte (attriti): UNA barretta per tutto (lamiera, tubi, assieme): il nome sopra, al massimo 5 azioni con
+// icona e nome scritto accanto, «⋯» in fondo che apre il pannello a destra. Col pannello aperto la barretta non c'è
+// (il pannello ha le stesse azioni, coi campi), come già nei tubi; la barretta torna scegliendo un'altra cosa
 function barretta(nome, voci, opz = {}) {
   const vecchia = document.getElementById('mini-barra'), chi = opz.chi || nome;
   const uguale = vecchia?.dataset.chi === chi;
   vecchia?.remove();
   tip.style.display = 'none';
+  if (sel?.pannello && opz.piu === undefined) { document.getElementById('sc-linea')?.remove(); return; }
   const m = document.createElement('div');
   m.id = 'mini-barra'; m.dataset.chi = chi;
   if (uguale) m.classList.add('fermo');
-  if (opz.nomi) m.classList.add('con-nomi');        // 03/11: le icone con il nome scritto sotto (assieme)
-  const scritta = t => opz.nomi ? `<span class="lab">${esc(t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span>` : '';
   // 04/11 (regola 3): al massimo 5 azioni col nome, il resto sta nel pannello («⋯»)
-  if (opz.scritte) { let n = 0; voci = voci.filter(v => v[0] === '|' || ++n <= 5); while (voci.at(-1)?.[0] === '|') voci.pop(); }
+  { let n = 0; voci = voci.filter(v => v[0] === '|' || ++n <= 5); while (voci.at(-1)?.[0] === '|') voci.pop(); }
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
-    : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"${opz.scritte && / \(/.test(t) ? ` title="${esc(t)}"` : ''}><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t.replace(/ \(.*$/, ''))}</span>` : scritta(t)}</button>`).join('')
-    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
+    : `<button data-i="${i}" data-t="${esc(t)}" aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')} con-scritta"${/ \(/.test(t) ? ` title="${esc(t)}"` : ''}><img src="icons/${ic}.svg" alt=""><span>${esc(t.replace(/ \(.*$/, ''))}</span></button>`).join('')
+    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni" title="Tutte le opzioni (il pannello a destra)">⋯</button>` : '');
   if (opz.evita) m._evita = opz.evita;
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
@@ -2757,7 +2816,8 @@ function barretta(nome, voci, opz = {}) {
 function tutteLeOpzioni() {
   if (!sel) return;
   sel.pannello = true; sel.soloMini = false; aggiornaLayout();
-  if (document.querySelector('#mini-barra.scheda-foro')) nascondiMini();   // 04/11: il pannello del foro dice già tutto
+  // 04/11: il pannello dice già tutto: via la barretta (le quote sul pezzo restano)
+  document.getElementById('mini-barra')?.remove(); document.getElementById('sc-linea')?.remove();
 }   // il pannello completo, a destra
 // mentre il pezzo si ricalcola: un segno accanto al nome (non sembra bloccata)
 function schedaCalcola(on) { document.getElementById('mini-barra')?.classList.toggle('calcolo', on); }
@@ -2915,7 +2975,7 @@ function miniBarra(s) {
     // 04/11 (regola 3): al massimo 5 azioni col nome, le altre in «Altro» (il pannello a destra le ha tutte, con il
     // nome). La barretta si mette sotto il pezzo (o sopra, o di lato): prima copriva proprio il pezzo appena cliccato
     const id = sel?.id;
-    barretta(s.title, azioniPezzo(s).slice(0, 5).map(a => [a.ic, a.t, a.fai, a.cls]), { chi: 'i:' + id, nomi: true, evita: () => rettangoloPezzo(id) });
+    barretta(s.title, azioniPezzo(s).slice(0, 5).map(a => [a.ic, a.t, a.fai, a.cls]), { chi: 'i:' + id, evita: () => rettangoloPezzo(id) });
     return;
   }
   if (s.foro) { miniForo(s); return; }
@@ -2948,15 +3008,20 @@ function miniTubo(s, daClic) {
   const tb = s.tubo || {}, mis = (s.rows.find(r => r[0] === 'Da tagliare')?.[1] || '').replace(/, dritto$/, '');
   const poi = (fn, campo) => () => { apriPannelloTubi(); fn?.(); if (campo) { const c = $(campo); if (c) { c.focus(); c.select?.(); } } };
   const id = s.id;
+  // 04/11 notte (attriti): sul telaio sopra o su un tubo lungo «Dividi» viene prima (la croce in 3 clic)
+  const dividere = !!tb.facce?.length && !tb.verticale && tuboDaDividere(id);
+  const dividi = tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : [];
   barretta(`${s.title}${mis ? ', ' + mis : ''}`, [
+    ...(dividere ? dividi : []),
     ['box', 'Cambia tubo', poi(null, '#p-prof')],
     ['traverso', 'Traverso da qui', poi(() => iniziaTraverso(id))],
-    ...(tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : []),
+    ...(dividere ? [] : dividi),
     ['tubo', 'Tubo nuovo da qui', poi(() => $('#p-punto')?.click())],
     ...(s.lavorabile ? [['hole', 'Fori qui', poi(() => $('#p-lav')?.click())]] : []),
   ].slice(0, 5), { chi: 'tubo:' + id, scritte: true, piu: apriPannelloTubi });   // «⋯»: il pannello intero, la barretta va via (direbbe le stesse cose)
   const m = document.getElementById('mini-barra');
   if (m) { if (tb.verticale) m.classList.add('lato'); else m.dataset.giu = '72'; placeBarra(); }
+  if (dividere && !TRAV && !DIVSCEGLI && !PUNTO) consiglioDividi(id);
 }
 // la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
 function miniFlangia(s, lavora) {
@@ -4392,6 +4457,7 @@ function asmTool(t) {
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
   if (t) asmHelp(); else setHelp('');
   if (!SK) $('#sk-foot').hidden = !t;                // il suggerimento in basso, anche fuori dal disegno
+  if (typeof passoAssieme === 'function' && S) passoAssieme();   // la riga «metti i pezzi al loro posto» lascia il posto
 }
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-asm-tool]');
@@ -6577,6 +6643,27 @@ function passoTubi(testo, tasti = [['Esc', 'annulla']]) {
   b.innerHTML = `<span class="t-passo">${esc(testo)}</span>${tasti.map(([k, t]) => `<span class="g-tasto"><kbd>${esc(k)}</kbd> ${esc(t)}</span>`).join('')}`;
   b.hidden = false;
 }
+// 04/11 notte (attriti, E 7): la croce sopra il telaio si faceva con due «Traverso» (9 clic), «Dividi» la fa in 3.
+// Un tubo del telaio sopra (o un tubo lungo) sdraiato: la barra in basso lo dice, col pulsante che parte da quel tubo
+function tuboDaDividere(id) {
+  const o = objs.get(id);
+  if (!o?.mesh || o.data?.kind !== 'member') return false;
+  const b = new THREE.Box3().setFromObject(o.mesh), tutto = new THREE.Box3();
+  for (const x of objs.values()) if (x.mesh && x.data?.kind === 'member') tutto.expandByObject(x.mesh);
+  const d = b.getSize(new THREE.Vector3()), lungo = Math.max(d.x, d.y);
+  const sdraiato = d.z < 0.3 * lungo, sopra = b.max.z >= tutto.max.z - 1 && tutto.max.z - tutto.min.z > 3 * d.z;
+  return sdraiato && (sopra || lungo >= 1000);
+}
+function consiglioDividi(id, conPasso = false) {
+  if (!conPasso) passoTubi('Una croce o una griglia di traversi uguali?', []);
+  const b = $('#trav-hint');
+  b.insertAdjacentHTML('beforeend', (conPasso ? '<span class="g-sep"></span><span class="t-poi">Una croce?</span>' : '')
+    + `<button type="button" class="btn piccolo" id="trav-dividi"><img src="icons/pattern_rect.svg" alt="">Dividi</button><span class="t-poi">${conPasso ? 'fa tutto in 3 clic' : 'li fa tutti in un colpo'}</span>`);
+  $('#trav-dividi').onclick = () => {
+    TRAV = null; passoTubi(null); nascondiMini();
+    inCoda(async () => { await select(id); apriPannelloTubi(); await iniziaDividi({ id }); });
+  };
+}
 // i disegnini dell'angolo: due tubi visti di fronte, come si saldano. I colori dal foglio di stile (chiaro e scuro):
 // .gt-p il tubo che passa intero (chiaro), .gt-t quello tagliato (scuro), .gt-l il taglio
 function disegnoGiunto(tipo) {
@@ -7984,7 +8071,7 @@ const AIUTI = {
   rect: 'Rettangolo: clic su un angolo e sull’angolo opposto, o scrivi 100x50 · Invio conferma · Esc annulla',
   circle: 'Cerchio: clic sul centro e sul bordo, o scrivi il diametro · Invio conferma · Esc annulla',
   slot: 'Asola: clic sui due centri, poi la larghezza · Invio conferma · Esc annulla',
-  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · raggio a misura: «Arco col raggio» in Forme · Esc annulla',
+  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · col raggio scritto: «Arco col raggio», accanto · Esc annulla',
   arcr: 'Arco col raggio: parte dalla fine della linea, scrivi il raggio · Invio conferma · Esc finisce',
   polygon: 'Poligono: scrivi quanti lati, poi clic sul centro e su un vertice · Esc annulla',
   fillet: 'Raccordo: clic sullo spigolo (o sulle due linee), poi scrivi il raggio · Invio conferma · Esc finisce',
@@ -10205,7 +10292,7 @@ const BARRA_GRANDI = {
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
   assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
-  sketch: ['line', 'rect', 'circle', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
+  sketch: ['line', 'rect', 'circle', 'arcr', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };
 // il nome del menu di ogni gruppo (scheda:gruppo, e :id dell'insieme per «sulla faccia»): parole da officina
@@ -10286,6 +10373,85 @@ function statoAltro() {
 }
 new MutationObserver(statoAltro).observe($('#ribbon'), { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
 statoAltro();
+// 04/11 notte (attriti): nessuna barra esce dallo schermo. Se la barra dei comandi non ci sta (1366 px, disegno su
+// una faccia…), i comandi grandi che si usano meno passano nel menu del loro gruppo, uno alla volta, finché ci sta;
+// allargando la finestra tornano al loro posto. «Esci», i pulsanti blu e i comandi base del disegno non si spostano mai.
+// Sono gli stessi pulsanti (stessi id e data-…): li trovano le prove, «Cerca un comando» e i tasti.
+const BARRA_CEDE = {
+  sketch: ['pattern', 'sk-grid', 'tab', 'arc3', 'mark', 'fillet', 'trim', 'text', 'dim', 'circle', 'rect'],
+  lamiera: ['misura', 'unfold', 'tipo_foro', 'asola', 'taglia', 'face_help', 'foro'],
+  strutture: ['saldatura3d', 'misura', 'giunti', 'tubo', 'misure', 'piedi', 'dividi'],
+  piastra: ['misura', 'misure', 'face_help', 'taglia'],
+  assieme: ['misura', 'asm_esploso', 'asm_interf', 'angolo', 'distanza', 'asse', 'asm_viteria'],
+};
+const BARRA_FERMI = new Set(['sk-done', 'line']);
+let barraAdatto = false;
+function adattaBarra() {
+  barraAdatto = true;
+  try {
+    // prima tutto torna al suo posto…
+    for (const b of document.querySelectorAll('#ribbon .rb[data-ceduto]')) {
+      const posto = b._posto;
+      delete b.dataset.ceduto; b.classList.remove('rb-m');
+      if (posto?.parentNode) posto.replaceWith(b);
+    }
+    document.querySelectorAll('#ribbon .ralt[data-ceduti]').forEach(m => {
+      if (!m.querySelector('.drop button')) m.remove(); else delete m.dataset.ceduti;
+    });
+    const rb = document.querySelector('#ribbon .rbody:not([hidden])');
+    if (!rb || !rb.clientWidth) return;
+    // non ci sta: la barra scorre, o il suo ultimo pulsante finisce oltre il bordo della finestra
+    const troppo = () => rb.scrollWidth > rb.clientWidth + 1
+      || Math.max(0, ...[...rb.querySelectorAll('.rb, .ralt-btn')].filter(b => b.offsetParent && !b.closest('.drop'))
+        .map(b => b.getBoundingClientRect().right)) > document.documentElement.clientWidth - 2;
+    if (!troppo()) return;
+    // …poi si sposta nel menu un comando alla volta, dal meno usato
+    const visibile = b => b.offsetParent !== null && !b.closest('.drop');
+    const tutti = [...rb.querySelectorAll('.rb')].filter(b => visibile(b) && !b.classList.contains('primary')
+      && !BARRA_FERMI.has(chiaveComando(b)) && !b.closest('.rmenu'));
+    const ordine = BARRA_CEDE[rb.dataset.rbody] || [];
+    const pos = new Map(tutti.map((b, i) => [b, i]));
+    const peso = b => { const i = ordine.indexOf(chiaveComando(b)); return i < 0 ? 999 : i; };
+    tutti.sort((a, b) => peso(a) - peso(b) || pos.get(b) - pos.get(a));   // fuori elenco: da destra
+    for (const b of tutti) {
+      if (!troppo()) break;
+      const c = b.closest('.rset') || b.closest('.rbtns');
+      const gruppo = b.closest('.rgroup')?.querySelector('.rname')?.textContent.trim() || 'Altro';
+      let menu = [...c.querySelectorAll('.ralt')].find(m => (m.closest('.rset') || m.closest('.rbtns')) === c);
+      if (!menu) {
+        const nome = NOMI_MENU[`${rb.dataset.rbody}:${gruppo}:${c.id}`] || NOMI_MENU[`${rb.dataset.rbody}:${gruppo}`] || gruppo;
+        menu = nuovoAltro(nome); menu.dataset.ceduti = '1';
+        const fine = c.querySelector(':scope > #sk-done');
+        c.insertBefore(menu, fine || null);
+        menu.addEventListener('mouseenter', () => {
+          if (document.querySelector('.menu-item.open') && !menu.classList.contains('open')) {
+            document.querySelectorAll('.menu-item').forEach(x => x.classList.remove('open')); menu.classList.add('open');
+          }
+        });
+      }
+      b._posto = b._posto || document.createComment('posto');
+      b.replaceWith(b._posto);
+      b.dataset.ceduto = '1'; b.classList.add('rb-m');
+      const tit = menu.querySelector('.drop-tit');
+      tit.after(b);                                    // in cima al menu: sono i comandi «quasi grandi»
+    }
+    for (const m of rb.querySelectorAll('.ralt')) {
+      const voci = [...m.querySelectorAll('.drop button')].map(x => x.textContent.trim().replace(/…$/, ''));
+      m.querySelector('.ralt-btn').title = m.dataset.nome + ': ' + voci.join(', ');
+    }
+  } finally {
+    statoAltro();
+    osservaBarra.takeRecords();
+    barraAdatto = false;
+  }
+}
+let barraRaf = 0;
+function adattaBarraPoi() { if (!barraRaf) barraRaf = requestAnimationFrame(() => { barraRaf = 0; adattaBarra(); }); }
+const osservaBarra = new MutationObserver(() => { if (!barraAdatto) adattaBarraPoi(); });
+osservaBarra.observe($('#ribbon'), { subtree: true, attributes: true, attributeFilter: ['hidden'] });
+window.addEventListener('resize', adattaBarraPoi);
+if (document.fonts?.ready) document.fonts.ready.then(adattaBarraPoi);
+adattaBarraPoi();
 // perché un comando adesso non si può usare (null = si può)
 function motivoNo(cmd) {
   const lam = !!S?.sheet?.data, asm = S?.mode === 'assembly';

@@ -2745,3 +2745,33 @@ body[data-modo] :is(.sk-help, #sk-foot, #prova-barra, #sk-origine, #sk-cmd, #fla
    restano col testo bianco (6,5 e 6,2), tavole pure (10,7); nel tema scuro il testo era già scuro (5,1–8,4). */
 body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on,
 body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on:hover { background: var(--modo); color: #0E141A; }
+
+/* ---------------------------------------------------------------- attriti (notte 04/11) */
+/* una barretta sola: il nome è scritto sul pulsante, il fumetto non lo ripete */
+#mini-barra > button.con-scritta[data-t]:hover::after { display: none; }
+/* assieme appena creato: la riga «prossimo passo» (come quella dei tubi), con «Appoggia» da cliccare */
+#asm-passo { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: var(--s-3);
+  max-width: calc(100% - 32px); min-height: 44px; padding: 0 var(--s-2) 0 var(--s-4); white-space: nowrap;
+  border: 1px solid var(--c-linea); border-left: 4px solid var(--modo); border-radius: var(--r-galleggia);
+  background: var(--c-pannello); color: var(--c-testo); box-shadow: var(--ombra-galleggia); font: 500 var(--fs-fitto)/1.3 var(--font); }
+#asm-passo .t-passo { font-weight: 600; }
+#asm-passo .t-poi { color: var(--c-testo-2); overflow: hidden; text-overflow: ellipsis; }
+#asm-passo .btn :is(img, .ico) { width: 16px; height: 16px; }
+#asm-passo .asm-passo-x { width: 28px; height: 28px; border: 0; border-radius: var(--r-campo); background: none; color: var(--c-testo-2); font-size: 18px; line-height: 1; }
+#asm-passo .asm-passo-x:hover { background: var(--c-sopra); color: var(--c-testo); }
+/* con la riga in basso i messaggi stanno più su (non la coprono) */
+body:has(#asm-passo:not([hidden])) #toasts { bottom: 168px; }
+/* la barra dei tubi col consiglio «Dividi» (telaio sopra, tubo lungo): un pulsante da cliccare dentro la riga */
+#trav-hint .btn { flex: none; }
+#trav-hint .btn :is(img, .ico) { width: 16px; height: 16px; }
+#trav-hint .t-poi { color: var(--c-testo-2); }
+#trav-hint .g-sep { width: 1px; align-self: stretch; margin: 10px 0; background: var(--c-linea); }
+/* col pannello a destra aperto (310 px, sopra la vista) le righe «prossimo passo» stanno al centro di quello che si vede */
+body:not(.senza-destra) :is(#trav-hint, #asm-passo) { left: calc(50% - 155px); max-width: calc(100% - 342px); }
+/* cassetto in basso: il totale sempre a vista, fermo in fondo anche quando le righe sono di più (telaio a 900 e 768 px) */
+.tab-body tr.tot:last-child td { position: sticky; bottom: -10px; z-index: 1; background: var(--c-pannello); box-shadow: inset 0 1px 0 var(--c-linea-forte); padding-bottom: 14px; }
+/* …e il cassetto aperto è alto quanto serve (le righe e il totale), da 160 px fino a poco meno di metà schermo */
+body:not(.bottom-closed):not(.sketching) { grid-template-rows: var(--alt-top) var(--alt-rib) minmax(0, 1fr) auto; }
+body:not(.bottom-closed) #bottom { min-height: 160px; max-height: min(46vh, 400px); }
+/* nei menu del gruppo i comandi passati lì perché la barra non ci stava hanno lo stesso peso delle altre voci */
+#ribbon .drop .rb.rb-m { font-weight: 400; }
