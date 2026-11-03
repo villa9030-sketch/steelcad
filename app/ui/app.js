@@ -1951,7 +1951,10 @@ function renderTree() {
     const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '', n.status === 'disattivata' ? 'spenta' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
       ids && ids.length && ids.every(i => selIds.has(i)) && n.kind !== 'structure' && !(n.kind !== 'part' && ids[0] === 'body') ? 'sel' : ''];
-    const st = n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
+    // 04/11: «fisso» (il pezzo fermo dell'assieme) è un'informazione, non un allarme: grigio col lucchetto
+    const st = n.status === 'fisso' ? `<span class="st fisso" title="Il pezzo fermo: gli altri si appoggiano a lui"><img src="icons/c_fix.svg" alt="">fisso</span>`
+      : n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
+    const conta = S.mode === 'assembly' && n.kind === 'group' && n.children.length ? `<span class="n-conta">${n.children.length}</span>` : '';
     const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
     let figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
     let freccia = '';
@@ -1969,7 +1972,7 @@ function renderTree() {
       occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
     }
     const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${st}${occhio}${freccia}</div>${figli}</li>`;
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
   };
   // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
   let albero = S.tree;
@@ -2731,7 +2734,7 @@ function azioniPezzo(s) {
   return [
     // 03/11: il pezzo tenuto da una distanza o da un angolo (il cassetto): la misura sulla barretta, un clic e la
     // scrivi o tiri il cursore nel pannello
-    ...(s.movimenti || []).slice(0, 2).map((mv, k) => ({ ic: 'dimension', cls: 'mov',
+    ...(s.movimenti || []).slice(0, 1).map((mv, k) => ({ ic: 'dimension', cls: 'mov',
       t: `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
       fai: () => { tutteLeOpzioni(); setTimeout(() => { const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 60); } })),
     { ic: 'open', t: 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
@@ -4198,7 +4201,7 @@ const MATE_UI = {
   tangente: { nome: 'Tangente', clic: ['la faccia (o il tubo) del pezzo che sta fermo', 'il tubo (o la faccia) dell’altro pezzo'], val: 0 },
   parallelo: { nome: 'Parallele', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
   perpendicolare: { nome: 'Perpendicolari', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
-  centra: { nome: 'In mezzo', clic: ['un lato del pezzo che sta fermo (es. un’ala dell’U)', 'il lato opposto dello stesso pezzo', 'una faccia del pezzo da centrare', 'la sua faccia opposta'], val: 0 },
+  centra: { nome: 'In mezzo', clic: ['un lato del pezzo che sta fermo', 'il lato di fronte, sullo stesso pezzo', 'un lato del pezzo da mettere in mezzo', 'il suo lato di fronte'], val: 0 },
   blocca: { nome: 'Blocca', clic: ['il pezzo che sta fermo', 'il pezzo da bloccare'], val: 0 },
   spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
   spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
@@ -4209,7 +4212,9 @@ const MATE_UI = {
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
   const su = t => t.replace(/^la /, 'sulla ').replace(/^il /, 'sul ').replace(/^lo /, 'sullo ').replace(/^l’/, 'sull’').replace(/^(?!sul)/, 'su ');
-  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic ${su(u.clic[k])} · Esc annulla`);
+  // 04/11 (regola 4): una riga sola; sotto, piccolo, quale pezzo hai già scelto (dopo un giro della vista non si vedeva più)
+  const scelti = [...new Set(ASM.clic.map(c => objs.get(c.inst)?.data.name).filter(Boolean))];
+  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic ${su(u.clic[k])}${scelti.length ? ` · Scelto «${scelti.join('» e «')}»` : ''} · Esc annulla`);
 }
 function asmTool(t) {
   if (t && !ASM.tool && sel) clearSelection();     // la barretta del pezzo scelto copriva proprio le facce da cliccare
@@ -4717,6 +4722,7 @@ function cosEPezzo(s) {
   return n ? `Pezzo dell’assieme, tenuto da ${n === 1 ? 'un accoppiamento' : n + ' accoppiamenti'}` : 'Pezzo dell’assieme, libero: si sposta come vuoi';
 }
 // l'icona di ogni tipo di accoppiamento (righe «Lo tengono» e albero)
+function iconaMate(t) { return ICONA_MATE[t] || null; }
 const ICONA_MATE = { faccia: 'project', asse: 'hole', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
   perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'cut' };
 function instancePanel(s) {
