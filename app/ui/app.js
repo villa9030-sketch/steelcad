@@ -9044,7 +9044,7 @@ function scritteSottoFori(sid, cerchi) {
     .sort((a, b) => (Math.round(a.xc[0] * 1000) - Math.round(b.xc[0] * 1000)) || (a.xc[1] - b.xc[1]));
   const u = { ...TESTO_BASE, come: 'saira', ...(SK.lastText || {}) };
   const virg = x => esc(String(x).replace('.', ','));
-  modal(`<h3>Scritte sotto ${fori.length} fori</h3>
+  modal(`<h3>${fori.length === 1 ? 'Scritta sotto il foro' : `Scritte sotto ${fori.length} fori`}</h3>
     <p class="hint">Da sinistra a destra. Ogni scritta va centrata sotto il suo foro; vuota = niente.</p>
     <div class="form" id="ss-form">${fori.map((f, i) => `<label>Foro ${i + 1} (Ø${virg(Math.round(f.r * 200) / 100)})<input class="field" data-ss="${i}" value=""></label>`).join('')}
       <label class="tutta-riga">Come<select class="field" id="ss-c">

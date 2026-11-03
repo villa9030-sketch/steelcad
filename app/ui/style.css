@@ -2619,22 +2619,20 @@ body[data-modo="tavole"] #ribbon, #tav-ed .te-strumenti { --accento-icona: var(-
    lato, la riga dell'anteprima come un messaggio di stato, conferme strette. Solo token e componenti delle FONDAMENTA.
    ================================================================================================================== */
 /* il testo che spiega non si attacca ai campi: aria sopra e sotto */
-.modal-box p.hint:not(:is(.ft-form, .form, .te-form, .choice) p) { margin: 0 0 var(--s-3); }
-.modal-box * + p.hint:not(:is(.ft-form, .form, .te-form, .choice) p) { margin-top: var(--s-3); }
-.modal-box h3 + p.hint, .modal-box h3 + p { margin-top: 0; }
-.modal-box > p:not(.hint) { margin: 0 0 var(--s-3); line-height: 1.45; }
-.modal-box .form + .form, .modal-box .choice + .form, .modal-box .form + .choice { margin-top: var(--s-3); }
-.modal-box .form label > .field, .modal-box .form label > select, .modal-box .form label > .inp { margin-top: 2px; }
-.modal-box .sub { margin: var(--s-5) 0 var(--s-2); font: 600 var(--fs-fitto)/1.3 var(--font); color: var(--c-testo); letter-spacing: 0; text-transform: none; }
-.modal-box .sub:first-of-type { margin-top: var(--s-3); }
-.modal-box .form label.check { display: flex; align-items: center; gap: var(--s-2); align-self: end; min-height: var(--h-riga); color: var(--c-testo); }
-.modal-box .choice { gap: var(--s-2); }
-.modal-box .choice button { border: 1px solid var(--c-linea); background: var(--c-pannello); color: var(--c-testo); padding: var(--s-2) var(--s-3); }
-.modal-box .choice button:hover { border-color: var(--c-linea-forte); background: var(--c-sopra); }
-.modal-box .choice small { color: var(--c-testo-2); }
-.modal-box .lista-dip { margin: 0 0 var(--s-3); padding-left: var(--s-5); font-size: var(--fs-fitto); color: var(--c-testo); }
-.modal-box .lista-dip li { line-height: 1.6; }
-.modal-box table.grid { width: 100%; }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) p.hint:where(:not(:is(.ft-form, .form, .te-form, .choice) p)) { margin: 0 0 var(--s-3); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) * + p.hint:where(:not(:is(.ft-form, .form, .te-form, .choice) p)) { margin-top: var(--s-3); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) :is(h3 + p.hint, h3 + p) { margin-top: 0; }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) > p:not(.hint) { margin: 0 0 var(--s-3); line-height: 1.45; }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) :is(.form + .form, .choice + .form, .form + .choice) { margin-top: var(--s-3); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .form label > :is(.field, select, .inp) { margin-top: 2px; }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .sub { margin: var(--s-5) 0 var(--s-2); font: 600 var(--fs-fitto)/1.3 var(--font); color: var(--c-testo); letter-spacing: 0; }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .sub:first-of-type { margin-top: var(--s-3); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .form label.check { display: flex; align-items: center; gap: var(--s-2); align-self: end; min-height: var(--h-riga); color: var(--c-testo); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .choice { gap: var(--s-2); }
+:where(.modal-box:not(.nuovo)) .choice button:not(.on):hover { border-color: var(--c-linea-forte); background: var(--c-sopra); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .choice small { color: var(--c-testo-2); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .lista-dip { margin: 0 0 var(--s-3); padding-left: var(--s-5); font-size: var(--fs-fitto); color: var(--c-testo); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .lista-dip li { line-height: 1.6; }
 /* la finestra di una domanda breve (conferma, nome, un campo solo): stretta, non 600 px vuoti */
 .modal-box.stretta { width: min(460px, 94vw); }
 .modal-box.stretta .form { grid-template-columns: 1fr; }
@@ -2680,15 +2678,15 @@ body.bottom-closed #toasts { bottom: 104px; }
 .rg-tab td .hint { margin: 2px 0 0; }
 .rg-tab td.rg-az { text-align: right; white-space: nowrap; }
 .rg-tab td.rg-az .btn + .btn { margin-left: var(--s-2); }
-.modal-box .msg { margin: 0 0 var(--s-2); font-size: var(--fs-fitto); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .msg { margin: 0 0 var(--s-2); font-size: var(--fs-fitto); }
 .ft-form > p.hint { margin: 0; }
 /* l'elenco dei tubi (datalist): la freccina quieta, non un triangolo nero */
 .field[list]::-webkit-calendar-picker-indicator { opacity: .45; cursor: pointer; }
 /* «Piega su questa linea»: la nota «= 22,5° per ogni colpo» accanto al campo, alla sua altezza */
-.modal-box .ff > .hint { align-self: center; margin: 18px 0 0; }
-.modal-box .ff label, .modal-box .seg-row > span { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
-.modal-box .seg-row { grid-template-columns: 1fr; gap: var(--s-1); margin-bottom: var(--s-3); }
-.modal-box details.bump summary { color: var(--c-testo-2); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .ff > .hint { align-self: center; margin: 18px 0 0; }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) :is(.ff label, .seg-row > span) { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) .seg-row { grid-template-columns: 1fr; gap: var(--s-1); margin-bottom: var(--s-3); }
+:where(#modal-box:not(.nuovo, .prepara, .fatto, .imp-dlg, .na-box)) details.bump summary { color: var(--c-testo-2); }
 /* Importa DXF: l'anteprima segue il tema (era un foglio bianco fisso anche nello scuro); il contorno scelto è giallo come ogni selezione */
 .imp-view { background: var(--c-campo); border-color: var(--c-linea); border-radius: var(--r-campo); }
 .imp-view path.giro { stroke: var(--c-testo-2); }
@@ -2710,3 +2708,4 @@ body.bottom-closed #toasts { bottom: 104px; }
 #mancanti > b { color: var(--c-warn-testo); }
 #mancanti > span:first-of-type { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
 .imp-info { margin-bottom: var(--s-3); }
+.modal-box .fo-frase { margin: var(--s-3) 0 0; font-size: var(--fs-fitto); }
