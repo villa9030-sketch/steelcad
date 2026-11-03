@@ -2019,7 +2019,7 @@ body { --alt-rib: 132px; }
 /* un problema del disegno (contorno aperto…) è «da guardare», non un errore: ambra, sotto la riga */
 .sk-problema { margin-top: var(--s-1); font: 500 var(--fs-etichetta)/1.35 var(--font); color: var(--c-warn-testo); white-space: normal; }
 /* la casella del comando (lunghezza, diametro…) sta SOPRA la barra «prossimo passo», non la copre */
-#sk-cmd { bottom: 66px; min-height: 40px; gap: var(--s-2); }
+#sk-cmd { bottom: 56px; gap: var(--s-2); }   /* subito sopra la barra (una riga, alta 44) */
 #sk-cmd-label { font-size: var(--fs-fitto); color: var(--c-testo-2); }
 #sk-cmd .u { color: var(--c-spento); font-size: var(--fs-piccolo); }
 /* gli agganci del disegno nel colore di modalità (verde acqua); il suggerimento vicino al mouse scuro e quieto */
@@ -2081,3 +2081,4 @@ body.in-prova #navbar { display: none; }
 #prova-barra, #sk-foot { width: max-content; }
 #sk-cmd .sk-invio { padding: 1px 6px; border: 1px solid var(--c-linea); border-bottom-width: 2px; border-radius: 4px; background: var(--c-incavo);
   color: var(--c-testo-2); font: 600 11px var(--font); }
+#sk-foot { padding: 8px var(--s-4) !important; }
