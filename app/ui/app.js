@@ -852,7 +852,8 @@ canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D)
   if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroClic(ev); return; }   // finestra del foro: clic = dove va, o un'altra faccia
-  if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }   // «Piega i bordi»: clic = un bordo in più o in meno
+  if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }
+  if (ANGOLI && !$('#modal').hidden && $('#ag-corpo')) return;                      // «Angoli tondi»: si cliccano i cerchi   // «Piega i bordi»: clic = un bordo in più o in meno
   if (MIS) { misClick(ev); return; }
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
@@ -2147,6 +2148,7 @@ function azione(id) {
       DIVSCEGLI = true; t('Clicca un tubo del lato da dividere (il fianco, il telaio sopra…).'); return;
     case 'tipo_foro': t('Clicca un foro già fatto sul pezzo: a destra scegli svasato o filettato. Per un foro nuovo c’è «Foro».'); return;
     case 'foro': inCoda(() => foroDialog('tondo')); return;
+    case 'angoli_tondi': inCoda(() => angoliSviluppo()); return;
     case 'asola': inCoda(() => foroDialog('asola')); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
@@ -3452,6 +3454,96 @@ function piegaClic(ev) {
   const i = PIEGA.bordi.findIndex(e => e.id === he.id);
   if (i >= 0) PIEGA.bordi.splice(i, 1); else PIEGA.bordi.push(he);
   PIEGA.ridisegna();
+}
+// ------------------------------------------------------------- «Angoli tondi» sullo sviluppo (03/11)
+// Raggio o smusso sugli spigoli vivi del contorno dello sviluppo (le punte che pungono): tutti, o solo quelli
+// cliccati (i cerchi sugli angoli). Si guarda sullo sviluppo: in azzurro come verrà, in arancio le punte che vanno
+// via. Diventa un taglio sullo sviluppo, che torna nel pezzo piegato e va nel DXF.
+let ANGOLI = null;
+let ultimiAngoli = { tipo: 'raggio', valore: '5' };
+async function angoliSviluppo() {
+  if (SK) { toast('Stai disegnando: prima «Esci».', 'err'); return; }
+  if (!S?.sheet?.data) { toast('Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', 'err'); return; }
+  const info = await call('angoli_sviluppo_info', S.sheet.feature);
+  if (!info.ok) { toast(info.message, 'err'); return; }
+  if (!info.angoli.length) { toast('Lo sviluppo non ha spigoli vivi: gli angoli sono già tondi o verso dentro.'); return; }
+  clearSelection(); nascondiMini();
+  if (!flatView) await toggleFlat(true);
+  const v = { ...ultimiAngoli, quali: 'tutti' };
+  ANGOLI = { info, v, scelti: new Set() };
+  const seg = (k, o) => `<div class="seg" data-ag-seg="${k}">${o.map(([id, l]) => `<button type="button" data-v="${id}" class="${String(v[k]) === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const n = info.angoli.length;
+  const corpo = () => `<div class="ft-form">
+      <div class="ft-riga"><span>Come</span>${seg('tipo', [['raggio', 'Arrotondati (raggio)'], ['smusso', 'Smussati a 45°']])}</div>
+      <label class="ft-riga"><span>${v.tipo === 'raggio' ? 'Raggio' : 'Smusso'}</span><span class="ft-mm"><input class="field" id="ag-valore" value="${esc(virgola(v.valore))}" autocomplete="off"><i>mm</i></span></label>
+      <div class="ft-riga"><span>Quali</span>${seg('quali', [['tutti', `Tutti gli spigoli vivi (${n})`], ['scelti', 'Solo quelli che clicco']])}</div>
+      ${v.quali === 'scelti' ? `<p class="hint" style="margin:0">${ANGOLI.scelti.size ? `Scelti ${ANGOLI.scelti.size} di ${n}.` : 'Nessuno scelto.'} Clicca i cerchi sugli angoli dello sviluppo.</p>` : ''}</div>`;
+  const args = () => [S.sheet.feature, v.tipo, v.valore, v.quali === 'tutti' ? null : [...ANGOLI.scelti].map(i => info.angoli[i].xy)];
+  const segni = () => {
+    togliQuote();
+    info.angoli.forEach((a, i) => {
+      const el = document.createElement('div');
+      const acceso = v.quali === 'tutti' || ANGOLI.scelti.has(i);
+      el.className = 'q-anello ag-angolo' + (acceso ? ' scelto' : '');
+      el.title = acceso && v.quali === 'scelti' ? 'Clic: lascia questo angolo vivo' : 'Clic: arrotonda questo angolo';
+      el.onclick = () => {
+        if (v.quali === 'tutti') { v.quali = 'scelti'; ANGOLI.scelti = new Set(info.angoli.map((_, k) => k)); }
+        if (ANGOLI.scelti.has(i)) ANGOLI.scelti.delete(i); else ANGOLI.scelti.add(i);
+        ANGOLI.ridisegna();
+      };
+      document.body.appendChild(el);
+      QUOTE.push({ el, p: v3(a.xyz), dx: 0, dy: 0 });
+    });
+    placeBarra();
+  };
+  modal(`<div id="ag-tutto"><h3>Angoli dello sviluppo</h3>
+    <p class="hint">Gli spigoli vivi del contorno (quelli che pungono) arrotondati o smussati in un colpo. Si vede sullo sviluppo: in arancio quello che va via.</p>
+    <div id="ag-corpo">${corpo()}</div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    const cornice = $('#modal-box'), box = $('#ag-tutto');
+    const vai = () => {
+      const st = box.querySelector('.ant-stato');
+      if (v.quali === 'scelti' && !ANGOLI.scelti.size) {
+        anteprimaVia();
+        if (st) { st.className = 'ant-stato'; st.textContent = 'Clicca gli angoli da arrotondare.'; }
+        confermaAccesa(st, false);
+        return;
+      }
+      anteprima('angoli_sviluppo', args, st);
+    };
+    const ridisegna = fuoco => {
+      $('#ag-corpo').innerHTML = corpo();
+      segni();
+      const i = fuoco && box.querySelector(fuoco);
+      if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { cornice.tabIndex = -1; cornice.focus(); }
+      vai();
+    };
+    ANGOLI.ridisegna = ridisegna;
+    box.addEventListener('input', ev => { if (ev.target.id === 'ag-valore') { v.valore = ev.target.value; vai(); } });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-ag-seg] button');
+      if (!b) return;
+      const k = b.closest('[data-ag-seg]').dataset.agSeg;
+      v[k] = b.dataset.v;
+      if (k === 'quali' && v.quali === 'scelti' && !ANGOLI.scelti.size) ANGOLI.scelti = new Set();
+      ridisegna(k === 'tipo' ? '#ag-valore' : null);
+    });
+    const chiudi = () => { ANGOLI = null; togliQuote(); close(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const a = args();
+      ultimiAngoli = { tipo: v.tipo, valore: v.valore };
+      chiudi();
+      inCoda(async () => { const r = await call('angoli_sviluppo', ...a); if (await apply(r, r.message) && flatView) buildFlat(); });
+    };
+    cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    $('#modal').classList.add('laterale');
+    const st = document.createElement('div'); st.className = 'ant-stato'; box.querySelector('.acts').before(st);
+    anteprimaSpazio();
+    segni();
+    const primo = box.querySelector('#ag-valore'); primo?.focus(); primo?.select();
+    vai();
+  });
 }
 // con la finestra del foro aperta: niente bordi da piegare sotto il mouse, solo cosa fa il clic
 function foroMove(ev) {

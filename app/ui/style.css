@@ -1460,3 +1460,6 @@ body:not(.dark) #sovr-card { background: #FFF3F3; color: #4A1A1D; border-color: 
 .pg-bordi { display: flex; flex-wrap: wrap; gap: 4px; }
 .pg-bordo { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 4px; font-size: 12.5px; }
 .pg-bordo .link { padding: 0 4px; }
+/* «Angoli tondi» (03/11): i cerchi sugli angoli dello sviluppo si cliccano */
+.q-anello.ag-angolo { pointer-events: auto; cursor: pointer; background: rgba(90, 169, 255, .12); }
+.q-anello.ag-angolo:not(.scelto) { border-style: dashed; }

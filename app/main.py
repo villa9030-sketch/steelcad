@@ -463,6 +463,12 @@ class Api:
     def piega_bordi(self, fid, bordi, fields, angoli='aperti', gioco=0.5):
         return self._call(self._svc.piega_bordi, fid, bordi, fields, angoli, gioco)
 
+    def angoli_sviluppo_info(self, fid=None):
+        return self._call(self._svc.angoli_sviluppo_info, fid)
+
+    def angoli_sviluppo(self, fid, tipo, valore, punti=None):
+        return self._call(self._svc.angoli_sviluppo, fid, tipo, valore, punti)
+
     def fori_da_modificare(self, fid):
         return self._call(self._svc.fori_da_modificare, fid)
 

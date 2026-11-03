@@ -1448,6 +1448,163 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             r['pieghe'] = fatte
         return r
 
+    # ------------------------------------------------------------ angoli dello sviluppo (03/11)
+    def _angoli_vivi(self):
+        """Gli spigoli vivi verso fuori del contorno dello sviluppo (le punte che pungono), lontani dalle pieghe:
+        [(x, y) nel piano dello sviluppo, (u1, u2, theta, lati)] e lo sketch di prova coi bordi."""
+        from app import sketch_more
+        data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+        if data is None or data.flat is None or self._sheet_def(data.feature) is None:
+            raise SteelCADError('Gli angoli dello sviluppo si fanno su una lamiera piegata (o piana) costruita.',
+                                code='angoli')
+        sk = Sketch('_angoli', plane={'flat': data.feature})
+        sketch_ops.add_reference_edges(sk, data.flat, data.plane)
+        zone = [z for z in data.bend_zones()]
+        out = []
+        for pid, e in sk.entities.items():
+            if not sketch_more.is_part_corner(sk, pid):
+                continue
+            l1, l2 = [k for k, x in sk.entities.items() if x['kind'] == 'line' and pid in (x['a'], x['b'])]
+            o1 = sk.entities[l1]['b'] if sk.entities[l1]['a'] == pid else sk.entities[l1]['a']
+            o2 = sk.entities[l2]['b'] if sk.entities[l2]['a'] == pid else sk.entities[l2]['a']
+            P = (e['x'], e['y'])
+            A, B = (sk.entities[o1]['x'], sk.entities[o1]['y']), (sk.entities[o2]['x'], sk.entities[o2]['y'])
+            L1, L2 = math.dist(P, A), math.dist(P, B)
+            u1 = ((A[0] - P[0]) / L1, (A[1] - P[1]) / L1)
+            u2 = ((B[0] - P[0]) / L2, (B[1] - P[1]) / L2)
+            th = math.acos(max(-1.0, min(1.0, u1[0] * u2[0] + u1[1] * u2[1])))
+            bx, by = u1[0] + u2[0], u1[1] + u2[1]
+            bl = math.hypot(bx, by) or 1
+            eps = min(0.05, L1 / 4, L2 / 4)
+            if not sketch_more._dentro(sk, (P[0] + bx / bl * eps, P[1] + by / bl * eps)):
+                continue                                # verso dentro: lì il laser non lascia una punta
+            # vicino a una piega no: il taglio entrerebbe nella striscia di piega
+            vic = min((self._dist_quad(P, z) for z in zone), default=math.inf)
+            out.append({'p': P, 'u1': u1, 'u2': u2, 'th': th, 'lati': (L1, L2), 'piega': vic})
+        out.sort(key=lambda c: (round(c['p'][1], 3), round(c['p'][0], 3)))
+        return data, out
+
+    @staticmethod
+    def _dist_quad(P, z) -> float:
+        """Distanza di P dalla striscia di piega (quadrilatero z): 0 se è dentro."""
+        pts = list(z) + [z[0]]
+        dentro = False
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            if (y1 > P[1]) != (y2 > P[1]) and P[0] < x1 + (P[1] - y1) * (x2 - x1) / ((y2 - y1) or 1e-12):
+                dentro = not dentro
+        if dentro:
+            return 0.0
+        best = math.inf
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            dx, dy = x2 - x1, y2 - y1
+            t = max(0.0, min(1.0, ((P[0] - x1) * dx + (P[1] - y1) * dy) / ((dx * dx + dy * dy) or 1e-12)))
+            best = min(best, math.hypot(P[0] - x1 - t * dx, P[1] - y1 - t * dy))
+        return best
+
+    def _anteprima_sviluppo(self):
+        """Per l'anteprima sullo sviluppo a video: lo sviluppo (un velo appena sopra) e i contorni dell'ultimo taglio
+        disegnato sullo sviluppo (le punte che si tolgono)."""
+        import build123d as bd
+
+        from cad_engine.mesh import tessellate
+        sh = self.result.body.sheet
+        n = sh.plane.z_dir
+        velo = sh.flat.moved(bd.Location(tuple(n * 0.05)))
+        m = tessellate(velo.wrapped)
+        sid = next(f.id for f in reversed(self.doc.features) if isinstance(f, Sketch))
+        prof = self.doc._sketch_results.get(sid)[1]
+        pezzi = [bd.extrude(f.moved(bd.Location(tuple(n * 0.1))), amount=0.3, dir=tuple(n)) for f in prof.faces]
+        t = tessellate(bd.Compound(children=pezzi).wrapped)
+        pick = lambda x: {'positions': x['positions'], 'indices': x['indices'], 'edges': x['edges']}  # noqa: E731
+        return [pick(m)], [pick(t)]
+
+    def angoli_sviluppo_info(self, fid: str | None = None) -> dict:
+        """Gli spigoli vivi dello sviluppo, per mostrarli sul pezzo spiegato e sceglierli col clic: dove sono (anche in
+        3D, sullo sviluppo a video) e se si possono arrotondare (lontani dalle pieghe)."""
+        try:
+            data, angoli = self._angoli_vivi()
+            return {'ok': True, 'angoli': [{'xy': [round(c['p'][0], 4), round(c['p'][1], 4)],
+                                            'xyz': (lambda q: [q.X, q.Y, q.Z])(data.plane.from_local_coords(c['p'])),
+                                            'vicino_piega': c['piega'] < 0.5}
+                                           for c in angoli]}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def angoli_sviluppo(self, fid: str | None, tipo: str, valore, punti: list | None = None) -> dict:
+        """03/11 — raccordi o smussi sugli spigoli vivi del contorno dello sviluppo, tutti (punti=None) o quelli
+        scelti (punti = [x, y] da angoli_sviluppo_info). Diventa un taglio sullo sviluppo (uno sketch con tutte le
+        punte da togliere): torna nel pezzo piegato, va nel DXF; un Annulla lo toglie."""
+        if tipo not in ('raggio', 'smusso'):
+            return {'ok': False, 'message': 'Angoli: raggio o smusso.'}
+        try:
+            v = _numero(valore, 'il raggio' if tipo == 'raggio' else 'lo smusso')
+            if v <= 0:
+                raise SteelCADError('La misura deve essere più di zero.', code='angoli')
+            data, angoli = self._angoli_vivi()
+            if punti:
+                scelti = []
+                for q in punti:
+                    c = min(angoli, key=lambda c: math.dist(c['p'], (float(q[0]), float(q[1]))), default=None)
+                    if c is None or math.dist(c['p'], (float(q[0]), float(q[1]))) > 0.5:
+                        raise SteelCADError('Uno degli angoli scelti non c’è più: riaprili e sceglili di nuovo.', code='angoli')
+                    scelti.append(c)
+            else:
+                scelti = angoli
+            if not scelti:
+                raise SteelCADError('Lo sviluppo non ha spigoli vivi da arrotondare.', code='angoli')
+            pezzi = []
+            saltati = 0
+            for c in scelti:
+                th = c['th']
+                d = v / math.tan(th / 2) if tipo == 'raggio' else v
+                if d >= min(c['lati']) / 2 - 1e-6:       # metà lato: l'angolo vicino può avere il suo
+                    raise SteelCADError(f'{"R" if tipo == "raggio" else "Smusso "}{fmt_mm(v)} è troppo grande per un angolo '
+                                        f'con il lato corto di {fmt_mm(round(min(c["lati"]), 1))} mm: prova più piccolo.',
+                                        code='angoli')
+                ingombro = d + (v if tipo == 'raggio' else 0) + 0.01
+                if c['piega'] < ingombro:
+                    if punti:
+                        raise SteelCADError('Un angolo scelto è attaccato a una piega: lì il taglio entrerebbe nella piega. '
+                                            'Toglilo dalla scelta.', code='angoli')
+                    saltati += 1
+                    continue
+                pezzi.append((c, d))
+            if not pezzi:
+                raise SteelCADError('Tutti gli spigoli vivi sono attaccati a una piega: niente da arrotondare.', code='angoli')
+        except SteelCADError as ex:
+            return _err(ex)
+        nome = f'Angoli R{fmt_mm(v)}' if tipo == 'raggio' else f'Angoli smussati {fmt_mm(v)}'
+
+        def fn():
+            sk = self.doc.add_sketch({'flat': data.feature}, f'Sketch: {nome.lower()}')
+            fix = lambda q: (sk.constrain('fix', pp := sk.point(*q)), pp)[1]  # noqa: E731
+            for c, d in pezzi:
+                P, u1, u2, th = c['p'], c['u1'], c['u2'], c['th']
+                T1 = (P[0] + u1[0] * d, P[1] + u1[1] * d)
+                T2 = (P[0] + u2[0] * d, P[1] + u2[1] * d)
+                pP, p1, p2 = fix(P), fix(T1), fix(T2)
+                sk.line(p1, pP)
+                sk.line(pP, p2)
+                if tipo == 'raggio':
+                    bx, by = u1[0] + u2[0], u1[1] + u2[1]
+                    bl = math.hypot(bx, by)
+                    h = v / math.sin(th / 2)
+                    C = (P[0] + bx / bl * h, P[1] + by / bl * h)
+                    pc = fix(C)
+                    antiorario = (T1[0] - C[0]) * (T2[1] - C[1]) - (T1[1] - C[1]) * (T2[0] - C[0]) > 0
+                    sk.arc(pc, p1, p2) if antiorario else sk.arc(pc, p2, p1)
+                else:
+                    sk.line(p2, p1)
+            self.doc.add_feature('sheet_cut', nome, sketch=sk.id)
+        r = self._change(nome, fn)
+        if r.get('ok'):
+            n = len(pezzi)
+            r['message'] = (f'{"Arrotondati" if tipo == "raggio" else "Smussati"} {n} angoli dello sviluppo' if n > 1 else
+                            f'{"Arrotondato" if tipo == "raggio" else "Smussato"} 1 angolo dello sviluppo') + (
+                f' ({saltati} attaccati a una piega lasciati vivi).' if saltati else '.')
+            r['quanti'] = n
+        return r
+
     def set_tip_corners(self, fid: str, mode: str) -> dict:
         """Come si chiudono gli angoli tra i bordi piegati sulle punte: dritti con i lati lunghi interi,
         dritti con i lati corti interi, oppure tagliati a 45°."""
@@ -4850,7 +5007,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
-                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi',
+                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi', 'angoli_sviluppo',
                     'fori_modifica'}
 
     def anteprima(self, metodo: str, args: list) -> dict:
@@ -4882,6 +5039,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         oggetti = [{'positions': o['positions'], 'indices': o['indices'], 'edges': o['edges']}
                    for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member')]
         out = {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}
+        if metodo == 'angoli_sviluppo':
+            # si guarda sullo sviluppo (03/11): lo sviluppo nuovo in azzurro e le punte che vanno via in arancio
+            try:
+                out['objects'], out['togli'] = prova._anteprima_sviluppo()
+            except Exception:  # noqa: BLE001 - resta l'anteprima del pezzo piegato
+                pass
         # 29/10: cosa succede, in parole semplici; e quello che si toglie (in arancio sopra il pezzo)
         try:
             out['frase'] = self._frase(metodo, args, prova)
