@@ -314,8 +314,16 @@ def _incroci(members, pts, scelte, ritocchi):
     import copy
     tagli: dict = {}                       # id del tubo tagliato -> [(parametro lungo l'asse, punto)]
     out_incroci = {}
+    _prep(members)
+    scatole = [tuple((min(m._ta[k], m._tb[k]) - 1e-3, max(m._ta[k], m._tb[k]) + 1e-3) for k in range(3))
+               for m in members]
     for i, a in enumerate(members):
-        for b in members[i + 1:]:
+        sa = scatole[i]
+        for j in range(i + 1, len(members)):
+            sb = scatole[j]
+            if any(sa[k][1] < sb[k][0] or sb[k][1] < sa[k][0] for k in range(3)):
+                continue                   # lontane: non si incrociano
+            b = members[j]
             p = _incrocio(a, b)
             if p is None:
                 continue
@@ -351,7 +359,31 @@ def _incroci(members, pts, scelte, ritocchi):
             if r.get('name'):
                 pezzo.nome = r['name']
             nuove.append(pezzo)
+    _prep(nuove)                            # i pezzi hanno capi nuovi
     return nuove, out_incroci
+
+
+def _capi(members):
+    """Una funzione che dice quali estremi (asta, 0|1) stanno in un punto (tupla): gli estremi messi in caselle di
+    un millimetro, così non si guardano tutte le aste per ogni punto."""
+    caselle: dict = {}
+    for m in members:
+        for i, q in ((0, m._ta), (1, m._tb)):
+            caselle.setdefault((round(q[0]), round(q[1]), round(q[2])), []).append((m, i, q))
+
+    def trova(p):
+        base = (round(p[0]), round(p[1]), round(p[2]))
+        out = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for m, i, q in caselle.get((base[0] + dx, base[1] + dy, base[2] + dz), ()):
+                        if _vicino(q, p):
+                            out.append((m, i))
+        ordine = {id(m): k for k, m in enumerate(members)}
+        out.sort(key=lambda e: (ordine[id(e[0])], e[1]))
+        return out
+    return trova
 
 
 JOINT_LABELS = {'auto': 'automatico', 'miter': 'a 45° (bisettrice)', 'butt': 'a battuta', 'extend': 'passante',
@@ -361,13 +393,16 @@ JOINT_LABELS = {'auto': 'automatico', 'miter': 'a 45° (bisettrice)', 'butt': 'a
 def _node_info(pts, members, nodes, fdef) -> dict:
     joints = fdef.get('joints') or {}
     out = {}
+    if members:
+        _prep(members)
+    capi = _capi(members) if members else None
     for k, p in pts.items():
         scheletri = {x.get('id') for x in fdef.get('skeletons') or []}
-        if '.' in k and k not in (fdef.get('points') or {}) and k.split('.')[0] not in scheletri:
+        if '.' in k and '×' not in k and k not in (fdef.get('points') or {}) and k.split('.')[0] not in scheletri:
             continue                          # punti interni presi dalle linee di uno sketch (aste a mano su linee)
-        su = [m.id for m in members if (m.start - p).length < 1e-6 or (m.end - p).length < 1e-6]
-        tipi = sorted({nodes[(m.id, i)][0] for m in members for i, q in ((0, m.start), (1, m.end))
-                       if (q - p).length < 1e-6 and (m.id, i) in nodes})
+        qui = capi(_t(p)) if capi else []
+        su = list(dict.fromkeys(m.id for m, _ in qui))
+        tipi = sorted({nodes[(m.id, i)][0] for m, i in qui if (m.id, i) in nodes})
         out[k] = {'xyz': [p.X, p.Y, p.Z], 'members': su, 'joint': dict(joints.get(k) or {'type': 'auto'}),
                   'auto': ' + '.join(JOINT_LABELS.get(t, t) for t in tipi)}
     return out
@@ -427,9 +462,9 @@ def _section_axes(w: bd.Vector, rotate_deg: float, flip: bool):
 
 def _nodes(members, pts, joints, by_id, fid, angoli=None):
     """Per ogni estremità di ogni asta: che taglio fare. Ritorna {(id asta, 0|1): istruzione}."""
-    ends = {}
-    for k, p in pts.items():
-        ends[k] = [(m, i) for m in members for i, q in ((0, m.start), (1, m.end)) if (q - p).length < 1e-6]
+    _prep(members)
+    capi = _capi(members)
+    ends = {k: capi(_t(p)) for k, p in pts.items()}
     out = {}
     for k, lst in ends.items():
         if not lst:
@@ -550,9 +585,49 @@ def _nodes(members, pts, joints, by_id, fid, angoli=None):
         for i in (0, 1):
             if (m.id, i) not in out:
                 p = m.start if i == 0 else m.end
-                interno = _lies_on(p, members, m)
+                interno = _lies_on(m._ta if i == 0 else m._tb, members, m)
                 out[(m.id, i)] = ('butt', p, interno) if interno else ('square', p, [])
     return out
+
+
+# 03/11, velocità con le strutture grandi (scaffale 3000 × 2500, 78 tubi: 1,5 s per ogni modifica, quasi tutto in
+# conti con bd.Vector fatti centinaia di migliaia di volte per sapere chi tocca chi). Gli stessi conti con tre numeri
+# semplici: stesso risultato, molto più veloci. Ogni asta tiene i suoi capi e la direzione come tuple (_prep).
+def _t(v) -> tuple:
+    return (v.X, v.Y, v.Z)
+
+
+def _prep(members) -> None:
+    for m in members:
+        a, b = _t(m.start), _t(m.end)
+        d = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        n = math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+        m._ta, m._tb, m._tl = a, b, n
+        m._tw = (d[0] / n, d[1] / n, d[2] / n) if n else (0.0, 0.0, 0.0)
+        m._tmw = (-m._tw[0], -m._tw[1], -m._tw[2])
+
+
+def _vicino(p, q, tol=1e-6) -> bool:
+    return abs(p[0] - q[0]) < tol and abs(p[1] - q[1]) < tol and abs(p[2] - q[2]) < tol and \
+        (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2 < tol * tol
+
+
+def _a_meta(p, o) -> bool:
+    """Il punto p (tupla) sta sull'asta o, a metà (non agli estremi)."""
+    a, w, n = o._ta, o._tw, o._tl
+    if not n:
+        return False
+    dx, dy, dz = p[0] - a[0], p[1] - a[1], p[2] - a[2]
+    s_ = dx * w[0] + dy * w[1] + dz * w[2]
+    t = s_ / n
+    if not 1e-6 < t < 1 - 1e-6:
+        return False
+    ex, ey, ez = dx - w[0] * s_, dy - w[1] * s_, dz - w[2] * s_
+    return ex * ex + ey * ey + ez * ez < 1e-12
+
+
+def _dot(a, b) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
 def _classe(w: bd.Vector) -> str:
@@ -561,16 +636,15 @@ def _classe(w: bd.Vector) -> str:
     return ax[1]
 
 
-def _tocca(p: bd.Vector, o: Member) -> list:
-    """Da un punto, le direzioni in cui parte l'asta o: una se il punto è un suo estremo, due se le sta a metà."""
-    if (o.start - p).length < 1e-6:
-        return [o.w]
-    if (o.end - p).length < 1e-6:
-        return [-o.w]
-    w = o.end - o.start
-    t = (p - o.start).dot(w) / w.length ** 2
-    if 1e-6 < t < 1 - 1e-6 and (o.start + w * t - p).length < 1e-6:
-        return [o.w, -o.w]
+def _tocca(p, o: Member) -> list:
+    """Da un punto (tupla), le direzioni (tuple) in cui parte l'asta o: una se il punto è un suo estremo, due se le
+    sta a metà."""
+    if _vicino(o._ta, p):
+        return [o._tw]
+    if _vicino(o._tb, p):
+        return [o._tmw]
+    if _a_meta(p, o):
+        return [o._tw, o._tmw]
     return []
 
 
@@ -579,28 +653,30 @@ def _dentro(members) -> None:
     esterno. Per ogni asse della sezione: i vicini vanno tutti da una parte → il tubo va da quella parte; da tutte e
     due o da nessuna → per l'asse in verticale decide "rif" (sotto: la linea è il sotto del tubo), per gli altri
     si copia dal tubo a cui è attaccato (una gamba sotto il traverso davanti sta a filo davanti), se no centrato."""
+    _prep(members)
+
     def vicini(m):
         dirs = []
         for o in members:
             if o is m:
                 continue
-            for p in (m.start, m.end):
+            for p in (m._ta, m._tb):
                 dirs += _tocca(p, o)
-            for p, d in ((o.start, o.w), (o.end, -o.w)):        # aste che arrivano a metà di m (giunto a T)
-                w = m.end - m.start
-                t = (p - m.start).dot(w) / w.length ** 2
-                if 1e-6 < t < 1 - 1e-6 and (m.start + w * t - p).length < 1e-6:
+            for p, d in ((o._ta, o._tw), (o._tb, o._tmw)):        # aste che arrivano a metà di m (giunto a T)
+                if _a_meta(p, m):
                     dirs.append(d)
         return dirs
 
     scelte = {}
+    tocca = {}                     # chi tocca chi (per copiare il verso dal tubo a cui si è attaccati)
     for m in members:
         if m._a_mano:
             continue
         dirs = vicini(m)
         for nome, asse, meta in (('x', m.x, m.profile.width / 2), ('y', m.y, m.profile.height / 2)):
-            piu = any(d.dot(asse) > 0.5 for d in dirs)
-            meno = any(d.dot(asse) < -0.5 for d in dirs)
+            ta = _t(asse)
+            piu = any(_dot(d, ta) > 0.5 for d in dirs)
+            meno = any(_dot(d, ta) < -0.5 for d in dirs)
             segno = 1 if piu and not meno else -1 if meno and not piu else None
             if segno is None and abs(asse.Z) > 0.9 and m._rif_scelto:
                 segno = _verso_rif(m, asse)
@@ -614,7 +690,12 @@ def _dentro(members) -> None:
                 if scelte[k][2] is not None:
                     continue
                 for o in members:
-                    if o is m or o._a_mano or not any(_tocca(p, o) for p in (m.start, m.end)):
+                    if o is m or o._a_mano:
+                        continue
+                    kt = (m.id, o.id)
+                    if kt not in tocca:
+                        tocca[kt] = any(_tocca(p, o) for p in (m._ta, m._tb))
+                    if not tocca[kt]:
                         continue
                     for on in ('x', 'y'):
                         oa, _, so = scelte[(o.id, on)]
@@ -659,13 +740,15 @@ def _angolo_stretto(coppia, node, limite=50.0) -> bool:
 
 def _lies_on(p, members, skip):
     """Aste su cui il punto p cade a metà (non agli estremi): giunto a T."""
+    if not isinstance(p, tuple):
+        p = _t(p)
     res = []
     for o in members:
         if o is skip:
             continue
-        w = o.end - o.start
-        t = (p - o.start).dot(w) / w.length ** 2
-        if 1e-6 < t < 1 - 1e-6 and (o.start + w * t - p).length < 1e-6:
+        if not hasattr(o, '_ta'):
+            _prep([o])
+        if _a_meta(p, o):
             res.append(o)
     return res
 

@@ -28,6 +28,17 @@ def _tocca_dir(m, p) -> bd.Vector:
     return bd.Vector(0, 0, 0)
 
 
+def _t(v) -> tuple:
+    return (v.X, v.Y, v.Z)
+
+
+def _senza_quota(nome: str) -> str:
+    """«Traverso in mezzo, da davanti a dietro, in alto» → «Traverso in mezzo, da davanti a dietro»: nell'incrocio
+    i due tubi stanno alla stessa altezza, conta solo che tubo è (03/11: le due scelte si chiamavano uguali)."""
+    parti = [x for x in nome.split(', ') if not (x in ('in alto', 'in basso') or (x.startswith('a ') and x.endswith(' da terra')))]
+    return ', '.join(parti) or nome
+
+
 def _ok(**kw):
     return {'ok': True, **kw}
 
@@ -80,8 +91,19 @@ class StruttureMixin:
         """Il tubo cliccato, in parole d'officina."""
         nomi = self.nomi_tubi(st)
         gruppo = [x for x in st.members if x.group == m.group and m.group]
+        verticale = abs(m.w.Z) > 0.95
+        a, b = m.start, m.end
+        if verticale:
+            basso = a if a.Z <= b.Z else b
+        else:
+            basso = min((a, b), key=lambda v: (round(v.X, 3), round(v.Y, 3), round(v.Z, 3)))
+        w = ((b if basso is a else a) - basso).normalized()
+        z0 = min(p.Z for x in st.members for p in (x.start, x.end))
+        # per misurare col mouse il punto sul tubo (03/11): da dove e in che verso si conta, come punto_su_tubo
+        misura = {'da': list(_t(basso)), 'dir': list(_t(w)), 'z0': z0, 'lunghezza': m.axis_length}
         return {'nome': nomi[m.id], 'contro': [nomi[i] for i in m.contro if i in nomi],
-                'gruppo_n': len(gruppo), 'verticale': abs(m.w.Z) > 0.95}
+                'gruppo_n': len(gruppo), 'verticale': verticale, 'misura': misura,
+                'facce': [self.NOMI_FACCE[f] for f in self._facce_di(st, m)]}
 
     def _parola(self, nomi, m):
         tipo = nomi[m.id].split()[0].lower()
@@ -186,12 +208,25 @@ class StruttureMixin:
             v = m is not None and _classe(m.w) == 'verticali' or any(
                 _classe(x.w) == 'verticali' for x in st.members if x.id.split(SEP_PEZZO)[0] == mid)
             nome = nome.split(' (')[0] if nome.endswith(')') else nome      # «Fianco in alto (1)»: il tubo è uno
-            scelte.append({'key': f'passa:{mid}', 'label': f'Passa intero: {nome.split(",")[0].lower()}',
+            scelte.append({'key': f'passa:{mid}', 'label': f'Passa intero: {_senza_quota(nome).lower()}',
                            'disegno': 'verticale' if v else 'orizzontale'})
         righe = [[self._nome_tubo(st, x.id), f'{fmt_mm(round(x.length, 1))} dritto']
                  for x in st.members if x.id.split(SEP_PEZZO)[0] in (inc['a'], inc['b'])]
-        return _ok(nome='Incrocio', quanti=2, scelte=scelte, ora=f'passa:{inc["passa"]}', simili=1, righe=righe,
-                   incrocio=True)
+        return _ok(nome='Incrocio', quanti=2, scelte=scelte, ora=f'passa:{inc["passa"]}',
+                   simili=len(self._incroci_simili(st, key)), righe=righe, incrocio=True)
+
+    @staticmethod
+    def _classe_tubo(st, mid):
+        """La direzione (verticali, x, y) del tubo mid, anche se un incrocio l'ha tagliato in pezzi."""
+        m = next((x for x in st.members if x.id.split(SEP_PEZZO)[0] == mid), None)
+        return _classe(m.w) if m is not None else None
+
+    def _incroci_simili(self, st, key) -> list:
+        """Gli incroci tra tubi nelle stesse direzioni (in uno scaffale: tutti i montanti coi traversi davanti)."""
+        firma = lambda k: tuple(sorted((self._classe_tubo(st, st.incroci[k]['a']) or '',
+                                        self._classe_tubo(st, st.incroci[k]['b']) or '')))
+        f = firma(key)
+        return [k for k in st.incroci if firma(k) == f]
 
     def _firma_angolo(self, st, key):
         info = st.nodes[key]
@@ -218,11 +253,21 @@ class StruttureMixin:
             return _err('Questa scelta non va bene per questo angolo.')
         nome = next(s['label'] for s in info['scelte'] if s['key'] == scelta)
         if info.get('incrocio'):
+            st = self._st(st_id)
+            scelto = scelta.split(':', 1)[1]
+            chiavi = {key: scelto}
+            if tutti:                # 03/11: su tutti gli incroci uguali passa il tubo nella stessa direzione
+                c = self._classe_tubo(st, scelto)
+                for k in self._incroci_simili(st, key):
+                    inc = st.incroci[k]
+                    chiavi[k] = inc['a'] if self._classe_tubo(st, inc['a']) == c else inc['b']
+
             def scegli():
-                self.doc.feature(st_id).setdefault('incroci', {})[key] = scelta.split(':', 1)[1]
-            r = self._change(f'Incrocio: {nome}', scegli)
+                self.doc.feature(st_id).setdefault('incroci', {}).update(chiavi)
+            r = self._change(f'Incrocio: {nome}' + (f' (tutti i {len(chiavi)})' if len(chiavi) > 1 else ''), scegli)
             if r.get('ok'):
-                r['message'] = f'{nome}: l’altro tubo è tagliato in due pezzi che gli battono contro.'
+                r['message'] = (f'{nome}: l’altro tubo è tagliato in due pezzi che gli battono contro.' if len(chiavi) == 1
+                                else f'Su {len(chiavi)} incroci passa intero il tubo nella stessa direzione.')
             return r
         if scelta == 'unico':
             return _ok(state=self.state(), message=f'{nome}: è già così.')
@@ -312,23 +357,36 @@ class StruttureMixin:
 
     def add_traverso(self, st_id: str, a_id: str, b_id: str, quota, rif: str = 'sotto', profile: str | None = None,
                      opposto: bool = False, nome: str = '') -> dict:
-        """Un traverso tra due tubi cliccati. Tubi in piedi: `quota` = altezza da terra (fuori tutto); sdraiati:
-        distanza dall'inizio del tubo (da sinistra o da davanti). Con `opposto` anche dall'altra parte."""
+        """Un traverso tra due tubi cliccati. Tubi in piedi: `quota` = altezza da terra (fuori tutto), `rif` dice
+        se è il sotto, la metà o il sopra del traverso; sdraiati: distanza dall'inizio del tubo (da sinistra o da
+        davanti) al centro del traverso (`rif` 'centro', anche 'sotto' come prima) o al suo bordo ('bordo').
+        `quota` = 'mezzo': in mezzo al tubo (a metà altezza per i tubi in piedi). Con `opposto` anche dall'altra
+        parte."""
         try:
             st = self._st(st_id)
             ma = next((m for m in st.members if m.id == a_id), None)
             mb = next((m for m in st.members if m.id == b_id), None)
             if ma is None or mb is None or ma is mb:
                 raise SteelCADError('Clicca due tubi diversi.', code='traverso')
-            q = _num(quota, 'Altezza')
             prof = str(profile or ma.profile.name.replace('×', 'x'))
             parse(prof)
+            z0 = min(p.Z for m in st.members for p in (m.start, m.end))
+            in_piedi = abs(ma.w.Z) > 0.95
+            al_bordo = rif == 'bordo' and not in_piedi
+            if str(quota).strip().lower() in ('mezzo', 'in mezzo', 'metà', 'meta'):
+                q = self._mezzo(ma, z0)
+                if in_piedi:
+                    rif = 'meta'
+                al_bordo = False
+            else:
+                q = _num(quota, 'Altezza' if in_piedi else 'Distanza')
             if rif not in ('sotto', 'meta', 'sopra'):
                 rif = 'sotto'
-            z0 = min(p.Z for m in st.members for p in (m.start, m.end))
-            aggancio = []
-            for m in (ma, mb):
-                aggancio.append(self._su_tubo(st, m, q, z0))
+            aggancio = [self._su_tubo(st, m, q, z0) for m in (ma, mb)]
+            if al_bordo:          # la misura arriva al bordo del traverso: il suo centro è mezzo tubo più in là
+                t = self._spessore_lungo(parse(prof), (aggancio[1][2] - aggancio[0][2]).normalized(), ma.w)
+                q = q + t / 2
+                aggancio = [self._su_tubo(st, m, q, z0) for m in (ma, mb)]
             pa, pb = aggancio[0][2], aggancio[1][2]
             if abs(ma.w.Z) < 0.05 and abs(mb.w.Z) < 0.05 and abs(pa.Z - pb.Z) < 1e-6:
                 # tra due tubi sdraiati (la croce sopra un telaio) il traverso sta a filo con loro, non appoggiato
@@ -344,7 +402,10 @@ class StruttureMixin:
                 if altro_a is None or altro_b is None:
                     raise SteelCADError('Dall’altra parte non ci sono due tubi uguali: togli «anche dietro».',
                                         code='traverso')
-                coppie.append([self._su_tubo(st, altro_a, q, z0), self._su_tubo(st, altro_b, q, z0)])
+                altra = [self._su_tubo(st, altro_a, q, z0), self._su_tubo(st, altro_b, q, z0)]
+                # in mezzo l'altra parte è lo stesso traverso (03/11: «In mezzo» con «anche dietro» lo faceva doppio)
+                if not any((x[2] - y[2]).length < 1 for x in altra for y in aggancio):
+                    coppie.append(altra)
         except SteelCADError as ex:
             return _err(ex.message, ex.code)
         nuovi = []
@@ -403,6 +464,26 @@ class StruttureMixin:
             raise SteelCADError('Non trovo l’angolo da cui misurare: riprova.', code='traverso')
         off = p - basso
         return k, [off.X, off.Y, off.Z], p
+
+    @staticmethod
+    def _mezzo(m, z0) -> float:
+        """La misura del punto in mezzo al tubo: per un tubo in piedi da terra, per uno sdraiato dall'inizio."""
+        if abs(m.w.Z) > 0.95:
+            return (m.start.Z + m.end.Z) / 2 - z0
+        return m.axis_length / 2
+
+    def traverso_info(self, st_id: str, a_id: str, b_id: str) -> dict:
+        """Per il pannello del traverso: in piedi o sdraiati, e la misura «in mezzo» da scrivere nel campo."""
+        try:
+            st = self._st(st_id)
+            ma = next((m for m in st.members if m.id == a_id), None)
+            if ma is None:
+                raise SteelCADError('Quel tubo non c’è più: riprova.', code='tubo')
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        z0 = min(p.Z for m in st.members for p in (m.start, m.end))
+        return _ok(in_piedi=abs(ma.w.Z) > 0.95, mezzo=round(self._mezzo(ma, z0), 1), profilo=ma.profile.name.replace('×', 'x'),
+                   lunghezza=round(ma.axis_length, 1))
 
     def punto_su_tubo(self, st_id: str, mid: str, quota) -> dict:
         """Un punto su un tubo, da cui far partire un tubo nuovo con le frecce (03/11: «dai montanti non posso nemmeno
@@ -485,6 +566,258 @@ class StruttureMixin:
             if continua and verticale:
                 r['message'] = 'Tubo aggiunto. In quell’angolo ora la gamba passa e i tubi ci battono contro.'
         return r
+
+    # ------------------------------------------------------------------ dividi una faccia (03/11)
+    # «Complicatissimo, il contrario di intuitivo»: per il fianco 2×2 e la croce sopra servivano punti, frecce e
+    # misure tolte a mano. Ora: clic su un tubo del fianco (o del telaio sopra) → «Dividi in 2 / in 3» → montanti e
+    # traversi a filo della faccia, quadri uguali; dove si incrociano uno passa e l'altro si taglia (incroci).
+    FACCE = {'sinistra': (0, -1), 'destra': (0, 1), 'davanti': (1, -1), 'dietro': (1, 1), 'sotto': (2, -1),
+             'sopra': (2, 1)}
+    NOMI_FACCE = {'sinistra': 'Il fianco a sinistra', 'destra': 'Il fianco a destra', 'davanti': 'Il davanti',
+                  'dietro': 'Il dietro', 'sopra': 'Il telaio sopra', 'sotto': 'Il telaio sotto'}
+    OPPOSTA = {'sinistra': 'destra', 'destra': 'sinistra', 'davanti': 'dietro', 'dietro': 'davanti',
+               'sopra': 'sotto', 'sotto': 'sopra'}
+
+    @staticmethod
+    def _assi_faccia(asse):
+        """(asse u, asse v) nella faccia: in piedi u = in larghezza/profondità e v = in altezza; sopra u = X, v = Y."""
+        return {0: (1, 2), 1: (0, 2), 2: (0, 1)}[asse]
+
+    @staticmethod
+    def _limiti_linee(st):
+        pts = [_t(p) for m in st.members for p in (m.start, m.end)]
+        return [(min(p[i] for p in pts), max(p[i] for p in pts)) for i in range(3)]
+
+    def _facce_di(self, st, m) -> list:
+        """Le facce della struttura (i sei lati del fuori tutto) su cui sta il tubo m."""
+        lim = self._limiti_linee(st)
+        out = []
+        for nome, (asse, verso) in self.FACCE.items():
+            if lim[asse][1] - lim[asse][0] < 1:
+                continue
+            val = lim[asse][1 if verso > 0 else 0]
+            if all(abs(_t(p)[asse] - val) < 1e-3 for p in (m.start, m.end)):
+                out.append(nome)
+        return out
+
+    def _faccia(self, st, nome):
+        """Com'è fatta una faccia: piano, estensione in u e v, quanto sono grossi i tubi sui quattro bordi."""
+        asse, verso = self.FACCE[nome]
+        lim = self._limiti_linee(st)
+        val = lim[asse][1 if verso > 0 else 0]
+        iu, iv = self._assi_faccia(asse)
+        sopra = [m for m in st.members if all(abs(_t(p)[asse] - val) < 1e-3 for p in (m.start, m.end))]
+        if not sopra:
+            return None
+        pts = [_t(p) for m in sopra for p in (m.start, m.end)]
+        u0, u1 = min(p[iu] for p in pts), max(p[iu] for p in pts)
+        v0, v1 = min(p[iv] for p in pts), max(p[iv] for p in pts)
+
+        def bordo(i, x):
+            """Lo spessore del tubo che corre sul bordo (i = u o v, a quota x), 0 se lì non c'è un tubo."""
+            grossi = []
+            for m in sopra:
+                if all(abs(_t(p)[i] - x) < 1e-3 for p in (m.start, m.end)):
+                    b = m.solid.bounding_box()
+                    grossi.append(_t(b.max)[i] - _t(b.min)[i])
+            return max(grossi, default=0.0)
+        return {'asse': asse, 'verso': verso, 'val': val, 'iu': iu, 'iv': iv, 'u': (u0, u1), 'v': (v0, v1),
+                'bu': (bordo(iu, u0), bordo(iu, u1)), 'bv': (bordo(iv, v0), bordo(iv, v1)), 'tubi': sopra}
+
+    @staticmethod
+    def _spessore_lungo(prof, w: bd.Vector, d: bd.Vector) -> float:
+        """Quanto è grosso il tubo (profilo prof, lungo w) misurato in direzione d."""
+        from cad_engine.structures.frame import _section_axes
+        x, y = _section_axes(w, 0, False)
+        return abs(x.dot(d)) * prof.width + abs(y.dot(d)) * prof.height
+
+    @staticmethod
+    def _centri(a, b, ba, bb, t, spec) -> list:
+        """I centri dei tubi nuovi tra a e b (bordi grossi ba, bb). spec: {'parti': n} = quadri uguali;
+        {'misure': [..], 'rif': 'centro'|'bordo'} = a misura dal bordo esterno (fuori tutto)."""
+        if not spec:
+            return []
+        if spec.get('misure'):
+            out = []
+            for q in spec['misure']:
+                q = _num(q, 'Misura')
+                c = a + q + (t / 2 if spec.get('rif') == 'bordo' else 0)
+                if not a + ba + t / 2 - 1e-6 <= c <= b - bb - t / 2 + 1e-6:
+                    raise SteelCADError(f'A {fmt_mm(q)} il tubo esce dalla faccia (va da 0 a {fmt_mm(round(b - a))}).',
+                                        code='dividi')
+                out.append(c)
+            return out
+        n = int(spec.get('parti') or 1)
+        if n < 2:
+            return []
+        if n > 20:
+            raise SteelCADError('Al massimo 20 parti.', code='dividi')
+        luce = (b - a - ba - bb - (n - 1) * t) / n
+        if luce <= 1:
+            raise SteelCADError(f'In {n} parti non ci stanno: i tubi si toccano.', code='dividi')
+        return [a + ba + k * luce + (k - 1) * t + t / 2 for k in range(1, n)]
+
+    def dividi_info(self, st_id: str, mid: str) -> dict:
+        """Per il pannello «Dividi»: le facce su cui sta il tubo cliccato, con le misure."""
+        try:
+            st = self._st(st_id)
+            m = next((x for x in st.members if x.id == mid), None)
+            if m is None:
+                raise SteelCADError('Quel tubo non c’è più: riprova.', code='tubo')
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        facce = []
+        ordine = ['sopra', 'sinistra', 'destra', 'dietro', 'davanti', 'sotto']
+        for nome in sorted(self._facce_di(st, m), key=ordine.index):
+            f = self._faccia(st, nome)
+            if f is None:
+                continue
+            altra = self.OPPOSTA[nome]
+            aperti = [k for k, x in zip(('u0', 'u1', 'v0', 'v1'), f['bu'] + f['bv']) if not x]
+            if aperti == ['v0'] and f['asse'] != 2:
+                aperti = 'Metti anche il tubo a terra (sotto è aperto)'
+            elif aperti:
+                aperti = 'Chiudi i bordi aperti con un tubo'
+            facce.append({'key': nome, 'label': self.NOMI_FACCE[nome], 'u': round(f['u'][1] - f['u'][0], 1),
+                          'v': round(f['v'][1] - f['v'][0], 1), 'in_piedi': f['asse'] != 2,
+                          'opposta': self.NOMI_FACCE[altra].lower() if self._faccia(st, altra) else '',
+                          'aperti': aperti or ''})
+        if not facce:
+            return _err('Questo tubo non sta su un lato della struttura: clicca un tubo del fianco o del telaio sopra.')
+        return _ok(facce=facce, profilo=m.profile.name.replace('×', 'x'))
+
+    def dividi(self, st_id: str, mid: str, faccia: str, larghezza=None, altezza=None, opposta: bool = False,
+               profile: str | None = None, chiudi: bool = False) -> dict:
+        """Divide la faccia su cui sta il tubo cliccato. `larghezza`: in quante parti (o a che misure) si divide la
+        larghezza (montanti; sopra: i tubi da davanti a dietro); `altezza`: l'altezza (traversi; sopra: la
+        profondità, tubi da sinistra a destra). Ognuno {'parti': n} o {'misure': [..], 'rif': 'centro'|'bordo'};
+        un numero = parti. I tubi nuovi stanno a filo della faccia, battono contro i tubi del bordo e dove si
+        incrociano uno passa e l'altro si taglia in due. `chiudi`: prima mette i tubi che mancano sui bordi della
+        faccia (il tubo a terra di un fianco aperto sotto). `opposta`: lo stesso anche sul lato di fronte."""
+        def spec(x):
+            if x in (None, '', 0, 1, '1'):
+                return None
+            if isinstance(x, (int, float, str)):
+                return {'parti': int(_num(x, 'Parti'))}
+            return dict(x)
+        try:
+            st = self._st(st_id)
+            m = next((x for x in st.members if x.id == mid), None)
+            if m is None:
+                raise SteelCADError('Quel tubo non c’è più: riprova.', code='tubo')
+            if faccia not in self.FACCE or faccia not in self._facce_di(st, m):
+                raise SteelCADError('Scegli il lato da dividere.', code='dividi')
+            prof = parse(str(profile or m.profile.name.replace('×', 'x')))
+            su, sv = spec(larghezza), spec(altezza)
+            if not su and not sv and not chiudi:
+                raise SteelCADError('Scegli in quante parti dividere.', code='dividi')
+            facce = [faccia] + ([self.OPPOSTA[faccia]] if opposta else [])
+            linee = []                                     # (p0, p1, verso dentro o None = come i vicini, gruppo)
+            quadri = None
+            for nome in facce:
+                f = self._faccia(st, nome)
+                if f is None:
+                    raise SteelCADError(f'{self.NOMI_FACCE[nome]} non ha tubi: togli «anche l’altro».', code='dividi')
+                iu, iv, asse = f['iu'], f['iv'], f['asse']
+                eu, ev, ea = (bd.Vector(*[1 if i == k else 0 for i in range(3)]) for k in (iu, iv, asse))
+                dentro = ea * -f['verso']
+                base = [0.0, 0.0, 0.0]
+                base[asse] = f['val']
+                base = bd.Vector(*base)
+                bu, bv = list(f['bu']), list(f['bv'])
+                if chiudi:                                 # i bordi senza tubo: si chiudono, il tubo sta dentro
+                    for bordi, (c0, c1), e_lungo, e_div, (x0, x1) in ((bu, f['v'], ev, eu, f['u']),
+                                                                      (bv, f['u'], eu, ev, f['v'])):
+                        for k, x in enumerate((x0, x1)):
+                            if bordi[k]:
+                                continue
+                            bordi[k] = self._spessore_lungo(prof, e_lungo, e_div)
+                            linee.append((base + e_div * x + e_lungo * c0, base + e_div * x + e_lungo * c1, None,
+                                          'Montanti' if abs(e_lungo.Z) > 0.9 else 'Traversi'))
+                luci = []
+                for sp, (a, b), (ba, bb), (c0, c1), e_lungo, e_div, idx in (
+                        (su, f['u'], bu, f['v'], ev, eu, iu), (sv, f['v'], bv, f['u'], eu, ev, iv)):
+                    t = self._spessore_lungo(prof, e_lungo, e_div)
+                    centri = self._centri(a, b, ba, bb, t, sp)
+                    # i quadri che vengono: tra i bordi, i tubi che ci sono già in mezzo (i ripiani di uno scaffale)
+                    # e quelli nuovi
+                    pezzi = {(round(c - t / 2, 3), round(c + t / 2, 3)) for c in centri}
+                    for x in f['tubi']:
+                        if abs(x.w.dot(e_lungo)) > 0.999:
+                            bx = x.solid.bounding_box()
+                            lo, hi = _t(bx.min)[idx], _t(bx.max)[idx]
+                            if lo > a + ba - 1e-3 and hi < b - bb + 1e-3:
+                                pezzi.add((round(lo, 3), round(hi, 3)))
+                    bordi = [a + ba] + [x for pz in sorted(pezzi) for x in pz] + [b - bb]
+                    luci.append([bordi[k + 1] - bordi[k] for k in range(0, len(bordi), 2)])
+                    for c in centri:
+                        p0 = base + e_div * c + e_lungo * c0
+                        p1 = base + e_div * c + e_lungo * c1
+                        gia = any(abs(x.w.dot(e_lungo)) > 0.999 and (x.start - p0).cross(e_lungo).length < 1e-3
+                                  for x in f['tubi'])
+                        if not gia:
+                            linee.append((p0, p1, dentro, 'Montanti' if abs(e_lungo.Z) > 0.9 else 'Traversi'))
+                if quadri is None:
+                    quadri = luci
+            if not linee:
+                raise SteelCADError('Lì i tubi ci sono già.', code='dividi')
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        nuovi = []
+
+        def fn():
+            fdef = self.doc.feature(st_id)
+            punti = fdef.setdefault('points', {})
+            aste = fdef.setdefault('members', [])
+            usati = {x.id for x in st.members} | {x['id'] for x in aste}
+            for p0, p1, dentro, gruppo in linee:
+                chiavi = []
+                for p in (p0, p1):
+                    gia = self._punto_di(st, p) if dentro is None else None     # i bordi: dagli angoli che ci sono
+                    if gia and '×' not in gia:
+                        chiavi.append(gia)
+                        continue
+                    nk = self._free_id(fdef, 'P', punti)
+                    punti[nk] = self._punto_relativo(st, p)
+                    chiavi.append(nk)
+                nid = self._free_id(fdef, 'D', usati)
+                usati.add(nid)
+                d = {'id': nid, 'from': chiavi[0], 'to': chiavi[1], 'profile': prof.name.replace('×', 'x'),
+                     'group': gruppo}
+                if dentro is not None:
+                    d.update(anchor='center', offset=self._a_filo(prof, p1 - p0, dentro))
+                aste.append(d)
+                nuovi.append(f'{st_id}/{nid}')
+        quanti = len(linee)
+        r = self._change(f'{self.NOMI_FACCE[faccia]}: diviso' + (' (anche l’altro lato)' if opposta else ''), fn)
+        if r.get('ok'):
+            r['select'] = nuovi[0]
+            lu, lv = quadri
+            dim = (lambda xs: fmt_mm(round(xs[0], 1)) if max(xs) - min(xs) < 0.05 else ' / '.join(fmt_mm(round(x, 1)) for x in xs))
+            n = len(lu) * len(lv)
+            r['message'] = (f'{quanti} {"tubo aggiunto" if quanti == 1 else "tubi aggiunti"}, a filo. '
+                            f'{"Viene" if n == 1 else "Vengono"} {n} {"quadro" if n == 1 else "quadri"} '
+                            f'{dim(lu)} × {dim(lv)} (luce tra i tubi)'
+                            + (' per lato.' if opposta else '.'))
+            r['quadri'] = [[round(x, 1) for x in lu], [round(x, 1) for x in lv]]
+        return r
+
+    @staticmethod
+    def _a_filo(prof, w: bd.Vector, dentro: bd.Vector) -> list:
+        """Lo spostamento (nella sezione) che porta il tubo dentro la faccia: la linea resta lo spigolo esterno."""
+        from cad_engine.structures.frame import _section_axes
+        x, y = _section_axes(w.normalized(), 0, False)
+        ox = (prof.width / 2) * (1 if x.dot(dentro) > 0 else -1) if abs(x.dot(dentro)) > 0.9 else 0
+        oy = (prof.height / 2) * (1 if y.dot(dentro) > 0 else -1) if abs(y.dot(dentro)) > 0.9 else 0
+        return [round(ox, 4), round(oy, 4)]
+
+    def _punto_relativo(self, st, p: bd.Vector):
+        """Un punto nuovo legato all'angolo più vicino della struttura (se l'angolo si sposta, il punto lo segue)."""
+        cand = [(k, bd.Vector(*v['xyz'])) for k, v in (st.nodes or {}).items() if '×' not in k]
+        if not cand:
+            return [round(c, 3) for c in _t(p)]
+        k, q = min(cand, key=lambda kv: ((kv[1] - p).length, kv[0]))
+        return {'from': k, 'offset': [round(c, 3) for c in _t(p - q)]}
 
     def sagoma_nuova(self, piano: str = 'XZ') -> dict:
         """Uno sketch vuoto per disegnare una sagoma di tubi dentro il progetto: di fronte, di fianco o dall'alto."""

@@ -33,7 +33,9 @@ def _lato(v, lim, basso, alto):
     return ''
 
 
-def _quota(z, lim):
+def _quota(z, lim, sotto=None):
+    """«in alto», «in basso» dalla linea; se no «a 265 da terra» dal sotto del tubo (sotto), come lo misura l'officina
+    (03/11: un tubo messo in mezzo a 265 si chiamava «a 280 da terra», la sua linea in mezzo)."""
     lo, hi = lim
     if hi - lo < TOL:
         return ''
@@ -41,7 +43,16 @@ def _quota(z, lim):
         return 'in alto'
     if abs(z - lo) < TOL:
         return 'in basso'
-    return f'a {fmt_mm(round(z - lo))} da terra'
+    return f'a {fmt_mm(round((z if sotto is None else sotto) - lo, 1))} da terra'
+
+
+def _sotto(m):
+    """Il sotto del tubo sdraiato m (la linea più lo spostamento della sezione, meno mezzo tubo in altezza)."""
+    try:
+        meta = abs(m.y.Z) * m.profile.height / 2 + abs(m.x.Z) * m.profile.width / 2
+        return min(m.start.Z, m.end.Z) + m.origin_shift.Z - meta
+    except AttributeError:
+        return None
 
 
 def _tipo(m) -> str:
@@ -75,11 +86,16 @@ def nomi_aste(members) -> dict:
         else:
             if abs(w.X) >= abs(w.Y):                          # lungo la larghezza: davanti o dietro
                 dove = _lato(mid.Y, ly, 'davanti', 'dietro')
+                if not dove and tipo == 'Traverso' and ly[1] - ly[0] >= TOL:
+                    dove = 'in mezzo'                         # 03/11: la croce sopra, da sinistra a destra
             else:                                             # lungo la profondità: a sinistra o a destra
                 dove = _lato(mid.X, lx, 'a sinistra', 'a destra')
                 if tipo == 'Traverso':
-                    tipo = 'Fianco'
-            q = _quota(min(m.start.Z, m.end.Z), lz)
+                    if dove or lx[1] - lx[0] < TOL:
+                        tipo = 'Fianco'
+                    else:                                     # in mezzo, da davanti a dietro: non è un fianco
+                        dove = 'in mezzo, da davanti a dietro'
+            q = _quota(min(m.start.Z, m.end.Z), lz, _sotto(m))
             testo = ', '.join(p for p in (dove, q) if p)
         out[m.id] = f'{tipo} {testo}'.strip()
     conta = Counter(out.values())
