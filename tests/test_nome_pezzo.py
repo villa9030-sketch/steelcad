@@ -53,3 +53,36 @@ def test_nell_assieme_si_rinomina_dal_pannello(tmp_path):
     a = Service()
     assert a.new_assembly_con_pezzi('Prova', [{'path': str(tmp_path / 'Base.steelcad')}])['ok']
     assert not a.rinomina_pezzo('Altro')['ok']
+
+
+def test_l_assieme_segue_il_pezzo_rinominato_da_solo(tmp_path):
+    s = _lamiera()
+    assert s.save(str(tmp_path / 'Base.steelcad'))['ok']
+    a = Service()
+    assert a.new_assembly_con_pezzi('Prova', [{'path': str(tmp_path / 'Base.steelcad'), 'n': 2}])['ok']
+    assert a.asm_rinomina('I2', 'Piastra base')['ok']
+    assert [i['name'] for i in a.asm.instances] == ['Piastra base', 'Piastra base (2)']
+    assert a.save(str(tmp_path / 'Prova.steelcad-asm'))['ok']
+    # il pezzo aperto da solo e rinominato
+    p = Service()
+    assert p.open(str(tmp_path / 'Base.steelcad'))['ok']
+    assert p.rinomina_pezzo('Fondo')['ok'] and p.save()['ok']
+    b = Service()
+    assert b.open(str(tmp_path / 'Prova.steelcad-asm'))['ok']
+    assert [i['name'] for i in b.asm.instances] == ['Fondo', 'Fondo (2)']
+    assert b.state()['bom'][0]['description'].startswith('Fondo')
+
+
+def test_il_nome_dato_a_mano_alla_copia_resta(tmp_path):
+    s = _lamiera()
+    assert s.save(str(tmp_path / 'Base.steelcad'))['ok']
+    a = Service()
+    assert a.new_assembly_con_pezzi('Prova', [{'path': str(tmp_path / 'Base.steelcad')}])['ok']
+    a.asm.instances[0]['name'] = 'Coperchio sinistro'
+    assert a.save(str(tmp_path / 'Prova.steelcad-asm'))['ok']
+    p = Service()
+    assert p.open(str(tmp_path / 'Base.steelcad'))['ok']
+    assert p.rinomina_pezzo('Fondo')['ok'] and p.save()['ok']
+    b = Service()
+    assert b.open(str(tmp_path / 'Prova.steelcad-asm'))['ok']
+    assert b.asm.instances[0]['name'] == 'Coperchio sinistro'
