@@ -46,7 +46,11 @@ try:
         pg.click('.home-nuovo[data-new="lamiera"]'); time.sleep(3)
         for k, v in (('W', '300'), ('P', '200'), ('sp', '8')):
             pg.click(f'input[data-p="{k}"]', click_count=3); pg.keyboard.type(v); pg.keyboard.press('Enter'); time.sleep(1.2)
-        pg.mouse.move(760, 480); time.sleep(0.3); pg.mouse.click(760, 480); time.sleep(1.2)
+        # 04/11 notte: cambiate le misure la vista si riadatta da sola: il clic va al centro della faccia di sopra, dove sta adesso
+        time.sleep(1)
+        cx, cy = pg.evaluate("p => window.__steelcad.toScreen(p)", [150, 100, 8])
+        bx = pg.locator('#c3d').bounding_box(); cx += bx['x']; cy += bx['y']
+        pg.mouse.move(cx, cy); time.sleep(0.3); pg.mouse.click(cx, cy); time.sleep(1.2)
         pg.click('#mini-barra button:has-text("Disegna qui")'); time.sleep(3)
         comando(pg, '[data-tool="circle"]'); time.sleep(0.5)
 
