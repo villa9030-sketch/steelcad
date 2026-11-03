@@ -2384,28 +2384,41 @@ $('#props').addEventListener('click', ev => {
 // ------------------------------------------------------------- prepara per il laser / l'officina
 // 03/11 (collaudo): il verde «a posto» sopra il giallo «Da guardare» sembrava dire due cose opposte. Prima quello che va
 // guardato; il verde solo se non c'è niente da guardare (se no il controllo fatto resta una riga piccola sotto)
-function prepControllo(c) {
+function prepControllo(c, laserNo) {
   if (!c) return '';
   const avvisi = c.avvisi || [];
-  const grave = c.ok ? '' : `<div class="prep-ok no"><b>Attenzione:</b> ${esc(c.testo)}</div>`;
-  const guarda = avvisi.length ? `<div class="prep-ok no prep-avvisi"><b>Da guardare:</b><span>${avvisi.map(esc).join('<br>')}</span></div>` : '';
-  if (!c.ok) return grave + guarda;
-  if (avvisi.length) return guarda + '<div class="prep-nota">Per il resto: contorno chiuso, fori e pieghe controllati.</div>';
-  return '<div class="prep-ok"><b>Il pezzo è a posto per il laser.</b> Contorno chiuso, fori e pieghe controllati.</div>';
+  // notte 03/11: un riquadro solo, col colore di stato: rosso se il laser non si può fare, ambra se c'è da guardare, verde se a posto
+  if (!c.ok || avvisi.length) {
+    const titolo = !c.ok ? c.testo : 'Da guardare prima di tagliare';
+    return `<div class="prep-ok no${avvisi.length ? ' prep-avvisi' : ''}${!c.ok && laserNo ? ' err' : ''}"><div class="prep-stato">
+      <b>${!c.ok ? 'Attenzione: ' : ''}${esc(titolo)}</b>
+      ${avvisi.length ? `<span class="prep-da">${!c.ok ? 'Da guardare:' : ''}</span><ul>${avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${c.ok ? '<small>Per il resto: contorno chiuso, fori e pieghe controllati.</small>' : ''}</div></div>`;
+  }
+  return '<div class="prep-ok"><div class="prep-stato"><b>Il pezzo è a posto per il laser.</b><small>Contorno chiuso, fori e pieghe controllati.</small></div></div>';
 }
+// il tipo del file, da mettere accanto al nome (DXF, PDF, STEP…)
+const tipoFile = f => { const m = /\.([a-z0-9]+)$/i.exec(String(f || '')); return m ? m[1].toUpperCase() : ''; };
+// un percorso lungo va a capo dopo una \ (non a metà di un nome)
+const percorsoHtml = f => esc(f).replace(/\\/g, '\\<wbr>');
+const rigaFile = f => `<li><span class="pf-tipo">${esc(tipoFile(f))}</span><span class="pf-nome">${esc(f)}</span></li>`;
 async function preparaDialog() {
   const info = await call('prepara_info');
   if (!info.ok) { toast(info.message, 'err'); return; }
   let cartella = info.cartella;
   const c = info.controllo;
-  const voci = info.voci.map(v => `<label class="${v.si ? '' : 'no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
+  // notte 03/11: prima quello che si può fare, in fondo (spente) le voci non disponibili per questo pezzo
+  const voci = [...info.voci.filter(v => v.si), ...info.voci.filter(v => !v.si)].map(v => `<label class="prep-voce${v.si ? '' : ' no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
       <input type="checkbox" data-voce="${v.id}" ${v.scelta ? 'checked' : ''} ${v.si ? '' : 'disabled'}>
-      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small>${
-        v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span></label>`).join('');
+      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span>${v.si ? (tipoFile(v.file) ? '' : `<small class="pv-no">${esc(v.file)}</small>`) : `<small class="pv-no">${esc('Non disponibile: ' + (v.motivo || ''))}</small>`}${
+        v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span>
+      ${v.si && tipoFile(v.file) ? `<small class="pv-file" title="${esc(v.file)}"><i>${esc(tipoFile(v.file))}</i>${esc(v.file)}</small>` : '<small class="pv-file"></small>'}</label>`).join('');
+  const laserNo = !info.voci.some(v => v.id === 'laser' && v.si);
   modal(`<h3>Cosa ti serve?</h3>
-    ${prepControllo(c)}
-    <div class="prep-voci">${voci}</div>
-    <div class="prep-dove">Si salvano in <b id="prep-dir">${esc(cartella)}</b> <button class="link" id="prep-cambia">Cambia cartella</button></div>
+    ${prepControllo(c, laserNo)}
+    <div class="prep-voci" role="group" aria-label="Cosa salvare">${voci}</div>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Si salvano in</span><b id="prep-dir" title="${esc(cartella)}">${percorsoHtml(cartella)}</b>
+      <button class="btn piccolo" id="prep-cambia">Cambia cartella</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
     $('#modal-box').classList.add('prepara');
     const conta = () => {
@@ -2416,7 +2429,7 @@ async function preparaDialog() {
     document.querySelectorAll('#modal-box [data-voce]').forEach(i => { i.onchange = conta; });
     conta();
     $('#m-no').onclick = close;
-    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; } });
+    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').innerHTML = percorsoHtml(cartella); $('#prep-dir').title = cartella; } });
     // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
     const tav = $('#prep-tavole');
     if (tav) tav.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); close(); runCmd('drawings'); };
@@ -2436,9 +2449,9 @@ async function preparaDialog() {
 // pulsanti per aprire la cartella o guardare le tavole. Si chiude solo con «Chiudi».
 function preparaFatto(r) {
   modal(`<h3>File pronti</h3>
-    <div class="prep-ok"><b>Salvat${r.files.length === 1 ? 'o 1 file' : `i ${r.files.length} file`}.</b></div>
-    <ul class="prep-fatti">${r.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
-    <div class="prep-dove">Nella cartella <b class="prep-percorso" id="prep-dir">${esc(r.cartella)}</b></div>
+    <div class="prep-ok"><div class="prep-stato"><b>Salvat${r.files.length === 1 ? 'o 1 file' : `i ${r.files.length} file`}.</b><small>Li trovi nella cartella qui sotto.</small></div></div>
+    <ul class="prep-fatti">${r.files.map(rigaFile).join('')}</ul>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="prep-dir">${percorsoHtml(r.cartella)}</b></div>
     <div class="acts"><button class="btn" id="prep-tav">Guarda le tavole</button><button class="btn" id="prep-apri">Apri la cartella</button>
       <button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
     $('#modal-box').classList.add('prepara');
@@ -2457,12 +2470,14 @@ function fileFatto(r, titolo = 'File salvato') {
   const nome = k >= 0 ? p.slice(k + 1) : p, cartella = k >= 0 ? p.slice(0, k) : '';
   const avvisi = r.avvisi?.length;
   modal(`<h3>${esc(titolo)}</h3>
-    <div class="prep-ok${avvisi ? ' no' : ''}"><b>${esc(nome)}</b></div>
-    ${r.message ? `<p class="hint fatto-msg">${esc(r.message)}</p>` : ''}
-    <div class="prep-dove">Nella cartella <b class="prep-percorso" id="fatto-dir">${esc(cartella)}</b></div>
+    <div class="prep-ok${avvisi ? ' no' : ''}"><div class="prep-stato"><b>${avvisi ? 'Salvato, ma c’è da guardare' : 'Salvato.'}</b>
+      ${r.message ? `<small class="fatto-msg">${esc(r.message)}</small>` : ''}</div></div>
+    <ul class="prep-fatti">${rigaFile(nome)}</ul>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="fatto-dir">${percorsoHtml(cartella)}</b></div>
     <div class="acts"><button class="btn" id="fatto-apri">Apri la cartella</button><button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
     $('#m-ok').onclick = close;
     $('#m-ok').focus();
+    $('#modal-box').classList.add('prepara', 'fatto');
     $('#fatto-apri').onclick = () => inCoda(async () => {
       const x = await call('apri_cartella', cartella);
       if (x && x.ok === false) toast('Non riesco ad aprire la cartella: ' + (x.message || '') + '. Il percorso è scritto qui sopra.', 'err');
@@ -5055,14 +5070,14 @@ document.addEventListener('keydown', ev => {
 // il simbolo di saldatura: tipo, misura, lunghezza, lato, tutto intorno, in opera (ISO 2553)
 function saldaturaDialog(q, fatto) {
   const tipi = [['angolo', 'D’angolo (a gola)'], ['V', 'Di testa a V'], ['I', 'Di testa a I (lembi dritti)']];
-  modal(`<h3>Saldatura</h3>
+  modal(`<h3>Saldatura</h3><div class="te-form">
     <label class="te-riga">Tipo<select class="field" id="sd-tipo">${tipi.map(([v, t]) => `<option value="${v}"${q.tipo === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
     <label class="te-riga">Misura<span class="te-mm"><input class="field" id="sd-a" value="${esc(q.a || '')}" placeholder="a gola, es. 4"><i>mm</i></span></label>
     <label class="te-riga">Lunghezza<input class="field" id="sd-l" value="${esc(q.l || '')}" placeholder="vuoto = tutto il giunto"></label>
     <label class="te-riga">Lato<select class="field" id="sd-lato"><option value="freccia"${q.lato !== 'altro' ? ' selected' : ''}>dalla parte della freccia</option><option value="altro"${q.lato === 'altro' ? ' selected' : ''}>dalla parte opposta</option></select></label>
     <label class="check"><input type="checkbox" id="sd-giro"${q.giro ? ' checked' : ''}> Tutto intorno</label>
-    <label class="check"><input type="checkbox" id="sd-opera"${q.opera ? ' checked' : ''}> In opera (in cantiere)</label>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti</button></div>`, close => {
+    <label class="check"><input type="checkbox" id="sd-opera"${q.opera ? ' checked' : ''}> In opera (in cantiere)</label></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la saldatura</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
       const r = { tipo: $('#sd-tipo').value, a: $('#sd-a').value.trim(), l: $('#sd-l').value.trim(), lato: $('#sd-lato').value,
@@ -5077,10 +5092,10 @@ function saldaturaDialog(q, fatto) {
 function distintaDialog(o, d, fatto) {
   const celle = { ...(d.celle || {}) }, via = new Set((d.via || []).map(Number)), nuove = (d.nuove || []).map(r => [...r]);
   const nc = o.intest.length;
-  const larghe = [46, 0, 56, 110, 80, 70];
+  const larghe = [52, 0, 60, 104, 84, 90, 76];
   const riga = (cls, i, valori, orig) => `<tr class="${cls}" data-r="${i}">${valori.map((v, j) =>
     `<td><input class="field" data-c="${j}" value="${esc(v)}"${orig ? ` placeholder="${esc(orig[j] ?? '')}"` : ''}></td>`).join('')}
-    <td><button class="btn" data-via title="${cls === 'nuova' ? 'Togli questa riga' : 'Togli questa riga dalla distinta'}">×</button></td></tr>`;
+    <td><button class="btn dd-via" data-via title="${cls === 'nuova' ? 'Togli questa riga' : 'Togli questa riga dalla distinta'}">×</button></td></tr>`;
   const disegna = () => {
     const corpo = o.righe.map((r, i) => via.has(i) ? '' : riga('auto', i, r.map((v, j) => celle[`${i}:${j}`] ?? v), r)).join('')
       + nuove.map((r, i) => riga('nuova', i, Array.from({ length: nc }, (_, j) => r[j] ?? ''), null)).join('');
@@ -5100,11 +5115,11 @@ function distintaDialog(o, d, fatto) {
     }; });
   };
   modal(`<h3>Distinta</h3>
-    <p class="hint">Scrivi sopra le celle per cambiarle; × toglie una riga. Le righe automatiche seguono l’assieme: se cambi un pezzo, il resto si aggiorna.</p>
-    <div class="dd-scorri"><table class="dd-tab"><colgroup>${larghe.slice(0, nc).map(w => `<col${w ? ` style="width:${w}px"` : ''}>`).join('')}<col style="width:36px"></colgroup>
+    <p class="hint dd-aiuto">Scrivi sopra le celle per cambiarle; × toglie una riga. Le righe automatiche seguono l’assieme: se cambi un pezzo, il resto si aggiorna.</p>
+    <div class="dd-scorri"><table class="dd-tab"><colgroup>${larghe.slice(0, nc).map(w => `<col${w ? ` style="width:${w}px"` : ''}>`).join('')}<col style="width:40px"></colgroup>
       <thead><tr>${o.intest.map(t => `<th>${esc(t)}</th>`).join('')}<th></th></tr></thead><tbody id="dd-corpo"></tbody></table></div>
     <div class="te-bott"><button class="btn" id="dd-piu">+ Riga in più</button><button class="btn" id="dd-tolte" hidden></button></div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Applica</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti nella tavola</button></div>`, close => {
     disegna();
     $('#dd-piu').onclick = () => {
       const pos = String(o.righe.length - via.size + nuove.length + 1);
@@ -5135,15 +5150,19 @@ async function drawingsDialog() {
   const campo = (k, l) => `<label class="te-riga">${l}<input class="field" data-c="${k}" value="${esc(c[k] || '')}"></label>`;
   const scelta = (k, l, opz) => `<label class="te-riga">${l}<select class="field" data-c="${k}">${opz.map(([v, t]) =>
     `<option value="${esc(v)}"${String(c[k] ?? opz[0][0]) === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
-  box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}">Tavole <span>${esc(S?.name || '')}</span></b><span class="te-spazio"></span>
-      <button class="btn" id="te-adatta" title="Il foglio intero (rotella: zoom · tasto centrale: sposta)">Adatta</button>
-      <button class="btn" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)">Annulla</button>
-      <button class="btn" id="te-dxf">Esporta DXF</button><button class="btn primary" id="te-pdf">Esporta PDF</button>
-      <button class="btn" id="te-chiudi">Chiudi</button></header>
+  box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}"><i class="te-modo">Tavole</i><span>${esc(S?.name || '')}</span></b>
+      <span class="te-sepv"></span>
+      <button class="btn te-quieto" id="te-adatta" title="Il foglio intero (rotella: zoom; tasto centrale: sposta)"><img src="icons/fit.svg" alt="">Adatta</button>
+      <button class="btn te-quieto" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)"><img src="icons/undo.svg" alt="">Annulla</button>
+      <span class="te-spazio"></span>
+      <button class="btn" id="te-dxf" title="Le tavole in DXF, per chi le apre col CAD">Esporta DXF</button><button class="btn primary" id="te-pdf" title="Le tavole in PDF, da stampare o mandare">Esporta PDF</button>
+      <span class="te-sepv"></span>
+      <button class="btn te-quieto" id="te-chiudi" title="Torna al pezzo (Esc)">Chiudi</button></header>
     <div class="te-tabs" id="te-tabs" role="tablist"></div>
     <div class="te-corpo">
       <nav class="te-strumenti" aria-label="Strumenti">
         <button data-str="sel" class="on" title="Clicca una vista, una quota o una nota; trascina per spostarla"><img src="icons/select.svg" alt=""><span>Seleziona</span></button>
+        <span class="te-gruppo">Aggiungi</span>
         <button data-str="quota" title="Una quota nuova: clicca due punti della stessa vista (si agganciano agli spigoli). Maiusc = inclinata"><img src="icons/dimension.svg" alt=""><span>Quota</span></button>
         <button data-str="nota" title="Una nota: clicca dove va e scrivi"><img src="icons/text.svg" alt=""><span>Nota</span></button>
         <button data-str="diametro" title="Diametro o raggio: clicca un cerchio o un arco di una vista, dove vuoi la scritta"><img src="icons/hole.svg" alt=""><span>Ø / R</span></button>
@@ -5151,7 +5170,8 @@ async function drawingsDialog() {
         <button data-str="saldatura" title="Saldatura: clicca il giunto (la punta della freccia), poi dove va il simbolo"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button>
         <button data-str="dettaglio" title="Dettaglio ingrandito: clicca il centro della zona su una vista, poi quanto è grande il cerchio"><img src="icons/zoom.svg" alt=""><span>Dettaglio</span></button>
       </nav>
-      <main class="te-foglio" id="te-foglio"><p class="hint">Preparo la tavola…</p></main>
+      <div class="te-centro"><main class="te-foglio" id="te-foglio"><p class="hint te-attesa">Preparo la tavola…</p></main>
+        <div class="te-passo" id="te-passo" hidden></div></div>
       <aside class="te-lato">
         <section id="te-persi" hidden></section>
         <section id="te-sel" hidden></section>
@@ -5181,7 +5201,7 @@ async function drawingsDialog() {
             ${[0, 1, 2].map(i => ['rev', 'data', 'descrizione', 'da'].map(k => `<input class="field" data-rev="${i}:${k}" value="${esc(((c.revisioni || [])[i] || {})[k] || '')}">`).join('')).join('')}</div></div>
           <p class="hint">${r.logo ? 'Il logo dell’azienda è nel cartiglio.' : 'Il logo dell’azienda si mette in Impostazioni → Tavole e cartiglio.'}</p>
         </details>
-        <details class="te-sez" open><summary>I tuoi ritocchi</summary><div id="te-rit"></div>
+        <details class="te-sez" open><summary>I tuoi ritocchi <span class="te-conta" id="te-rit-n" hidden></span></summary><div id="te-rit"></div>
           <button class="btn" id="te-auto" title="Toglie tutti i ritocchi di questo foglio: torna come la fa il programma">Rimetti automatico</button></details>
       </aside>
     </div>`;
@@ -5372,7 +5392,7 @@ async function drawingsDialog() {
       sez.innerHTML = `<h4>Distinta</h4><p class="hint">${cosa ? 'Ritoccata: ' + esc(cosa) + '.' : 'Quella automatica, dai pezzi dell’assieme.'}
         Trascinala per spostarla.</p>
         ${grandezzaHtml(o.id)}
-        <div class="te-bott"><button class="btn primary" id="ts-dist">Modifica la distinta…</button>
+        <div class="te-bott"><button class="btn" id="ts-dist">Modifica la distinta…</button>
           ${cosa ? '<button class="btn" id="ts-dist-auto">Torna automatica</button>' : ''}</div>`;
       grandezzaTabella(o.id);
       $('#ts-dist').onclick = () => distintaDialog(o, d, nuova => { const n = rit(); if (nuova) n.distinta = nuova; else delete n.distinta; salva(n); });
@@ -5452,6 +5472,8 @@ async function drawingsDialog() {
     const el = box.querySelector('#te-rit');
     el.innerHTML = righe.length ? righe.map(([t], i) => `<div class="te-r"><span>${esc(t)}</span><button class="btn" data-ri="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')
       : '<p class="hint">Nessun ritocco: la tavola è come la fa il programma.</p>';
+    const nr = box.querySelector('#te-rit-n'); nr.hidden = !righe.length; nr.textContent = righe.length;
+    box.querySelector('#te-auto').hidden = !righe.length;
     el.querySelectorAll('[data-ri]').forEach(b => { b.onclick = () => { const n = rit(); righe[+b.dataset.ri][1](n); salva(n); }; });
     avvisoPersi();
   }
@@ -5460,7 +5482,7 @@ async function drawingsDialog() {
     const el = box.querySelector('#te-persi'), persi = foglio()?.persi || [];
     el.hidden = !persi.length;
     if (!persi.length) { el.innerHTML = ''; return; }
-    el.innerHTML = `<h4>⚠ ${persi.length === 1 ? 'Un ritocco non trova più' : persi.length + ' ritocchi non trovano più'} il suo posto</h4>
+    el.innerHTML = `<h4>${persi.length === 1 ? 'Un ritocco non trova più' : persi.length + ' ritocchi non trovano più'} il suo posto</h4>
       <p class="hint">Il pezzo è cambiato. Toglili, o rifalli dove servono.</p>
       ${persi.map((x, i) => `<div class="te-r"><span>${esc(x.testo)}</span><button class="btn" data-pi="${i}" aria-label="Togli questo ritocco">×</button></div>`).join('')}
       ${persi.length > 1 ? '<div class="te-bott"><button class="btn" id="te-persi-tutti">Togli tutti</button></div>' : ''}`;
@@ -5549,7 +5571,7 @@ async function drawingsDialog() {
     }
     if (ED.strumento === 'angolo') {
       const a = aggancia(p, ED.ang[0]?.vista.id);
-      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
+      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in blu.'); return; }
       ED.ang.push(a); segno(a.p, 'te-p1');
       if (ED.ang.length < 3) return;
       const [A, V, B] = ED.ang, v = V.vista;
@@ -5576,7 +5598,7 @@ async function drawingsDialog() {
     }
     if (ED.strumento === 'quota') {
       const a = aggancia(p, ED.punto1?.vista.id);
-      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in arancio.'); return; }
+      if (!a) { toast('Clicca vicino a uno spigolo della vista: il punto si accende in blu.'); return; }
       if (!ED.punto1) { ED.punto1 = a; segno(a.p, 'te-p1'); return; }
       const v = a.vista, [s, tx, ty] = v.T, inV = q => [(q[0] - tx) / s, (q[1] - ty) / s];
       const A = ED.punto1.p, B = a.p, dx = Math.abs(B[0] - A[0]), dy = Math.abs(B[1] - A[1]);
@@ -5598,7 +5620,7 @@ async function drawingsDialog() {
       salva(n); return;
     }
     if (ED.strumento === 'nota') {
-      modal(`<h3>Nota sulla tavola</h3><label style="display:block">Testo<textarea class="field" id="nt-t" rows="3" style="width:100%"></textarea></label>
+      modal(`<h3>Nota sulla tavola</h3><label class="te-nota">Testo<textarea class="field" id="nt-t" rows="3" placeholder="Es.: sbavare tutti gli spigoli"></textarea></label>
         <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la nota</button></div>`, close => {
         $('#m-no').onclick = close;
         $('#m-ok').onclick = () => { const t = $('#nt-t').value.trim(); close(); if (!t) return;
@@ -5714,11 +5736,36 @@ async function drawingsDialog() {
   foglioEl.addEventListener('mouseleave', lascia);
 
   // ---- strumenti, testi, campi, esporta
-  box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => {
-    ED.strumento = b.dataset.str; ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
-    box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x === b));
+  // notte 03/11: con uno strumento acceso, una riga in basso sul foglio dice cosa cliccare adesso (prima solo nel title)
+  const PASSI = {
+    quota: ['Quota', 'dimension', [['Clicca il primo punto', 'vicino a uno spigolo di una vista: il punto si accende'], ['Clicca il secondo punto', 'sulla stessa vista; con Maiusc la quota viene inclinata']]],
+    nota: ['Nota', 'text', [['Clicca dove va la nota', 'poi scrivi il testo']]],
+    diametro: ['Ø / R', 'hole', [['Clicca il bordo di un cerchio o di un arco', 'la scritta va dove clicchi']]],
+    angolo: ['Angolo', 'plane_angle', [['Clicca un punto sul primo lato', 'vicino a uno spigolo'], ['Clicca il vertice', 'dove si incontrano i due lati'], ['Clicca un punto sull’altro lato', 'e l’angolo è fatto']]],
+    saldatura: ['Saldatura', 'joint', [['Clicca il giunto', 'lì va la punta della freccia'], ['Clicca dove va il simbolo', 'poi scegli che saldatura è']]],
+    dettaglio: ['Dettaglio', 'zoom', [['Clicca il centro della zona da ingrandire', 'dentro una vista'], ['Clicca quanto è grande il cerchio', 'il dettaglio va a destra, poi lo sposti']]],
+  };
+  const passo = () => {
+    const el = box.querySelector('#te-passo'), d = PASSI[ED.strumento];
+    el.hidden = !d;
+    if (!d) { el.innerHTML = ''; return; }
+    const [nome, icona, passi] = d;
+    const k = Math.min(passi.length - 1, ED.strumento === 'quota' ? (ED.punto1 ? 1 : 0) : ED.strumento === 'angolo' ? ED.ang.length
+      : ED.strumento === 'saldatura' ? (ED.sald ? 1 : 0) : ED.strumento === 'dettaglio' ? (ED.det ? 1 : 0) : 0);
+    const [t, sm] = passi[k];
+    el.innerHTML = `<div class="sk-help"><span class="g-cmd"><img src="icons/${icona}.svg" alt="">${esc(nome)}</span>
+      ${passi.length > 1 ? `<span class="g-passi">${passi.map((_, i) => `<i class="${i <= k ? 'on' : ''}"></i>`).join('')}</span>` : ''}
+      <span class="g-testo">${esc(t)}<small>${esc(sm)}</small></span><span class="g-sep"></span>
+      <span class="g-tasto"><kbd>Esc</kbd>${k > 0 ? 'ricomincia' : 'fine'}</span></div>`;
+  };
+  const strumento = nome => {
+    ED.strumento = nome; ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
+    box.querySelectorAll('[data-str]').forEach(x => x.classList.toggle('on', x.dataset.str === nome));
     foglioEl.dataset.strumento = ED.strumento;
-  }; });
+    passo();
+  };
+  box.querySelectorAll('[data-str]').forEach(b => { b.onclick = () => strumento(b.dataset.str); });
+  foglioEl.addEventListener('mousedown', () => passo());          // dopo il clic dello strumento: il passo dopo
   box.querySelectorAll('[data-t]').forEach(i => { i.onchange = () => {
     const n = rit(); n.testi = n.testi || {}; const v = num(i.value);
     if (v) n.testi[i.dataset.t] = v; else delete n.testi[i.dataset.t];
@@ -5737,7 +5784,11 @@ async function drawingsDialog() {
   box.querySelector('#te-adatta').onclick = () => { ED.vb = null; if (svgDi()) svgDi().setAttribute('viewBox', `0 0 ${foglio().size[0]} ${foglio().size[1]}`); };
   function tasti(ev) {
     if (!document.body.contains(box) || !$('#modal').hidden) return;
-    if (ev.key === 'Escape') { if (ED.punto1 || ED.ang.length || ED.sald || ED.det) { ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; segno(null, 'te-p1'); } else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi(); ev.stopPropagation(); ev.preventDefault(); }
+    if (ev.key === 'Escape') {
+      if (ED.punto1 || ED.ang.length || ED.sald || ED.det) { ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; segno(null, 'te-p1'); passo(); }
+      else if (ED.strumento !== 'sel') strumento('sel');          // notte 03/11: Esc spegne lo strumento, non chiude le tavole
+      else if (ED.sel) { ED.sel = null; evidenzia(); pannelloSel(); } else chiudi();
+      ev.stopPropagation(); ev.preventDefault(); }
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && ED.sel && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       $('#ts-via')?.click(); ev.preventDefault(); ev.stopPropagation();
     }
@@ -6460,7 +6511,7 @@ new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal
   .observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
 
 function modal(html, wire) {
-  $('#modal-box').classList.remove('wide', 'nuovo');
+  $('#modal-box').classList.remove('wide', 'nuovo', 'prepara', 'fatto');
   $('#modal').classList.remove('laterale');
   $('#modal-box').innerHTML = html;
   $('#modal').hidden = false;
@@ -9490,9 +9541,10 @@ canvas.addEventListener('dblclick', ev => {
 // ===================================================================== barra a schede (stile SolidCraft)
 let schedaPrima = 'lamiera';
 // Esporta: un pulsante solo con il menu; si vedono le voci che hanno senso per il pezzo aperto
-const VOCI_ESPORTA = [['drawings', 'Tavole PDF con cartiglio…'], ['export_dxf', 'DXF di taglio…'],
-  ['export_bendtable', 'Tabella pieghe (per la piegatrice)…'], ['export_step', 'STEP (modello 3D)…'],
-  ['export_bom', 'Distinta materiali (Excel)…']];
+// notte 03/11: gli stessi nomi di «Prepara» e delle conferme (DXF di taglio salvato, Tabella pieghe salvata…)
+const VOCI_ESPORTA = [['drawings', 'Tavole con cartiglio (PDF, DXF)…'], ['export_dxf', 'DXF di taglio, per il laser…'],
+  ['export_bendtable', 'Tabella pieghe, per la piegatrice…'], ['export_step', 'STEP, per un altro programma 3D…'],
+  ['export_bom', 'Distinta in Excel…']];
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => g.insertAdjacentHTML('beforebegin',
   `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" data-cmd="misura_angolo" title="Angolo: clic su un lato, sul vertice e sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button><button class="rb" data-azione="saldatura3d" title="Saldatura: clicca gli spigoli da saldare (si accendono), poi Invio: tipo e misura; i metri vanno in distinta"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button></div><div class="rname">Misura</div></div>`));
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {

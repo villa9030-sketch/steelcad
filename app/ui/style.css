@@ -2088,3 +2088,204 @@ body:not(.senza-destra):has(#right .btn.primary:not([hidden]):not(:disabled)) #b
 body:has(#sk-foot:not([hidden])) #navbar { bottom: 76px; }
 #navbar { transition: bottom var(--t-veloce); }
 @media (prefers-reduced-motion: reduce) { #navbar { transition: none; } }
+   TAVOLE E USCITE (notte 03→04/11): l'editor delle tavole, «Prepara», le conferme, la distinta da ritoccare.
+   Solo l'interfaccia: le tavole stampate (PDF/DXF) non cambiano. Colore di modalità = grafite (--modo con #tav-ed).
+   ================================================================================================================== */
+#tav-ed { background: var(--c-fondo); font-size: var(--fs-fitto); }
+/* barra in alto: come quella del programma, 44 + la banda grafite da 3 */
+#tav-ed .te-testa { height: calc(var(--alt-top) + 3px); padding: 0 var(--s-3) 3px var(--s-4); gap: var(--s-2); border-bottom: 0;
+  box-shadow: inset 0 -3px 0 var(--modo-tavole); background: var(--c-pannello); }
+#tav-ed .te-titolo { display: flex; align-items: center; gap: var(--s-2); max-width: 36vw; font: 600 var(--fs-testo)/1 var(--font); }
+#tav-ed .te-titolo .te-modo { flex: none; display: inline-flex; align-items: center; gap: 7px; font-style: normal; font-weight: 600; color: var(--c-testo); }
+#tav-ed .te-titolo .te-modo::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--modo-tavole); }
+#tav-ed .te-titolo span { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--c-testo-2); }
+.te-sepv { flex: none; width: 1px; height: 22px; margin: 0 var(--s-1); background: var(--c-linea); }
+/* pulsanti quieti della barra: senza bordo finché non ci passi sopra */
+#tav-ed .btn.te-quieto { border-color: transparent; background: transparent; color: var(--c-testo-2); padding: 0 10px; }
+#tav-ed .btn.te-quieto:hover { background: var(--c-sopra); color: var(--c-testo); }
+#tav-ed .btn.te-quieto img { width: 18px; height: 18px; }
+#tav-ed .te-testa .btn { min-height: 32px; }
+/* i fogli: schede sottolineate col colore di modalità, come quelle della barra dei comandi */
+#tav-ed .te-tabs { gap: 2px; padding: 0 var(--s-3); height: 38px; align-items: stretch; background: var(--c-pannello); border-bottom: 1px solid var(--c-linea); }
+#tav-ed .te-tabs button { align-items: center; gap: 7px; padding: 0 var(--s-3); border: 0; border-radius: 0; background: none;
+  box-shadow: inset 0 -2px 0 transparent; color: var(--c-testo-2); font: 500 var(--fs-fitto)/1 var(--font); }
+#tav-ed .te-tabs button:hover { background: var(--c-sopra); color: var(--c-testo); }
+#tav-ed .te-tabs button.on { background: none; color: var(--c-testo); font-weight: 600; box-shadow: inset 0 -2px 0 var(--modo-tavole); }
+#tav-ed .te-tabs button i { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  background: var(--c-incavo); color: var(--c-testo-2); font: 600 10.5px/1 var(--font); font-variant-numeric: tabular-nums; }
+#tav-ed .te-tabs button.on i { background: var(--modo-tavole); color: var(--c-su-colore); }
+#tav-ed .te-tabs button small { font-size: var(--fs-piccolo); color: var(--c-spento); font-weight: 500; }
+/* strumenti a sinistra: icona col nome sotto, «Seleziona» da solo, poi quelli che aggiungono */
+#tav-ed .te-strumenti { width: 72px; gap: 2px; padding: var(--s-2) 6px; background: var(--c-pannello); border-right: 1px solid var(--c-linea); }
+#tav-ed .te-strumenti button { min-height: 54px; justify-content: center; gap: 4px; padding: 6px 2px; border: 1px solid transparent; border-radius: var(--r-campo);
+  color: var(--c-testo-2); font: 500 var(--fs-piccolo)/1.1 var(--font); cursor: pointer; }
+#tav-ed .te-strumenti button:hover { background: var(--c-sopra); color: var(--c-testo); }
+#tav-ed .te-strumenti button.on { background: var(--c-blu-tenue); border-color: var(--c-blu-linea); color: var(--c-testo); font-weight: 600; }
+#tav-ed .te-strumenti button img { width: 24px; height: 24px; }
+.te-gruppo { margin: var(--s-2) 0 2px; padding-top: var(--s-2); border-top: 1px solid var(--c-linea); text-align: center;
+  font: 500 10.5px/1 var(--font); color: var(--c-spento); }
+/* il foglio al centro, con la barra «prossimo passo» quando uno strumento è acceso */
+.te-centro { position: relative; flex: 1; min-width: 0; display: flex; }
+#tav-ed .te-foglio { background: #D5DAE0; padding: var(--s-5); }
+body.dark #tav-ed .te-foglio { background: #0F1317; }
+#tav-ed .te-foglio svg { box-shadow: 0 1px 2px rgba(21, 32, 43, .10), 0 10px 30px rgba(21, 32, 43, .16); }
+body.dark #tav-ed .te-foglio svg { box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+#tav-ed .te-foglio > .te-attesa { color: var(--c-testo-2); font-size: var(--fs-testo); }
+#tav-ed .te-foglio > .msg { max-width: 520px; }
+.te-passo { position: absolute; left: 50%; bottom: var(--s-4); transform: translateX(-50%); max-width: calc(100% - 32px); z-index: 2;
+  padding: 8px var(--s-4) 8px 14px; border: 1px solid var(--c-linea); border-left: 3px solid var(--modo); border-radius: var(--r-galleggia);
+  background: var(--c-pannello); box-shadow: var(--ombra-galleggia); color: var(--c-testo); pointer-events: none;
+  animation: finestraSu var(--t-veloce) ease-out; }
+.te-passo .sk-help { gap: var(--s-3); white-space: nowrap; }
+.te-passo .g-testo { font-weight: 600; }
+.te-passo .g-testo small { font-weight: 400; }
+.te-passo .g-tasto { gap: 6px; }
+/* l'oggetto scelto sul foglio: giallo (la selezione); il punto agganciato blu (sotto il mouse), il primo punto fermo giallo */
+#tav-ed .te-foglio svg .te-evid { fill: color-mix(in srgb, var(--c-sel) 10%, transparent); stroke: var(--c-sel); stroke-width: .6; stroke-dasharray: 2 1; }
+#tav-ed .te-foglio svg .te-aggancio { fill: var(--c-blu); }
+#tav-ed .te-foglio svg .te-p1 { fill: var(--c-sel); stroke: #7A5200; stroke-width: .3; }
+/* pannello a destra: sezioni piatte separate da una linea, titolo con la freccina come gli altri pannelli */
+#tav-ed .te-lato { width: 320px; gap: 0; padding: var(--s-2) var(--s-4) var(--s-6); background: var(--c-pannello); border-left: 1px solid var(--c-linea); }
+#tav-ed .te-sez { border-top: 1px solid var(--c-linea); padding: 0 0 var(--s-2); }
+#tav-ed .te-lato > .te-sez:first-of-type { border-top: 0; }
+#tav-ed .te-sez summary { display: flex; align-items: center; min-height: 40px; margin: 0; list-style: none;
+  font: 600 var(--fs-testo)/1.2 var(--font); color: var(--c-testo); }
+#tav-ed .te-sez summary::-webkit-details-marker { display: none; }
+#tav-ed .te-sez summary::before { content: ''; flex: none; width: 6px; height: 6px; margin: 0 12px 0 3px; border-right: 1.6px solid var(--c-spento);
+  border-bottom: 1.6px solid var(--c-spento); transform: rotate(-45deg); transition: transform var(--t-veloce); }
+#tav-ed .te-sez[open] summary::before { transform: rotate(45deg); }
+#tav-ed .te-sez summary:hover { color: var(--c-blu); }
+#tav-ed .te-sez[open] > *:not(summary) { margin-bottom: var(--s-2); }
+.te-conta { margin-left: var(--s-2); min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center;
+  background: var(--c-incavo); color: var(--c-testo-2); font: 600 var(--fs-piccolo)/1 var(--font); font-variant-numeric: tabular-nums; }
+#tav-ed .te-riga { grid-template-columns: 112px minmax(0, 1fr); gap: var(--s-2); min-height: var(--h-riga); color: var(--c-testo-2); font-size: var(--fs-fitto); }
+#tav-ed .te-riga.te-pila { grid-template-columns: 1fr; gap: 6px; }
+#tav-ed .te-riga .field { min-width: 0; }
+#tav-ed .te-mm i { color: var(--c-spento); font-size: var(--fs-etichetta); }
+#tav-ed .te-lato .hint { margin: 2px 0 var(--s-2); }
+#tav-ed .te-lato .check { margin: var(--s-1) 0; }
+/* la cosa scelta sul foglio: in cima, titolo e cosa puoi fare; filo giallo a sinistra (la selezione), niente scheda colorata */
+#tav-ed #te-sel { margin: var(--s-2) 0 var(--s-3); padding: var(--s-3) var(--s-3) var(--s-3) 14px; gap: var(--s-2); border: 1px solid var(--c-linea);
+  border-left: 3px solid var(--c-sel); border-radius: var(--r-campo); background: var(--c-pannello); box-shadow: var(--ombra-leggera); }
+#tav-ed #te-sel h4 { margin: 0; font: 600 var(--fs-titolo)/1.3 var(--font); color: var(--c-testo); }
+#tav-ed #te-sel .hint { margin: -2px 0 0; }
+#tav-ed #te-sel .te-bott { margin-top: var(--s-1); }
+#tav-ed #te-sel .seg { align-self: flex-start; }
+/* Grandezza: − 100 % + compatti */
+#tav-ed .fp-len { grid-template-columns: 36px 96px 36px; gap: 4px; justify-content: start; }
+#tav-ed .fp-len .pm { height: var(--h-riga); border: 1px solid var(--c-linea); border-radius: var(--r-campo); background: var(--c-pannello);
+  color: var(--c-testo); font: 500 18px/1 var(--font); cursor: pointer; }
+#tav-ed .fp-len .pm:hover { background: var(--c-sopra); border-color: var(--c-linea-forte); }
+#tav-ed .fp-len .inp { position: relative; }
+#tav-ed .fp-len .inp .field { height: var(--h-riga); padding-right: 26px; text-align: right; font-size: var(--fs-testo); }
+#tav-ed .fp-len .inp i { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); color: var(--c-spento); }
+#tav-ed #te-sel #ts-ck { width: auto; }
+/* i ritocchi: righe pulite con la × quieta */
+#tav-ed .te-r { min-height: var(--h-riga); padding: 2px 0; gap: var(--s-2); border-bottom: 1px solid var(--c-linea); font-size: var(--fs-fitto); }
+#tav-ed .te-r .btn { width: 28px; min-height: 28px; padding: 0; border-color: transparent; background: transparent; color: var(--c-spento); font-size: 16px; }
+#tav-ed .te-r .btn:hover { background: var(--c-err-tenue); color: var(--c-err-testo); }
+#tav-ed #te-auto { margin-top: var(--s-2); }
+/* ritocchi rimasti senza posto: avviso ambra */
+#tav-ed #te-persi { margin: var(--s-2) 0 var(--s-3); padding: var(--s-3); border: 0; border-left: 3px solid var(--c-warn); border-radius: var(--r-campo);
+  background: var(--c-warn-tenue); }
+#tav-ed #te-persi h4 { margin: 0 0 var(--s-1); color: var(--c-warn-testo); font: 600 var(--fs-fitto)/1.3 var(--font); }
+#tav-ed #te-persi .te-r { border-color: color-mix(in srgb, var(--c-warn) 25%, transparent); }
+/* revisioni del cartiglio */
+#tav-ed .te-rev-g { grid-template-columns: 44px 84px 1fr 44px; gap: 4px; }
+#tav-ed .te-rev-g b { font: 500 var(--fs-piccolo)/1.2 var(--font); color: var(--c-testo-2); }
+#tav-ed .te-rev-g .field { min-height: 28px; padding: 3px 6px; }
+@media (max-width: 1400px) {
+  #tav-ed .te-lato { width: 292px; }
+  #tav-ed .te-riga { grid-template-columns: 100px minmax(0, 1fr); }
+  #tav-ed .te-testa .te-quieto img { display: none; }
+}
+#tav-ed #te-sel .te-riga { grid-template-columns: 92px minmax(0, 1fr); }
+/* «Prepara per il laser / l'officina» e le conferme dopo il salvataggio (notte 03→04/11) */
+.modal-box.prepara { width: min(760px, 96vw); }
+.modal-box.prepara.fatto { width: min(620px, 96vw); }
+.modal-box.prepara h3 { margin-bottom: var(--s-4); }
+/* lo stato del pezzo: un riquadro solo, col colore di stato e l'icona tonda */
+.prep-ok { display: flex; align-items: flex-start; gap: var(--s-3); margin: 0 0 var(--s-4); padding: var(--s-3) var(--s-4) var(--s-3) var(--s-3);
+  border: 0; border-left: 3px solid var(--c-ok); border-radius: var(--r-campo); background: var(--c-ok-tenue); color: var(--c-testo); font-size: var(--fs-fitto); }
+.prep-ok::before { content: '✓'; flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--c-ok); color: #fff; font: 700 13px/1 var(--font); }
+.prep-ok.no { border-left-color: var(--c-warn); background: var(--c-warn-tenue); }
+.prep-ok.no::before { content: '!'; background: var(--c-warn); }
+.prep-ok.no.err { border-left-color: var(--c-err); background: var(--c-err-tenue); }
+.prep-ok.no.err::before { background: var(--c-err); }
+.prep-stato { min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.4; }
+.prep-stato > b { font-weight: 600; font-size: var(--fs-testo); }
+.prep-stato > small { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+.prep-stato .prep-da { font-weight: 600; margin-top: var(--s-1); }
+.prep-stato .prep-da:empty { display: none; }
+.prep-stato ul { margin: 2px 0 2px; padding-left: 18px; }
+.prep-stato li { margin: 2px 0; }
+.prep-nota { display: none; }
+/* le voci: una lista di righe da scegliere (casella, cosa è, che file viene) */
+.prep-voci { display: flex; flex-direction: column; gap: 0; margin: 0 0 var(--s-4); border: 1px solid var(--c-linea); border-radius: var(--r-campo); overflow: hidden; }
+.prep-voci label, .prep-voci label.prep-voce { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: start; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4); border: 0; border-top: 1px solid var(--c-linea); border-radius: 0; background: var(--c-pannello); cursor: pointer;
+  transition: background var(--t-veloce); }
+.prep-voci label:first-child { border-top: 0; }
+.prep-voci label:hover { background: var(--c-sopra); }
+.prep-voci label:has(input:checked) { border: 0; border-top: 1px solid var(--c-linea); background: var(--c-blu-tenue); box-shadow: inset 3px 0 0 var(--c-blu); }
+.prep-voci label:first-child:has(input:checked) { border-top: 0; }
+.prep-voci label.no { opacity: 1; cursor: default; background: var(--c-pannello); }
+.prep-voci label.no b, .prep-voci label.no > span > span { color: var(--c-spento); }
+.prep-voci input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--c-blu); cursor: pointer; }
+.prep-voci input:disabled { cursor: default; }
+.prep-voci b { display: block; font: 600 var(--fs-testo)/1.3 var(--font); color: var(--c-testo); }
+.prep-voci label > span > span { display: block; margin-top: 2px; font-size: var(--fs-etichetta); color: var(--c-testo-2); line-height: 1.4; }
+.prep-voci small.pv-no { display: block; margin-top: 4px; font-size: var(--fs-etichetta); color: var(--c-testo-2); }
+.prep-voci small.pv-file { display: flex; align-items: center; gap: 6px; margin: 1px 0 0; max-width: 230px; font-size: var(--fs-piccolo); color: var(--c-testo-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prep-voci small.pv-file i, .pf-tipo { flex: none; padding: 2px 6px; border-radius: 4px; background: var(--c-incavo); color: var(--c-testo-2);
+  font: 600 10.5px/1.2 var(--font); font-style: normal; letter-spacing: .02em; }
+.prep-voci label:has(input:checked) small.pv-file i { background: var(--c-pannello); color: var(--c-blu); }
+.prep-voci .prep-guarda { display: inline-block; margin-top: 4px; padding: 0; border: 0; background: none; color: var(--c-blu); font-size: var(--fs-etichetta);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+/* dove si salvano */
+.prep-dove { display: flex; align-items: center; gap: var(--s-2); flex-wrap: nowrap; min-height: var(--h-riga); padding: 6px var(--s-2) 6px var(--s-3);
+  border-radius: var(--r-campo); background: var(--c-incavo); color: var(--c-testo-2); font-size: var(--fs-fitto); }
+.prep-dove img { flex: none; width: 18px; height: 18px; }
+.prep-dove > span { flex: none; }
+.prep-dove b { flex: 1; min-width: 0; color: var(--c-testo); font-weight: 600; word-break: normal; overflow-wrap: break-word; }
+.prep-dove .prep-percorso { user-select: text; cursor: text; }
+.prep-dove .btn { flex: none; }
+.prep-dove .link { color: var(--c-blu); }
+/* i file salvati: righe col tipo */
+.prep-fatti { list-style: none; margin: 0 0 var(--s-3); padding: 0; font-size: var(--fs-testo); line-height: 1.4; }
+.prep-fatti li { display: flex; align-items: center; gap: var(--s-2); min-height: var(--h-riga); padding: 4px 0; border-bottom: 1px solid var(--c-linea); }
+.prep-fatti li:first-child { border-top: 1px solid var(--c-linea); }
+.pf-tipo { min-width: 40px; text-align: center; }
+.pf-nome { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.fatto-msg { margin: 0; }
+/* la distinta da ritoccare: un foglio di calcolo pulito, celle senza bordo finché non le tocchi */
+#modal-box.wide:has(.dd-tab) { width: min(940px, 94vw); }
+.dd-aiuto { margin: -6px 0 var(--s-3); }
+.dd-scorri { margin: 0 0 var(--s-3); border: 1px solid var(--c-linea); border-radius: var(--r-campo); background: var(--c-pannello); }
+.dd-tab th { padding: 8px 8px; background: var(--c-incavo); border-bottom: 1px solid var(--c-linea); color: var(--c-testo-2);
+  font: 600 var(--fs-piccolo)/1.2 var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-tab td { padding: 0; border-bottom: 1px solid var(--c-linea); }
+.dd-tab tr:last-child td { border-bottom: 0; }
+.dd-tab .field { height: 34px; min-height: 34px; padding: 0 8px; border: 1px solid transparent; border-radius: 0; background: transparent; font-size: var(--fs-fitto); }
+.dd-tab .field:hover { background: var(--c-sopra); }
+.dd-tab .field:focus { border-color: var(--c-blu); background: var(--c-campo); box-shadow: none; position: relative; z-index: 1; }
+.dd-tab .field::placeholder { color: var(--c-spento); }
+.dd-tab tr.nuova td { background: var(--c-blu-tenue); }
+.dd-tab tr.nuova .field { border-color: transparent; }
+.dd-tab .dd-via, .dd-tab [data-via] { width: 28px; min-height: 28px; margin: 3px 6px; padding: 0; border-color: transparent; background: transparent; color: var(--c-spento); font-size: 16px; }
+.dd-tab .dd-via:hover { background: var(--c-err-tenue); color: var(--c-err-testo); }
+.modal-box .te-bott { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+/* le finestrine dell'editor delle tavole: nota e saldatura */
+.te-nota { display: flex; flex-direction: column; gap: 6px; color: var(--c-testo-2); font-size: var(--fs-fitto); }
+.te-nota .field { width: 100%; min-height: 84px; resize: vertical; font-size: var(--fs-testo); }
+.modal-box:has(#nt-t) { width: min(440px, 94vw); }
+.modal-box:has(#sd-tipo) { width: min(440px, 94vw); }
+.te-form { display: flex; flex-direction: column; gap: var(--s-2); }
+.te-form .te-riga { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: var(--s-2); min-height: var(--h-riga);
+  color: var(--c-testo-2); font-size: var(--fs-fitto); }
+.te-form .te-mm { display: flex; align-items: center; gap: 6px; }
+.te-form .te-mm .field { flex: 1; min-width: 0; }
+.te-form .te-mm i { font-style: normal; color: var(--c-spento); }
+#tav-ed #te-sel .te-riga.te-pila { grid-template-columns: 1fr; }
