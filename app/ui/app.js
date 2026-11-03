@@ -1407,6 +1407,8 @@ function applyLook() {
   $('#b-unfold').classList.toggle('on', flatView);
   $('#b-unfold').textContent = flatView ? 'Ripiega' : 'Spiega';
   $('#flat-bar').hidden = !(flatView && !SK);
+  // 04/11 sera: sullo sviluppo «Spiega» della barra è acceso (col colore della modalità), come gli altri comandi in uso
+  document.querySelectorAll('#ribbon .rb[data-cmd="unfold"]').forEach(b => b.classList.toggle('on', !!flatView && !SK));
   $('#flat-bar [data-cmd="flat_sketch"]')?.toggleAttribute('hidden', !!S?.sheet?.shape);   // coni e raccordi: niente disegno sullo sviluppo
   $('#sk-ghost').hidden = !solo;
   $('#sk-ghost').classList.toggle('on', !!SK?.ghost);
