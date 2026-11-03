@@ -48,7 +48,9 @@ try:
         fid = api('state')['sheet']['data']['feature']
         api('add_flange', fid, 'L1', {'length': '40'})
         ricarica()
-        pg.evaluate("window.__steelcad.select('flange=" + fid + "/FL1')"); time.sleep(1.2)
+        pg.evaluate("window.__steelcad.select('flange=" + fid + "/FL1')")
+        pg.wait_for_selector('#mini-barra button.piu', timeout=10000)        # 03/11: il clic apre la barretta; «⋯» il pannello
+        pg.click('#mini-barra button.piu'); pg.wait_for_selector('#props .fhead', timeout=10000); time.sleep(0.5)
         pg.evaluate("document.querySelectorAll('#props details').forEach(d => d.open = true)")
         if pg.is_visible('#t-gradino'):
             pg.click('#t-gradino'); time.sleep(5)

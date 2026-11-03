@@ -35,6 +35,14 @@ def main():
         esiti.append(bool(cond))
         print(('OK   ' if cond else 'NO   ') + cosa, flush=True)
 
+    def pannello(pg):
+        # 03/11: col clic si apre la barretta; «⋯» (Tutte le opzioni) apre il pannello completo a destra
+        try:
+            pg.wait_for_selector('#mini-barra button.piu', timeout=4000)
+            pg.click('#mini-barra button.piu')
+        except Exception:
+            pass
+
     def faccia(pg, nome):
         pg.evaluate("""(n) => { const o = window.__steelcad.objs.get('body');
             const f = o.data.faces.find(x => x.name === n); window.__steelcad.select('body', f.index); }""", nome)
@@ -62,8 +70,9 @@ def main():
                     faccia(pg, 'SM1/lato/L2')
                     pg.wait_for_function("window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === 'L1')")
                     time.sleep(1.2)
-                    ok(f'clic svelto su un altro lato: il pannello resta su quel lato ({pg.inner_text("#f-add")!r})',
-                       pg.locator('#f-add').count() == 1 and 'destro' in pg.inner_text('#f-add'))
+                    c = pg.locator('#f-add').count()
+                    t = pg.inner_text('#f-add') if c else '(niente pannello: ' + pg.evaluate("(document.querySelector('#props h3') || {}).innerText || ''") + ')'
+                    ok(f'clic svelto su un altro lato: il pannello resta su quel lato ({t!r})', c == 1 and 'destro' in t)
                     continue
                 pg.wait_for_function("(l) => window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.some(b => b.edge === l)", arg=lato)
                 pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
@@ -72,12 +81,25 @@ def main():
             pg.keyboard.press('0'); time.sleep(0.5)
             e = pg.evaluate("window.__steelcad.bendEdges.find(e => e.id === 'tip:FL1')")
             box = pg.locator('#c3d').bounding_box()
-            sx, sy = pg.evaluate("(p) => { const v = new window.__steelcad.THREE.Vector3(...p).project(window.__steelcad.camera); const c = document.querySelector('#c3d').getBoundingClientRect(); return [(v.x + 1) / 2 * c.width, (1 - v.y) / 2 * c.height]; }",
-                                 [(e['a'][i] + e['b'][i]) / 2 for i in range(3)])
+            # la vista si gira con un'animazione: si aspetta che il bordo resti fermo sullo schermo (sotto carico
+            # il clic arrivava a vista ancora in moto e prendeva la faccia dietro)
+            prima, uguali = None, 0
+            for _ in range(60):
+                sx, sy = pg.evaluate("(p) => { const v = new window.__steelcad.THREE.Vector3(...p).project(window.__steelcad.camera); const c = document.querySelector('#c3d').getBoundingClientRect(); return [(v.x + 1) / 2 * c.width, (1 - v.y) / 2 * c.height]; }",
+                                     [(e['a'][i] + e['b'][i]) / 2 for i in range(3)])
+                uguali = uguali + 1 if prima and abs(sx - prima[0]) < 0.5 and abs(sy - prima[1]) < 0.5 else 0
+                if uguali >= 4:
+                    break
+                prima = (sx, sy); time.sleep(0.2)
             pg.mouse.move(box['x'] + sx, box['y'] + sy)
             time.sleep(0.3)
             ok(f'bordo acceso col mouse: {pg.inner_text("#hover-tip")!r}', 'punta di FL1' in pg.inner_text('#hover-tip'))
             pg.mouse.click(box['x'] + sx, box['y'] + sy)
+            # 03/11: il clic sul bordo apre la barretta (piega su / giù); «⋯» il pannello completo
+            pg.wait_for_selector('#mini-barra[data-chi="edge=tip:FL1"]', timeout=15000)
+            ok('clic sul bordo: la barretta della punta', 'Punta della flangia' in pg.inner_text('#mini-barra .nome'))
+            pg.screenshot(path=str(SHOTS / '0a_barretta_bordo.png'))
+            pg.click('#mini-barra button.piu')
             pg.wait_for_function("document.querySelector('#props h3')?.innerText === 'Flangia su questo bordo'")
             ok('pannello del solo bordo cliccato', 'punta di FL1' in pg.inner_text('#props'))
             pg.screenshot(path=str(SHOTS / '0b_bordo.png'))
@@ -85,6 +107,7 @@ def main():
             # 1) piega sulla punta: dal pannello della flangia
             pg.wait_for_function("window.__steelcad.state.scene_version === window.__steelcad.sceneVersion")
             pg.evaluate("window.__steelcad.select('flange=SM1/FL1')")
+            pannello(pg)
             pg.wait_for_selector('#f-punta summary')
             pg.click('#f-punta summary')                           # la sezione si apre col clic
             pg.wait_for_selector('#t-add')
@@ -98,6 +121,7 @@ def main():
             # ... e cliccando la punta di FL2
             for madre in ('FL2', 'FL3', 'FL4'):
                 faccia(pg, f'SM1/{madre}/punta')          # subito, senza aspettare che il pezzo sia ricostruito
+                pannello(pg)
                 pg.wait_for_function("(m) => document.querySelector('#props [data-flangia=' + m + ']') && document.querySelector('#t-add')", arg=madre)
                 if not pg.is_visible('#t-len'):
                     pg.click('#f-punta summary')
@@ -119,11 +143,12 @@ def main():
             st = pg.evaluate('window.__steelcad.state')
             ok(f'scatola bordata: 8 pieghe, nessun errore ({len(st["sheet"]["data"]["bends"])}, {len(st["errors"])})',
                len(st['sheet']['data']['bends']) == 8 and not st['errors'])
-            ok('albero in parole: "sulla piega davanti"', 'sulla piega davanti' in pg.inner_text('#tree'))
+            ok('albero in parole: "Piega su piega davanti"', 'Piega su piega davanti' in pg.inner_text('#tree'))   # 03/11: nome nuovo
             madri = sorted(b['parent'] for b in st['sheet']['data']['bends'] if b['parent'])
             ok(f'ogni bordo sulla parete cliccata ({madri})', madri == ['FL1', 'FL2', 'FL3', 'FL4'])
             ok('nessuna altra domanda dopo la scelta', pg.locator('#modal:not([hidden])').count() == 0)
             pg.evaluate("window.__steelcad.select('flange=SM1/FL6')")
+            pannello(pg)
             pg.wait_for_selector('#f-tipc')
             pg.select_option('#f-tipc', 'long')
             pg.wait_for_function("window.__steelcad.state.sheet.data.tip_mode === 'long'")
@@ -142,6 +167,7 @@ def main():
             # 2) disegna su una faccia: si vede solo la faccia
             pg.wait_for_function("window.__steelcad.state.scene_version === window.__steelcad.sceneVersion")
             faccia(pg, 'SM1/FL1/esterno')
+            pannello(pg)
             pg.wait_for_selector('[data-face-sketch]')
             pg.click('[data-face-sketch]')
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL1/esterno'")
@@ -159,6 +185,7 @@ def main():
             pg.wait_for_function("!document.querySelector('#tree').innerText.includes('Sketch: la faccia')", timeout=5000)
             ok('lo sketch lasciato vuoto sparisce dall’albero', True)
             faccia(pg, 'SM1/FL3/esterno')
+            pannello(pg)
             pg.wait_for_selector('[data-face-sketch]')
             pg.click('[data-face-sketch]')
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL3/esterno'")

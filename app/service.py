@@ -5405,18 +5405,20 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 if L < 1e-6:
                     continue
                 d = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
-                nome = str(l.get('label') or l['id']).replace('lato ', 'il tratto ')
-                capi += [(a, d, nome), (b, (-d[0], -d[1]), nome)]
-            for c in v.get('arcs') or []:
+                # il tratto detto con la sua misura, come in officina («il tratto da 150»), non col codice L1
+                nome = f'il tratto da {fmt_mm(round(L, 1))}'
+                capi += [(a, d, nome, l['id']), (b, (-d[0], -d[1]), nome, l['id'])]
+            for ia, c in enumerate(v.get('arcs') or []):
                 if c.get('construction'):
                     continue
                 (cx, cy), r, a0, a1 = c['xc'], c['r'], c['a0'], c['a1']
                 nome = f'l’arco R{fmt_mm(round(r, 2))}'
-                capi += [((cx + r * math.cos(a0), cy + r * math.sin(a0)), (-math.sin(a0), math.cos(a0)), nome),
-                         ((cx + r * math.cos(a1), cy + r * math.sin(a1)), (math.sin(a1), -math.cos(a1)), nome)]
-            for i, (p, d1, n1) in enumerate(capi):
-                for q, d2, n2 in capi[i + 1:]:
-                    if math.dist(p, q) > 1e-3 or n1 == n2:
+                chiave = c.get('id') or f'arco {ia}'
+                capi += [((cx + r * math.cos(a0), cy + r * math.sin(a0)), (-math.sin(a0), math.cos(a0)), nome, chiave),
+                         ((cx + r * math.cos(a1), cy + r * math.sin(a1)), (math.sin(a1), -math.cos(a1)), nome, chiave)]
+            for i, (p, d1, n1, k1) in enumerate(capi):
+                for q, d2, n2, k2 in capi[i + 1:]:
+                    if math.dist(p, q) > 1e-3 or k1 == k2:
                         continue
                     cosv = max(-1.0, min(1.0, d1[0] * d2[0] + d1[1] * d2[1]))
                     piega = 180 - math.degrees(math.acos(cosv))      # 0 = si prosegue dritti
@@ -5425,12 +5427,16 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     if 0.1 < scarto < 5:
                         if tondo == 0:
                             avvisi.append(f'Tra {n1} e {n2} c’è uno spigolo di {fmt_mm(round(piega, 2))}°: sembrano '
-                                          'attaccati dritti ma non lo sono (l’arco non è tangente). Controlla lo sketch.')
+                                          'attaccati dritti ma non lo sono (l’arco non è tangente). Controlla il disegno.')
                         else:
                             avvisi.append(f'Tra {n1} e {n2} la piega è di {fmt_mm(round(piega, 2))}°, non {tondo}°: se '
-                                          f'la volevi a {tondo}°, correggi l’angolo nello sketch (nel pezzo le pieghe '
+                                          f'la volevi a {tondo}°, correggi l’angolo nel disegno (nel pezzo le pieghe '
                                           'vengono diverse da come sembrano).')
-        return avvisi
+        # la stessa frase due volte (due tratti uguali, come le gambe di un collare): una riga sola con «2 volte»
+        conta = {}
+        for x in avvisi:
+            conta[x] = conta.get(x, 0) + 1
+        return [x if n == 1 else f'{x[:-1]} — succede {n} volte.' for x, n in conta.items()]
 
     def prepara_info(self) -> dict:
         """Cosa si può preparare per questo pezzo, a chi serve, in che cartella, e se i controlli sono passati."""

@@ -34,27 +34,52 @@ try:
         idx = pareti()
         chk(f'pareti dei fori nel 3D: {len(idx)}', len(idx) >= 3)
         pg.evaluate("i => window.__steelcad.select('body', i)", idx[0]); time.sleep(1.2)
-        chk('pannello del foro con «Togli questo foro»', pg.is_visible('#h-togli'))
+        # 03/11: il clic sul foro apre la sua scheda (barretta) col cestino «Togli il foro»
+        TOGLI = '#mini-barra [data-a="togli"]'
+        pg.wait_for_selector(TOGLI, timeout=10000)
+        chk('scheda del foro con «Togli il foro»', pg.is_visible(TOGLI))
         pg.screenshot(path=str(OUT / '1_pannello.png'))
-        pg.click('#h-togli'); time.sleep(2.5)
+        pg.wait_for_selector(TOGLI, timeout=10000); pg.click(TOGLI)
+        # 03/11: la conferma in basso («Toglie il foro: la lamiera torna piena»), Invio
+        pg.wait_for_selector('#pr-ok', timeout=10000); BARRA = 'body'
+        chk('chiede conferma in basso', 'Toglie' in pg.inner_text(BARRA))
+        pg.click('#pr-ok'); time.sleep(2.5)
         st = api('state')
         chk('tolto un foro: «Fori 2 × Ø20»', 'Fori 2 × Ø20' in str(st['tree']))
         # Canc su un altro
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5); pg.evaluate("window.__steelcad.hideHome()")
         idx = pareti()
         pg.evaluate("i => window.__steelcad.select('body', i)", idx[0]); time.sleep(1.2)
-        pg.mouse.move(800, 450); pg.keyboard.press('Delete'); time.sleep(2.5)
-        st = api('state')
+        pg.mouse.move(800, 450); pg.keyboard.press('Delete')
+        pg.wait_for_selector('#pr-ok:not([disabled])', timeout=10000); time.sleep(0.5)
+        pg.keyboard.press('Enter')                         # Invio vale quando l'anteprima è pronta
+        for _ in range(40):                                # sotto carico il ricalcolo può metterci qualche secondo
+            st = api('state')
+            if '2 ×' not in str(st['tree']):
+                break
+            time.sleep(0.5)
         chk('Canc: ne resta uno, «Foro Ø20»', 'Foro Ø20' in str(st['tree']) and '2 ×' not in str(st['tree']))
         # l'ultimo: chiede di togliere il taglio
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5); pg.evaluate("window.__steelcad.hideHome()")
         idx = pareti()
         pg.evaluate("i => window.__steelcad.select('body', i)", idx[0]); time.sleep(1.2)
-        pg.click('#h-togli'); time.sleep(1)
-        chk('l’ultimo: chiede di togliere il taglio intero', pg.is_visible('#modal-box') and 'unico' in pg.inner_text('#modal-box'))
+        pg.wait_for_selector(TOGLI, timeout=10000); pg.click(TOGLI)
+        pg.wait_for_selector('#pr-ok', timeout=10000); time.sleep(1)
+        pg.wait_for_selector('#pr-ok:not([disabled])', timeout=10000)
+        chk(f'l’ultimo: chiede di togliere il taglio intero ({pg.inner_text("#prova-barra")[:90]!r})', 'unico' in pg.inner_text('#prova-barra'))
         pg.screenshot(path=str(OUT / '2_ultimo.png'))
-        pg.click('#m-ok'); time.sleep(2.5)
-        chk('taglio tolto', "'sheet_cut'" not in str(api('state')['tree']))
+        pg.click('#pr-ok')
+        # era l'unico contorno: dopo la barra chiede ancora «Elimina» nella finestra (la conferma di sempre)
+        pg.wait_for_selector('#modal:not([hidden]) #m-ok', timeout=10000)
+        chk('… e poi la finestra «Elimina» del taglio intero', 'unico contorno' in pg.inner_text('#modal-box'))
+        pg.click('#m-ok')
+        for _ in range(40):                                # aspetta il ricalcolo (sotto carico qualche secondo)
+            if "'sheet_cut'" not in str(api('state')['tree']):
+                break
+            time.sleep(0.5)
+        albero = api('state')['tree']
+        chk('taglio tolto', "'sheet_cut'" not in str(albero))
+        if "'sheet_cut'" in str(albero): print('   albero:', albero)
         api('undo'); api('undo'); api('undo')
         chk('Annulla rimette i tre fori', 'Fori 3 × Ø20' in str(api('state')['tree']))
         chk('nessun errore ' + str(err), not err)

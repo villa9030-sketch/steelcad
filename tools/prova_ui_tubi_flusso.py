@@ -184,7 +184,16 @@ def main():
             pg.wait_for_function("document.querySelector('#props h3') && /Angolo|Punto/.test(document.querySelector('#props h3').textContent)")
             time.sleep(0.5)
             pg.fill('#n-len', '700')
-            pg.click('.freccia-3d:has-text("Dietro")')
+            # la freccia nel 3D se si vede; se il capo del tubo nuovo è finito fuori dalla vista, il pulsante del pannello
+            si_vede = pg.evaluate("""() => { const f = [...document.querySelectorAll('.freccia-3d')].find(e => e.textContent.includes('Dietro'));
+                if (!f) return false; const r = f.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+                if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
+                const e = document.elementFromPoint(x, y); return !!e && f.contains(e); }""")
+            if si_vede:
+                pg.click('.freccia-3d:has-text("Dietro")')
+            else:
+                print('NOTA: il capo del tubo nuovo è fuori dalla vista, uso «Dietro» del pannello', flush=True)
+                pg.click('#props button:text-is("Dietro")')
             pg.wait_for_function('window.__steelcad.state.cutlist.pieces === 2')
             scena_pronta()
             nomi = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.data.name)")
