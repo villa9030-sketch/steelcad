@@ -2405,7 +2405,8 @@ async function preparaDialog() {
   if (!info.ok) { toast(info.message, 'err'); return; }
   let cartella = info.cartella;
   const c = info.controllo;
-  const voci = info.voci.map(v => `<label class="prep-voce${v.si ? '' : ' no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
+  // notte 03/11: prima quello che si può fare, in fondo (spente) le voci non disponibili per questo pezzo
+  const voci = [...info.voci.filter(v => v.si), ...info.voci.filter(v => !v.si)].map(v => `<label class="prep-voce${v.si ? '' : ' no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
       <input type="checkbox" data-voce="${v.id}" ${v.scelta ? 'checked' : ''} ${v.si ? '' : 'disabled'}>
       <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span>${v.si ? (tipoFile(v.file) ? '' : `<small class="pv-no">${esc(v.file)}</small>`) : `<small class="pv-no">${esc('Non disponibile: ' + (v.motivo || ''))}</small>`}${
         v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span>
