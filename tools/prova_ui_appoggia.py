@@ -67,7 +67,7 @@ try:
                 const q = c.clone().project(S.camera); const r = document.querySelector('#c3d').getBoundingClientRect();
                 return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height]; }""", [iid, nome])
 
-        ok('pulsante «Appoggia» con il nome nella barra', comando_visibile(pg, '[data-asm-tool="appoggia"]:has-text("Appoggia")'))
+        ok('pulsante «Appoggia» con il nome nella barra', pg.is_visible('[data-asm-tool="appoggia"]:has-text("Appoggia")'))
         comando(pg, '[data-asm-tool="appoggia"]')
         ok('suggerimento: faccia del pezzo da mettere', 'pezzo da mettere' in pg.inner_text('#sk-help'))
         x, y = schermo('I2', 'SM1/sopra')
