@@ -58,6 +58,24 @@ class Part:
 
 _PEZZI: dict = {}
 
+# 03/11: i nomi con cui nasce un pezzo (dai modelli). Chi salva «Piastra base.steelcad» senza cambiare il nome dentro
+# vedeva «Lamiera» nell'assieme, in distinta e nelle tavole: con uno di questi nomi conta il nome del file
+NOMI_DI_PARTENZA = {'', 'Lamiera', 'Pezzo', 'Pezzo nuovo', 'Piastra', 'Struttura', 'Telaio', 'Telaio armadio', 'Scaffale',
+                    'Cancello', 'Tronco di cono', 'Raccordo quadro-tondo', 'Tramoggia con cassone', 'Staffa a L',
+                    'Profilo a U', 'Scatola', 'Coperchio', 'Progetto', 'Senza nome'}
+
+
+def nome_di_partenza(nome) -> bool:
+    return str(nome or '').strip() in NOMI_DI_PARTENZA
+
+
+def nome_visibile(doc, path) -> str:
+    """Il nome del pezzo come lo si vede: il suo, se gliel'hai dato; se no quello del file."""
+    n = str(doc.meta.get('name') or '').strip()
+    if (not n or n in NOMI_DI_PARTENZA) and path is not None and Path(path).stem.lower() != n.lower():
+        return Path(path).stem
+    return n or 'Pezzo'
+
 
 def load_part(path) -> Part:
     """Legge (e ricostruisce) un pezzo; lo ricorda finché il file non cambia."""
@@ -73,6 +91,7 @@ def load_part(path) -> Part:
     if vecchio is not None and vecchio.mtime == mt:
         return vecchio
     doc = project_io.load(p)
+    doc.meta['name'] = nome_visibile(doc, p)          # solo in memoria: distinta e tavole col nome giusto
     res = doc.rebuild()
     solidi = []
     nomi = {}
@@ -378,16 +397,19 @@ def solve(asm: Assembly, parts: dict) -> dict:
     # sta. Prima le viti restavano ferme e l'accoppiamento «aspettava» senza che si capisse perché
     liberi = []
     while True:
-        conta = {}
+        conta, fermo = {}, {}
         for m in mates:
             a, b = m['a']['inst'], m['b']['inst']
             if a not in fatti and b not in fatti and a != b:
                 conta[a] = conta.get(a, 0) + 1
                 conta[b] = conta.get(b, 0) + 1
+                fermo[a] = fermo.get(a, 0) + 1       # 'a' è il pezzo cliccato come fermo
         if not conta:
             break
         ordine = {i['id']: k for k, i in enumerate(asm.instances)}
-        radice = max(conta, key=lambda x: (conta[x], -ordine.get(x, 0)))
+        # a parità resta fermo quello scelto come fermo negli accoppiamenti (03/11, Appoggia tra due pezzi liberi:
+        # si muoveva quello sotto invece di quello da appoggiare)
+        radice = max(conta, key=lambda x: (conta[x], fermo.get(x, 0), -ordine.get(x, 0)))
         fatti.add(radice)
         liberi.append(radice)
         metti()

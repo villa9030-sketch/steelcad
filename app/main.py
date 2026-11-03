@@ -78,15 +78,34 @@ def _filtri_col_trattino():
 _filtri_col_trattino()
 
 
+class _Interrotto(BaseException):
+    """Le tavole preparate in sottofondo, fermate perché hai chiesto qualcosa (03/11)."""
+
+
 class Api:
     def __init__(self):
         self._svc = Service()
         self._lock = threading.Lock()
         self._window = None
+        self._prep = threading.Lock()                   # chi sta preparando le tavole in sottofondo (il suo thread)
+        self._prep_tid = None
+
+    def _ferma_preparazione(self):
+        """03/11: le tavole dell'assieme Ufficio si preparavano in sottofondo per 20-26 s tenendo il motore: «Apri il
+        pezzo» cliccato in quel momento aspettava tutto quel tempo. Ora chi chiede qualcosa la ferma (riparte dopo)."""
+        import ctypes
+        with self._prep:
+            if self._prep_tid is not None:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(self._prep_tid), ctypes.py_object(_Interrotto))
 
     def _call(self, fn, *a, **kw):
-        with self._lock:
+        if not self._lock.acquire(blocking=False):
+            self._ferma_preparazione()
+            self._lock.acquire()
+        try:
             return fn(*a, **kw)
+        finally:
+            self._lock.release()
 
     # lettura
     def state(self):
@@ -563,6 +582,12 @@ class Api:
     def asm_add_mate(self, kind, a, b, offset=0, flip=False, a2=None, b2=None):
         return self._call(self._svc.asm_add_mate, kind, a, b, offset, flip, a2, b2)
 
+    def asm_rinomina(self, iid, nome):
+        return self._call(self._svc.asm_rinomina, iid, nome)
+
+    def asm_appoggia(self, mobile, fermo, opz=None, prova=False):
+        return self._call(self._svc.asm_appoggia, mobile, fermo, opz, prova)
+
     def asm_edit_mate(self, mid, fields):
         return self._call(self._svc.asm_edit_mate, mid, fields)
 
@@ -586,10 +611,23 @@ class Api:
 
     def prepara_tavole(self):
         # in sottofondo: solo se il motore è libero (non si mette mai in coda davanti a quello che fai)
+        import ctypes
         if not self._lock.acquire(blocking=False):
             return {'ok': True, 'fatto': False}
+        tid = threading.get_ident()
         try:
-            return self._svc.prepara_tavole()
+            try:
+                with self._prep:
+                    self._prep_tid = tid
+                return self._svc.prepara_tavole()
+            except _Interrotto:
+                return {'ok': True, 'fatto': False, 'interrotto': True}
+            finally:
+                with self._prep:
+                    self._prep_tid = None
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), None)    # una fermata arrivata tardi
+        except _Interrotto:
+            return {'ok': True, 'fatto': False, 'interrotto': True}
         finally:
             self._lock.release()
 

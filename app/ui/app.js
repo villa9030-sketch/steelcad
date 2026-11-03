@@ -81,7 +81,7 @@ setInterval(() => {
   const v = `${S.path || S.name}:${sceneVersion}`;
   if (v === tavolePronte) return;
   tavolePronte = v;
-  chiamaMuto('prepara_tavole').catch(() => {});
+  chiamaMuto('prepara_tavole').then(r => { if (r?.interrotto && tavolePronte === v) tavolePronte = null; }).catch(() => {});   // fermata: si riprova
 }, 1500);
 
 let S = null;            // ultimo stato del progetto
@@ -825,7 +825,7 @@ canvas.addEventListener('pointermove', ev => {
   if (h) {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
-    tip.textContent = h.face != null ? `${o.data.name}: ${f?.label || 'faccia'}` : h.name;
+    tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${f?.label || 'faccia'}`) : h.name;
     if (sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia) tip.textContent += ' · clic ancora: la faccia';
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
@@ -1503,6 +1503,7 @@ function spostaPezzi(pose) {                        // le copie dell'assieme al 
     o.data.matrix = m;
     for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(o.pos); x.updateMatrixWorld(true); }
   }
+  if (!SK) buildDims();                              // 03/11: l'ingombro (450 → 300) segue i pezzi spostati
   if (ESPLOSO > 0) esplodi(ESPLOSO); else paint();
 }
 async function loadScene() {
@@ -1579,6 +1580,7 @@ function renderPanels() {
   document.body.classList.toggle('assembly', assieme);
   $('#b-back').hidden = !S.can_back;
   if (!assieme && ASM.tool) asmTool(null);
+  if (!assieme && APP.el) appoggiaChiudi(false);     // uscito dall'assieme col pannello di Appoggia aperto
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi(); renderStoria();
   aggiornaLayout();
   if (!sel && !SK) $('#props').innerHTML = '';
@@ -1613,6 +1615,7 @@ const APERTI = new Set();
 const chiaveNodo = n => `${n.kind}:${n.ref}`;
 const contieneSketch = (n, sid) => (n.kind === 'sketch' && n.ref === sid) || n.children.some(c => contieneSketch(c, sid));
 function renderTree() {
+  if (document.activeElement?.classList?.contains('nome-albero')) return;      // mentre scrivi il nome di un pezzo
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
     if (n.vuoto && !(SK && contieneSketch(n, SK.sid))) return '';
@@ -1694,6 +1697,41 @@ async function confermaElimina(kind, ref, titolo, dip = null) {
   });
 }
 function chiudiMenuAlbero() { document.getElementById('menu-albero')?.remove(); }
+// 03/11: il nome del pezzo nell'assieme si cambia con doppio clic sulla voce (vale per le copie, la distinta, le tavole)
+const nomeSenzaCopia = t => String(t || '').replace(/\s*\(\d+\)$/, '');
+function rinominaPezzo(iid, nome) {
+  const nuovo = String(nome || '').trim();
+  if (!nuovo) return;
+  inCoda(async () => { const r = await call('asm_rinomina', iid, nuovo); if (await apply(r, r.message) && r.select) await select(r.select, null, null, true); });
+}
+// il doppio clic si conta a mano: il primo clic sceglie il pezzo e ridisegna l'elenco, e il «dblclick» del browser
+// (che vuole due clic sullo stesso elemento) non arrivava
+let clicAlbero = { ref: null, t: 0 };
+$('#tree').addEventListener('click', ev => {
+  const el = ev.target.closest('.node[data-kind="instance"]');
+  if (!el || S?.mode !== 'assembly' || ev.target.closest('input, .occhio, [data-apri]')) return;
+  const t = performance.now(), doppio = clicAlbero.ref === el.dataset.ref && t - clicAlbero.t < 450;
+  clicAlbero = { ref: el.dataset.ref, t: doppio ? 0 : t };
+  if (!doppio) return;
+  ev.stopPropagation(); ev.preventDefault();
+  setTimeout(() => { const n = document.querySelector(`#tree .node[data-kind="instance"][data-ref="${CSS.escape(clicAlbero.ref || el.dataset.ref)}"]`); if (n) iniziaRinomina(n); }, 30);
+}, true);
+function iniziaRinomina(el) {
+  if (el.querySelector('input')) return;
+  const iid = el.dataset.ref, ist = (S.instances || []).find(i => i.id === iid);
+  if (!ist) return;
+  const prima = nomeSenzaCopia(ist.name);
+  const inp = document.createElement('input');
+  inp.className = 'field nome-albero'; inp.value = prima; inp.setAttribute('aria-label', 'Nome del pezzo');
+  [...el.childNodes].filter(n => n.nodeType === 3).forEach(n => n.remove());       // il testo della voce: al suo posto il campo
+  el.querySelector('.k').after(inp);
+  inp.focus(); inp.select();
+  let fatto = false;
+  const fine = ok => { if (fatto) return; fatto = true; inp.classList.remove('nome-albero'); if (ok && inp.value.trim() && inp.value.trim() !== prima) rinominaPezzo(iid, inp.value); else renderTree(); };
+  inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') fine(true); if (e.key === 'Escape') fine(false); };
+  inp.onblur = () => fine(true);
+  inp.onclick = e => e.stopPropagation();
+}
 // 28/10: nell'assieme i pezzi si nascondono, si isolano, si fanno trasparenti (solo a video, il file non cambia):
 // per lavorare sul fondo del cassone si tolgono di mezzo le pareti
 const VIS = { nascosti: new Set(), trasparenti: new Set(), solo: null };
@@ -2152,9 +2190,11 @@ function barretta(nome, voci, opz = {}) {
   const m = document.createElement('div');
   m.id = 'mini-barra'; m.dataset.chi = chi;
   if (uguale) m.classList.add('fermo');
+  if (opz.nomi) m.classList.add('con-nomi');        // 03/11: le icone con il nome scritto sotto (assieme)
+  const scritta = t => opz.nomi ? `<span class="lab">${esc(t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span>` : '';
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
-    : `<button data-i="${i}" data-t="${esc(t)}" aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}"><img src="icons/${ic}.svg" alt=""></button>`).join('')
-    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯</button>` : '');
+    : `<button data-i="${i}" data-t="${esc(t)}" aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}"><img src="icons/${ic}.svg" alt="">${scritta(t)}</button>`).join('')
+    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
     const v = voci[+b.dataset.i];
@@ -2281,11 +2321,15 @@ function miniBarra(s) {
   sel.soloMini = !sel.pannello; aggiornaLayout();      // il pannello a destra solo se l'hai chiesto con «⋯»
   if (assieme) {
     const id = sel?.id;
+    const faccia = sel?.face != null ? sel.face : null, piana = faccia != null && s.face?.kind === 'piana';
     barretta(s.title, [['open', 'Apri il pezzo', () => apriPezzoAssieme(id)],
+      ['joint', piana ? 'Appoggia (da questa faccia)' : 'Appoggia', () => appoggiaDa(id, piana ? faccia : null)],
+      ['move', 'Sposta', () => spostaDa()],
+      ...(piana ? [['sketch', 'Pezzo nuovo qui (su questa faccia)', () => nuovoPezzoDialog(s)]] : []),
+      ['fastener', faccia != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
       ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
-      ['fastener', sel?.face != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
       ['select', 'Solo questo', () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); }],
-      ...(s.scassi ? [['cut', `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, () => tutteLeOpzioni()]] : [])], { chi: 'i:' + id });
+      ...(s.scassi ? [['cut', `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, () => tutteLeOpzioni()]] : [])], { chi: 'i:' + id, nomi: true });
     return;
   }
   if (s.foro) { miniForo(s); return; }
@@ -3187,13 +3231,16 @@ const MATE_UI = {
   spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
   spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
   cono: { nome: 'Cono su cono', clic: ['la svasatura del foro', 'la testa conica della vite'], val: 0 },
+  appoggia: { nome: 'Appoggia', clic: ['una faccia del pezzo da mettere (va bene quella che vedi)', 'la faccia del pezzo fermo, dove appoggiarlo'], val: 0 },
   testa: { nome: 'Testa a testa', clic: ['la faccia a 45° del pezzo che sta fermo', 'la faccia a 45° dell’altro pezzo (la stessa parete)'], val: null },
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
-  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic su ${u.clic[k]} · Esc annulla`);
+  const su = t => t.replace(/^la /, 'sulla ').replace(/^il /, 'sul ').replace(/^lo /, 'sullo ').replace(/^l’/, 'sull’').replace(/^(?!sul)/, 'su ');
+  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic ${su(u.clic[k])} · Esc annulla`);
 }
 function asmTool(t) {
+  if (t && !ASM.tool && sel) clearSelection();     // la barretta del pezzo scelto copriva proprio le facce da cliccare
   ASM.tool = t; ASM.clic = [];
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
   if (t) asmHelp(); else setHelp('');
@@ -3322,6 +3369,7 @@ function pickInstEdge(ev) {                          // lo spigolo di una copia 
   return best;
 }
 function asmClick(ev) {
+  if (ASM.tool === 'appoggia') { appoggiaClick(ev); return; }
   const u0 = MATE_UI[ASM.tool], k0 = ASM.clic.length;
   let h, c;
   if (u0.spigoli?.[k0 < u0.clic.length / 2 ? 0 : 1]) {
@@ -3351,6 +3399,137 @@ function asmClick(ev) {
     }
   });
 }
+// ===================================================================== Appoggia (03/11)
+// Stefano: «appoggia e centra in un comando». Clic su una faccia del pezzo da mettere, poi su quella del pezzo fermo:
+// si appoggia senza capovolgersi né entrare e parte al centro. Un pannello piccolo per «al centro / su un bordo / a
+// misura», «Gira di 90°» e «Capovolgi»: ogni scelta si vede subito sul pezzo; «Fatto» crea gli accoppiamenti veri.
+const APP = { el: null, mobile: null, fermo: null, opz: null, dove: 'centro', info: null, prima: null, n: 0, t: null };
+const mmTesto = v => String(Math.round(v * 10) / 10).replace('.', ',');
+function appoggiaClick(ev) {
+  const h = pick(ev);
+  if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
+  if (!ASM.clic.length) { ASM.clic.push({ inst: h.id, face: h.face }); sel = { id: h.id, face: h.face }; paint(); asmHelp(); return; }
+  if (h.id === ASM.clic[0].inst) { toast('Ora clic su una faccia di un altro pezzo: quello su cui appoggiarlo.', 'err'); return; }
+  const mobile = ASM.clic[0], fermo = { inst: h.id, face: h.face };
+  asmTool(null);
+  sel = null; nascondiMini(); paint();
+  appoggiaApri(mobile, fermo);
+}
+function appoggiaApri(mobile, fermo) {
+  appoggiaChiudi(true);
+  APP.mobile = mobile; APP.fermo = fermo; APP.dove = 'centro'; APP.info = null;
+  APP.opz = { u: { modo: 'centro', mm: 0 }, v: { modo: 'centro', mm: 0 }, gira: 0, capovolgi: false };
+  APP.prima = {};
+  for (const o of objs.values()) if (o.data.kind === 'instance') APP.prima[o.data.id] = [...o.data.matrix];
+  const el = document.createElement('div');
+  el.id = 'appoggia';
+  el.innerHTML = '<div class="ap-testa"><b>Appoggia</b><small>calcolo…</small></div>';
+  document.body.appendChild(el);
+  APP.el = el;
+  appoggiaProva();
+}
+function appoggiaChiudi(ripristina) {
+  clearTimeout(APP.t);
+  APP.n++;
+  if (ripristina && APP.prima) spostaPezzi(APP.prima);
+  APP.el?.remove();
+  APP.el = null; APP.prima = null;
+}
+async function appoggiaProva() {
+  const n = ++APP.n;
+  APP.el?.classList.add('calcolo');
+  const r = await call('asm_appoggia', APP.mobile, APP.fermo, APP.opz, true);
+  if (n !== APP.n || !APP.el) return;
+  APP.el.classList.remove('calcolo');
+  if (!r.ok) {
+    if (!APP.info) { appoggiaChiudi(true); toast(r.message, 'err'); return; }
+    APP.el.querySelector('.ap-err').textContent = r.message; APP.el.querySelector('.ap-err').hidden = false;
+    return;
+  }
+  spostaPezzi({ ...APP.prima, ...r.pose });
+  const prima = !APP.info;
+  APP.info = r;
+  if (prima) appoggiaDisegna(); else appoggiaDistanze();
+}
+function appoggiaDistanze() {
+  const r = APP.info, el = APP.el;
+  if (!r || !el) return;
+  el.querySelector('.ap-err').hidden = true;
+  el.querySelector('.ap-dist').innerHTML = 'Dai bordi: ' + ['u', 'v'].map(k => { const d = r.dirs[k];
+    return `${esc(d.basso)} <b>${mmTesto(d.da_basso)}</b> · ${esc(d.alto)} <b>${mmTesto(d.da_alto)}</b>`; }).join(' · ') + ' mm';
+  const liberi = ['u', 'v'].filter(k => !r.dirs[k].tiene).map(k => `${r.dirs[k].basso}/${r.dirs[k].alto}`);
+  el.querySelector('.ap-nota').textContent = liberi.length ? `${liberi.join(', ')}: non c’è un lato piano per tenerlo; resta lì ma non segue i pezzi se cambiano.` : '';
+  const err = el.querySelector('.ap-err');
+  if (r.dentro > 1) {
+    const cm3 = r.dentro / 1000;
+    err.textContent = `Così entra in «${r.nome_fermo}» (${cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(r.dentro) + ' mm³'}): scegli un’altra faccia, «Capovolgi» o spostalo dal bordo.`;
+    err.hidden = false;
+  }
+}
+function appoggiaDisegna() {
+  const r = APP.info, el = APP.el, o = APP.opz;
+  const riga = k => {
+    const d = r.dirs[k], m = o[k].modo;
+    const b = (modo, t) => `<button data-k="${k}" data-modo="${modo}" class="${m === modo ? 'on' : ''}">${esc(t)}</button>`;
+    return `<div class="ap-riga"><span class="ap-lab">${esc(d.basso)} / ${esc(d.alto)}</span>
+      <span class="seg">${b('basso', d.basso)}${b('centro', 'al centro')}${b('alto', d.alto)}</span>
+      ${APP.dove === 'misura' && m !== 'centro' ? `<span class="inp"><input class="field" data-mm="${k}" value="${mmTesto(+String(o[k].mm).replace(',', '.') || 0)}" aria-label="Distanza da ${esc(m === 'basso' ? d.basso : d.alto)}"><i>mm</i></span>` : ''}</div>`;
+  };
+  const dove = (k, t) => `<button data-dove="${k}" class="${APP.dove === k ? 'on' : ''}">${t}</button>`;
+  el.innerHTML = `<div class="ap-testa"><b>Appoggia «${esc(r.nome_mobile)}»</b><small>su «${esc(r.nome_fermo)}»</small></div>
+    <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura (dai bordi)')}</div>
+    ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
+    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-err" hidden></p>
+    <div class="ap-riga"><button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia">Gira di 90°</button>
+      <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro">Capovolgi</button></div>
+    <div class="acts"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  el.querySelectorAll('[data-dove]').forEach(b => { b.onclick = () => {
+    APP.dove = b.dataset.dove;
+    for (const k of ['u', 'v']) {
+      if (APP.dove === 'centro') o[k] = { modo: 'centro', mm: 0 };
+      else if (APP.dove === 'bordo') o[k].mm = 0;
+      else if (o[k].modo !== 'centro') o[k].mm = Math.round(r.dirs[k]['da_' + o[k].modo] * 10) / 10;
+    }
+    if (APP.dove !== 'centro' && o.u.modo === 'centro' && o.v.modo === 'centro') {
+      o.v = { modo: 'basso', mm: APP.dove === 'misura' ? Math.round(r.dirs.v.da_basso * 10) / 10 : 0 };
+      if (APP.dove === 'misura') o.u = { modo: 'basso', mm: Math.round(r.dirs.u.da_basso * 10) / 10 };
+    }
+    appoggiaDisegna(); appoggiaProva();
+  }; });
+  el.querySelectorAll('[data-modo]').forEach(b => { b.onclick = () => {
+    const k = b.dataset.k, modo = b.dataset.modo;
+    o[k] = { modo, mm: APP.dove === 'misura' && modo !== 'centro' ? Math.round(r.dirs[k]['da_' + modo] * 10) / 10 : 0 };
+    appoggiaDisegna(); appoggiaProva();
+    setTimeout(() => { const i = APP.el?.querySelector(`[data-mm="${k}"]`); if (i) { i.focus(); i.select(); } }, 0);
+  }; });
+  el.querySelectorAll('[data-mm]').forEach(i => { i.oninput = () => {
+    o[i.dataset.mm].mm = i.value.trim();
+    clearTimeout(APP.t); APP.t = setTimeout(appoggiaProva, 120);
+  }; });
+  $('#ap-gira').onclick = () => { o.gira = (o.gira + 1) % 4; appoggiaProva(); };
+  $('#ap-capo').onclick = () => { o.capovolgi = !o.capovolgi; $('#ap-capo').classList.toggle('on', o.capovolgi); appoggiaProva(); };
+  $('#ap-capo').classList.toggle('on', o.capovolgi);
+  $('#ap-no').onclick = () => appoggiaChiudi(true);
+  $('#ap-ok').onclick = appoggiaFatto;
+  appoggiaDistanze();
+}
+function appoggiaFatto() {
+  if (!APP.el) return;
+  clearTimeout(APP.t);
+  const mobile = APP.mobile, fermo = APP.fermo, opz = JSON.parse(JSON.stringify(APP.opz)), prima = APP.prima;
+  appoggiaChiudi(false);
+  inCoda(async () => {
+    const r = await call('asm_appoggia', mobile, fermo, opz, false);
+    if (!r.ok && prima) spostaPezzi(prima);
+    if (await apply(r, r.message) && r.select) await select(r.select);
+  });
+}
+window.addEventListener('keydown', e => {
+  if (!APP.el) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); appoggiaChiudi(true); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); appoggiaFatto(); }
+}, true);
+window.__appoggia = { apri: appoggiaApri, stato: () => APP };      // per le prove automatiche
 function instancePanel(s) {
   const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
   const faccia = s.face ? `<p class="hint">Faccia: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
@@ -3367,6 +3546,7 @@ function instancePanel(s) {
     <div class="row-btns"><button class="btn primary" id="sc-go">Fai gli scassi</button></div></details>` : '';
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
       <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
+    <div class="ff" style="margin-bottom:6px"><label style="grid-column:1/-1">Nome del pezzo<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
     ${tab}${faccia}${incastri}${scassi}
     ${(s.movimenti || []).map((m, k) => {
       const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
@@ -3374,9 +3554,10 @@ function instancePanel(s) {
         <div class="ff"><label>${m.campo === 'angle' ? 'Angolo' : 'Quanto'}<span class="inp"><input class="field" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span></label><span></span></div>
         <input type="range" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" style="width:100%" title="Trascina: il pezzo si muove">`;
     }).join('')}
-    <div class="sub">Sposta (mm)</div>
+    ${dovePanel(s)}
+    <div${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
     <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
-    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div>
+    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div></div>
     <div class="sub">Ruota di 90°</div>
     <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
@@ -3392,8 +3573,46 @@ function instancePanel(s) {
       <p class="hint">Disegni sul piano di questa faccia, con i bordi dei pezzi che ci stanno: per una lamiera che li collega.</p>` : ''}
     ${s.mates.length ? `<p class="hint">Accoppiamenti: ${esc(s.mates.join(', '))}</p>` : '<p class="hint">Nessun accoppiamento: si sposta liberamente.</p>'}`;
 }
+// 03/11: «Sposta» diceva solo «di quanto», non dove sta il pezzo. Qui dove sta (l'angolo in basso a sinistra davanti) e,
+// se appoggia su un altro pezzo, quanto manca ai suoi bordi: si scrive dove lo vuoi e Invio, il conto lo fa Radius
+function dovePanel(s) {
+  const d = s.dove;
+  if (!d) return '';
+  const fermo = !!s.tenuto, v = x => mmTesto(x);
+  const campo = (id, t, x) => `<label>${t}<input class="field" id="${id}" value="${v(x)}"${fermo ? ' readonly' : ''}></label>`;
+  return `<div class="sub">Dove sta (mm)</div>
+    <div class="xyz">${campo('a-px', 'X', d.min[0])}${campo('a-py', 'Y', d.min[1])}${campo('a-pz', 'Z', d.min[2])}</div>
+    <p class="hint" style="margin-top:2px">L’angolo in basso a sinistra, davanti${fermo ? '' : ': scrivi dove lo vuoi e Invio'}.</p>
+    ${d.sotto ? `<div class="sub">Dai bordi di «${esc(d.sotto.name)}» (mm)</div>
+      <div class="xyz xyz4">${campo('a-bs', 'sinistra', d.sotto.sinistra)}${campo('a-bd', 'destra', d.sotto.destra)}${campo('a-bv', 'davanti', d.sotto.davanti)}${campo('a-bt', 'dietro', d.sotto.dietro)}</div>` : ''}
+    ${fermo ? `<p class="hint" style="margin-top:2px">Lo tengono gli accoppiamenti: per spostarlo ${(s.movimenti || []).length ? 'cambia le misure qui sopra o ' : ''}rifai «Appoggia».</p>` : ''}`;
+}
+function wireDove(s, fai) {
+  const d = s.dove;
+  if (!d || s.tenuto) return;
+  const num = el => parseFloat(el.value.trim().replace(',', '.'));
+  // ogni campo: di quanto si sposta, in X, Y, Z, se scrivi il valore v al posto di quello che c'è
+  const campi = { 'a-px': [d.min[0], 1, 0], 'a-py': [d.min[1], 1, 1], 'a-pz': [d.min[2], 1, 2] };
+  if (d.sotto) Object.assign(campi, { 'a-bs': [d.sotto.sinistra, 1, 0], 'a-bd': [d.sotto.destra, -1, 0], 'a-bv': [d.sotto.davanti, 1, 1], 'a-bt': [d.sotto.dietro, -1, 1] });
+  for (const [id, [prima, segno, asse]] of Object.entries(campi)) {
+    const el = $('#' + id);
+    if (!el) continue;
+    const vai = () => {
+      const x = num(el);
+      if (!Number.isFinite(x) || Math.abs(x - prima) < 1e-9) return;
+      const dd = [0, 0, 0]; dd[asse] = (x - prima) * segno;
+      fai('asm_move', s.id, ...dd.map(String));
+    };
+    el.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); vai(); } };
+    el.onchange = vai;
+  }
+}
 function wireInstance(s) {
   const fai = (m, ...a) => inCoda(async () => { if (await apply(await call(m, ...a))) await refreshSel(); });
+  wireDove(s, fai);
+  const nm = $('#a-nome');
+  nm.onkeydown = ev => { if (ev.key === 'Enter') nm.blur(); };
+  nm.onchange = () => { if (nm.value.trim() && nm.value.trim() !== nomeSenzaCopia(s.title)) rinominaPezzo(s.id, nm.value); };
   $('#a-move').onclick = () => fai('asm_move', s.id, $('#a-dx').value.trim(), $('#a-dy').value.trim(), $('#a-dz').value.trim());
   document.querySelectorAll('[data-rot]').forEach(b => { b.onclick = () => fai('asm_rotate', s.id, b.dataset.rot, 90); });
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
@@ -3409,7 +3628,25 @@ function wireInstance(s) {
   ['#a-acq-d', '#a-acq-c', '#a-acq-f'].forEach(id => { if ($(id)) $(id).onchange = () => fai('asm_set_acquisto', s.id, acq()); });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
   $('#a-open').onclick = () => apriPezzoAssieme(s.id);
-  if ($('#a-nuovo')) $('#a-nuovo').onclick = () => modal(`<h3>Nuovo pezzo su questa faccia</h3>
+  if ($('#a-nuovo')) $('#a-nuovo').onclick = () => nuovoPezzoDialog(s);
+  if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
+    $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
+  wireScassi(s);
+}
+// dalla barretta del pezzo (03/11): i comandi che servono di più, fuori da «⋯»
+function appoggiaDa(id, faccia) {
+  if (faccia == null) { asmTool('appoggia'); return; }
+  asmTool('appoggia');
+  ASM.clic = [{ inst: id, face: faccia }];
+  sel = { id, face: faccia }; paint(); asmHelp();
+}
+function spostaDa() {
+  tutteLeOpzioni();
+  setTimeout(() => { const i = $('#a-px'); if (i) { i.scrollIntoView({ block: 'center' }); if (!i.readOnly) { i.focus(); i.select(); } } }, 80);
+}
+function nuovoPezzoDialog(s) {
+  if (!s.face) return;
+  modal(`<h3>Nuovo pezzo su questa faccia</h3>
       <p class="hint">Lo disegni sul piano della faccia, vedendo gli altri pezzi; tornando all’assieme si monta da solo.</p>
       <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="np-nome" value="Lamiera di collegamento"></label></div>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna</button></div>`, close => {
@@ -3422,8 +3659,8 @@ function wireInstance(s) {
     $('#m-ok').onclick = vai;
     $('#np-nome').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
   });
-  if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
-    $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
+}
+function wireScassi(s) {
   // scassi: le sagome in rosso sul pezzo mentre cambi il gioco, poi il taglio nel file del pezzo
   SCASSI = s.scassi ? { id: s.id, face: s.face.index, anelli: s.scassi.anelli } : null;
   if (SCASSI) paint();
@@ -3450,15 +3687,16 @@ function paintScassi() {
 }
 // il campo del valore e il pulsante «gira» di ogni accoppiamento (niente = non serve)
 const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco', centra: 'Fuori centro', testa: 'Gioco di saldatura' };
-const MATE_GIRA = { faccia: ['Allinea invece di affacciare', 'Affaccia invece di allineare'], distanza: ['Allinea invece di affacciare', 'Affaccia invece di allineare'],
+// 03/11: «Allinea invece di affacciare» erano parole da CAD: a filo (le facce dalla stessa parte) o contro (una sull'altra)
+const MATE_GIRA = { faccia: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'], distanza: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'],
   asse: ['Gira dall’altra parte'], parallelo: ['Gira dall’altra parte'], angolo: ['Angolo dall’altra parte'], tangente: ['Dall’altra parte'] };
 function matePanel(s) {
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
-  const gira = MATE_GIRA[d.type];
+  const gira = d.da === 'appoggia' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.rows[0][1])}</div></div>
       <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
     <table class="grid">${s.rows.slice(1).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
+    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${d.da === 'appoggia' && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
       ${d.type === 'distanza' ? `<input type="range" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" style="width:100%" title="Trascina: il pezzo si muove">` : ''}` : ''}
     ${d.type === 'angolo' ? `<div class="ff" style="margin-top:10px"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
       <input type="range" id="m-slide" min="0" max="180" step="1" value="${d.angle}" style="width:100%" title="Trascina: il pezzo gira">
@@ -4378,6 +4616,11 @@ async function drawingsDialog() {
   aggiorna();
 }
 
+// 03/11: il percorso intero occupava tre righe per pezzo: basta la cartella (e quella sopra); intero passandoci sopra
+function cartellaCorta(f) {
+  const p = String(f || '').split(/[\\/]/).filter(Boolean);
+  return p.length > 2 ? '…\\' + p.slice(-2).join('\\') : String(f || '');
+}
 async function newAssemblyDialog() {
   const info = await call('home_info');
   let pezzi = (info.ok ? info.recent : []).filter(x => !x.assembly).map(x => ({ ...x, scelto: 0, n: 1 }));
@@ -4387,7 +4630,7 @@ async function newAssemblyDialog() {
   const righe = () => pezzi.map((x, i) => `<tr class="${x.scelto ? 'scelto' : ''}">
       <td class="na-c"><input type="checkbox" data-i="${i}" ${x.scelto ? 'checked' : ''} aria-label="Metti nell’assieme"></td>
       <td class="na-p"><span class="na-pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : '<img class="icona" src="icons/box.svg" alt="">'}</span></td>
-      <td><b>${esc(x.name)}</b> <span class="na-base" data-base="${i}"></span><br><span class="hint">${esc(x.folder || '')}</span></td>
+      <td><b>${esc(x.name)}</b> <span class="na-base" data-base="${i}"></span><br><span class="hint" title="${esc(x.folder || '')}">${esc(cartellaCorta(x.folder))}</span></td>
       <td class="na-q"><label class="na-n">nr <input class="field" data-n="${i}" value="${x.n}" inputmode="numeric"></label></td>
       <td class="hint na-w">${esc(x.when || '')}</td></tr>`).join('')
     || '<tr><td colspan="5" class="hint">Nessun pezzo recente: usa «Sfoglia…» oppure crea l’assieme vuoto.</td></tr>';
