@@ -49,7 +49,7 @@ class History:
     def _snap(self) -> str:
         # l'ordine delle chiavi si conserva (i parametri compaiono come li ha messi l'utente); per sapere se è
         # cambiato qualcosa si confrontano in ordine alfabetico
-        return json.dumps(self.doc.to_dict())
+        return json.dumps(self.doc.to_dict(copia=False))       # lo stesso testo, senza copiare tutto prima (03/11)
 
     @staticmethod
     def _uguali(a: str, b: str) -> bool:

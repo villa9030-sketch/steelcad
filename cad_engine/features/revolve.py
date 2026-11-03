@@ -20,7 +20,7 @@ from ..errors import FeatureError
 from ..topology import NamedShape
 from ..topology.naming import _edges_of
 from ..units import cap, fmt_mm
-from .base import Context, check_solid, label, n_solids, volume
+from .base import Context, check_solid, label, n_solids, unisci_parti, volume
 from .extrude import _bd_edge
 
 
@@ -76,7 +76,7 @@ def build(fdef: dict, ctx: Context) -> NamedShape:
         raise FeatureError('Il contorno sta da tutte e due le parti dell’asse: disegna solo metà sezione, da una '
                            'parte della linea di costruzione.', feature=fid, code='asse')
     ax = gp_Ax1(gp_Pnt(A.X, A.Y, A.Z), gp_Dir(d.X, d.Y, d.Z))
-    tool = None
+    parti = []
     for face in prof.faces:
         src = face.wrapped
         spigoli = list(_edges_of(src))                 # una volta sola: gli oggetti si abbinano per identità
@@ -97,12 +97,8 @@ def build(fdef: dict, ctx: Context) -> NamedShape:
         if volume(solid) < 0:
             solid = solid.Reversed()
         part = NamedShape(solid, names)
-        if tool is None:
-            tool = part
-        else:
-            fu = BRepAlgoAPI_Fuse(tool.shape, part.shape)
-            fu.Build()
-            tool = tool.after(fu, fu.Shape(), part)
+        parti.append(part)
+    tool = unisci_parti(parti)
     if op == 'new':
         check_solid(tool.shape, fdef)
         return tool

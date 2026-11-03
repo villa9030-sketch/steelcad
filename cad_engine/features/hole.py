@@ -12,7 +12,7 @@ Nomi: "H1/foro/<punto>", "H1/fondo/<punto>".
 """
 from __future__ import annotations
 
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
@@ -22,7 +22,7 @@ from ..errors import FeatureError
 from ..topology import NamedShape
 from ..topology.naming import _faces_of
 from ..units import cap, fmt_mm
-from .base import Context, check_solid, label, n_solids, volume
+from .base import Context, check_solid, label, n_solids, unisci_parti, volume
 from .measure_util import diagonal
 
 
@@ -46,7 +46,7 @@ def build(fdef: dict, ctx: Context) -> NamedShape:
         if lungo <= 0:
             raise FeatureError(f'La profondità di {label(fdef)} deve essere maggiore di zero.', feature=fid)
 
-    tool = None
+    parti = []
     for p in punti:
         e = ss.sketch.entities.get(p)
         if e is None:
@@ -68,13 +68,9 @@ def build(fdef: dict, ctx: Context) -> NamedShape:
                 if not through and lontano:
                     names.setdefault(f'{fid}/fondo/{p}', []).append(f)
         part = NamedShape(cyl, names)
-        if tool is None:
-            tool = part
-        else:
-            fu = BRepAlgoAPI_Fuse(tool.shape, part.shape)
-            fu.Build()
-            tool = tool.after(fu, fu.Shape(), part)
+        parti.append(part)
 
+    tool = unisci_parti(parti)
     mk = BRepAlgoAPI_Cut(ctx.body.shape, tool.shape)
     mk.Build()
     if not mk.IsDone():

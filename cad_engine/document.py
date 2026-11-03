@@ -241,7 +241,7 @@ class Document:
                         dove = [round(v, 6) for q in (pl_.origin, pl_.x_dir, pl_.z_dir) for v in (q.X, q.Y, q.Z)]
                     except SteelCADError:
                         dove = body_hash
-                h = _hash(f.to_dict(), self._used(f, params), dove, sorted(usi.get(fid, ())))
+                h = _hash(f.to_dict(copia=False), self._used(f, params), dove, sorted(usi.get(fid, ())))
                 sketch_hash[fid] = h
                 cached = self._dalla_cache(h)
                 if cached is not None:
@@ -511,11 +511,13 @@ class Document:
         return solve(self.sketch(sid), self.resolved_parameters())
 
     # ================================================================= JSON
-    def to_dict(self) -> dict:
+    def to_dict(self, copia: bool = True) -> dict:
+        # copia=False (03/11): niente copie, solo per farne subito il testo JSON (la storia a ogni passo); da non modificare
+        cp = copy.deepcopy if copia else (lambda x: x)
         return {'format': 'steelcad', 'version': FORMAT_VERSION, 'meta': dict(self.meta),
                 'units': {'length': 'mm', 'angle': 'deg', 'mass': 'kg'},
-                'parameters': copy.deepcopy(self.parameters), 'material': self.material,
-                'features': [f.to_dict() if isinstance(f, Sketch) else copy.deepcopy(f) for f in self.features]}
+                'parameters': cp(self.parameters), 'material': self.material,
+                'features': [f.to_dict(copia) if isinstance(f, Sketch) else cp(f) for f in self.features]}
 
     @classmethod
     def from_dict(cls, d: dict) -> 'Document':

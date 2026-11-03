@@ -1801,9 +1801,10 @@ def _marca(fdef, body, data, ss, prof, fid):
             segni.append({'flat': [tuple(q) for q in fl], 'pezzo': [tuple(p + pl.z_dir * 0.05) for p in t]})   # appena sopra la faccia
     # i segni devono stare sulla lamiera: fuori (o sopra un foro) il laser marcherebbe il vuoto
     fuori = 0
+    dentro = _dentro_dello_sviluppo(data.flat)
     for sg in segni:
         for q in sg['flat']:
-            if not data.flat.is_inside(bd.Vector(*q), tolerance=0.05):
+            if not dentro(q):
                 fuori += 1
                 break
     if fuori:
@@ -1823,6 +1824,21 @@ def _marca(fdef, body, data, ss, prof, fid):
     nuovo.names = dict(body.names)
     nuovo.sheet = _copia_dati(body.sheet, dataclasses.replace(data, marks=list(data.marks) + segni))
     return nuovo
+
+
+def _dentro_dello_sviluppo(flat):
+    """punto → sta sulla lamiera dello sviluppo (tolleranza 0,05)? Come Face.is_inside, ma il classificatore si prepara
+    una volta sola (03/11: rifatto per ogni punto delle lettere marcate era 1,6 s sui 1,8 del traversino)."""
+    if not isinstance(flat, bd.Face):
+        return lambda q: flat.is_inside(bd.Vector(*q), tolerance=0.05)
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    cl = BRepClass3d_SolidClassifier(flat.wrapped)
+
+    def dentro(q):
+        cl.Perform(gp_Pnt(*bd.Vector(*q)), 0.05)
+        return cl.IsOnAFace()
+    return dentro
 
 
 def _copia_dati(vecchio, nuovo):
