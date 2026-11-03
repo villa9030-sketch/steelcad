@@ -2829,7 +2829,7 @@ function azioniPezzo(s) {
       t: `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
       fai: () => { tutteLeOpzioni(); setTimeout(() => { const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 60); } })),
     { ic: 'open', t: 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
-    { ic: 'joint', t: piana ? 'Appoggia (da questa faccia)' : 'Appoggia', fai: () => appoggiaDa(id, piana ? faccia : null) },
+    { ic: 'appoggia', t: piana ? 'Appoggia (da questa faccia)' : 'Appoggia', fai: () => appoggiaDa(id, piana ? faccia : null) },
     ...(foro ? [{ ic: 'fastener', t: 'Viti nei fori', fai: () => runCmd('asm_viteria') }] : []),
     { ic: 'move', t: 'Sposta', fai: () => spostaDa() },
     ...(piana ? [{ ic: 'sketch', t: 'Pezzo nuovo qui (su questa faccia)', fai: () => nuovoPezzoDialog(s) }] : []),
@@ -2907,9 +2907,9 @@ function miniTubo(s, daClic) {
   const id = s.id;
   barretta(`${s.title}${mis ? ', ' + mis : ''}`, [
     ['box', 'Cambia tubo', poi(null, '#p-prof')],
-    ['extend', 'Traverso da qui', poi(() => iniziaTraverso(id))],
+    ['traverso', 'Traverso da qui', poi(() => iniziaTraverso(id))],
     ...(tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : []),
-    ['line', 'Tubo nuovo da qui', poi(() => $('#p-punto')?.click())],
+    ['tubo', 'Tubo nuovo da qui', poi(() => $('#p-punto')?.click())],
     ...(s.lavorabile ? [['hole', 'Fori qui', poi(() => $('#p-lav')?.click())]] : []),
   ].slice(0, 5), { chi: 'tubo:' + id, scritte: true, piu: apriPannelloTubi });   // «⋯»: il pannello intero, la barretta va via (direbbe le stesse cose)
   const m = document.getElementById('mini-barra');
@@ -4614,9 +4614,9 @@ function interfPannello(lista) {
   el.id = 'interf-pan'; el.className = 'pannello-cmd';
   const vol = x => { const cm3 = x.volume / 1000; return cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(x.volume) + ' mm³'; };
   el.innerHTML = `<div class="pc-testa"><h3>Interferenze</h3><p>${lista.length === 1 ? 'Un punto' : lista.length + ' punti'} dove un pezzo entra nell’altro: in rosso nel 3D. Clic su una riga per scegliere i due pezzi</p></div>
-    <div class="pc-corpo"><section class="sezione"><h4>Dove</h4>${lista.map((x, i) => `<button class="asm-mate" data-interf="${i}"><img src="icons/section.svg" alt="">
+    <div class="pc-corpo"><section class="sezione"><h4>Dove</h4>${lista.map((x, i) => `<button class="asm-mate" data-interf="${i}"><img src="icons/interferenze.svg" alt="">
       <span>«${esc(x.nomi[0])}» e «${esc(x.nomi[1])}»<small class="testo-2"> entra ${vol(x)}</small></span></button>`).join('')}</section>
-    <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="interf-rifai"><img src="icons/section.svg" alt="">Controlla di nuovo</button>
+    <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="interf-rifai"><img src="icons/interferenze.svg" alt="">Controlla di nuovo</button>
       <p class="hint">Sposta o cambia un pezzo: il rosso sparisce da solo, poi controlla di nuovo.</p></section></div>
     <div class="pc-fondo"><button class="btn primary big" id="interf-ok">Fatto</button></div>`;
   document.body.appendChild(el);
@@ -4865,8 +4865,8 @@ function cosEPezzo(s) {
 }
 // l'icona di ogni tipo di accoppiamento (righe «Lo tengono» e albero)
 function iconaMate(t) { return ICONA_MATE[t] || null; }
-const ICONA_MATE = { faccia: 'project', asse: 'hole', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
-  perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'cut' };
+const ICONA_MATE = { faccia: 'faccia_su_faccia', asse: 'foro_su_foro', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
+  perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'testa', appoggia: 'appoggia' };
 function instancePanel(s) {
   const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
   const faccia = s.face ? `<p class="hint">Faccia cliccata: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
@@ -5446,7 +5446,7 @@ async function drawingsDialog() {
         <button data-str="nota" title="Una nota: clicca dove va e scrivi"><img src="icons/text.svg" alt=""><span>Nota</span></button>
         <button data-str="diametro" title="Diametro o raggio: clicca un cerchio o un arco di una vista, dove vuoi la scritta"><img src="icons/hole.svg" alt=""><span>Ø / R</span></button>
         <button data-str="angolo" title="Angolo: clicca un punto su un lato, il vertice, un punto sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button>
-        <button data-str="saldatura" title="Saldatura: clicca il giunto (la punta della freccia), poi dove va il simbolo"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button>
+        <button data-str="saldatura" title="Saldatura: clicca il giunto (la punta della freccia), poi dove va il simbolo"><img src="icons/saldatura.svg" alt=""><span>Saldatura</span></button>
         <button data-str="dettaglio" title="Dettaglio ingrandito: clicca il centro della zona su una vista, poi quanto è grande il cerchio"><img src="icons/zoom.svg" alt=""><span>Dettaglio</span></button>
       </nav>
       <div class="te-centro"><main class="te-foglio" id="te-foglio"><p class="hint te-attesa">Preparo la tavola…</p></main>
@@ -6021,7 +6021,7 @@ async function drawingsDialog() {
     nota: ['Nota', 'text', [['Clicca dove va la nota', 'poi scrivi il testo']]],
     diametro: ['Ø / R', 'hole', [['Clicca il bordo di un cerchio o di un arco', 'la scritta va dove clicchi']]],
     angolo: ['Angolo', 'plane_angle', [['Clicca un punto sul primo lato', 'vicino a uno spigolo'], ['Clicca il vertice', 'dove si incontrano i due lati'], ['Clicca un punto sull’altro lato', 'e l’angolo è fatto']]],
-    saldatura: ['Saldatura', 'joint', [['Clicca il giunto', 'lì va la punta della freccia'], ['Clicca dove va il simbolo', 'poi scegli che saldatura è']]],
+    saldatura: ['Saldatura', 'saldatura', [['Clicca il giunto', 'lì va la punta della freccia'], ['Clicca dove va il simbolo', 'poi scegli che saldatura è']]],
     dettaglio: ['Dettaglio', 'zoom', [['Clicca il centro della zona da ingrandire', 'dentro una vista'], ['Clicca quanto è grande il cerchio', 'il dettaglio va a destra, poi lo sposti']]],
   };
   const passo = () => {
@@ -6393,11 +6393,11 @@ function pannelloStruttura(s) {
   let h = `<div class="t-pan"><h3>${esc(s.title)}</h3><p class="t-cose">${esc(cose)}</p>`;
   if (c) h += `<section class="sezione"><h4>Cosa puoi fare adesso</h4><div class="cosa t-azioni">
     ${tAzione('data-azione="dividi"', 'pattern_rect', 'Dividi un lato', 'Montanti e traversi in mezzo, quadri uguali')}
-    ${tAzione('data-azione="traverso"', 'extend', 'Aggiungi un traverso', 'Clicca due tubi, poi scrivi l’altezza')}
-    ${tAzione('data-azione="giunti"', 'joint', 'Come sono saldati gli angoli', 'Clicca un angolo, scegli col disegnino')}
-    ${tAzione('data-azione="tubonuovo"', 'line', 'Tubo nuovo da un angolo', 'Le frecce Su, Giù, Avanti… (mensole)')}
-    ${tAzione('data-azione="piedi"', 'flat', 'Piedi sotto le gambe', 'Piastra coi fori o piedino regolabile')}
-    ${tAzione('data-azione="tappi"', 'finish', 'Tappi sulle teste dei tubi', 'In plastica o lamierino saldato')}
+    ${tAzione('data-azione="traverso"', 'traverso', 'Aggiungi un traverso', 'Clicca due tubi, poi scrivi l’altezza')}
+    ${tAzione('data-azione="giunti"', 'giunto', 'Come sono saldati gli angoli', 'Clicca un angolo, scegli col disegnino')}
+    ${tAzione('data-azione="tubonuovo"', 'tubo', 'Tubo nuovo da un angolo', 'Le frecce Su, Giù, Avanti… (mensole)')}
+    ${tAzione('data-azione="piedi"', 'piedi', 'Piedi sotto le gambe', 'Piastra coi fori o piedino regolabile')}
+    ${tAzione('data-azione="tappi"', 'tappi', 'Tappi sulle teste dei tubi', 'In plastica o lamierino saldato')}
     ${tAzione('data-azione="fori"', 'hole', 'Fori sui tubi', 'Clicca la faccia del tubo e disegna')}
     ${tAzione('data-cmd="prepara"', 'export', 'Prepara per l’officina', 'Lista di taglio dei tubi, tavola quotata')}</div></section>`;
   if (t) {
@@ -6442,8 +6442,8 @@ function pannelloTubo(s, quanti) {
     <section class="sezione t-misure">${tRighe(s.rows.filter(r => r[0] === 'Da tagliare' || r[0] === 'Batte contro'))}</section>
     <section class="sezione"><h4>Cosa puoi fare adesso</h4><div class="cosa t-azioni">
       ${tb.facce?.length ? tAzione('id="p-dividi"', 'pattern_rect', 'Dividi il lato', `Montanti e traversi in mezzo: ${tb.facce.join(' o ').toLowerCase()}`) : ''}
-      ${tAzione('id="p-trav"', 'extend', 'Traverso da qui', 'Parte da questo tubo, poi clicchi dove arriva')}
-      ${tAzione('id="p-punto"', 'line', 'Tubo nuovo da un punto di questo tubo', `${tb.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia`)}
+      ${tAzione('id="p-trav"', 'traverso', 'Traverso da qui', 'Parte da questo tubo, poi clicchi dove arriva')}
+      ${tAzione('id="p-punto"', 'tubo', 'Tubo nuovo da un punto di questo tubo', `${tb.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia`)}
       <div class="t-punto" id="p-punto-riga" hidden><label class="lbl" for="p-punto-q">${tb.verticale ? 'Altezza da terra' : 'Distanza dall’inizio del tubo'}</label>
         <div class="t-in-riga"><span class="campo-unita"><input class="field" id="p-punto-q" value="" placeholder="es. 265"><i>mm</i></span>
         <button class="btn primary" id="p-punto-ok">Metti il punto</button></div><p class="hint">O passa col mouse sul tubo e clicca dove vuoi.</p></div>
@@ -7348,12 +7348,12 @@ async function showHome(info) {
   const tutti = info.recent;
   const conta = { tutti: tutti.length, pezzi: tutti.filter(x => !x.assembly).length, assiemi: tutti.filter(x => x.assembly).length };
   const foto = x => (x.thumb ? `<img src="${x.thumb}" alt="">`
-    : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">${anteprimeProvate.has(x.path) ? '' : '<i class="in-arrivo">Preparo l’anteprima…</i>'}`);
+    : `<img class="icona" src="icons/${x.assembly ? 'assieme' : 'box'}.svg" alt="">${anteprimeProvate.has(x.path) ? '' : '<i class="in-arrivo">Preparo l’anteprima…</i>'}`);
   const disegnaRecenti = () => {
     const q = norm($('#home-cerca').value.trim());
     const lst = tutti.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
     $('#home-recent').innerHTML = lst.map(x => x.manca ? `<div class="home-rec manca" title="${esc(x.path)}">
-        <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
+        <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'assieme' : 'box'}.svg" alt="">`}</span>
         <div class="testo"><b>${esc(x.name)}</b><small>Spostato o cancellato: non è più in ${esc(x.folder)}</small>
           <span class="rec-azioni"><button class="btn piccolo" data-ritrova="${esc(x.path)}">Cerca…</button><button class="btn piccolo" data-forget="${esc(x.path)}">Togli</button></span></div></div>`
       : `<div class="home-rec${x.assembly ? ' asm' : ''}" data-path="${esc(x.path)}" title="${esc(x.path)}" tabindex="0">
@@ -8097,12 +8097,12 @@ function setTool(t) {
 }
 // 28/10: la barra «cosa fare adesso», uguale per ogni comando. I comandi scrivono come prima («Nome: cosa fare · Esc
 // annulla»); qui diventa: il comando con la sua icona, i passi (2 di 3), cosa fare, e i tasti disegnati
-const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'joint', Quota: 'dimension', Angolo: 'plane_angle', Offset: 'offset',
+const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura', Quota: 'dimension', Angolo: 'plane_angle', Offset: 'offset',
   Specchia: 'mirror', Copia: 'copy', Sposta: 'move', Poligono: 'polygon', Linea: 'line', Rettangolo: 'rect', Cerchio: 'circle', Arco: 'arc3',
-  Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'project', 'Foro su foro': 'hole',
+  Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
-  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'joint', 'Vite nei fori': 'fastener' };
+  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Vite nei fori': 'fastener' };
 function setHelp(t) {
   const el = $('#sk-help');
   t = String(t || '');
@@ -10105,7 +10105,7 @@ const VOCI_ESPORTA = [['drawings', 'Tavole con cartiglio (PDF, DXF)…'], ['expo
   ['export_bendtable', 'Tabella pieghe, per la piegatrice…'], ['export_step', 'STEP, per un altro programma 3D…'],
   ['export_bom', 'Distinta in Excel…']];
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => g.insertAdjacentHTML('beforebegin',
-  `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" data-cmd="misura_angolo" title="Angolo: clic su un lato, sul vertice e sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button><button class="rb" data-azione="saldatura3d" title="Saldatura: clicca gli spigoli da saldare (si accendono), poi Invio: tipo e misura; i metri vanno in distinta"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button></div><div class="rname">Misura</div></div>`));
+  `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" data-cmd="misura_angolo" title="Angolo: clic su un lato, sul vertice e sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button><button class="rb" data-azione="saldatura3d" title="Saldatura: clicca gli spigoli da saldare (si accendono), poi Invio: tipo e misura; i metri vanno in distinta"><img src="icons/saldatura.svg" alt=""><span>Saldatura</span></button></div><div class="rname">Misura</div></div>`));
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
   g.innerHTML = `<div class="rbtns"><div class="menu-item rmenu"><button class="rb rb-export" title="Esporta: tavole, DXF di taglio, tabella pieghe, STEP">
     <img src="icons/export.svg" alt=""><span>Esporta ▾</span></button><div class="drop">${VOCI_ESPORTA.map(([c, l]) =>
@@ -10320,8 +10320,8 @@ function ribbonForProject() {
   schedaPrima = t; showRibbon(t);
 }
 // ---------------------------------------------------------------- storia delle operazioni (timeline)
-const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'joint', sketch: 'sketch', sheet: 'box', flange: 'flange', sheet_cut: 'cut', sheet_miter: 'cut', extrude: 'extrude', revolve: 'refold', hole: 'hole', fillet: 'fillet',
-  chamfer: 'chamfer', structure: 'joint', members: 'line', part: 'box', group: 'list', project: 'box' };
+const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'assieme', sketch: 'sketch', sheet: 'lamiera', flange: 'flange', sheet_cut: 'cut', sheet_miter: 'testa', extrude: 'extrude', revolve: 'rivoluzione', hole: 'hole', fillet: 'fillet',
+  chamfer: 'chamfer', structure: 'struttura', members: 'tubo', part: 'box', group: 'list', project: 'box' };
 const iconImg = k => `<img src="icons/${ICONA_TIPO[k] || 'box'}.svg" alt="">`;
 // (la barra "Storia" in basso è stata tolta: ripeteva l'albero, senza tornare indietro a un passo)
 // ---------------------------------------------------------------- riga di comando: apre la palette
