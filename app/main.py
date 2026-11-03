@@ -460,6 +460,12 @@ class Api:
     def fori_dove(self, face_name, punto):
         return self._call(self._svc.fori_dove, face_name, punto)
 
+    def fori_da_modificare(self, fid):
+        return self._call(self._svc.fori_da_modificare, fid)
+
+    def fori_modifica(self, fid, spec):
+        return self._call(self._svc.fori_modifica, fid, spec)
+
     def sketch_scritte_sotto(self, sid, cerchi, testi, h, stencil=None, gioco=2):
         return self._call(self._svc.sketch_scritte_sotto, sid, cerchi, testi, h, stencil, gioco)
 

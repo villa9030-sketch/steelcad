@@ -2608,8 +2608,10 @@ function miniForo(s) {
       return `<button data-t="${k}" class="${k === tipo ? 'on' : ''}"${no ? ` disabled title="Il foro è già Ø${NUM(fo.min_d)}: troppo grande per i filetti in tabella"` : ''}>${pittogrammaForo(k)}${l}</button>`; }).join('')}</div>
     <div class="sf-sez" style="height:${H}px"><svg width="${W}" height="${H}">${sz.g}${linee}</svg>${chips.join('')}</div>
     ${fo.min_d ? `<div class="sf-nota">Foro già nel pezzo STEP: può solo allargarsi (da Ø${NUM(fo.min_d)} in su).</div>` : ''}
-    ${n > 1 ? `<div class="sf-piede"><span>Vale per</span><div class="sf-seg"><button data-tt="1" class="${MINI.tutti ? 'on' : ''}">tutti e ${n}</button><button data-tt="0" class="${MINI.tutti ? '' : 'on'}">solo questo</button></div></div>` : ''}`;
+    ${n > 1 ? `<div class="sf-piede"><span>Vale per</span><div class="sf-seg"><button data-tt="1" class="${MINI.tutti ? 'on' : ''}">tutti e ${n}</button><button data-tt="0" class="${MINI.tutti ? '' : 'on'}">solo questo</button></div></div>` : ''}
+    ${fo.cambiabile ? `<div class="sf-piede"><span>Dove sono${n > 1 ? ', quanti' : ''}, diametro</span><button class="btn" data-a="cambia" title="Riapre la finestra del Foro: al centro, agli angoli, in fila, distanze dai bordi">Sposta o cambia…</button></div>` : ''}`;
   document.body.appendChild(m);
+  m.querySelector('[data-a="cambia"]')?.addEventListener('click', () => cambiaFori(fo.feature || fo.sketch));
   m.querySelector('[data-a="x"]').onclick = () => clearSelection();
   m.querySelector('[data-a="piu"]').onclick = () => tutteLeOpzioni();
   m.querySelector('[data-a="togli"]')?.addEventListener('click', () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro'));
@@ -2645,7 +2647,8 @@ function miniForo(s) {
 // il taglio: le sue misure come quote accanto, una sotto l'altra
 function miniTaglio(s) {
   const co = s.contorno, P = MINI.ancora.clone();
-  barretta(s.title, co.eids?.length ? [['delete', 'Togli il taglio', () => togliDalTaglio(co.sketch, co.eids, 'il taglio')]] : [], { chi: `taglio:${co.sketch}` });
+  barretta(s.title, [...(co.rapido ? [['move', 'Sposta o cambia', () => cambiaFori(co.feature)]] : []),
+    ...(co.eids?.length ? [['delete', 'Togli il taglio', () => togliDalTaglio(co.sketch, co.eids, 'il taglio')]] : [])], { chi: `taglio:${co.sketch}` });
   (co.campi || []).forEach((c, i) => quota(P.clone(), NUM(c.value), {
     etichetta: c.label, unita: c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm', num: c.value, dx: 96, dy: -46 + i * 30,
     scrivi: v => { schedaCalcola(true); inCoda(async () => { const r = await call('cut_contour_set', co.sketch, [{ ...c, value: v }]); if (await apply(r, r.message)) await refreshSel(); schedaCalcola(false); }); },
@@ -3008,6 +3011,9 @@ const FILETTI_M = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12', 'M16'];
 // il taglio cliccato sul pezzo (rettangolo, raccordi, contorno): le sue misure, da cambiare lì (22/10)
 function pannelloContorno(co) {
   const righe = co.campi.map((c, i) => `<label>${esc(c.label)}<span class="inp"><input class="field" data-ci="${i}" value="${esc(virgola(Math.round(c.value * 100) / 100))}"><i>${c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm'}</i></span></label>`).join('');
+  if (co.rapido) return `<p class="hint">Fatte col comando Foro: si cambiano dalla stessa finestra (misure, al centro / agli angoli / in fila, distanze dai bordi).</p>
+    <div class="row-btns"><button class="btn primary" id="co-cambia">Sposta o cambia…</button><button class="btn" id="co-sk">Modifica il disegno</button></div>
+    ${co.eids?.length ? '<div class="row-btns"><button class="btn danger" id="co-togli" title="Toglie questo taglio dal suo disegno (Canc); gli altri restano">Togli questo taglio</button></div>' : ''}`;
   return `<div class="ff">${righe}</div>
     <p class="hint">Cambia le misure e premi Applica: il taglio si rifà. La posizione è dall’origine del disegno (l’angolo del pezzo su cui hai disegnato).</p>
     <div class="row-btns"><button class="btn primary" id="co-ok">Applica</button><button class="btn" id="co-sk">Modifica il disegno</button></div>
@@ -3024,7 +3030,8 @@ function wireContorno(co) {
     if (!cambiati.length) { toast('Nessuna misura cambiata.'); return; }
     inCoda(async () => { const r = await call('cut_contour_set', co.sketch, cambiati); await apply(r, r.message); });
   };
-  $('#co-ok').onclick = vai;
+  if (co.rapido) $('#co-cambia').onclick = () => cambiaFori(co.feature);
+  else $('#co-ok').onclick = vai;
   document.querySelectorAll('[data-ci]').forEach(inp => { inp.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
   $('#co-sk').onclick = () => { clearSelection(); enterSketch(co.sketch); };
   if ($('#co-togli')) $('#co-togli').onclick = () => togliDalTaglio(co.sketch, co.eids, 'il taglio');
@@ -3062,6 +3069,7 @@ function foroPanel(fo) {
     ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} ${fo.importato ? 'su questa faccia' : 'di questo disegno'}</label>` : ''}
     <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button>
       <button class="btn" id="h-sk" title="Apre il disegno del foro: lo sposti, cambi le quote, ne aggiungi altri">Modifica il disegno</button></div>
+    ${!fo.cambiabile ? '' : `<div class="row-btns"><button class="btn" id="h-cambia" title="Riapre la finestra del Foro: diametro, al centro / agli angoli / in fila, distanze dai bordi">Sposta o cambia ${n > 1 ? 'questi fori' : 'il foro'}…</button></div>`}
     <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button>
       <button class="btn danger" id="h-togli" title="Toglie questo foro dal disegno del suo taglio (Canc); gli altri restano">Togli questo foro</button></div></div>`;
 }
@@ -3166,6 +3174,7 @@ function wireForo(fo) {
     $('#h-sk').hidden = true; $('#h-togli').hidden = true;
   } else {
     $('#h-sk').onclick = () => { clearSelection(); enterSketch(fo.sketch); };
+    if ($('#h-cambia')) $('#h-cambia').onclick = () => cambiaFori(fo.feature || fo.sketch);
     $('#h-togli').onclick = () => togliDalTaglio(fo.sketch, [fo.cerchio], 'il foro');
   }
   const vai = () => {
@@ -3203,14 +3212,18 @@ function facciaPerForo() {
   const scelta = sel?.id === 'body' && sel.face != null ? facce.find(x => x.index === sel.face && x.name && x.planar !== false) : null;
   return scelta?.name || null;
 }
-async function foroDialog(tipo = 'tondo', face = null) {
+// modifica (03/11): {feature, spec, info} da fori_da_modificare: la stessa finestra, con com'erano i fori fatti
+async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
   if (SK) { toast('Stai disegnando: nel disegno il foro è il Cerchio. Per il comando Foro sul pezzo, prima «Esci».', 'err'); return; }
   if (!objs.get('body')) { toast('I fori si fanno su una lamiera o su una piastra: prima crea il pezzo.', 'err'); return; }
-  const info = await call('fori_info', face || facciaPerForo());
+  const info = modifica ? modifica.info : await call('fori_info', face || facciaPerForo());
   if (!info.ok) { toast(info.message || 'Qui non si possono fare fori: clicca una faccia piana del pezzo.', 'err'); return; }
   nascondiMini();
-  const v = { ...ultimoForo, tipo, punti: [] };
-  FORO = { face: info.face, info, v };
+  const testo = x => (x == null ? '' : typeof x === 'number' ? virgola(x) : String(x));
+  const v = modifica ? { ...ultimoForo, ...Object.fromEntries(Object.entries(modifica.spec).map(([k, x]) => [k, k === 'punti' ? x.map(p => p.map(testo)) : testo(x)])) }
+    : { ...ultimoForo, tipo, punti: [] };
+  if (modifica) { v.punti = v.punti || []; v.diversa = modifica.spec.bordo_y != null && modifica.spec.bordo_y !== ''; if (!v.lato) v.lato = 'mezzo'; }
+  FORO = { face: info.face, info, v, modifica: modifica?.feature || null };
   const nomeFaccia = s => (s || '').replace(/ di "[^"]*"$/, '');
   const num = x => String(x ?? '').trim();
   const seg = (k, o) => `<div class="seg" data-fo-seg="${k}">${o.map(([id, l]) => `<button type="button" data-v="${id}" class="${String(v[k]) === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
@@ -3254,10 +3267,11 @@ async function foroDialog(tipo = 'tondo', face = null) {
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
     const cornice = $('#modal-box'), box = $('#fo-tutto');      // gli ascoltatori sul contenuto: la cornice resta per le altre finestre
     const titolo = () => {
-      $('#fo-tit').textContent = `${v.tipo === 'asola' ? 'Asola' : 'Foro'} su: ${nomeFaccia(FORO.info.label)}`;
-      $('#fo-sotto').textContent = `Misure dal fuori tutto del pezzo (${virgola(Math.round(FORO.info.outer[0] * 10) / 10)} × ${virgola(Math.round(FORO.info.outer[1] * 10) / 10)}), anche dal lato della piega. Clic su un’altra faccia per cambiarla.`;
+      $('#fo-tit').textContent = `${FORO.modifica ? 'Cambia ' + (v.tipo === 'asola' ? 'le asole' : 'i fori') : v.tipo === 'asola' ? 'Asola' : 'Foro'} su: ${nomeFaccia(FORO.info.label)}`;
+      $('#fo-sotto').textContent = `Misure dal fuori tutto del pezzo (${virgola(Math.round(FORO.info.outer[0] * 10) / 10)} × ${virgola(Math.round(FORO.info.outer[1] * 10) / 10)}), anche dal lato della piega.`
+        + (FORO.modifica ? ' Quelli di adesso vengono tolti e messi così.' : ' Clic su un’altra faccia per cambiarla.');
     };
-    const vai = () => anteprima('fori_guidati', () => [FORO.face, spec()], box.querySelector('.ant-stato'), {
+    const vai = () => anteprima(FORO.modifica ? 'fori_modifica' : 'fori_guidati', () => [FORO.modifica || FORO.face, spec()], box.querySelector('.ant-stato'), {
       frase: true, dopo: r => { $('#fo-frase').textContent = r.ok ? (r.frase || '') : ''; },
     });
     const ridisegna = (fuoco) => {
@@ -3296,11 +3310,11 @@ async function foroDialog(tipo = 'tondo', face = null) {
     const chiudi = () => { FORO = null; close(); };
     $('#m-no').onclick = chiudi;
     $('#m-ok').onclick = () => {
-      const s = spec(), face = FORO.face;
+      const s = spec(), face = FORO.face, cambia = FORO.modifica;
       if (v.disposizione === 'punti' && !v.punti.length) { toast('Clicca sul pezzo dove va il foro.', 'err'); return; }
       ultimoForo = { ...v, punti: [] };
       chiudi();
-      inCoda(async () => { const r = await call('fori_guidati', face, s); await apply(r, r.message); });
+      inCoda(async () => { const r = cambia ? await call('fori_modifica', cambia, s) : await call('fori_guidati', face, s); await apply(r, r.message); });
     };
     cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
     $('#modal').classList.add('laterale');
@@ -3309,6 +3323,15 @@ async function foroDialog(tipo = 'tondo', face = null) {
     const primo = box.querySelector(v.tipo === 'asola' ? '#fo-larg' : '#fo-d');
     primo?.focus(); primo?.select();
     vai();
+  });
+}
+// clic su un foro fatto → «Sposta o cambia…»: la finestra del Foro con com'erano (03/11)
+function cambiaFori(fid) {
+  inCoda(async () => {
+    const r = await call('fori_da_modificare', fid);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    clearSelection();
+    await foroDialog(r.spec.tipo, r.face, r);
   });
 }
 // con la finestra del foro aperta: niente bordi da piegare sotto il mouse, solo cosa fa il clic
@@ -3343,6 +3366,7 @@ async function foroClic(ev) {
     return;
   }
   if (f.name === FORO.face) return;
+  if (FORO.modifica) { toast('Stai cambiando i fori di questa faccia: per farne su un’altra, «Fatto» e poi «Foro».'); return; }
   const info = await call('fori_info', f.name);
   if (!info.ok) { toast('Su questa faccia non si fanno fori: scegline una piana.', 'err'); return; }
   FORO.face = info.face; FORO.info = info; FORO.v.punti = [];
