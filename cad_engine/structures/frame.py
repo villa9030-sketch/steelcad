@@ -166,6 +166,13 @@ def _skeletons(fdef, params, sketches, pts, nome, fid) -> list:
 def _point(k, v, params, sketches, nome, fid, _resolve=None) -> bd.Vector:
     """Un punto dello scheletro: [x, y, z], un punto di uno sketch, oppure un altro punto
     dello scheletro ("from"); negli ultimi due casi con uno spostamento [dx, dy, dz]."""
+    if isinstance(v, dict) and 'mezzo' in v and _resolve is not None:
+        # in mezzo tra due punti (il traverso «In mezzo», 03/11): cambiando le misure del modello resta in mezzo
+        ka, kb = v['mezzo']
+        base = (_resolve(ka) + _resolve(kb)) * 0.5
+        if v.get('offset'):
+            base = base + _vec(v['offset'], params, f'lo spostamento del punto {k}')
+        return base
     if isinstance(v, dict) and 'from' in v:
         base = _resolve(v['from'])
         if v.get('offset'):
@@ -309,7 +316,7 @@ def _incroci(members, pts, scelte, ritocchi):
     """Due tubi che si attraversano (la croce sopra un telaio, il montante in mezzo al fianco col traverso a metà,
     03/11: «l'intersezione dei tubi non è contemplata»): come in officina uno passa intero e l'altro si taglia in
     due pezzi che gli battono contro (giunto a T su tutti e due i lati). Passa quello scelto in «incroci»
-    ({"A×B": "A"}), se no il più lungo (a pari lunghezza quello in piedi). Ritorna le aste (coi pezzi al posto dei
+    ({"A×B": "A"}), se no quello in piedi (il montante), se no il più lungo. Ritorna le aste (coi pezzi al posto dei
     tubi tagliati) e {chiave: {'a', 'b', 'passa', 'xyz'}} per l'interfaccia."""
     import copy
     tagli: dict = {}                       # id del tubo tagliato -> [(parametro lungo l'asse, punto)]
@@ -331,7 +338,12 @@ def _incroci(members, pts, scelte, ritocchi):
             scelto = scelte.get(chiave)
             if scelto not in (a.id, b.id):
                 la, lb = a.axis_length, b.axis_length
-                if abs(la - lb) > 1e-6:
+                va, vb = _classe(a.w) == 'verticali', _classe(b.w) == 'verticali'
+                if va != vb:
+                    # un montante (in piedi) e un traverso: passa il montante, il traverso si taglia, come in
+                    # officina (03/11: nello scaffale da 3 m passava il traverso e i montanti erano a pezzi)
+                    scelto = a.id if va else b.id
+                elif abs(la - lb) > 1e-6:
                     scelto = a.id if la > lb else b.id
                 else:
                     scelto = a.id if (_classe(a.w) == 'verticali') >= (_classe(b.w) == 'verticali') else b.id

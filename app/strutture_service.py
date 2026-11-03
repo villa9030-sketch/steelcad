@@ -202,14 +202,17 @@ class StruttureMixin:
         """Due tubi che si attraversano (03/11): chi passa intero e chi si taglia in due pezzi che gli battono contro."""
         inc = st.incroci[key]
         scelte = []
+        # il disegnino (03/11: i due erano uguali): la croce vista da dove si capisce, il tubo che passa intero e
+        # l'altro in due pezzi. In piedi = in verticale nel disegnino; tra due sdraiati (visti dall'alto) quello da
+        # davanti a dietro è il verticale
+        rango = {'verticali': 0, 'y': 1, 'x': 2}
+        ra, rb = (rango.get(self._classe_tubo(st, x) or '', 3) for x in (inc['a'], inc['b']))
+        in_verticale = inc['a'] if ra <= rb else inc['b']
         for mid in (inc['a'], inc['b']):
             nome = self._nome_tubo(st, mid)
-            m = next((x for x in st.members if x.id == mid), None)
-            v = m is not None and _classe(m.w) == 'verticali' or any(
-                _classe(x.w) == 'verticali' for x in st.members if x.id.split(SEP_PEZZO)[0] == mid)
             nome = nome.split(' (')[0] if nome.endswith(')') else nome      # «Fianco in alto (1)»: il tubo è uno
             scelte.append({'key': f'passa:{mid}', 'label': f'Passa intero: {_senza_quota(nome).lower()}',
-                           'disegno': 'verticale' if v else 'orizzontale'})
+                           'disegno': 'croce_v' if mid == in_verticale else 'croce_o'})
         righe = [[self._nome_tubo(st, x.id), f'{fmt_mm(round(x.length, 1))} dritto']
                  for x in st.members if x.id.split(SEP_PEZZO)[0] in (inc['a'], inc['b'])]
         return _ok(nome='Incrocio', quanti=2, scelte=scelte, ora=f'passa:{inc["passa"]}',
@@ -373,7 +376,8 @@ class StruttureMixin:
             z0 = min(p.Z for m in st.members for p in (m.start, m.end))
             in_piedi = abs(ma.w.Z) > 0.95
             al_bordo = rif == 'bordo' and not in_piedi
-            if str(quota).strip().lower() in ('mezzo', 'in mezzo', 'metà', 'meta'):
+            mezzo = str(quota).strip().lower() in ('mezzo', 'in mezzo', 'metà', 'meta')
+            if mezzo:
                 q = self._mezzo(ma, z0)
                 if in_piedi:
                     rif = 'meta'
@@ -395,6 +399,8 @@ class StruttureMixin:
                 rif = 'sopra' if abs(bz.max.Z - pa.Z) < 1e-3 else ('sotto' if abs(bz.min.Z - pa.Z) < 1e-3 else 'meta')
             if (pa - pb).length < 1:
                 raise SteelCADError('I due punti coincidono: scegli due tubi distanti.', code='traverso')
+            if mezzo:        # il punto resta in mezzo al tubo anche cambiando le misure del modello
+                aggancio = [x + (self._capi_tubo(st, t),) for x, t in zip(aggancio, (ma, mb))]
             coppie = [aggancio]
             if opposto:
                 altro_a = self._tubo_tra(st, *self._specchio(st, [ma.start, ma.end], pb - pa))
@@ -403,6 +409,8 @@ class StruttureMixin:
                     raise SteelCADError('Dall’altra parte non ci sono due tubi uguali: togli «anche dietro».',
                                         code='traverso')
                 altra = [self._su_tubo(st, altro_a, q, z0), self._su_tubo(st, altro_b, q, z0)]
+                if mezzo:
+                    altra = [x + (self._capi_tubo(st, t),) for x, t in zip(altra, (altro_a, altro_b))]
                 # in mezzo l'altra parte è lo stesso traverso (03/11: «In mezzo» con «anche dietro» lo faceva doppio)
                 if not any((x[2] - y[2]).length < 1 for x in altra for y in aggancio):
                     coppie.append(altra)
@@ -415,11 +423,13 @@ class StruttureMixin:
             punti = fdef.setdefault('points', {})
             aste = fdef.setdefault('members', [])
             usati = {m.id for m in st.members} | {m['id'] for m in aste}
-            for (ka, offa, _), (kb, offb, _) in coppie:
+            for ga, gb in coppie:
                 chiavi = []
-                for k, off in ((ka, offa), (kb, offb)):
+                for g in (ga, gb):
+                    k, off = g[0], g[1]
+                    capi = g[3] if len(g) > 3 else None
                     nk = self._free_id(fdef, 'P', punti)
-                    punti[nk] = {'from': k, 'offset': [round(c, 3) for c in off]}
+                    punti[nk] = {'mezzo': list(capi)} if capi else {'from': k, 'offset': [round(c, 3) for c in off]}
                     chiavi.append(nk)
                 mid = self._free_id(fdef, 'A', usati)
                 usati.add(mid)
@@ -433,6 +443,14 @@ class StruttureMixin:
             r['select'] = nuovi[0]
             r['message'] = 'Traverso aggiunto.' if len(nuovi) == 1 else f'{len(nuovi)} traversi aggiunti.'
         return r
+
+    def _capi_tubo(self, st, m):
+        """Le chiavi dei due angoli alle teste del tubo m (per un punto «in mezzo»); None se una testa non è un
+        angolo fisso (un pezzo di tubo tagliato da un incrocio): allora il punto si mette a misura come prima."""
+        ka, kb = self._punto_di(st, m.start), self._punto_di(st, m.end)
+        if not ka or not kb or '×' in ka or '×' in kb:
+            return None
+        return (ka, kb)
 
     def _tubo_tra(self, st, p, q):
         for m in st.members:
@@ -657,8 +675,10 @@ class StruttureMixin:
             raise SteelCADError(f'In {n} parti non ci stanno: i tubi si toccano.', code='dividi')
         return [a + ba + k * luce + (k - 1) * t + t / 2 for k in range(1, n)]
 
-    def dividi_info(self, st_id: str, mid: str) -> dict:
-        """Per il pannello «Dividi»: le facce su cui sta il tubo cliccato, con le misure."""
+    def dividi_info(self, st_id: str, mid: str, normale=None) -> dict:
+        """Per il pannello «Dividi»: le facce su cui sta il tubo cliccato, con le misure. La prima è il lato più
+        probabile: quello verso cui guarda la faccia del tubo cliccata (`normale`, nel 3D). 03/11: su un tubo dello
+        spigolo in alto veniva sempre prima «Il telaio sopra», anche cliccando il davanti del tubo."""
         try:
             st = self._st(st_id)
             m = next((x for x in st.members if x.id == mid), None)
@@ -681,9 +701,17 @@ class StruttureMixin:
             facce.append({'key': nome, 'label': self.NOMI_FACCE[nome], 'u': round(f['u'][1] - f['u'][0], 1),
                           'v': round(f['v'][1] - f['v'][0], 1), 'in_piedi': f['asse'] != 2,
                           'opposta': self.NOMI_FACCE[altra].lower() if self._faccia(st, altra) else '',
-                          'aperti': aperti or ''})
+                          'aperti': aperti or '',
+                          # i tubi del lato: nel 3D si accendono, così si vede quale lato si divide
+                          'tubi': [f'{st_id}/{x.id}' for x in f['tubi']]})
         if not facce:
             return _err('Questo tubo non sta su un lato della struttura: clicca un tubo del fianco o del telaio sopra.')
+        if normale and len(normale) == 3:
+            verso = {k: [0, 0, 0] for k in self.FACCE}
+            for k, (asse, s_) in self.FACCE.items():
+                verso[k][asse] = s_
+            dot = lambda k: sum(a * float(b) for a, b in zip(verso[k], normale))    # noqa: E731
+            facce.sort(key=lambda f: -round(dot(f['key']), 3))
         return _ok(facce=facce, profilo=m.profile.name.replace('×', 'x'))
 
     def dividi(self, st_id: str, mid: str, faccia: str, larghezza=None, altezza=None, opposta: bool = False,

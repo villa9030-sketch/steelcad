@@ -945,14 +945,11 @@ function pannelloTraverso() {
 let DIV = null, DIVSCEGLI = false;
 async function iniziaDividi(s) {
   const [st, mid] = s.id.split('/');
-  const r = await chiamaMuto('dividi_info', st, mid);
-  if (!r.ok) { toast(r.message, 'err'); return; }
-  // prima il lato che hai cliccato: la faccia del tubo che guardava verso di te (sopra, il fianco…)
-  const N = { sinistra: [-1, 0, 0], destra: [1, 0, 0], davanti: [0, -1, 0], dietro: [0, 1, 0], sotto: [0, 0, -1], sopra: [0, 0, 1] };
+  // prima il lato che hai cliccato: la faccia del tubo che guardava verso di te (il sopra del tubo → il telaio
+  // sopra; il davanti del tubo → il davanti). Il lato proposto si accende nel 3D
   const n = ultimoClic?.id === s.id ? ultimoClic.normal : null;
-  // il telaio sopra resta il primo (dalla vista iso un tubo in alto si clicca spesso sul davanti)
-  const dot = k => k === 'sopra' ? 2 : n ? N[k].reduce((t, c, i) => t + c * n[i], 0) : 0;
-  r.facce.sort((a, b) => dot(b.key) - dot(a.key));
+  const r = await chiamaMuto('dividi_info', st, mid, n);
+  if (!r.ok) { toast(r.message, 'err'); return; }
   const f = r.facce[0];
   // «uguale anche dall'altra parte» già spuntato per i fianchi (di solito sono uguali); davanti e dietro no
   DIV = { st, mid, info: r, faccia: f.key, u: '2', v: '2', mu: '', mv: '', rif: 'centro', opposta: !!f.opposta && /sinistra|destra/.test(f.key), chiudi: false, prof: r.profilo };
@@ -971,6 +968,7 @@ function dividiArgomenti() {
 }
 function pannelloDividi() {
   const f = DIV.info.facce.find(x => x.key === DIV.faccia);
+  if (f.tubi?.length) { sel = { id: `${DIV.st}/${DIV.mid}`, ids: f.tubi.filter(id => objs.has(id)) }; paint(); }   // il lato che si divide, acceso
   const sopra = !f.in_piedi;
   // come si chiama ogni direzione sul lato scelto (in piedi: montanti e traversi; sopra: da davanti a dietro…)
   const lungoX = f.key === 'davanti' || f.key === 'dietro' || sopra;
@@ -1002,7 +1000,7 @@ function pannelloDividi() {
   document.querySelectorAll('[data-dvu]').forEach(rifai(b => { DIV.u = b.dataset.dvu; }));
   document.querySelectorAll('[data-dvv]').forEach(rifai(b => { DIV.v = b.dataset.dvv; }));
   document.querySelectorAll('[data-dvr]').forEach(rifai(b => { DIV.rif = b.dataset.dvr; }));
-  $('#dv-no').onclick = () => { anteprimaVia(); DIV = null; refreshSel(); };
+  $('#dv-no').onclick = () => { anteprimaVia(); const id = `${DIV.st}/${DIV.mid}`; DIV = null; select(id); };
   const vai = () => {
     const args = dividiArgomenti();
     inCoda(async () => {
@@ -5251,6 +5249,11 @@ function disegnoGiunto(tipo) {
     miter: `<polygon points="10,10 26,26 26,76 10,76" fill="${g}"/><polygon points="10,10 76,10 76,26 26,26" fill="${c}"/><line x1="10" y1="10" x2="26" y2="26" stroke="#16191D" stroke-width="2"/>`,
     verticale: `<rect x="10" y="10" width="16" height="66" fill="${g}"/><rect x="27" y="10" width="49" height="16" fill="${c}"/>`,
     orizzontale: `<rect x="10" y="10" width="66" height="16" fill="${c}"/><rect x="10" y="27" width="16" height="49" fill="${g}"/>`,
+    // incroci (03/11): il tubo che passa è intero, l'altro è in due pezzi che gli battono contro (riga scura = saldatura)
+    croce_v: `<rect x="35" y="6" width="16" height="74" fill="${g}"/><rect x="6" y="35" width="28" height="16" fill="${c}"/><rect x="52" y="35" width="28" height="16" fill="${c}"/>`
+      + `<line x1="34" y1="35" x2="34" y2="51" stroke="#16191D" stroke-width="2"/><line x1="52" y1="35" x2="52" y2="51" stroke="#16191D" stroke-width="2"/>`,
+    croce_o: `<rect x="6" y="35" width="74" height="16" fill="${c}"/><rect x="35" y="6" width="16" height="28" fill="${g}"/><rect x="35" y="52" width="16" height="28" fill="${g}"/>`
+      + `<line x1="35" y1="34" x2="51" y2="34" stroke="#16191D" stroke-width="2"/><line x1="35" y1="52" x2="51" y2="52" stroke="#16191D" stroke-width="2"/>`,
   };
   return `<svg width="60" height="60" viewBox="0 0 86 86" aria-hidden="true">${forme[tipo] || ''}</svg>`;
 }

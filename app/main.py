@@ -271,8 +271,8 @@ class Api:
     def traverso_info(self, st_id, a_id, b_id):
         return self._call(self._svc.traverso_info, st_id, a_id, b_id)
 
-    def dividi_info(self, st_id, mid):
-        return self._call(self._svc.dividi_info, st_id, mid)
+    def dividi_info(self, st_id, mid, normale=None):
+        return self._call(self._svc.dividi_info, st_id, mid, normale)
 
     def dividi(self, st_id, mid, faccia, larghezza=None, altezza=None, opposta=False, profile=None, chiudi=False):
         return self._call(self._svc.dividi, st_id, mid, faccia, larghezza, altezza, opposta, profile, chiudi)

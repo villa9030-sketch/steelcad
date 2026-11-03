@@ -4316,6 +4316,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 while True:
                     usati = {m.get(x) for m in fdef['members'] for x in ('from', 'to')}
                     usati |= {v['from'] for v in punti.values() if isinstance(v, dict) and 'from' in v}
+                    usati |= {k for v in punti.values() if isinstance(v, dict) for k in v.get('mezzo') or ()}
                     orfani = [k for k in punti if k not in usati]
                     if not orfani or len(punti) <= 1:
                         break
