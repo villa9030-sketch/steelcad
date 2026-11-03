@@ -717,7 +717,7 @@ function selectEdge(e) {
         } else schedaCalcola(false);
       });
     };
-    barretta(punta ? 'Punta della flangia' : `Bordo ${e.label}`, [
+    barretta(punta ? 'Punta della flangia' : `Bordo ${latoOfficina(e.label)}`, [
       ['flange', `Piega ${versi.up.toLowerCase()}`, () => piega('up'), '', prova('up')],
       ['fold', `Piega ${versi.down.toLowerCase()}`, () => piega('down'), '', prova('down')],
       ['pattern_rect', 'Piega anche altri bordi (tutti uguali)', () => { anteprimaVia(); nascondiMini(); pieghePiuBordi(e); }]],
@@ -773,6 +773,8 @@ const tip = $('#hover-tip');
 let premuto = null;
 let destroGiu = null;
 canvas.addEventListener('pointerdown', ev => { if (ev.button === 2) destroGiu = [ev.clientX, ev.clientY]; }, true);
+// 04/11 (percorso D, Appoggia): al clic il cartellino del mouse sparisce, se no resta sopra il pezzo appena spostato
+canvas.addEventListener('pointerdown', () => { tip.style.display = 'none'; }, true);
 canvas.addEventListener('contextmenu', ev => {
   ev.preventDefault();
   if (S?.mode !== 'assembly' || SK || !destroGiu || Math.hypot(ev.clientX - destroGiu[0], ev.clientY - destroGiu[1]) > 5) return;
@@ -846,7 +848,7 @@ canvas.addEventListener('pointermove', ev => {
   if (he !== hoverEdge) { hoverEdge = he; paint(); }
   if (he) {
     if (hover) { hover = null; paint(); }
-    tip.textContent = `Bordo: ${he.label} · clic per piegare qui`;
+    tip.textContent = `Bordo ${latoOfficina(he.label)}: clic per piegare qui`;
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
     tip.style.top = (ev.clientY - r.top + 14) + 'px';
@@ -870,7 +872,7 @@ canvas.addEventListener('pointermove', ev => {
   if (h) {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
-    tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${f?.label || 'faccia'}`) : h.name;
+    tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${(f?.label || 'faccia').replace(/ di "[^"]*"$/, '')}`) : h.name;   // 04/11: il nome una volta sola
     // il cartellino di un tubo: il nome da officina in grassetto, sotto tubo e lunghezza (notte 03/11)
     const parti = h.face == null && o.data.kind === 'member' ? String(h.name || '').split(' — ') : [];
     tip.classList.toggle('t-cartellino', parti.length > 1);
@@ -948,7 +950,7 @@ function pannelloTraverso() {
     <div class="seg">${scelte.map(([k, t]) => `<button class="btn${rif === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div></section>
     <section class="sezione"><label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || TRAV.info?.profilo || ultimaAsta.profile || '40x40x3')}"></label>
     <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche dall’altra parte (dietro), alla stessa misura</label></section>
+    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche il gemello dall’altra parte, alla stessa misura</label></section>
     <div class="t-piede"><button class="btn" id="tr-no">Annulla</button><button class="btn primary" id="tr-ok">Aggiungi il traverso</button></div>`
     : '<div class="t-piede"><button class="btn" id="tr-no">Annulla</button></div>'}</div>`;
   $('#tr-no').onclick = () => { anteprimaVia(); finisciTraverso(); };
@@ -1848,7 +1850,7 @@ function renderStoria() {
   if (!box) return;
   box.hidden = !st || !st.passi.length;
   if (box.hidden) return;
-  document.getElementById('storia-n').textContent = st.qui < st.passi.length ? `passo ${st.qui} di ${st.passi.length}` : `${st.passi.length} passi`;
+  document.getElementById('storia-n').textContent = st.qui < st.passi.length ? `passo ${st.qui} di ${st.passi.length}` : `${st.passi.length} ${st.passi.length === 1 ? 'passo' : 'passi'}`;
   const voci = [['Com’era all’apertura', 0], ...st.passi.map((t, i) => [t, i + 1])];
   const el = document.getElementById('storia');
   el.innerHTML = voci.map(([t, pos]) => `<button data-pos="${pos}" class="${pos === st.qui ? 'qui' : pos > st.qui ? 'dopo' : ''}" title="${esc(t)}"><span>${esc(t)}</span></button>`).join('');
@@ -1899,7 +1901,7 @@ function renderTop() {
   for (const [b, k, t] of [['#b-undo', 'undo', 'Annulla'], ['#b-redo', 'redo', 'Ripeti']]) {
     const l = S[k][0];
     $(b).disabled = !l;
-    $(b).title = l ? `${t}: ${l} (Ctrl+${k === 'undo' ? 'Z' : 'Y'})` : `Niente da ${t.toLowerCase()}`;
+    $(b).title = l ? `${t}: ${l} (Ctrl+${k === 'undo' ? 'Z' : 'Y'})` : (k === 'undo' ? 'Niente da annullare' : 'Niente da ripetere');
   }
 }
 // il nome del pezzo in alto: clic = campo, Invio salva il nome (vale per file, distinta, tavole e DXF), Esc lascia stare
@@ -2445,10 +2447,15 @@ const tipoFile = f => { const m = /\.([a-z0-9]+)$/i.exec(String(f || '')); retur
 // un percorso lungo va a capo dopo una \ (non a metà di un nome)
 const percorsoHtml = f => esc(f).replace(/\\/g, '\\<wbr>');
 const rigaFile = f => `<li><span class="pf-tipo">${esc(tipoFile(f))}</span><span class="pf-nome">${esc(f)}</span></li>`;
-async function preparaDialog() {
+// 04/11 (percorsi A, B, C, telaio): «Guarda le tavole» da Prepara e poi «Chiudi» riporta qui, con le stesse spunte e
+// la stessa cartella (prima si tornava al pezzo e la spunta del PDF era persa: 3 clic in più ogni volta)
+let tornaPrepara = null;
+async function preparaDialog(ricorda = null) {
+  if (!Array.isArray(ricorda?.scelte)) ricorda = null;
   const info = await call('prepara_info');
   if (!info.ok) { toast(info.message, 'err'); return; }
-  let cartella = info.cartella;
+  let cartella = ricorda?.cartella || info.cartella;
+  if (ricorda) info.voci.forEach(v => { if (v.si) v.scelta = ricorda.scelte.includes(v.id); });
   const c = info.controllo;
   // notte 03/11: prima quello che si può fare, in fondo (spente) le voci non disponibili per questo pezzo
   const voci = [...info.voci.filter(v => v.si), ...info.voci.filter(v => !v.si)].map(v => `<label class="prep-voce${v.si ? '' : ' no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
@@ -2457,7 +2464,11 @@ async function preparaDialog() {
         v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span>
       ${v.si && tipoFile(v.file) ? `<small class="pv-file" title="${esc(v.file)}"><i>${esc(tipoFile(v.file))}</i>${esc(v.file)}</small>` : '<small class="pv-file"></small>'}</label>`).join('');
   const laserNo = !info.voci.some(v => v.id === 'laser' && v.si);
+  // 04/11 (percorsi A, B, C): un pezzo mai salvato non ha ancora un nome suo e i file venivano «Lamiera_sviluppo.dxf»,
+  // «Pezzo_pieghe.csv»: qui si scrive il nome, e file e cartella lo prendono subito
+  const chiediNome = !S?.path && S?.mode !== 'assembly';
   modal(`<h3>Cosa ti serve?</h3>
+    ${chiediNome ? `<label class="prep-nome"><span>Come si chiama il pezzo</span><input class="field" id="prep-nome" value="${esc(S.name || '')}" spellcheck="false"></label>` : ''}
     ${prepControllo(c, laserNo)}
     <div class="prep-voci" role="group" aria-label="Cosa salvare">${voci}</div>
     <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Si salvano in</span><b id="prep-dir" title="${esc(cartella)}">${percorsoHtml(cartella)}</b>
@@ -2474,12 +2485,38 @@ async function preparaDialog() {
     $('#m-no').onclick = close;
     $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').innerHTML = percorsoHtml(cartella); $('#prep-dir').title = cartella; } });
     // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
+    const scelteOra = () => [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
+    const nomeNuovo = () => { const v = $('#prep-nome')?.value.trim(); return v && v !== S.name ? v : null; };
+    const rinomina = async v => { const r = await call('rinomina_pezzo', v); if (!(await apply(r))) return false; renderTree(); return true; };
+    if ($('#prep-nome')) {
+      const cambia = () => { const v = nomeNuovo(); if (!v) return;
+        const scelte = scelteOra(), diversa = cartella !== info.cartella ? cartella : null;
+        close(); inCoda(async () => { if (await rinomina(v)) await preparaDialog({ scelte, cartella: diversa }); }); };
+      $('#prep-nome').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); cambia(); } };
+      // mentre scrivi i nomi dei file si aggiornano (il nome vero si dà con Invio o con «Salva i file»)
+      const vecchio = S.name || '';
+      const file = [...document.querySelectorAll('#modal-box .pv-file')].map(el => [el, el.lastChild?.textContent || '']);
+      $('#prep-nome').oninput = () => {
+        const v = $('#prep-nome').value.trim() || vecchio;
+        for (const [el, f] of file) if (el.lastChild && vecchio && f.startsWith(vecchio)) el.lastChild.textContent = v + f.slice(vecchio.length);
+      };
+    }
     const tav = $('#prep-tavole');
-    if (tav) tav.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); close(); runCmd('drawings'); };
+    if (tav) tav.onclick = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const v = nomeNuovo();                          // il nome scritto vale anche per le tavole (il cartiglio)
+      tornaPrepara = { scelte: scelteOra(), cartella: cartella !== info.cartella ? cartella : null };
+      close();
+      if (v) inCoda(async () => { await rinomina(v); runCmd('drawings'); }); else runCmd('drawings');
+    };
     $('#m-ok').onclick = () => {
-      const scelte = [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
+      const scelte = scelteOra(), v = nomeNuovo(), diversa = cartella !== info.cartella;
       close();
       inCoda(async () => {
+        if (v) {                                    // il nome scritto e non ancora confermato: prima quello
+          if (!(await rinomina(v))) return;
+          if (!diversa) { const ni = await call('prepara_info'); if (ni.ok) cartella = ni.cartella; }
+        }
         const r = await call('prepara', cartella, scelte);
         if (!r.ok) { toast(r.message || 'Non riuscito.', 'err'); return; }
         preparaFatto(r);
@@ -3676,7 +3713,7 @@ async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
   nascondiMini();
   const testo = x => (x == null ? '' : typeof x === 'number' ? virgola(x) : String(x));
   const v = modifica ? { ...ultimoForo, ...Object.fromEntries(Object.entries(modifica.spec).map(([k, x]) => [k, k === 'punti' ? x.map(p => p.map(testo)) : testo(x)])) }
-    : { ...ultimoForo, tipo, punti: [] };
+    : { ...ultimoForo, tipo, punti: [], disposizione: ultimoForo.perTipo?.[tipo] || 'centro' };
   if (modifica) { v.punti = v.punti || []; v.diversa = modifica.spec.bordo_y != null && modifica.spec.bordo_y !== ''; if (!v.lato) v.lato = 'mezzo'; }
   FORO = { face: info.face, info, v, modifica: modifica?.feature || null };
   const nomeFaccia = s => (s || '').replace(/ di "[^"]*"$/, '');
@@ -3773,7 +3810,8 @@ async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
     $('#m-ok').onclick = () => {
       const s = spec(), face = FORO.face, cambia = FORO.modifica;
       if (v.disposizione === 'punti' && !v.punti.length) { toast('Clicca sul pezzo dove va il foro.', 'err'); return; }
-      ultimoForo = { ...v, punti: [] };
+      // 04/11 (percorso B): la disposizione si ricorda per tipo: dopo «4 agli angoli» per i fori l'asola non propone 4 asole
+      ultimoForo = { ...v, punti: [], perTipo: { ...ultimoForo.perTipo, [v.tipo]: v.disposizione } };
       chiudi();
       inCoda(async () => { const r = cambia ? await call('fori_modifica', cambia, s) : await call('fori_guidati', face, s); await apply(r, r.message); });
     };
@@ -4192,6 +4230,8 @@ const VERSI_PUNTA = { up: 'Verso dentro', down: 'Verso fuori' };
 const POS_UI = { inside: 'Fuori tutto', outside: 'Dal bordo' };
 // il lato di una piega in parole di officina
 const LATI = { 'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra', 'lato sinistro': 'a sinistra' };
+// 04/11 (percorso B): il bordo si chiama come nell'albero («davanti»), non come nello sketch («lato sotto»)
+function latoOfficina(l) { return String(l || '').replace(/^lato (sotto|sopra|destro|sinistro)(?![a-z])/, m => LATI[m] || m); }
 const SPIEGA = { up_t: 'Verso dentro: chiude, es. il bordo di una scatola', down_t: 'Verso fuori: apre, es. la tesa di un omega',
   inside: 'La lunghezza è la quota esterna, misurata dal contorno: il pezzo resta delle misure disegnate',
   outside: 'La piega parte dal bordo del contorno e la flangia sta fuori: il pezzo cresce dello spessore' };
@@ -5423,6 +5463,7 @@ function distintaDialog(o, d, fatto) {
 }
 
 async function drawingsDialog() {
+  const torna = tornaPrepara; tornaPrepara = null;              // aperte da «Prepara»: alla chiusura si torna lì
   const r = await call('drawing_fields');
   if (!r.ok) { toast(r.message, 'err'); return; }
   const c = r.fields;
@@ -5435,7 +5476,7 @@ async function drawingsDialog() {
   box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}"><i class="te-modo">Tavole</i><span>${esc(S?.name || '')}</span></b>
       <span class="te-sepv"></span>
       <button class="btn te-quieto" id="te-adatta" title="Il foglio intero (rotella: zoom; tasto centrale: sposta)"><img src="icons/fit.svg" alt="">Adatta</button>
-      <button class="btn te-quieto" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)"><img src="icons/undo.svg" alt="">Annulla</button>
+      <button class="btn te-quieto" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)"><img src="icons/undo.svg" alt="">Annulla ritocco</button>
       <span class="te-spazio"></span>
       <button class="btn" id="te-dxf" title="Le tavole in DXF, per chi le apre col CAD">Esporta DXF</button><button class="btn primary" id="te-pdf" title="Le tavole in PDF, da stampare o mandare">Esporta PDF</button>
       <span class="te-sepv"></span>
@@ -5489,7 +5530,8 @@ async function drawingsDialog() {
     </div>`;
   document.body.appendChild(box);
   const chiudi = () => { box.remove(); document.removeEventListener('keydown', tasti, true);
-    if (ED.toccato) inCoda(async () => { const st = await call('state'); if (st && st.version) { S = st; renderPanels(); } }); };
+    if (ED.toccato) inCoda(async () => { const st = await call('state'); if (st && st.version) { S = st; renderPanels(); } });
+    if (torna) inCoda(() => preparaDialog(torna)); };
   const leggi = () => {
     const o = {};
     box.querySelectorAll('[data-c]').forEach(i => { o[i.dataset.c] = i.value.trim(); });
@@ -6112,6 +6154,12 @@ async function newAssemblyDialog() {
     };
     const wire = () => {
       $('#na-tab').querySelectorAll('[data-i]').forEach(c => { c.onchange = () => { scegliPezzo(pezzi[+c.dataset.i], c.checked); c.closest('tr').classList.toggle('scelto', c.checked); tot(); }; });
+      // 04/11 (percorso D): un clic sul nome o sulla foto del pezzo lo spunta, non solo sulla casella da 13 px
+      $('#na-tab').querySelectorAll('tr').forEach(tr => { tr.onclick = ev => {
+        const c = tr.querySelector('[data-i]');
+        if (!c || ev.target.closest('input, label, button')) return;
+        c.checked = !c.checked; c.dispatchEvent(new Event('change'));
+      }; });
       $('#na-tab').querySelectorAll('[data-n]').forEach(c => { c.oninput = () => {
         const x = pezzi[+c.dataset.n]; x.n = c.value.trim(); if (!x.scelto && x.n) { scegliPezzo(x, true); c.closest('tr').classList.add('scelto'); c.closest('tr').querySelector('[data-i]').checked = true; } tot(); }; });
       tot();
@@ -6356,7 +6404,8 @@ function renderSheet() {
     const i = document.querySelector(`[data-tech="${attivo.k}"]`);
     if (i) { i.value = attivo.v; i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   }
-  $('#sheet-badge').textContent = manca.size ? '!' : '';
+  // 04/11 (percorsi C, D): il «!» solo se il pezzo ha pieghe; una piastra piana non ha bisogno di raggio e K
+  $('#sheet-badge').textContent = manca.size && (sh.data?.bends?.length || sh.shape) ? '!' : '';
   const salva = fields => inCoda(async () => apply(parSp && 'thickness' in fields
     ? await call('set_parameter', parSp.name, fields.thickness) : await call('set_sheet_tech', sh.feature, fields)));
   document.querySelectorAll('[data-tech]').forEach(i => {
@@ -6701,10 +6750,11 @@ function renderBottom() {
   badge.textContent = n ? String(n) : '';
   badge.classList.toggle('err', S.errors.length > 0);
   // la barretta del pannello chiuso: quante righe e quanti kg, e se c'è qualcosa da guardare
-  const sum = [b.length ? `Distinta: ${b.length === 1 ? '1 riga' : b.length + ' righe'} · ${kg(S.bom_kg)} kg` : 'Distinta vuota'];
-  if (S.sheet?.missing?.length) sum.push('Lamiera: mancano dati di piega');
+  // 04/11: niente «·» (brief); «mancano dati di piega» solo se il pezzo ha pieghe (una piastra piana non ne ha bisogno)
+  const sum = [b.length ? `Distinta: ${b.length === 1 ? '1 riga' : b.length + ' righe'}, ${kg(S.bom_kg)} kg` : 'Distinta vuota'];
+  if (S.sheet?.missing?.length && (S.sheet.data?.bends?.length || S.sheet.shape)) sum.push('Lamiera: mancano dati di piega');
   if (n) sum.push(`${n} ${n === 1 ? 'avviso' : 'avvisi'}`);
-  $('#bottom-sum').textContent = sum.join(' · ');
+  $('#bottom-sum').textContent = sum.join('; ');
 }
 // pannello in basso (il cassetto): chiuso è una barretta col riassunto; si apre col clic su una scheda (Distinta,
 // Info…) e si chiude con la freccia o con un altro clic sulla scheda aperta. 04/11: parte SEMPRE chiuso, la vista prende lo spazio (non si ricorda aperto)
@@ -6741,7 +6791,9 @@ document.querySelector('.tabs').addEventListener('click', ev => {
 const ICONE_TOAST = { err: '!', ok: '✓', '': 'i' };
 function toast(msg, kind = '', azione = null, durata = 0) {
   const t = document.createElement('div');
-  if (!kind && /^(fatto|salvat|tavole salvate|quota tolta|aggiunt|creat|esportat)/i.test(String(msg))) kind = 'ok';
+  // un lavoro riuscito è verde (brief: verde = fatto), anche «Fatti 4 fori.», «Traverso aggiunto.», «4 tubi aggiunti…» (04/11)
+  if (!kind && (/^(fatt[oaie](?![a-z])|salvat|tavole salvate|quota tolta|aggiunt|creat|esportat|tagliat)/i.test(String(msg))
+    || /^[^.:]{0,40}[ ]aggiunt[oaie](?![a-z])/i.test(String(msg)))) kind = 'ok';
   t.className = 'toast ' + kind;
   const ic = document.createElement('span'); ic.className = 'ti'; ic.textContent = ICONE_TOAST[kind] ?? 'i';
   const tx = document.createElement('span'); tx.className = 'tt'; tx.textContent = msg;
@@ -6909,7 +6961,10 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     if (stato) {
       stato.className = 'ant-stato ok';
       // DIVIDI: quanti tubi e che quadri vengono (03/11), è la cosa che l'officina controlla
-      stato.textContent = opz.frase ? '' : metodo === 'dividi' && r.message ? `In azzurro: ${r.message}` : 'Anteprima: in azzurro il pezzo come verrà.';
+      // 04/11 (percorso A): anche il profilo in lamiera dice cosa viene («calandrato R55 interno…») prima di confermare:
+      // con la parte sbagliata il collare veniva R52 e lo si scopriva solo dal messaggio, dopo
+      const dice = (metodo === 'dividi' || /^Profilo in lamiera/.test(r.message || '')) && r.message;
+      stato.textContent = opz.frase ? '' : dice ? `In azzurro: ${r.message}` : 'Anteprima: in azzurro il pezzo come verrà.';
     }
     // se il risultato esce dalla vista, si allarga l'inquadratura per vederlo tutto
     const box = new THREE.Box3().setFromObject(antGruppo);
@@ -6966,7 +7021,10 @@ function modal(html, wire, opz = {}) {
   $('#modal').hidden = false;
   const close = () => { $('#modal').hidden = true; };
   wire(close);
-  $('#modal-box').querySelector('input, button.primary')?.focus();
+  const primo = $('#modal-box').querySelector('input, button.primary');
+  primo?.focus();
+  // il primo campo col testo già scelto: chi scrive 30 sopra «1000» ha 30, non «100030» (04/11, percorsi A e D)
+  if (primo?.tagName === 'INPUT' && /^(text|number|search|)$/.test(primo.type)) primo.select();
 }
 
 const virgola = v => (v === null || v === undefined ? '' : String(v).replace('.', ','));
@@ -6979,7 +7037,7 @@ const DISEGNI = (() => {
   const b = (x, y, l) => `<g class="lt"><circle cx="${x}" cy="${y}" r="15"/><text x="${x}" y="${y + 6}">${l}</text></g>`;
   const qo = (x1, x2, y) => `<path class="q" d="M${x1} ${y}H${x2}M${x1} ${y - 7}v14M${x2} ${y - 7}v14"/>`;
   const qv = (x, y1, y2) => `<path class="q" d="M${x} ${y1}V${y2}M${x - 7} ${y1}h14M${x - 7} ${y2}h14"/>`;
-  const svg = c => `<svg viewBox="0 0 520 380" role="img" aria-label="Disegno con le misure">${c}</svg>`;
+  const svg = (c, h = 380) => `<svg viewBox="0 0 520 ${h}" role="img" aria-label="Disegno con le misure">${c}</svg>`;
   const scaff = (chiuso) => svg(`<g class="ln">
       <rect x="150" y="50" width="200" height="280"/>${chiuso ? '' : ''}
       <path d="M150 120h200M150 190h200M150 260h200"/><path d="M350 50l60-28v280l-60 28M150 50l60-28h200"/></g>
@@ -6996,7 +7054,7 @@ const DISEGNI = (() => {
       <path class="q" d="M206 170h68"/>${b(240, 120, 'C')}${qo(430, 448, 315)}${b(439, 345, 'D')}`),
     telaio: svg(`<g class="ln"><path d="M80 120l250 60 140-70-250-50z"/><path d="M80 120v190M330 180v190M470 110v190M220 60v150"/></g>
       <path class="q" d="M70 330l250 60"/>${b(190, 372, 'A')}<path class="q" d="M345 392l140-70"/>${b(430, 372, 'B')}
-      ${qv(40, 120, 310)}${b(40, 215, 'C')}`),
+      ${qv(40, 120, 310)}${b(40, 215, 'C')}`, 410),            // 410: le lettere A e B in basso non si tagliano
     scaffale: scaff(false),
     armadio: scaff(true),
     cancello: svg(`<g class="ln"><rect class="pz" x="60" y="60" width="400" height="240"/><rect x="72" y="72" width="376" height="216"/>
@@ -7044,7 +7102,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
         { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
     zero: { titolo: 'Da zero', bottone: 'Inizia a disegnare', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera o piastra; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
-    telaio: { titolo: 'Banco', bottone: 'Crea il banco', nota: 'Misure fuori tutto: il banco finito è grande così, i tubi stanno dentro.', nome: 'Banco',
+    telaio: { titolo: 'Telaio in tubo', bottone: 'Crea il telaio', nota: 'Misure fuori tutto: il telaio finito è grande così, i tubi stanno dentro.', nome: 'Banco',
       campi: [{ k: 'L', l: 'Lunghezza', v: 1600, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 700, lettera: 'B' },
         { k: 'H', l: 'Altezza (piano di lavoro)', v: 850, lettera: 'C' },
         { k: 'ripiano', l: 'Ripiano sotto, da terra (0 = senza)', v: 150 },
@@ -7635,7 +7693,7 @@ const CMDS = [
   { id: 'home', label: 'Pagina iniziale', run: () => inCoda(() => showHome()) },
   { id: 'new_asm', label: 'Nuovo assieme…', run: newAssemblyDialog },
   { id: 'drawings', label: 'Tavole con cartiglio (PDF e disegni)…', run: () => inCoda(drawingsDialog) },
-  { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(preparaDialog) },
+  { id: 'prepara', label: 'Prepara per il laser / l’officina (DXF, pieghe, disegni, STEP)…', run: () => inCoda(() => preparaDialog()) },
   { id: 'asm_insert', label: 'Assieme: inserisci pezzo…', run: () => inCoda(async () => { const r = await call('asm_insert_dialog'); if (await apply(r) && r.select) await select(r.select); }) },
   { id: 'asm_esploso', label: 'Assieme: vista esplosa (apri / chiudi)', run: () => {
     if (S?.mode !== 'assembly') { toast('La vista esplosa è degli assiemi.', 'err'); return; }
@@ -7700,7 +7758,9 @@ const CMDS = [
   { id: 'contour_help', label: 'Lamiera a contorno', run: () => toast(S?.sheet?.data
     ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi «Pieghe e forme ▾» → «Lamiera a contorno».'
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
-  { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna su questa faccia» nel pannello a destra.') },
+  { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna qui» nella barretta che compare.') },
+  // 04/11 (percorso C): «testo», «scritta», «marca» nella ricerca portano qui (la scritta si fa disegnando sulla faccia)
+  { id: 'scritta', label: 'Scritta sul pezzo, tagliata o marcata (testo)…', run: () => toast('Clicca la faccia dove va la scritta, poi «Disegna qui» e il comando «Testo». Tagliata: «Togli materiale»; marcata: «Marca col laser».') },
   { id: 'member_help', label: 'Nuova asta', run: () => toast(nodes.length ? 'Clicca un nodo (pallino) del telaio: nel pannello scegli direzione e lunghezza della nuova asta.' : 'Prima serve una struttura: Telaio / tavolo o Struttura libera.', nodes.length ? '' : 'err') },
   { id: 'export_bendtable', label: 'Esporta la tabella pieghe…', run: () => inCoda(() => esportaFile('bendtable')) },
   { id: 'sheet_rules', label: 'Regole di lamiera…', run: () => inCoda(rulesDialog) },
@@ -7921,7 +7981,7 @@ const AIUTI = {
   rect: 'Rettangolo: clic su un angolo e sull’angolo opposto, o scrivi 100x50 · Invio conferma · Esc annulla',
   circle: 'Cerchio: clic sul centro e sul bordo, o scrivi il diametro · Invio conferma · Esc annulla',
   slot: 'Asola: clic sui due centri, poi la larghezza · Invio conferma · Esc annulla',
-  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · Esc annulla',
+  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · raggio a misura: «Arco col raggio» in Forme · Esc annulla',
   arcr: 'Arco col raggio: parte dalla fine della linea, scrivi il raggio · Invio conferma · Esc finisce',
   polygon: 'Poligono: scrivi quanti lati, poi clic sul centro e su un vertice · Esc annulla',
   fillet: 'Raccordo: clic sullo spigolo (o sulle due linee), poi scrivi il raggio · Invio conferma · Esc finisce',
@@ -8111,6 +8171,12 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
   Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Vite nei fori': 'fastener' };
+// 04/11: la casella di comando (#sk-cmd) sta sopra la barra d'aiuto anche quando la barra va su due righe (avviso del
+// profilo aperto): l'altezza della barra in una variabile CSS
+{
+  const f = document.getElementById('sk-foot');      // il modulo parte a pagina già letta: #sk-foot c'è
+  if (f && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--sk-foot-h', (f.offsetHeight || 38) + 'px')).observe(f);
+}
 function setHelp(t) {
   const el = $('#sk-help');
   t = String(t || '');
@@ -8659,6 +8725,8 @@ function drawRubber() {
     for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push([last.xy[0] + r * Math.cos(a), last.xy[1] + r * Math.sin(a)]); }
     add(pts); testo = `Ø ${num(2 * r, 2)}`;
   }
+  // 04/11: dopo Esc il punto scritto non è più sotto il mouse: niente «28 ; 0 · scritto» lasciato lì (percorso A)
+  if (SK.cursor.how === 'scritto' && !SK.pts.length) { tip.style.display = 'none'; ridisegna(); return; }
   const s = skScreen(c);
   const aggancio = SK.cursor.how && SK.cursor.how !== 'griglia' ? ` · ${SK.cursor.how}` : '';
   const scritto = SK.buf ? `<b>${esc(SK.buf)}</b>_ ` : '';
@@ -9105,7 +9173,7 @@ function finestraTesto({ valori, at, nuova, ok }) {
   const u = { ...TESTO_BASE, ...(valori || {}) };
   const virg = x => esc(String(x).replace('.', ','));
   modal(`<h3>${nuova ? 'Testo' : 'Cambia il testo'}</h3>
-    <div class="form"><label class="tutta-riga">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
+    <div class="form"><label class="tutta-riga">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001, Ø10, LATO A"></label>
       <label class="tutta-riga">Come<select class="field" id="tx-c">
         <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option>
         <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
@@ -9145,7 +9213,7 @@ function finestraTesto({ valori, at, nuova, ok }) {
     };
     $('#m-ok').onclick = vai;
     $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); vai(); } };
-    $('#tx-t').focus();
+    $('#tx-t').focus(); $('#tx-t').select();          // 04/11 (percorso C): scrivendo «1.2» sopra «1.0» viene 1.2, non «1.21.0»
   });
 }
 // asola: la larghezza è il doppio della distanza del mouse dalla linea dei centri
@@ -9974,7 +10042,7 @@ function makeDialog(kind) {
         <button type="button" data-gira="1"><b>l’esterno</b> della lamiera<small>lo spessore va verso dentro</small></button></div>
       <div class="ff"><label>Lunghezza dell’estrusione (larghezza della fascia)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
         <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
-      ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
+      ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="1 ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
       <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>
         <label>Fattore K<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
       <p class="hint">Il 3D si gira trascinando col mouse e si ingrandisce con la rotella, anche con questa finestra aperta.</p>

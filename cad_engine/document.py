@@ -489,11 +489,11 @@ class Document:
                  'fondo': 'il fondo del foro', 'raccordo': 'il raccordo', 'smusso': 'lo smusso',
                  'sopra': 'la faccia di sopra', 'sotto': 'la faccia di sotto', 'parete': 'la parete del taglio'}
         flangia = {'esterno': 'la faccia esterna', 'interno': 'la faccia interna', 'punta': 'la punta',
-                   'fianco': 'il fianco', 'piega_esterna': 'la piega (fuori)', 'piega_interna': 'la piega (dentro)',
+                   'fianco': 'il fianco', 'piega_esterna': 'il raggio esterno', 'piega_interna': 'il raggio interno',
                    'chiusura': 'la piega di chiusura'}
         if len(parti) == 3 and (parti[2] in flangia or parti[2].startswith('foro')):
             cosa = flangia.get(parti[2]) or f'il {parti[2].replace("foro", "foro ")}'
-            return f'{cosa} della flangia {parti[1]} di {nome_f}'
+            return f'{cosa} della {self._nome_flangia(f, parti[1])} di {nome_f}'
         if len(parti) == 4 and parti[2] in ('u0', 'u1') and parti[3] in ('esterno', 'interno'):
             return f'{flangia[parti[3]]} della piega sul bordo di {parti[1]} di {nome_f}'
         if len(parti) >= 2 and parti[1] in testi:
@@ -501,6 +501,20 @@ class Document:
         if len(parti) == 3 and parti[2] in ('fuori', 'dentro') and not isinstance(f, Sketch) and f.get('type') == 'sheet_shape':
             return f'{parti[1].replace("_", " ")}, faccia {"esterna" if parti[2] == "fuori" else "interna"}'   # tramogge (22/10)
         return f'"{name}"'
+
+    def _nome_flangia(self, f, fl_id: str) -> str:
+        """«piega davanti» come nell'albero, non la sigla interna «flangia FL1» (04/11, percorsi B e D)."""
+        fl = None if isinstance(f, Sketch) else \
+            next((x for x in (f.get('flanges') or []) if isinstance(x, dict) and x.get('id') == fl_id), None)
+        if fl is None or fl.get('parent'):
+            return 'piega' if fl is not None else f'flangia {fl_id}'
+        try:
+            lato = self.sketch(f['sketch']).describe(fl.get('edge')) if f.get('sketch') else ''
+        except (SteelCADError, KeyError, TypeError):
+            lato = ''
+        nome = {'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra',
+                'lato sinistro': 'a sinistra'}.get(lato)
+        return f'piega {nome}' if nome else 'piega'
 
     def solved_sketch(self, sid: str):
         """Lo sketch risolto dall'ultima ricostruzione (per la UI: punti, stato)."""

@@ -2414,7 +2414,7 @@ body:has(.pannello-cmd) #viewcube { right: 326px; }
 /* un problema del disegno (contorno aperto…) è «da guardare», non un errore: ambra, sotto la riga */
 .sk-problema { margin-top: var(--s-1); font: 500 var(--fs-etichetta)/1.35 var(--font); color: var(--c-warn-testo); white-space: normal; }
 /* la casella del comando (lunghezza, diametro…) sta SOPRA la barra «prossimo passo», non la copre */
-#sk-cmd { bottom: 56px; gap: var(--s-2); }   /* subito sopra la barra (una riga, alta 44) */
+#sk-cmd { bottom: calc(var(--sk-foot-h, 38px) + 18px); gap: var(--s-2); }   /* subito sopra la barra, anche quando va su due righe (04/11: copriva l'aiuto) */
 #sk-cmd-label { font-size: var(--fs-fitto); color: var(--c-testo-2); }
 #sk-cmd .u { color: var(--c-spento); font-size: var(--fs-piccolo); }
 /* gli agganci del disegno nel colore di modalità (verde acqua); il suggerimento vicino al mouse scuro e quieto */
@@ -2711,3 +2711,22 @@ body.bottom-closed #toasts { bottom: 104px; }
 #mancanti > span:first-of-type { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
 .imp-info { margin-bottom: var(--s-3); }
 .modal-box .fo-frase { margin: var(--s-3) 0 0; font-size: var(--fs-fitto); }
+/* ======================================================= percorsi di lavoro (notte 04/11) */
+/* finestra Foro: i quattro «Dove» in due righe da due, ognuno su una riga sola (prima «Uno al / centro» andava a capo) */
+#fo-corpo [data-fo-seg="disposizione"] { display: grid; grid-template-columns: 1fr 1fr; }
+#fo-corpo [data-fo-seg="disposizione"] button { white-space: nowrap; padding: 0 6px; }
+/* nuovo assieme: tutta la riga del pezzo si clicca */
+#na-tab tr:has([data-i]) { cursor: pointer; }
+/* i messaggi sopra la barretta Inquadra / Quote / Tema, non sopra i suoi pulsanti (percorsi A, B, C, telaio) */
+body.bottom-closed:not(.sketching) #toasts { bottom: 104px; }
+/* un messaggio non si mangia i clic sul pezzo o sul disegno (a 1366 × 768 copriva lo zero dello sketch: il primo clic
+   della linea andava perso); il suo pulsante («Annulla», «Aggiorna») si clicca */
+#toasts .toast { pointer-events: none; }
+#toasts .toast .ta { pointer-events: auto; }
+/* campi di sola lettura (posizione della staffa nell'assieme): non sembrano più scrivibili (percorso D) */
+.field[readonly] { background: var(--c-incavo); color: var(--c-testo-2); border-color: transparent; box-shadow: none; cursor: default; }
+/* finestre a due colonne (Estrudi in lamiera): i campi in fila anche se un'etichetta va su due righe */
+.ff { align-items: end; }
+/* Prepara: il nome del pezzo mai salvato, in cima (i file lo prendono) */
+.prep-nome { display: flex; align-items: center; gap: var(--s-3); margin: 0 0 var(--s-3); color: var(--c-testo-2); }
+.prep-nome .field { flex: 1; font-weight: 600; color: var(--c-testo); }

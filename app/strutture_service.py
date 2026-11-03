@@ -418,7 +418,7 @@ class StruttureMixin:
                 altro_a = self._tubo_tra(st, *self._specchio(st, [ma.start, ma.end], pb - pa))
                 altro_b = self._tubo_tra(st, *self._specchio(st, [mb.start, mb.end], pb - pa))
                 if altro_a is None or altro_b is None:
-                    raise SteelCADError('Dall’altra parte non ci sono due tubi uguali: togli «anche dietro».',
+                    raise SteelCADError('Dall’altra parte non ci sono due tubi uguali: togli «Anche il gemello dall’altra parte».',
                                         code='traverso')
                 altra = [self._su_tubo(st, altro_a, q, z0), self._su_tubo(st, altro_b, q, z0)]
                 if mezzo:
