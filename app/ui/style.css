@@ -2002,3 +2002,5 @@ body.una-scheda { --alt-rib: 100px; }
 #palette-btn { position: relative; background-image: none; }
 #palette-btn::before { content: ''; position: absolute; left: 11px; top: 50%; width: 14px; height: 14px; margin-top: -7px; background: currentColor;
   -webkit-mask: url("icons/search.svg") no-repeat center / contain; mask: url("icons/search.svg") no-repeat center / contain; }
+/* con le schede (disegno: Disegno/Lamiera) il nome dei gruppi sotto la colonna da 4 non si taglia */
+body { --alt-rib: 132px; }
