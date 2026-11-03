@@ -289,7 +289,7 @@ def catene_di_passo(f: Foglio, v: dict, s: float, T, file: list, vista: str = 'f
             if coord == 0:                                 # in orizzontale: catena sotto la quota d'ingombro
                 giu += 1
                 y = y0
-                d = -7 - 9 * giu
+                d = -(7 + 9 * giu) * f.u
                 tappe = [x0] + lista + [x1]
                 pezzi = [(tappe[0], tappe[1], None), (lista[0], lista[-1], f'{n} × {fmt(round(passo, 1))} = {fmt(round(passo * n, 1))}'),
                          (lista[-1], tappe[-1], None)]
@@ -299,13 +299,13 @@ def catene_di_passo(f: Foglio, v: dict, s: float, T, file: list, vista: str = 'f
                 if isinstance(fila, dict):              # la nota per l'officina: quanti, che profilo, passo e luce
                     luce = passo - fila.get('larghezza', 0)
                     A = T((lista[0], y))
-                    f.text('testo', (A[0], A[1] + d * 1.0 - 6), f'{fila["nome"]}: {n + 1} × {fila["profilo"]}, passo '
-                           f'{fmt(round(passo, 2))}, luce {fmt(round(luce, 2))}', 2.5)
+                    f.text('testo', (A[0], A[1] + d * 1.0 - 6 * f.u), f'{fila["nome"]}: {n + 1} × {fila["profilo"]}, passo '
+                           f'{fmt(round(passo, 2))}, luce {fmt(round(luce, 2))}', 2.5 * f.u)
                     giu += 1
             else:                                          # in verticale: a sinistra, fuori dalla quota d'altezza
                 sx += 1
                 x = x0
-                d = 7 + 9 * sx
+                d = (7 + 9 * sx) * f.u
                 tappe = [y0] + lista + [y1]
                 pezzi = [(tappe[0], tappe[1], None), (lista[0], lista[-1], f'{n} × {fmt(round(passo, 1))} = {fmt(round(passo * n, 1))}'),
                          (lista[-1], tappe[-1], None)]
@@ -334,9 +334,42 @@ CAMPI_CARTIGLIO = [('revisione', 'Revisione'), ('foglio', 'Foglio'), ('proiezion
 NUOVI_CARTIGLIO = ('cliente', 'commessa', 'tolleranze', 'finitura')     # si vedono se scritti (o se li spunti)
 
 
+# 03/11 (Stefano: «il cartiglio è minuscolo»): il cartiglio si disegna 1,4 volte più grande nel foglio A2 di lavoro,
+# così stampato su A3 è largo 178 mm come quello della norma, con le scritte da 2 e 3 mm (prima 1 e 1,8 mm)
+CARTIGLIO = 1.4
+
+
 def _cornice(f: Foglio, campi: dict):
     with f.oggetto('cartiglio'):
-        return _cornice_(f, campi)
+        W, H = f.size
+        with f.oggetto('cornice'):
+            f.line('cornice', (20, 10), (W - 10, 10), (W - 10, H - 10), (20, H - 10), (20, 10))
+        n = (len(f.linee), len(f.cerchi), len(f.testi), len(f.pieni), len(f.immagini))
+        area, cart = _cornice_(f, campi)
+        k, ax, ay = CARTIGLIO, W - 10, 10.0          # ingrandito dall'angolo in basso a destra della cornice
+        S = lambda p: (ax + (p[0] - ax) * k, ay + (p[1] - ay) * k)  # noqa: E731
+        for i in range(n[0], len(f.linee)):
+            l, pts = f.linee[i]
+            f.linee[i] = (l, [S(q) for q in pts])
+        for i in range(n[1], len(f.cerchi)):
+            l, c, r = f.cerchi[i]
+            f.cerchi[i] = (l, S(c), r * k)
+        for i in range(n[2], len(f.testi)):
+            l, q, t, h, al = f.testi[i]
+            f.testi[i] = (l, S(q), t, h * k, al)
+        for i in range(n[3], len(f.pieni)):
+            l, pts = f.pieni[i]
+            f.pieni[i] = (l, [S(q) for q in pts])
+        for i in range(n[4], len(f.immagini)):
+            im, x, y, w, h = f.immagini[i]
+            x0, y0 = S((x, y))
+            f.immagini[i] = (im, x0, y0, w * k, h * k)
+        x0, y0 = S(cart[:2])
+        x1, y1 = S(cart[2:])
+        if campi.get('note'):
+            with f.oggetto('note_cartiglio'):
+                f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5 * k), 2.5 * k)   # non sotto il cartiglio
+        return area, (x0, y0, x1, y1)
 
 
 def _tipo_documento(campi: dict) -> str:
@@ -355,8 +388,6 @@ def _cornice_(f: Foglio, campi: dict):
     tipo di documento. Cliente e commessa (se scritti) sotto il titolo, tolleranze con la nota sulle quote, trattamento
     col materiale."""
     W, H = f.size
-    with f.oggetto('cornice'):
-        f.line('cornice', (20, 10), (W - 10, 10), (W - 10, H - 10), (20, H - 10), (20, 10))
     L = 'cartiglio'
     f.scala = float(campi.get('_s') or 0)
     x0, x1, y0 = W - 190, W - 10, 10
@@ -370,8 +401,8 @@ def _cornice_(f: Foglio, campi: dict):
     hr = 5.6
     y1 = y_rev + 4 * hr
 
-    def cella(x, y, w, h, etichetta, valore='', hv=2.6, scala=False):
-        f.text(L, (x + 1.2, y + h - 2.2), etichetta.upper(), 1.5)
+    def cella(x, y, w, h, etichetta, valore='', hv=2.9, scala=False):
+        f.text(L, (x + 1.2, y + h - 2.2), etichetta.upper(), 1.9)
         if valore not in (None, ''):
             if scala:
                 f.i_scala = len(f.testi)
@@ -388,7 +419,7 @@ def _cornice_(f: Foglio, campi: dict):
     for x in col[1:-1]:
         f.line(L, (x, y_rev), (x, y1))
     for x, t in zip(col, ('Rev.', 'Data', 'Descrizione', 'Da')):
-        f.text(L, (x + 1.2, y1 - hr + 1.8), t.upper(), 1.5)
+        f.text(L, (x + 1.2, y1 - hr + 1.6), t.upper(), 1.9)
     revs = [r for r in (campi.get('revisioni') or []) if isinstance(r, dict) and any(str(v).strip() for v in r.values())][-3:]
     for k, r in enumerate(reversed(revs)):             # la più nuova in alto
         y = y1 - (k + 2) * hr
@@ -397,14 +428,14 @@ def _cornice_(f: Foglio, campi: dict):
     # azienda e titolo | logo e scala
     f.line(L, (x0, y_az + 2 * r_), (xr, y_az + 2 * r_))
     cella(x0, y_az + 2 * r_, xr - x0, r_, 'Azienda', campi.get('azienda', ''))
-    f.text(L, (x0 + 1.2, y_az + 2 * r_ - 2.2), 'TITOLO', 1.5)
+    f.text(L, (x0 + 1.2, y_az + 2 * r_ - 2.2), 'TITOLO', 1.9)
     f.text(L, (x0 + 1.2, y_az + 5.2), _taglia(str(campi.get('titolo', '')), xr - x0, 4.2), 4.2)
     extra = ' · '.join(f'{et} {campi[k]}' for k, et in (('cliente', 'Cliente'), ('commessa', 'Commessa'))
                        if str(campi.get(k) or '').strip())
     if extra:
         f.text(L, (x0 + 1.2, y_az + 1.3), _taglia(extra, xr - x0, 2.2), 2.2)
     f.line(L, (xr, y_az + r_), (x1, y_az + r_))
-    f.text(L, (xr + 1.2, y_az + 3 * r_ - 2.2), 'LOGO', 1.5)
+    f.text(L, (xr + 1.2, y_az + 3 * r_ - 2.2), 'LOGO', 1.9)
     logo = campi.get('logo')
     if logo:
         f.immagini.append((logo, xr + 4, y_az + r_ + 1.2, x1 - xr - 8, 2 * r_ - 4.6))
@@ -412,14 +443,14 @@ def _cornice_(f: Foglio, campi: dict):
     # n. disegno e revisione | data e materiale
     xrev = x0 + 94.9
     f.line(L, (xrev, y_num), (xrev, y_az))
-    f.text(L, (x0 + 1.2, y_az - 2.2), 'N. DISEGNO', 1.5)
+    f.text(L, (x0 + 1.2, y_az - 2.2), 'N. DISEGNO', 1.9)
     f.text(L, (x0 + 1.2, y_num + 3.5), _taglia(str(campi.get('numero', '') or ''), xrev - x0, 4.2), 4.2)
-    f.text(L, (xrev + 1.2, y_az - 2.2), 'REV.', 1.5)
+    f.text(L, (xrev + 1.2, y_az - 2.2), 'REV.', 1.9)
     f.text(L, (xrev + 1.2, y_num + 3.5), _taglia(str(campi.get('revisione', '') or ''), xr - xrev, 4.2), 4.2)
     f.line(L, (xr, y_num + r_), (x1, y_num + r_))
     cella(xr, y_num + r_, x1 - xr, r_, 'Data', campi.get('data', ''))
     mat = ' · '.join(str(campi[k]) for k in ('materiale', 'spessore_massa', 'finitura') if str(campi.get(k) or '').strip())
-    cella(xr, y_num, x1 - xr, r_, 'Materiale', mat, hv=2.2)
+    cella(xr, y_num, x1 - xr, r_, 'Materiale', mat, hv=2.4)
     # disegnato, approvato | foglio di
     xapp = x0 + 64.9
     f.line(L, (xapp, y_dis), (xapp, y_num))
@@ -433,7 +464,7 @@ def _cornice_(f: Foglio, campi: dict):
     # proiezione (europea, ISO E: il tronco di cono a sinistra, i cerchi a destra) | tipo di documento
     xpr = x0 + 44.9
     f.line(L, (xpr, y_pr), (xpr, y_dis))
-    f.text(L, (x0 + 1.2, y_pr + r_ - 2.2), 'PROIEZIONE', 1.5)
+    f.text(L, (x0 + 1.2, y_pr + r_ - 2.2), 'PROIEZIONE', 1.9)
     cy = y_pr + 2.6
     f.line(L, (x0 + 22, cy - 1.2), (x0 + 22, cy + 1.2), (x0 + 28, cy + 2.2), (x0 + 28, cy - 2.2), (x0 + 22, cy - 1.2))
     f.cerchi.append((L, (x0 + 36, cy), 2.2))
@@ -445,9 +476,6 @@ def _cornice_(f: Foglio, campi: dict):
     else:
         f.text(L, (xpr + 1.2, y_pr + 2.8), _taglia(nota, xr - xpr, 2.0), 2.0)
     cella(xr, y_pr, x1 - xr, r_, 'Tipo documento', _tipo_documento(campi), hv=2.4)
-    if campi.get('note'):
-        with f.oggetto('note_cartiglio'):
-            f.text('testo', (22, 13), _taglia('Note: ' + campi['note'], x0 - 26, 2.5), 2.5)   # non sotto il cartiglio
     return (20 + 5, 10 + 5, W - 10 - 5, H - 10 - 5), (x0, y0, x1, y1)
 
 
@@ -466,7 +494,7 @@ def _freccia(f: Foglio, p, verso, layer='quote', L=2.5):
     f.pieni.append((layer, [p, a, b]))
 
 
-def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', testo=None, nome=None):
+def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', testo=None, nome=None, dentro=False):
     """Quota lineare tra a e b (foglio), spostata di "distanza" a sinistra di a→b; scrive il valore vero. Ha un nome
     (quello dato, se no l'oggetto in cui sta + un numero) e si ricorda i suoi dati: la si può ritoccare dopo."""
     if nome is None:
@@ -476,11 +504,14 @@ def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', 
     h = h or 2.8 * f.u
     f.elementi[nome] = {'kind': 'quota', 'a': list(map(float, a)), 'b': list(map(float, b)), 'distanza': float(distanza),
                         'valore': float(valore), 'h': float(h), 'prefisso': prefisso, 'testo': testo, 'padre': f.gruppo}
+    if dentro:
+        f.elementi[nome]['dentro'] = True
     with f.oggetto(nome):
-        _disegna_quota(f, a, b, distanza, valore, h, prefisso, testo)
+        _disegna_quota(f, a, b, distanza, valore, h, prefisso, testo, dentro=dentro)
 
 
-def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None, freccia=None):
+def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None, freccia=None,
+                   dentro=False):
     """Tutto in proporzione al testo (h 2,8 → frecce 2,5): ingrandendo il testo crescono anche frecce e staccate;
     «freccia» = la lunghezza delle frecce, se la vuoi diversa (24/10). Quota corta: frecce fuori che puntano dentro
     e, se il numero non ci sta, il numero di fianco, come in ogni CAD."""
@@ -509,9 +540,11 @@ def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefi
         _freccia(f, A, (-ux, -uy), L=Lf)
         _freccia(f, B, (ux, uy), L=Lf)
     lato = 1.2 * u * (1 if distanza > 0 else -2.2)
+    if dentro:                                         # 03/11: il numero dall'altra parte della linea (verso il pezzo)
+        lato = 1.2 * u * (-2.2 if distanza > 0 else 1)
     c = 0.0
     w = len(scritta) * h * 0.55
-    if L < w + 2 * u:                                  # il numero non ci sta tra le linee: di fianco, dopo B
+    if L < w + 2 * u and not dentro:                   # il numero non ci sta tra le linee: di fianco, dopo B
         c = L / 2 + (Lf + 2 * u if fuori else 0) + u + w / 2
     m = ((A[0] + B[0]) / 2 + ux * c + nx * lato, (A[1] + B[1]) / 2 + uy * c + ny * lato)
     f.text('quote', m, scritta, h, 'c')
@@ -595,8 +628,9 @@ def _metti_ombre(f: 'Foglio', ombre: list, T):
     f.ombre.extend((c, [T(p) for p in pts]) for c, pts in ombre)
 
 
-def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=True, valori=None):
-    """Disegna la vista con scala s, con l'angolo in basso a sinistra del suo ingombro in (ox, oy)."""
+def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=True, valori=None, fuori=(7, 7)):
+    """Disegna la vista con scala s, con l'angolo in basso a sinistra del suo ingombro in (ox, oy). fuori: a che
+    distanza (× u) vanno il fuori tutto sotto e a sinistra (più in là se più vicino c'è una catena di luci)."""
     x0, y0, x1, y1 = v['bbox']
     T = lambda p: (ox + (p[0] - x0) * s, oy + (p[1] - y0) * s)  # noqa: E731
     if f.gruppo.startswith('vista:'):
@@ -607,8 +641,8 @@ def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=Tr
     w, h = (x1 - x0) * s, (y1 - y0) * s
     if quote_su:
         vw, vh = valori if valori else (x1 - x0, y1 - y0)
-        quota(f, (ox, oy), (ox + w, oy), -7 * f.u, vw)           # larghezza sotto
-        quota(f, (ox, oy), (ox, oy + h), 7 * f.u, vh)            # altezza a sinistra
+        quota(f, (ox, oy), (ox + w, oy), -fuori[0] * f.u, vw)    # larghezza sotto
+        quota(f, (ox, oy), (ox, oy + h), fuori[1] * f.u, vh)     # altezza a sinistra
     return T, w, h
 
 
@@ -734,12 +768,8 @@ def _centri_fori(v: dict) -> tuple:
 def _catene_fori(f: Foglio, v: dict, T, xs, ys):
     """Catene di quote dei fori: sotto la vista (dal bordo sinistro) e a sinistra (dal bordo di sotto)."""
     x0, y0, x1, y1 = v['bbox']
-    tappe = [x0] + [x for x in xs if x0 + 1e-6 < x < x1 - 1e-6]
-    for a, b in zip(tappe, tappe[1:]):
-        quota(f, T((a, y0)), T((b, y0)), -16 * f.u, b - a)
-    tappe = [y0] + [y for y in ys if y0 + 1e-6 < y < y1 - 1e-6]
-    for a, b in zip(tappe, tappe[1:]):
-        quota(f, T((x0, a)), T((x0, b)), 16 * f.u, b - a)
+    catena_quote(f, T, [x0] + [x for x in xs if x0 + 1e-6 < x < x1 - 1e-6], lambda x: (x, y0), -16 * f.u)
+    catena_quote(f, T, [y0] + [y for y in ys if y0 + 1e-6 < y < y1 - 1e-6], lambda y: (x0, y), 16 * f.u)
 
 
 def _scala_scelta(v) -> float | None:
@@ -1122,7 +1152,8 @@ def _note_asole(f: Foglio, asole: list, T, s: float):
 
 
 def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3', file_passo=None,
-                 quote_mano: list | None = None, saldature: list | None = None, marche: list | None = None) -> Foglio:
+                 quote_mano: list | None = None, saldature: list | None = None, marche: list | None = None,
+                 tubi: list | None = None, posizioni: list | None = None) -> Foglio:
     """Fronte, alto, sinistra (europea) + isometrica, con ingombri e note dei fori. Le viste vanno nella zona
     libera più grande (sopra o a sinistra del cartiglio), con il posto per le quote e le catene di passo."""
     f = Foglio(formato, campi.get('titolo', ''))
@@ -1166,6 +1197,19 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
         gF += 9 * u
     if catene:
         gL += 9 * u
+    # 03/11 strutture in tubo: le luci tra i tubi una fila oltre il fuori tutto (tubi: scatole_tubi)
+    luci = {}
+    if tubi:
+        from .drawings_struttura import luci_vista
+        luci = {k: luci_vista(tubi, fianco if k == 'sinistra' else k, bordi=v[k]['bbox']) for k in ('fronte', 'alto', 'sinistra')}
+        for c in {c for _, c, _, _ in piano}:          # sulla fronte la catena a passo costante dice già tutto
+            luci['fronte'].pop(c, None)
+        if 0 in luci['fronte'] or 0 in luci['sinistra']:
+            gF += 9 * u
+        if 0 in luci['alto']:
+            gT += 9 * u
+        if 1 in luci['fronte'] or 1 in luci['alto']:
+            gL += 9 * u
 
     def scala_zona(r):
         aw = (r[2] - r[0]) - gL - gS - 6
@@ -1197,18 +1241,26 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
         xL = ox + wF * s + gS
     oyT = zona[1] + gT
     oyF = oyT + hT * s + gF
+    def fuori(k):              # con le luci vicino alla vista, il fuori tutto una fila più in là (come in officina)
+        return tuple(16 if c in luci.get(k, {}) else 7 for c in (0, 1))
     with f.oggetto('vista:fronte'):
-        TF, _, _ = _metti_vista(f, v['fronte'], s, ox, oyF)
+        TF, _, _ = _metti_vista(f, v['fronte'], s, ox, oyF, fuori=fuori('fronte'))
         if file_passo:
             catene_di_passo(f, v['fronte'], s, TF, file_passo)
     with f.oggetto('vista:alto'):
-        TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
+        TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT, fuori=fuori('alto'))
     with f.oggetto(f'vista:{fianco}'):
-        TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF)
+        TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF, fuori=fuori('sinistra'))
     trasf = {'fronte': TF, 'alto': TT, 'sinistra': TL}
     for k, (xs, ys) in catene.items():
         with f.oggetto(f'vista:{k}/fori'):
             _catene_fori(f, v[k], trasf[k], xs, ys)
+    if luci:
+        from .drawings_struttura import quote_luci
+        for k, lv in luci.items():
+            if lv:
+                with f.oggetto(f'vista:{fianco if k == "sinistra" else k}/luci'):
+                    quote_luci(f, v[k], trasf[k], lv, 7 * u)
     for k, lista in gambe.items():
         with f.oggetto(f'vista:{fianco if k == "sinistra" else k}/gambe'):
             for g in lista[:1]:
@@ -1271,8 +1323,11 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     candidati = [_taglia_cartiglio((destra_viste, area[1], area[2], area[3]), cart),
                  _taglia_cartiglio((area[0], cima, area[2], area[3]), cart)]
 
+    rp = 2.6 * u                                      # strutture: il cerchio del numero di posizione, ai lati
+    lati = 10 * rp if posizioni else 0
+
     def scala_in(r):
-        return min((r[2] - r[0] - 10) / max(wi, 1e-6), (r[3] - r[1] - 15) / max(hi, 1e-6))
+        return min((r[2] - r[0] - 10 - lati) / max(wi, 1e-6), (r[3] - r[1] - 15) / max(hi, 1e-6))
     xi0, yi0, xi1, yi1 = max(candidati, key=scala_in)
     si = scala_in((xi0, yi0, xi1, yi1))
     if si > 0 and min(wi, hi) * si > 15:              # un'isometrica minuscola non serve: meglio niente
@@ -1283,6 +1338,12 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
                 _metti_ombre(f, ombre_iso(shape), TI)
             except Exception:  # noqa: BLE001 - l'ombra è un abbellimento: senza, la tavola resta giusta
                 pass
+        if posizioni:                                  # strutture: il numero della distinta di taglio su ogni riga
+            ox_i = xi0 + (xi1 - xi0 - wi * si) / 2
+            oy_i = yi0 + (yi1 - yi0 - 12 * u - hi * si) / 2
+            with f.oggetto('vista:iso/posizioni'):
+                palloncini_colonne(f, [(n, TI(proietta_punto('iso', p))) for n, p in posizioni],
+                                   (ox_i, oy_i, ox_i + wi * si, oy_i + hi * si), rp, (yi0 + 2, yi1 - 12 * u))
         with f.oggetto('vista:iso/titolo'):
             # 03/11: il titolo appena sopra l'isometrica (prima in cima alla zona, lontano dal disegno)
             f.text('testo', (xi0 + (xi1 - xi0 - wi * si) / 2, min(yi1 - 3 * u, yi0 + (yi1 - yi0 - 12 * u - hi * si) / 2 + hi * si + 4 * u)),
@@ -1419,6 +1480,10 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     in_fila = [a[0] for a, b, _ in data.bend_lines if abs(a[0] - b[0]) < 1e-6]
     progressive = sorted(in_fila) if forma and in_fila and len(in_fila) == len(data.bend_lines) <= 8 else []
     gq_sotto = gq + 7 * u * len(progressive)
+    # 03/11: fori e asole quotati anche nello sviluppo di coni, tramogge e collari (come nella lamiera normale)
+    fori = fori_e_asole(poly)
+    if fori:
+        gq_sotto += 9 * u
 
     def scala_zona(r):
         aw, ah = (r[2] - r[0]) - gq - 8, (r[3] - r[1]) - gq_sotto - 12 * u
@@ -1464,6 +1529,10 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     quota(f, T((x0, y0)), T((x0, y1)), 8 * u, y1 - y0)
     for j, x in enumerate(progressive, 1):
         quota(f, T((x0, y0)), T((x, y0)), -(8 + 7 * j) * u, x - x0)
+    for bb, gruppo in _fori_per_pezzo(poly, fori):     # dal bordo dello sviluppo, o vicino al suo pezzo
+        sotto = -(17 + 7 * len(progressive)) * u if abs(bb[1] - y0) < 0.5 else -8 * u
+        sx = 17 * u if abs(bb[0] - x0) < 0.5 else 8 * u
+        quote_fori_sviluppo(f, T, bb, gruppo, sotto, sx, u)
     # la zona da calandrare: tra le sue due linee, la scritta col raggio (viola, come le linee)
     for c in calandrature:
         xm = T(((c['da'] + c['a']) / 2, (y0 + y1) / 2))
@@ -1553,6 +1622,63 @@ def fori_e_asole(poly: list) -> list:
     return out
 
 
+def _dentro(p, pl) -> bool:
+    x, y = p
+    c = False
+    for (ax, ay), (bx, by) in zip(pl, pl[1:] + pl[:1]):
+        if (ay > y) != (by > y) and x < ax + (y - ay) * (bx - ax) / (by - ay):
+            c = not c
+    return c
+
+
+def _fori_per_pezzo(poly: list, fori: list) -> list:
+    """[(ingombro del pezzo, i suoi fori)]: uno sviluppo fatto di più pezzi (tramogge divise) si quota pezzo per
+    pezzo, dal suo angolo; i fori di un pezzo solo, dall'angolo dello sviluppo."""
+    def ingombro(pl):
+        xs, ys = [q[0] for q in pl], [q[1] for q in pl]
+        return min(xs), min(ys), max(xs), max(ys)
+    gruppi: dict = {}
+    for o in fori:
+        misura = (o.get('d') or o.get('L') or 0) * 1.5            # non il contorno del foro stesso
+        cont = [pl for pl in poly if len(pl) > 2 and _dentro(o['c'], pl) and ingombro(pl)[2] - ingombro(pl)[0] > misura]
+        pezzo = min(cont, key=lambda pl: (lambda b: (b[2] - b[0]) * (b[3] - b[1]))(ingombro(pl))) if cont else None
+        bb = ingombro(pezzo) if pezzo is not None else ingombro([q for pl in poly for q in pl])
+        gruppi.setdefault(tuple(round(v, 3) for v in bb), []).append(o)
+    return list(gruppi.items())
+
+
+def catena_quote(f: Foglio, T, tappe: list, P, distanza: float):
+    """Una catena di quote tra le tappe (coordinate lungo la vista; P: tappa → punto della vista): i passi uguali
+    di fila in una quota sola («4 × 230 = 920»); due quote corte di fila, la seconda col numero dall'altra parte
+    della linea, così i numeri non si accavallano (03/11)."""
+    sc = abs(T((1, 0))[0] - T((0, 0))[0])
+    h = 2.8 * f.u
+    corta_prima = False
+    for a, b, t in _passi_uguali(tappe):
+        scritta = t if t is not None else fmt(b - a)
+        corta = (b - a) * sc < len(scritta) * h * 0.55 + 2 * f.u
+        quota(f, T(P(a)), T(P(b)), distanza, b - a, testo=t, dentro=corta and corta_prima)
+        corta_prima = corta and not corta_prima
+
+
+def _passi_uguali(tappe: list) -> list:
+    """Una catena di quote [(da, a, testo o None)]: i tratti uguali di fila (fori a passo costante) diventano una
+    quota sola «3 × 50 = 150», come la scrive l'officina (03/11: i 50 di fila si accavallavano)."""
+    passi = [b - a for a, b in zip(tappe, tappe[1:])]
+    out, i = [], 0
+    while i < len(passi):
+        j = i
+        while j + 1 < len(passi) and abs(passi[j + 1] - passi[i]) < 0.05:
+            j += 1
+        n = j - i + 1
+        if n >= 2:
+            out.append((tappe[i], tappe[j + 1], f'{n} × {fmt(round(passi[i], 2))} = {fmt(round(tappe[j + 1] - tappe[i], 2))}'))
+        else:
+            out.append((tappe[i], tappe[i + 1], None))
+        i = j + 1
+    return out
+
+
 def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: float, u: float = 1.0):
     """Le catene di quote dei centri di fori e asole (sotto dal bordo sinistro, a sinistra dal bordo di sotto) e una
     nota per tipo: «4× Ø10,5», «Asola 30 × 10». Distanze in mm sul foglio dalla linea del pezzo (negative = sotto)."""
@@ -1568,12 +1694,8 @@ def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: fl
             ys.append(cy)
     with f.oggetto('fori_sviluppo'):
         if max(len(xs), len(ys)) <= 15:
-            tappe = [x0] + sorted(x for x in xs if x0 + 1e-6 < x < x1 - 1e-6)
-            for a, b in zip(tappe, tappe[1:]):
-                quota(f, T((a, y0)), T((b, y0)), d_sotto, b - a)
-            tappe = [y0] + sorted(y for y in ys if y0 + 1e-6 < y < y1 - 1e-6)
-            for a, b in zip(tappe, tappe[1:]):
-                quota(f, T((x0, a)), T((x0, b)), d_sx, b - a)
+            catena_quote(f, T, [x0] + sorted(x for x in xs if x0 + 1e-6 < x < x1 - 1e-6), lambda x: (x, y0), d_sotto)
+            catena_quote(f, T, [y0] + sorted(y for y in ys if y0 + 1e-6 < y < y1 - 1e-6), lambda y: (x0, y), d_sx)
         gruppi: dict = {}
         for o in fori:
             chiave = (f'Ø{fmt(o["d"])}' if o['kind'] == 'foro' else f'Asola {fmt(o["L"])} × {fmt(o["W"])}')
@@ -1651,18 +1773,65 @@ def _metti_distinta(f: Foglio, x, ybase, col, intest, righe, h, k=1.0):
                               'righe': [list(r) for r in righe], 'h': h, 'k': k}
 
 
+# 03/11: nelle tavole d'assieme scritte, quote e distinta più grandi (prima 1,7 mm sull'A3), la finitura in distinta
+TESTO_ASSIEME = 1.4
+
+
+def _colonne_distinta(distinta: list, k: float) -> tuple:
+    """Colonne e intestazione della distinta d'assieme: con la finitura se le righe ce l'hanno (7 valori)."""
+    if distinta and len(distinta[0]) >= 7:
+        return ([c * k for c in (0, 10, 66, 77, 98, 116, 152, 174)],
+                ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Finitura', 'Peso kg'])
+    return [c * k for c in (0, 10, 62, 74, 98, 118, 140)], ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Peso kg']
+
+
+def palloncini_colonne(f: Foglio, ancore: list, riquadro: tuple, r: float, limiti: tuple | None = None):
+    """I numeri di posizione in due colonne ai lati del disegno (come nei disegni d'assieme fatti bene): a sinistra
+    quelli della metà sinistra, a destra gli altri, in ordine di altezza, così le linee non si incrociano e i cerchi
+    non si coprono. ancore: [(numero, punto sul foglio)]; riquadro: l'ingombro del disegno (x0, y0, x1, y1); limiti:
+    fin dove possono andare in basso e in alto."""
+    x0, y0, x1, y1 = riquadro
+    lo, hi = limiti or (y0 - 4 * r, y1 + 4 * r)
+    cx = (x0 + x1) / 2
+    passo = 2.6 * r
+    for lato in (-1, 1):
+        mie = sorted([a for a in ancore if (a[1][0] < cx) == (lato < 0)], key=lambda a: -a[1][1])
+        if not mie:
+            continue
+        x = (x0 - 3 * r) if lato < 0 else (x1 + 3 * r)
+        ys = []
+        for _, p in mie:                               # dall'alto in basso, alla sua altezza se c'è posto
+            y = min(p[1], hi - r, ys[-1] - passo if ys else hi - r)
+            ys.append(y)
+        if ys[-1] < lo + r:                            # sfora in basso: tutti su (e se serve più stretti)
+            su = lo + r - ys[-1]
+            ys = [y + su for y in ys]
+            if ys[0] > hi - r:
+                p_ = (hi - lo - 2 * r) / max(len(ys) - 1, 1)
+                ys = [hi - r - i * p_ for i in range(len(ys))]
+        for (num, p), y in zip(mie, ys):
+            q = (x, y)
+            dx, dy = q[0] - p[0], q[1] - p[1]
+            L = math.hypot(dx, dy) or 1
+            f.line('quote', p, (q[0] - dx / L * r, q[1] - dy / L * r))
+            f.cerchi.append(('quote', q, r))
+            f.cerchi.append(('quote', p, 0.18 * r))
+            f.text('quote', (q[0], q[1] - r * 0.38), str(num), r * 1.05, 'c')
+
+
 def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3') -> Foglio:
     """L'assieme: fronte e alto, isometrica grande con i palloncini, e la distinta sopra il cartiglio.
     forme: [(numero di posizione, forma messa al suo posto)]."""
     import build123d as bd
     f = Foglio(formato, campi.get('titolo', ''))
+    f.u = k = TESTO_ASSIEME
     tutto = bd.Compound(children=[s for _, s in forme]).wrapped
     veloce = len(forme) > 4
     vF, vT, vI = proietta(tutto, 'fronte', veloce), proietta(tutto, 'alto', veloce), proietta(tutto, 'iso', veloce)
     wF, hF = vF['bbox'][2] - vF['bbox'][0], vF['bbox'][3] - vF['bbox'][1]
     hT = vT['bbox'][3] - vT['bbox'][1]
     W, H = FORMATI[formato]
-    g = 28
+    g = 28 * k
     area, cart = _cornice(f, {**campi, 'scala': ''})
     larg_viste = min((W - 40) * 0.5, cart[0] - 10 - area[0])           # a sinistra del cartiglio, sempre
     s = _scegli_scala((wF, hF + hT), larg_viste - g - 6, (area[3] - area[1]) - 2 * g - 10)
@@ -1681,17 +1850,21 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     with f.oggetto('vista:alto'):
         _metti_vista(f, {**vT, 'nascosti': []}, s, ox, oyT)
     with f.oggetto('vista:fronte/titolo'):
-        f.text('testo', (ox, oyF + hF * s + 4), 'VISTA DI FRONTE', 2.5)
+        f.text('testo', (ox, oyF + hF * s + 4 * k), 'VISTA DI FRONTE', 2.5 * k)
     with f.oggetto('vista:alto/titolo'):
-        f.text('testo', (ox, oyT + hT * s + 4), 'VISTA DALL’ALTO', 2.5)
-    # isometrica con palloncini
+        f.text('testo', (ox, oyT + hT * s + 4 * k), 'VISTA DALL’ALTO', 2.5 * k)
+    # isometrica con i numeri di posizione in colonna ai lati
+    col, intest = _colonne_distinta(distinta, 1.0)
+    kd = min(k, (area[2] - cart[0]) / col[-1])        # la distinta non esce dal foglio
+    col, intest = _colonne_distinta(distinta, kd)
     spazio = (area[3] - 40) - (cart[3] + 10)
-    h_riga = max(3.4, min(7.0, spazio * 0.5 / max(len(distinta) + 1, 1)))
+    h_riga = max(3.4, min(5.0 * kd, spazio * 0.5 / max(len(distinta) + 1, 1)))
     xi0 = max(area[0] + (area[2] - area[0]) * 0.45, ox + wF * s + 14)
     yi0 = cart[3] + 12 + h_riga * (len(distinta) + 1) + 6
     xi1, yi1 = area[2], area[3]
+    rp = 3.2 * k                                       # il cerchio del numero di posizione
     wi, hi = vI['bbox'][2] - vI['bbox'][0], vI['bbox'][3] - vI['bbox'][1]
-    si = min((xi1 - xi0 - 20) / max(wi, 1e-6), (yi1 - yi0 - 20) / max(hi, 1e-6))
+    si = min((xi1 - xi0 - 10 * rp) / max(wi, 1e-6), (yi1 - yi0 - 20) / max(hi, 1e-6))
     oxi, oyi = xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - hi * si) / 2
     gruppo_prima = f.gruppo
     f.gruppo = 'vista:iso'                      # l'isometrica con i suoi palloncini: un oggetto solo
@@ -1707,30 +1880,19 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     up = np.array([upd.X(), upd.Y(), upd.Z()])
     xd = np.cross(up, d)
     fatti = set()
-    palloncini = []
-    cx_iso = oxi + wi * si / 2
+    ancore = []
     for num, sh in forme:
         if num in fatti:
             continue
         fatti.add(num)
         c = sh.center()
         p3 = np.array([c.X, c.Y, c.Z])
-        p = TI((float(np.dot(p3, xd)), float(np.dot(p3, up))))
-        verso = 1 if p[0] >= cx_iso else -1
-        q = (p[0] + verso * 18, p[1] + 14)
-        while any(math.dist(q, b) < 10 for b in palloncini):      # non sopra un altro palloncino
-            q = (q[0] + verso * 4, q[1] + 9)
-        palloncini.append(q)
-        f.line('quote', p, q)
-        f.cerchi.append(('quote', q, 4.0))
-        f.text('quote', (q[0], q[1] - 1.2), str(num), 3.2, 'c')
-        f.cerchi.append(('quote', p, 0.6))
+        ancore.append((num, TI((float(np.dot(p3, xd)), float(np.dot(p3, up))))))
+    palloncini_colonne(f, ancore, (oxi, oyi, oxi + wi * si, oyi + hi * si), rp, (yi0, yi1 - 6 * k))
     f.gruppo = 'vista:iso/titolo'
-    f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
+    f.text('testo', (xi0, yi1 - 3 * k), 'ISOMETRICA (fuori scala)', 2.5 * k)
     f.gruppo = gruppo_prima
-    col = [0, 12, 76, 90, 116, 140, 180]
-    intest = ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Peso kg']
-    _metti_distinta(f, cart[0], cart[3] + 10, col, intest, distinta, h_riga)
+    _metti_distinta(f, cart[0], cart[3] + 10, col, intest, distinta, h_riga, kd)
     return f
 
 
@@ -1848,18 +2010,29 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
         return bd.Shape.cast(sh.wrapped.Moved(TopLoc_Location(t)))
     esplose = [sposta(sh, d) for (_, sh), d in zip(forme, spost)]
     vI = proietta(bd.Compound(children=esplose).wrapped, 'iso', len(forme) > 4)
+    f.u = ku = TESTO_ASSIEME
     area, cart = _cornice(f, {**campi, 'scala': 'fuori scala'})
-    h_riga = 5.0 if len(distinta) <= 12 else max(3.4, 60 / (len(distinta) + 1))
-    col = [0, 10, 62, 74, 98, 118, 140]
-    intest = ['Pos.', 'Descrizione', 'Q.tà', 'Materiale', 'Spessore', 'Peso kg']
+    col, intest = _colonne_distinta(distinta, 1.0)
+    kd = min(ku, (area[2] - cart[0]) / col[-1])        # la distinta non esce dal foglio
+    col, intest = _colonne_distinta(distinta, kd)
+    posto = 0.45 * (area[3] - cart[3] - 10)           # la distinta al massimo in metà dell'altezza sopra il cartiglio
+    h_riga = 5.0 * kd if 5.0 * kd * (len(distinta) + 1) <= posto else max(3.4, posto / (len(distinta) + 1))
     alto_dist = h_riga * (len(distinta) + 1) + 6
     # l'ordine di montaggio a sinistra in basso, la distinta sopra il cartiglio, l'esploso in tutto il resto
     righe_m = montaggio[:18]
-    alto_m = 5 + 4.2 * len(righe_m) if righe_m else 0
-    yi0 = max(cart[3] + 10 + alto_dist, area[1] + alto_m + 6)
-    xi0, xi1, yi1 = area[0] + 6, area[2] - 6, area[3] - 10
+    hm = 2.4 * ku                                       # le righe dell'ordine di montaggio
+    alto_m = 5 * ku + 1.75 * hm * len(righe_m) if righe_m else 0
+    rp = 3.2 * ku
     wi, hi = vI['bbox'][2] - vI['bbox'][0], vI['bbox'][3] - vI['bbox'][1]
-    si = min((xi1 - xi0 - 40) / max(wi, 1e-6), (yi1 - yi0 - 30) / max(hi, 1e-6))
+    # 03/11: l'esploso sopra la distinta (tutta la larghezza) o alla sua sinistra (sopra l'ordine di montaggio): dove
+    # viene più grande
+    zone = [(area[0] + 6, max(cart[3] + 10 + alto_dist, area[1] + alto_m + 6), area[2] - 6, area[3] - 10),
+            (area[0] + 6, area[1] + alto_m + 6, cart[0] - 6, area[3] - 10)]
+
+    def scala_esploso(z):
+        return min((z[2] - z[0] - 10 * rp) / max(wi, 1e-6), (z[3] - z[1] - 30) / max(hi, 1e-6))
+    xi0, yi0, xi1, yi1 = max(zone, key=scala_esploso)
+    si = scala_esploso((xi0, yi0, xi1, yi1))
     oxi, oyi = xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - hi * si) / 2
     gruppo_prima = f.gruppo
     f.gruppo = 'vista:esploso'                  # la vista esplosa con linee e palloncini: un oggetto solo
@@ -1875,31 +2048,23 @@ def tavola_esploso(forme: list, campi: dict, distinta: list, montaggio: list, fo
         attaccato = figli[k] is not None and not figli[k][2]        # va insieme al suo pezzo: la linea è la sua
         if np.linalg.norm(dd) > 1e-6 and not attaccato:
             f.line('nascoste', P2(c + dd), P2(c))
-    palloncini, fatti = [], set()
-    cx = oxi + wi * si / 2
+    fatti = set()
+    ancore = []
     for (num, sh), c, dd in zip(forme, centri, spost):
         if num in fatti:
             continue
         fatti.add(num)
-        p = P2(c + dd)
-        verso = 1 if p[0] >= cx else -1
-        q = (p[0] + verso * 16, p[1] + 12)
-        while any(math.dist(q, b) < 10 for b in palloncini):
-            q = (q[0] + verso * 4, q[1] + 9)
-        palloncini.append(q)
-        f.line('quote', p, q)
-        f.cerchi.append(('quote', q, 4.2))
-        f.text('quote', (q[0], q[1] - 1.3), str(num), 3.4, 'c')
-        f.cerchi.append(('quote', p, 0.7))
+        ancore.append((num, P2(c + dd)))
+    palloncini_colonne(f, ancore, (oxi, oyi, oxi + wi * si, oyi + hi * si), rp, (yi0, yi1 - 2))
     f.gruppo = 'vista:esploso/titolo'
-    f.text('testo', (xi0, yi1 + 3), 'VISTA ESPLOSA (fuori scala) · le linee tratteggiate vanno da ogni pezzo a dove si monta', 2.8)
+    f.text('testo', (xi0, yi1 + 3), 'VISTA ESPLOSA (fuori scala) · le linee tratteggiate vanno da ogni pezzo a dove si monta', 2.8 * ku)
     f.gruppo = gruppo_prima
-    _metti_distinta(f, cart[0], cart[3] + 10, col, intest, distinta, h_riga)
+    _metti_distinta(f, cart[0], cart[3] + 10, col, intest, distinta, h_riga, kd)
     if righe_m:
         y = area[1] + alto_m
-        f.text('testo', (area[0] + 4, y), 'ORDINE DI MONTAGGIO', 2.8)
-        for k, r in enumerate(righe_m):
-            f.text('testo', (area[0] + 4, y - 5 - 4.2 * k), _taglia(r, cart[0] - area[0] - 12, 2.4), 2.4)
+        f.text('testo', (area[0] + 4, y), 'ORDINE DI MONTAGGIO', 2.8 * ku)
+        for i, r in enumerate(righe_m):
+            f.text('testo', (area[0] + 4, y - 5 * ku - 1.75 * hm * i), _taglia(r, cart[0] - area[0] - 12, hm), hm)
     return f
 
 

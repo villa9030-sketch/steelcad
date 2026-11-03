@@ -116,14 +116,15 @@ class DrawingsMixin:
                     m0 = lista[0][1]
                     file.append({'assi': [(p.X, p.Y, p.Z) for p, _ in lista], 'nome': gruppo or 'aste',
                                  'profilo': m0.profile.name, 'larghezza': min(m0.profile.width, m0.profile.height)})
-        fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato, file_passo=file)]
-        righe = [[str(i), r['profile'], D.fmt(r['length_mm']), ' / '.join(r['cuts']), str(r['qty']),
-                  ', '.join(r['groups']), D.fmt(round(r['kg_each'], 2)), D.fmt(round(r['kg_total'], 2))]
-                 for i, r in enumerate(cl['rows'], 1)]
+        from cad_engine import drawings_struttura as DS
+        righe = DS.righe_taglio(result.structures)
+        posizioni = [(r['pos'], r['punti'][0]) for r in righe if r['punti']]
+        fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato, file_passo=file,
+                                tubi=DS.scatole_tubi(result.structures), posizioni=posizioni)]
         totali = [[t['profile'], str(t['pieces']), D.fmt(round(t['total_length_mm'] / 1000, 2)), D.fmt(round(t['kg'], 2))]
                   for t in cl['totals']]
-        fogli.append(D.tavola_taglio({**base, 'titolo': base['titolo'] + ' — distinta di taglio',
-                                      'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato))
+        fogli.append(DS.tavola_taglio({**base, 'titolo': base['titolo'] + ' — distinta di taglio',
+                                       'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato))
         return fogli
 
     @staticmethod
@@ -286,10 +287,16 @@ class DrawingsMixin:
                  for i in self.asm.instances if i['file'] in self.asm_parts]
         if not forme:
             raise SteelCADError('L’assieme è vuoto.')
+        from cad_engine import finiture
+        # 03/11: il nome come nel cartiglio della tavola del pezzo (dal nome del file se è ancora «Lamiera»), e la
+        # finitura (grezzo, zincato, RAL…)
+        nome = {r['file']: nome_pezzo(self.asm_parts[r['file']].doc.meta, getattr(self.asm_parts[r['file']], 'path', None))
+                for r in righe}
         distinta = [[str(k + 1), (f'{r["acquisto"].get("descrizione") or r["name"]} (acquisto'
                                    + (f', {r["acquisto"]["codice"]}' if r['acquisto'].get('codice') else '') + ')')
-                     if r.get('acquisto') else r['name'], str(r['qty']), '—' if r.get('acquisto') else r['material'],
+                     if r.get('acquisto') else nome[r['file']], str(r['qty']), '—' if r.get('acquisto') else r['material'],
                      f'{D.fmt(r["thickness"])} mm' if r['thickness'] and not r.get('acquisto') else '',
+                     '' if r.get('acquisto') else finiture.testo(r.get('finitura')),
                      D.fmt(round(r['mass_tot'], 3))] for k, r in enumerate(righe)]
         def fogli_di(part):         # lamiera: pezzo + sviluppo; struttura: viste + distinta di taglio
             res = part.result

@@ -2739,7 +2739,7 @@ async function renderProps(s) {
       <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
       <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
       <button class="cosa-b" data-azione="fori"><b>Fori sui tubi</b><span>Clicca la faccia del tubo e disegna</span></button>
-      <button class="cosa-b primary" data-cmd="prepara"><b>Prepara per l’officina</b><span>Cut list, tavola, file per il laser tubo</span></button></div>`;
+      <button class="cosa-b primary" data-cmd="prepara"><b>Prepara per l’officina</b><span>Lista di taglio dei tubi, tavola quotata</span></button></div>`;
   }
   if (s.kind === 'structure' || (s.kind === 'body' && s.template)) {
     const t = s.template, idf = s.kind === 'structure' ? s.id : s.tpl_id;
@@ -5367,12 +5367,14 @@ function renderBottom() {
   }
 
   const c = S.cutlist;
-  $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols"><table class="grid"><thead><tr><th>Profilo</th><th class="n">Lunghezza mm</th>
-    <th>Tagli</th><th class="n">Q.tà</th><th>Dove va</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
-    ${c.rows.map(r => `<tr data-ids="${esc(r.members.join(','))}"><td>${esc(r.profile)} ${esc(r.material)}</td><td class="n">${num(r.length_mm)}</td>
-      <td>${esc(r.cuts.join(' / '))}</td><td class="n">${r.qty}</td><td title="${esc(r.groups.join(', '))}">${esc((r.dove || r.groups).join(' · '))}</td>
+  // 03/11: come la distinta di taglio della tavola: posizione, nome da officina (mai le sigle dei tubi), poi le misure
+  $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols"><table class="grid"><thead><tr><th class="n">Pos.</th><th>Nome</th><th>Profilo</th><th class="n">Lunghezza mm</th>
+    <th>Tagli</th><th class="n">Q.tà</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
+    ${c.rows.map((r, i) => `<tr data-ids="${esc(r.members.join(','))}"><td class="n">${i + 1}</td><td>${esc(r.nome || (r.dove || r.groups).join(' · '))}</td>
+      <td>${esc(r.profile)} ${esc(r.material)}</td><td class="n">${num(r.length_mm)}</td>
+      <td>${esc(r.tagli || r.cuts.join(' / '))}</td><td class="n">${r.qty}</td>
       <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
-    <tr class="tot"><td colspan="3">Totale</td><td class="n">${c.pieces}</td><td></td><td></td><td class="n">${kg(c.kg)}</td></tr></tbody></table>
+    <tr class="tot"><td colspan="5">Totale</td><td class="n">${c.pieces}</td><td></td><td class="n">${kg(c.kg)}</td></tr></tbody></table>
     <table class="grid"><thead><tr><th>Per profilo</th><th class="n">Pezzi</th><th class="n">Metri</th><th class="n">kg</th></tr></thead><tbody>
     ${c.totals.map(t => `<tr><td>${esc(t.profile)} ${esc(t.material)}</td><td class="n">${t.pieces}</td>
       <td class="n">${num(t.total_length_mm / 1000, 2)}</td><td class="n">${kg(t.kg)}</td></tr>`).join('')}</tbody></table></div>`

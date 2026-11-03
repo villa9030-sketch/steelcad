@@ -73,7 +73,7 @@ def test_staffa_asola_quotata_e_fori_nello_sviluppo():
     assert '4× Ø10,5' in t
     t = _testi(sviluppo)
     assert '4× Ø10,5' in t and 'Asola 30 × 10' in t             # anche nello sviluppo
-    assert {'20', '80', '27,75'} <= set(t)                       # posizioni dei fori e dell'asola dal bordo
+    assert {'20', '2 × 80 = 160', '27,75'} <= set(t)             # posizioni dal bordo (i passi uguali in una quota, 03/11)
 
 
 def test_fori_e_asole_dello_sviluppo():
