@@ -3038,7 +3038,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return _err(ex)
         nome = self._etichetta(taglio['id'])
         if contorni <= 1:
+            # 03/11: con quello che sparisce insieme, così la barra di conferma lo dice e basta una conferma sola
             return {'ok': False, 'code': 'ultimo', 'feature': taglio['id'], 'nome': nome,
+                    'dipendenti': [self._etichetta(x) for x in self._dipendenti(taglio['id'])],
                     'message': f'È l’unico contorno di {nome}: si toglie il taglio intero.'}
         r = self._change(f'Togli un contorno da {nome}', lambda: sketch_ops.delete(self.doc, sid, eids))
         if r.get('ok'):
@@ -5097,7 +5099,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if not r.get('ok'):
             # 29/10, «al massimo la preview è rossa che non si può fare»: quello che hai chiesto, in rosso, e perché
             return {'ok': False, 'message': r.get('message') or 'Così non si può fare.', 'vero': True, 'code': r.get('code'),
-                    'fantasma': self._fantasma(metodo, args), 'soluzioni': r.get('soluzioni') or []}
+                    'fantasma': self._fantasma(metodo, args), 'soluzioni': r.get('soluzioni') or [],
+                    **({'dipendenti': r['dipendenti']} if r.get('dipendenti') else {})}
         oggetti = [{'positions': o['positions'], 'indices': o['indices'], 'edges': o['edges']}
                    for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member', 'accessorio')]
         out = {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}

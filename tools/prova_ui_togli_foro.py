@@ -1,5 +1,5 @@
 """Prova dell'interfaccia: un foro cliccato sul pezzo (vista 3D) si toglie da lì (28/10) — pulsante «Togli questo
-foro» o Canc; gli altri fori dello stesso taglio restano; l'ultimo chiede di togliere il taglio intero. E i nomi
+foro» o Canc; gli altri fori dello stesso taglio restano; l'ultimo toglie il taglio intero (una conferma sola). E i nomi
 dei tagli nell'albero dicono cosa c'è.
 
     python tools/prova_ui_togli_foro.py [cartella]
@@ -51,8 +51,12 @@ try:
         idx = pareti()
         pg.evaluate("i => window.__steelcad.select('body', i)", idx[0]); time.sleep(1.2)
         pg.mouse.move(800, 450); pg.keyboard.press('Delete')
-        pg.wait_for_selector('#pr-ok:not([disabled])', timeout=10000); time.sleep(0.5)
-        pg.keyboard.press('Enter')                         # Invio vale quando l'anteprima è pronta
+        # 03/11: Invio subito, mentre l'anteprima si calcola ancora: dice «Sto calcolando…» e poi lo fa
+        pg.wait_for_selector('#prova-barra', timeout=10000)
+        pg.keyboard.press('Enter')
+        scritta = pg.inner_text('#prova-barra') if pg.locator('#prova-barra').count() else ''
+        print('   barra dopo Invio subito:', repr(scritta[:120]), flush=True)
+        pg.screenshot(path=str(OUT / '1b_invio_subito.png'))
         for _ in range(40):                                # sotto carico il ricalcolo può metterci qualche secondo
             st = api('state')
             if '2 ×' not in str(st['tree']):
@@ -69,10 +73,10 @@ try:
         chk(f'l’ultimo: chiede di togliere il taglio intero ({pg.inner_text("#prova-barra")[:90]!r})', 'unico' in pg.inner_text('#prova-barra'))
         pg.screenshot(path=str(OUT / '2_ultimo.png'))
         pg.click('#pr-ok')
-        # era l'unico contorno: dopo la barra chiede ancora «Elimina» nella finestra (la conferma di sempre)
-        pg.wait_for_selector('#modal:not([hidden]) #m-ok', timeout=10000)
-        chk('… e poi la finestra «Elimina» del taglio intero', 'unico contorno' in pg.inner_text('#modal-box'))
-        pg.click('#m-ok')
+        # 03/11: una conferma sola: niente più la finestra «Elimina» dopo la barra
+        time.sleep(1.5)
+        chk('… e nessuna seconda conferma (finestra «Elimina»)', pg.locator('#modal:not([hidden])').count() == 0)
+        pg.screenshot(path=str(OUT / '3_tolto.png'))
         for _ in range(40):                                # aspetta il ricalcolo (sotto carico qualche secondo)
             if "'sheet_cut'" not in str(api('state')['tree']):
                 break
