@@ -2032,3 +2032,8 @@ body { --alt-rib: 132px; }
 .form .inp .field { width: 100%; padding-right: 34px; }
 .form .inp i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: var(--fs-etichetta);
   color: var(--c-spento); pointer-events: none; }
+/* la barretta sul pezzo (regola 3): azioni col nome, «Togli» in rosso quieto, «⋯» per il resto */
+#mini-barra > button.con-scritta { height: 36px; gap: 6px; }
+#mini-barra > button.via.con-scritta { color: var(--c-err-testo); }
+#mini-barra > button.via.con-scritta img { filter: none; }
+#mini-barra > button.piu { width: 36px; font-size: 18px; color: var(--c-testo-2); }

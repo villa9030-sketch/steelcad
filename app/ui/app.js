@@ -700,7 +700,7 @@ function selectEdge(e) {
       ['flange', `Piega ${versi.up.toLowerCase()}`, () => piega('up'), '', prova('up')],
       ['fold', `Piega ${versi.down.toLowerCase()}`, () => piega('down'), '', prova('down')],
       ['pattern_rect', 'Piega anche altri bordi (tutti uguali)', () => { anteprimaVia(); nascondiMini(); pieghePiuBordi(e); }]],
-    { chi: 'edge=' + e.id, piu: () => { nascondiMini(); MINI.dove = null; selectEdge(e); } });
+    { chi: 'edge=' + e.id, scritte: true, piu: () => { nascondiMini(); MINI.dove = null; selectEdge(e); } });
     return;                                        // il pannello completo solo con «⋯»
   }
   $('#props').innerHTML = `<h3>Flangia su questo bordo</h3><table class="grid"><tr><td>Bordo</td><td>${esc(e.label)}</td></tr></table>
@@ -2496,6 +2496,46 @@ const aSchermo = p => {
   const r = canvas.getBoundingClientRect(), v = p.clone().project(camera);
   return v.z > 1 ? null : [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height];
 };
+// 04/11: dove sta a schermo quello che hai scelto (la faccia, le facce della piega, o il pezzo intero), per mettere la
+// barretta accanto e non sopra. I punti 3D si prendono una volta per scelta; a ogni disegno si proiettano
+const SCELTA = { chi: '', punti: null };
+function puntiScelta() {
+  if (!sel) return null;
+  const facce = sel.face != null ? [sel.face] : sel.hl || [];
+  const chi = `${sel.id}|${facce.join(',')}|${S?.scene_version ?? ''}`;
+  if (SCELTA.chi === chi) return SCELTA.punti;
+  SCELTA.chi = chi; SCELTA.punti = null;
+  const o = objs.get(sel.id) || (facce.length ? objs.get('body') : null);
+  if (!o?.mesh) return null;
+  const M = o.pos || o.mesh.matrixWorld, pts = [];
+  if (facce.length && o.data?.faces) {
+    const P = o.data.positions, I = o.data.indices;
+    const lista = facce.map(i => o.data.faces.find(f => f.index === i)).filter(Boolean);
+    const tot = lista.reduce((n, f) => n + f.count, 0), passo = Math.max(1, Math.floor(tot / 900));
+    for (const f of lista) for (let k = f.start; k < f.start + f.count; k += passo) {
+      const j = I[k] * 3;
+      pts.push(new THREE.Vector3(P[j], P[j + 1], P[j + 2]).applyMatrix4(M));
+    }
+  } else {
+    const b = new THREE.Box3().setFromObject(o.mesh);
+    if (b.isEmpty()) return null;
+    for (const X of [b.min.x, b.max.x]) for (const Y of [b.min.y, b.max.y]) for (const Z of [b.min.z, b.max.z]) pts.push(new THREE.Vector3(X, Y, Z));
+  }
+  SCELTA.punti = pts.length ? pts : null;
+  return SCELTA.punti;
+}
+function rettScelta(r) {
+  const pts = puntiScelta();
+  if (!pts) return null;
+  let l = Infinity, t = Infinity, rr = -Infinity, b = -Infinity;
+  for (const p of pts) {
+    const q = aSchermo(p);
+    if (!q) continue;
+    l = Math.min(l, q[0]); rr = Math.max(rr, q[0]); t = Math.min(t, q[1]); b = Math.max(b, q[1]);
+  }
+  if (!Number.isFinite(l)) return null;
+  return { left: Math.max(l, r.left), right: Math.min(rr, r.right), top: Math.max(t, r.top), bottom: Math.min(b, r.bottom) };
+}
 // a ogni disegno della vista: la barretta e le quote tornano sui loro punti del pezzo
 function placeBarra() {
   const m = document.getElementById('mini-barra'), r = canvas.getBoundingClientRect();
@@ -2531,8 +2571,19 @@ function placeBarra() {
       l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
-      const x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
+      let x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
       let y = Math.max(r.top + 34, Math.min(q[1] + 30, r.bottom - h - 8));
+      // 04/11 (regola 3): la barretta non copre quello che hai cliccato. Sotto la faccia (o la piega) scelta, se no
+      // sopra, se no di lato; solo se la scelta riempie la vista resta dov'era
+      const sc = rettScelta(r), basso = r.bottom - 62, nome = 28;     // 62: la barra Inquadra/Quote/Tema in fondo
+      if (sc) {
+        const cx = Math.max(r.left + 8, Math.min((sc.left + sc.right) / 2 - w / 2, r.right - w - 8));
+        const cy = Math.max(r.top + nome + 8, Math.min((sc.top + sc.bottom) / 2 - h / 2, basso - h));
+        if (sc.bottom + 12 + nome + h <= basso) { x = cx; y = sc.bottom + 12 + nome; }
+        else if (sc.top - 12 - h - nome >= r.top + 4) { x = cx; y = sc.top - 12 - h; }
+        else if (sc.right + 16 + w <= r.right - 8) { x = sc.right + 16; y = cy; }
+        else if (sc.left - 16 - w >= r.left + 8) { x = sc.left - 16 - w; y = cy; }
+      }
       // 29/10: la barretta (col suo nome sopra, ~28 px) non copre le quote: sotto di loro, o sopra se sotto non c'è posto
       const sopraNome = 28, tocca = yy => QUOTE.filter(z => z.el.style.display !== 'none').map(z => z.el.getBoundingClientRect())
         .filter(b => b.right > x - 4 && b.left < x + w + 4 && b.bottom > yy - sopraNome - 4 && b.top < yy + h + 4);
@@ -2566,8 +2617,10 @@ function barretta(nome, voci, opz = {}) {
   if (uguale) m.classList.add('fermo');
   if (opz.nomi) m.classList.add('con-nomi');        // 03/11: le icone con il nome scritto sotto (assieme)
   const scritta = t => opz.nomi ? `<span class="lab">${esc(t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span>` : '';
+  // 04/11 (regola 3): al massimo 5 azioni col nome, il resto sta nel pannello («⋯»)
+  if (opz.scritte) { let n = 0; voci = voci.filter(v => v[0] === '|' || ++n <= 5); while (voci.at(-1)?.[0] === '|') voci.pop(); }
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
-    : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t)}</span>` : scritta(t)}</button>`).join('')
+    : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"${opz.scritte && / \(/.test(t) ? ` title="${esc(t)}"` : ''}><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t.replace(/ \(.*$/, ''))}</span>` : scritta(t)}</button>`).join('')
     + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
@@ -2720,9 +2773,11 @@ function miniBarra(s) {
   const faccia = s.face?.label ? s.face.label.replace(/ di "[^"]*"$/, '') : '';
   if (s.kind === 'flange' && s.def && !MINI.faccia) { miniFlangia(s, suFaccia ? [foro, asola, taglio] : []); return; }
   const lavora = suFaccia ? [foro, asola, ['project', 'Disegna qui', () => inCoda(() => disegnaSopra())], taglio] : [];
-  const nome = MINI.faccia ? `Faccia di ${s.title.toLowerCase()}` : s.kind === 'body' ? (faccia || 'Faccia') : s.title;
-  // 03/11: sulla faccia i pulsanti con il nome scritto (Foro, Asola, Disegna qui…): con le sole icone non si trovavano
-  barretta(nome, [...lavora, ['dimension', 'Misura', () => runCmd('misura')]], { chi: `${sel.id}:${sel.face}:${MINI.faccia}`, scritte: !!lavora.length });
+  const nome = MINI.faccia ? `Faccia di ${s.title.toLowerCase()}` : s.kind === 'body' ? (s.face ? faccia || 'Faccia' : s.title) : s.title;
+  // 03/11: sulla faccia i pulsanti con il nome scritto (Foro, Asola, Disegna qui…): con le sole icone non si trovavano.
+  // 04/11: sempre col nome (anche il pezzo intero e le pieghe); il pezzo intero ha anche lo sviluppo
+  const intero = s.kind === 'body' && !s.face && S?.sheet?.data ? [['flat', 'Sviluppo', () => runCmd('unfold')]] : [];
+  barretta(nome, [...lavora, ...intero, ['dimension', 'Misura', () => runCmd('misura')]], { chi: `${sel.id}:${sel.face}:${MINI.faccia}`, scritte: true });
 }
 // la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
 function miniFlangia(s, lavora) {
@@ -2735,7 +2790,7 @@ function miniFlangia(s, lavora) {
     ...(e ? [['flange', 'Piega sulla punta', () => { MINI.dove = { p: v3(e.a).lerp(v3(e.b), 0.5), t: performance.now() }; selectEdge(e); }]] : []),
     ...lavora, '|',
     ['delete', 'Togli la piega', () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); }]].map(v => (v === '|' ? ['|'] : v)),
-  { chi: `fl:${s.feature}/${s.flange}`, scritte: lavora.length > 0 });
+  { chi: `fl:${s.feature}/${s.flange}`, scritte: true });
   const nuova = MINI.nuova;
   MINI.nuova = false;
   if (!e) return;
@@ -2893,7 +2948,8 @@ function miniForo(s) {
 function miniTaglio(s) {
   const co = s.contorno, P = MINI.ancora.clone();
   barretta(s.title, [...(co.rapido ? [['move', 'Sposta o cambia', () => cambiaFori(co.feature)]] : []),
-    ...(co.eids?.length ? [['delete', 'Togli il taglio', () => togliDalTaglio(co.sketch, co.eids, 'il taglio')]] : [])], { chi: `taglio:${co.sketch}` });
+    ['sketch', 'Modifica il disegno', () => { clearSelection(); enterSketch(co.sketch); }],
+    ...(co.eids?.length ? [['delete', 'Togli il taglio', () => togliDalTaglio(co.sketch, co.eids, 'il taglio')]] : [])], { chi: `taglio:${co.sketch}`, scritte: true });
   (co.campi || []).forEach((c, i) => quota(P.clone(), NUM(c.value), {
     etichetta: c.label, unita: c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm', num: c.value, dx: 96, dy: -46 + i * 30,
     scrivi: v => { schedaCalcola(true); inCoda(async () => { const r = await call('cut_contour_set', co.sketch, [{ ...c, value: v }]); if (await apply(r, r.message)) await refreshSel(); schedaCalcola(false); }); },
