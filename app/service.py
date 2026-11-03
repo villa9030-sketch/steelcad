@@ -4984,7 +4984,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         from app.drawings_service import _leggi_fissi
         cartella = Path.home() / 'Documents' / 'SteelCAD'
         r = self.sheet_rules()
-        imp = _leggi_impostazioni()
+        imp = _impostazioni_tema_nuovo()
         return _ok(bend_default=self.bend_default(), rules=r.get('rules', []), cartiglio=_leggi_fissi(),
                    cartelle={'lavori': str(cartella), 'libreria': str(cartella / 'Libreria')},
                    tema=imp.get('tema', 'chiaro'), materiale=imp.get('materiale', 'S235'), materiali=_materiali(),
@@ -4999,6 +4999,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if v['tema'] not in ('scuro', 'chiaro'):
                 return {'ok': False, 'message': 'Il tema è scuro o chiaro.'}
             imp['tema'] = v['tema']
+            imp['tema_nuovo_visto'] = True      # scelto da te: il «chiaro una volta» della versione nuova non lo tocca più
         if 'materiale' in v:
             if v['materiale'] not in {m['code'] for m in _materiali()}:
                 return {'ok': False, 'message': f'Materiale «{v["materiale"]}» sconosciuto.'}
@@ -5199,6 +5200,37 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return [{'positions': m['positions'], 'indices': m['indices'], 'edges': m['edges']}]
         except Exception:  # noqa: BLE001 - il fantasma è un aiuto: se non viene, resta il messaggio
             return None
+
+    def anteprima_maglia(self, path: str) -> dict:
+        """04/11: i triangoli di un lavoro recente che non ha ancora l'anteprima (salvato da un'altra versione, o mai
+        aperto da qui), per scattargliela dalla pagina iniziale. Il lavoro aperto non si tocca."""
+        from cad_engine import assembly as A
+        from cad_engine import finiture
+        try:
+            q = Path(path)
+            pezzi = []
+            if q.suffix == '.steelcad-asm':
+                for i in A.load(q).instances:
+                    try:
+                        pezzi.append((A.load_part(i['file']), i['R'], i['T']))
+                    except Exception:  # noqa: BLE001 - un pezzo che manca: l'anteprima si fa con gli altri
+                        continue
+            else:
+                pezzi.append((A.load_part(q), None, None))
+            oggetti = []
+            for part, R, T in pezzi:
+                m = A.part_mesh(part)
+                o = {'positions': m['positions'], 'indices': m['indices'], 'edges': m['edges'],
+                     'look': finiture.colore(part.doc.meta.get('finitura'))}
+                if R is not None:
+                    o['matrix'] = [float(v) for v in (R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1],
+                                                      R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1)]
+                oggetti.append(o)
+            if not oggetti:
+                return {'ok': False, 'message': 'Niente da far vedere.'}
+            return _ok(objects=oggetti)
+        except Exception as ex:  # noqa: BLE001 - l'anteprima è una comodità
+            return _err(ex)
 
     def save_thumbnail(self, path: str, data_url: str) -> dict:
         """L'anteprima del lavoro (la vista 3D, presa dall'interfaccia quando apri o salvi) per la pagina iniziale.
@@ -5912,6 +5944,20 @@ def _leggi_impostazioni() -> dict:
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def _impostazioni_tema_nuovo() -> dict:
+    """04/11, interfaccia nuova: si parte CHIARI una volta, anche chi aveva salvato lo scuro (la spunta
+    «tema_nuovo_visto» ricorda che è già successo); dopo vale la scelta fatta col pulsante Tema o nelle Impostazioni."""
+    imp = _leggi_impostazioni()
+    if not imp.get('tema_nuovo_visto'):
+        imp['tema'] = 'chiaro'
+        imp['tema_nuovo_visto'] = True
+        try:
+            _scrivi_impostazioni(imp)
+        except OSError:
+            pass                            # non si scrive: si parte chiari lo stesso, ci si riprova al prossimo avvio
+    return imp
 
 
 def _scrivi_impostazioni(d: dict) -> None:

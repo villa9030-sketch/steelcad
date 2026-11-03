@@ -76,7 +76,12 @@ def crea_server(api, porta: int) -> ThreadingHTTPServer:
             self.end_headers()
             self.wfile.write(body)
 
-    return ThreadingHTTPServer(('127.0.0.1', porta), H)
+    class Server(ThreadingHTTPServer):
+        # 04/11: la coda di Windows era 5: con la pagina che chiede 60 icone insieme e il PC carico, alcune tornavano
+        # «connection refused» (le prove a schermo segnavano errori in console che non c'erano)
+        request_queue_size = 128
+
+    return Server(('127.0.0.1', porta), H)
 
 
 def main():

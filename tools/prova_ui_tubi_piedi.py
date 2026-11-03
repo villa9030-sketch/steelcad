@@ -44,7 +44,7 @@ try:
         pg.evaluate("window.__steelcad.nuovo('telaio')"); time.sleep(1)
         for k, v in (('L', '807'), ('P', '725'), ('H', '795'), ('ripiano', '0'), ('profilo', '30x30x2'), ('gambe', '30x30x2')):
             pg.fill(f'[data-f="{k}"]', v)
-        pg.click('text=Crea banco'); time.sleep(4)
+        pg.click('#n-ok'); time.sleep(4)
 
         def clic_punto(xyz):
             xy = pg.evaluate("p => window.__steelcad.toScreen(p)", xyz)

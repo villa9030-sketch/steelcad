@@ -12,12 +12,12 @@
   <div class="intro-griglia"></div>
   <div class="intro-centro">
     <svg class="intro-pezzo intro-segno" viewBox="300 230 654 823">
-      <defs><linearGradient id="ig-segno" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4F86FF"/><stop offset=".6" stop-color="#1F4FE8"/><stop offset="1" stop-color="#0B3191"/></linearGradient></defs>
+      <defs><linearGradient id="ig-segno" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4F86FF"/><stop offset=".6" stop-color="#1F5EFF"/><stop offset="1" stop-color="#1240C8"/></linearGradient></defs>
       <path class="f f1" fill="url(#ig-segno)" d="M336 265 H918 A703 703 0 0 0 336 662 Z"/>
       <path class="f f3" fill="url(#ig-segno)" d="M473 1018 V780 C473 590 678 443 918 443 V619 H729 A90 90 0 0 0 639 709 V1018 Z"/>
     </svg>
     <div class="intro-nome"><span>Radius</span></div>
-    <div class="intro-motto">Lamiera piegata · strutture · tramogge — dal disegno al taglio</div>
+    <div class="intro-motto">Lamiera piegata, tubi e tramogge: dal disegno al taglio</div>
   </div>
   <div class="intro-piede">
     <div class="intro-barra"><i></i></div>
@@ -202,39 +202,35 @@
 </div>
 
 <div id="home" hidden>
-  <aside class="home-side">
-    <section class="home-gruppo">
-      <h2>Nuovo</h2>
-      <button class="home-nuovo" data-new="lamiera"><img src="img/modelli/lamiera_piegata.png" alt=""><span><b>Lamiera</b><small>Si apre subito, le misure a sinistra</small></span></button>
-      <button class="home-nuovo" data-new="zero"><img src="img/modelli/da_zero.svg" alt=""><span><b>Da zero</b><small>Disegni la sagoma: piastra o profilo piegato</small></span></button>
-      <button class="home-nuovo" data-cat="forme"><img src="img/modelli/cono.png" alt=""><span><b>Cono</b><small>Coni, raccordi, tramogge</small></span></button>
-      <button class="home-nuovo" data-cat="struttura"><img src="img/modelli/telaio.png" alt=""><span><b>Tubi</b><small>Telai, scaffali, armadi, cancelli</small></span></button>
-      <hr>
-      <button class="home-nuovo" data-new="assieme"><img src="img/modelli/armadio.png" alt=""><span><b>Assieme</b><small>Più pezzi montati insieme</small></span></button>
-    </section>
-    <section class="home-gruppo">
-      <h2>Apri</h2>
-      <button class="home-apri" id="home-open"><img src="icons/open.svg" alt=""><span>Apri un lavoro…</span><kbd>Ctrl+O</kbd></button>
-      <button class="home-apri" data-new="step"><img src="icons/box.svg" alt=""><span>Apri uno STEP del cliente…</span></button>
-      <button class="home-apri" data-altro="importa"><img src="icons/dxf.svg" alt=""><span>Parti da un DXF di sviluppo…</span></button>
-    </section>
-    <div class="home-spazio"></div>
-    <section class="home-gruppo home-fondo">
-      <button class="home-apri" data-cmd="impostazioni"><img src="icons/settings.svg" alt=""><span>Impostazioni</span></button>
-    </section>
-  </aside>
-  <main class="home-main">
+  <div class="home-pagina">
+    <header class="home-testa">
+      <h1>Da dove parti?</h1>
+      <div class="home-porte">
+        <button class="btn" id="home-open" title="Un lavoro salvato (Ctrl+O)"><img src="icons/open.svg" alt="">Apri un lavoro…</button>
+        <button class="btn" data-new="step" title="Lo STEP del cliente: Radius fa lo sviluppo delle lamiere"><img src="icons/box.svg" alt="">STEP del cliente…</button>
+        <button class="btn" data-altro="importa" title="Uno sviluppo DXF o DWG: diventa il pezzo piegato"><img src="icons/dxf.svg" alt="">DXF di sviluppo…</button>
+        <button class="btn" data-cmd="impostazioni" title="Piegatrice, materiali, cartiglio, cartelle, tema"><img src="icons/settings.svg" alt="">Impostazioni</button>
+        <button class="btn primary" id="home-close" title="Torna al lavoro aperto (Esc)">Torna al lavoro</button>
+      </div>
+    </header>
     <div id="home-unsaved"></div>
-    <section class="home-tipi" data-of="forme" hidden>
-      <div class="home-tipi-testa"><h2>Che cono?</h2><button class="link" data-chiudi-tipi>Chiudi</button></div>
+    <section class="home-partenze" aria-label="Un pezzo nuovo">
+      <button class="home-nuovo m-lamiera" data-new="lamiera"><span class="pic"><img src="img/modelli/lamiera_piegata.png" alt=""></span><span class="testo"><b>Lamiera</b><small>Si apre subito: cambi le misure, pieghi i bordi</small></span></button>
+      <button class="home-nuovo m-tubi" data-cat="struttura"><span class="pic"><img src="img/modelli/telaio.png" alt=""></span><span class="testo"><b>Tubi e strutture</b><small>Telai, banchi, scaffali, cancelli</small></span></button>
+      <button class="home-nuovo m-lamiera" data-cat="forme"><span class="pic"><img src="img/modelli/raccordo.png" alt=""></span><span class="testo"><b>Cono e tramoggia</b><small>Coni, raccordi quadro-tondo, tramogge</small></span></button>
+      <button class="home-nuovo m-assieme" data-new="assieme"><span class="pic"><img src="img/modelli/armadio.png" alt=""></span><span class="testo"><b>Assieme</b><small>Più pezzi montati insieme</small></span></button>
+      <button class="home-nuovo m-disegno" data-new="zero"><span class="pic"><img src="img/modelli/da_zero.svg" alt=""></span><span class="testo"><b>Da zero</b><small>Disegni la sagoma: piastra o profilo piegato</small></span></button>
+    </section>
+    <section class="home-tipi m-lamiera" data-of="forme" hidden>
+      <div class="home-tipi-testa"><h2>Che cono?</h2><button class="btn" data-chiudi-tipi>Chiudi</button></div>
       <div class="home-tipo-grid">
         <button data-new="cono"><span class="pic"><img src="img/modelli/cono.png" alt=""></span><b>Cono o tronco di cono</b><span>Calandrato o a pieghe</span></button>
         <button data-new="tramoggia"><span class="pic"><img src="img/modelli/raccordo.png" alt=""></span><b>Raccordo quadro-tondo</b><span>Da rettangolo a tondo, anche fuori centro</span></button>
         <button data-new="tramoggia_cassone"><span class="pic"><img src="img/modelli/tramoggia.png" alt=""></span><b>Tramoggia con cassone</b><span>Divisa in pezzi da piegare, con le saldature contate</span></button>
       </div>
     </section>
-    <section class="home-tipi" data-of="struttura" hidden>
-      <div class="home-tipi-testa"><h2>Che struttura in tubi?</h2><button class="link" data-chiudi-tipi>Chiudi</button></div>
+    <section class="home-tipi m-tubi" data-of="struttura" hidden>
+      <div class="home-tipi-testa"><h2>Che struttura in tubi?</h2><button class="btn" data-chiudi-tipi>Chiudi</button></div>
       <div class="home-tipo-grid">
         <button data-new="telaio"><span class="pic"><img src="img/modelli/telaio.png" alt=""></span><b>Telaio o banco</b><span>Telaio sopra e quattro gambe</span></button>
         <button data-new="scaffale"><span class="pic"><img src="img/modelli/scaffale.png" alt=""></span><b>Scaffale o armadio</b><span>Due spalle e i ripiani; anche telai per armadi</span></button>
@@ -246,15 +242,16 @@
       <h2>Parti da un modello</h2>
       <div class="home-modelli-griglia" id="home-modelli"></div>
     </section>
-    <div class="home-rec-testa">
-      <h1>Lavori recenti</h1>
-      <div class="home-filtro" id="home-filtro"></div>
-      <span class="home-spazio"></span>
-      <label class="home-cerca"><img src="icons/search.svg" alt=""><input id="home-cerca" placeholder="Cerca per nome"></label>
-      <button class="btn" id="home-close" title="Torna al lavoro aperto (Esc)">Torna al lavoro</button>
-    </div>
-    <div id="home-recent"></div>
-  </main>
+    <section class="home-recenti">
+      <div class="home-rec-testa">
+        <h2>Lavori recenti</h2>
+        <div class="seg home-filtro" id="home-filtro"></div>
+        <span class="home-spazio"></span>
+        <label class="home-cerca"><img src="icons/search.svg" alt=""><input class="field" id="home-cerca" placeholder="Cerca per nome" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <div id="home-recent"></div>
+    </section>
+  </div>
 </div>
 
 <div id="modal" hidden><div class="modal-box" id="modal-box"></div></div>
