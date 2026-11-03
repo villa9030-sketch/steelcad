@@ -3660,25 +3660,31 @@ async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
       $('#fo-sotto').textContent = `Misure dal fuori tutto del pezzo (${virgola(Math.round(FORO.info.outer[0] * 10) / 10)} × ${virgola(Math.round(FORO.info.outer[1] * 10) / 10)}), anche dal lato della piega.`
         + (FORO.modifica ? ' Quelli di adesso vengono tolti e messi così.' : ' Clic su un’altra faccia per cambiarla.');
     };
+    // 04/11: il pulsante dice cosa fa («Fai i 4 fori», «Fai l’asola»), non «Fatto»
+    const nomeOk = () => {
+      const q = v.disposizione === 'angoli' ? 4 : v.disposizione === 'fila' ? Math.max(0, parseInt(v.n, 10) || 0) : v.disposizione === 'punti' ? v.punti.length : 1;
+      const cosa = v.tipo === 'asola' ? (q > 1 ? `le ${q} asole` : 'l’asola') : (q > 1 ? `i ${q} fori` : 'il foro');
+      $('#m-ok').textContent = `${FORO.modifica ? 'Cambia' : 'Fai'} ${cosa}`;
+    };
     const vai = () => anteprima(FORO.modifica ? 'fori_modifica' : 'fori_guidati', () => [FORO.modifica || FORO.face, spec()], box.querySelector('.ant-stato'), {
       frase: true, dopo: r => { $('#fo-frase').textContent = r.ok ? (r.frase || '') : ''; },
     });
     const ridisegna = (fuoco) => {
       $('#fo-corpo').innerHTML = corpo();
-      titolo();
+      titolo(); nomeOk();
       const i = fuoco && box.querySelector(fuoco);
       if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { cornice.tabIndex = -1; cornice.focus(); }   // Invio = Fatto anche dopo un clic
       vai();
     };
     FORO.ridisegna = ridisegna;
     FORO.vai = vai;
-    titolo();
+    titolo(); nomeOk();
     box.addEventListener('input', ev => {
       const t = ev.target;
       if (t.dataset.px != null) v.punti[+t.dataset.px][0] = t.value;
       else if (t.dataset.py != null) v.punti[+t.dataset.py][1] = t.value;
       else if (t.id?.startsWith('fo-') && t.type !== 'checkbox') v[t.id.slice(3)] = t.value;
-      vai();
+      nomeOk(); vai();
     });
     box.addEventListener('change', ev => {
       if (ev.target.id === 'fo-diversa') { v.diversa = ev.target.checked; ridisegna(v.diversa ? '#fo-bordo_y' : '#fo-bordo'); }
@@ -7575,6 +7581,12 @@ function fitSketch(subito = false, extra = []) {
   else if (SK.v.on_face && workGroup.children.length) box.union(new THREE.Box3().setFromObject(workGroup));
   else if (!box.isEmpty()) box.expandByPoint(v3(SK.v.origin));
   if (box.isEmpty()) return;
+  // 04/11: un disegno appena iniziato (la prima linea da 28) non riempie la vista: almeno 200 mm attorno, così c'è
+  // posto per il resto (A_collare 5-7: 40 scatti di rotella per rimpicciolire)
+  if (!SK.v.on_flat && !SK.v.on_face) {
+    const c = skToLocal(box.getCenter(new THREE.Vector3())), sz = box.getSize(new THREE.Vector3());
+    if (Math.max(sz.x, sz.y, sz.z) < 200) { box.expandByPoint(skToWorld([c[0] - 100, c[1] - 100])); box.expandByPoint(skToWorld([c[0] + 100, c[1] + 100])); }
+  }
   const zd = v3(SK.v.z_dir);
   if (Math.abs(zd.z) > 0.99) zd.add(new THREE.Vector3(0, -0.0001 * Math.sign(zd.z), 0));
   fitBox(box, zd, false, subito);
@@ -9484,7 +9496,7 @@ function makeDialog(kind) {
       <div class="sub">La linea che hai disegnato è…</div>
       <div class="choice" id="pf-lato"><button type="button" data-gira="0"><b>l’interno</b> della lamiera<small>lo spessore va verso fuori</small></button>
         <button type="button" data-gira="1"><b>l’esterno</b> della lamiera<small>lo spessore va verso dentro</small></button></div>
-      <div class="ff"><label>Lunghezza (di quanto estrudere)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
+      <div class="ff"><label>Lunghezza dell’estrusione (larghezza della fascia)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
         <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
       ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
       <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>

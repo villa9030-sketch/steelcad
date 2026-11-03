@@ -2076,3 +2076,5 @@ body.in-prova #navbar { display: none; }
 .btn.danger.pieno:hover { background: color-mix(in srgb, var(--c-err) 88%, #000); border-color: transparent; }
 .btn.danger.pieno:disabled { background: var(--c-incavo); border-color: var(--c-linea); color: var(--c-spento); }
 #prova-barra .frase small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+/* le quote misurate col comando Misura: bordo giallo (sono «quello che stai toccando»), testo leggibile */
+#mis-box .dim.mis { border-color: var(--c-sel); background: var(--c-sel-tenue); color: var(--c-testo); }
