@@ -1998,3 +1998,7 @@ body.una-scheda { --alt-rib: 100px; }
 .rname { padding: 2px 0 3px; }
 #sk-cmd { padding: 3px 6px 3px 12px; }
 #sk-cmd-in { min-height: 26px; padding: 2px 8px; }
+/* la lente di «Cerca un comando» prende il colore del testo (si vede anche sullo scuro) */
+#palette-btn { position: relative; background-image: none; }
+#palette-btn::before { content: ''; position: absolute; left: 11px; top: 50%; width: 14px; height: 14px; margin-top: -7px; background: currentColor;
+  -webkit-mask: url("icons/search.svg") no-repeat center / contain; mask: url("icons/search.svg") no-repeat center / contain; }
