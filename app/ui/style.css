@@ -145,6 +145,7 @@ table.grid th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
 #props h3 { margin: 0 0 8px; font-size: 15px; }
 #props table.grid td:first-child { color: var(--ink-2); width: 42%; }
 #props .group-row { margin: 12px 0 6px; display: grid; gap: 6px; }
+#props .group-row[hidden] { display: none; }
 #props label.lbl { font-size: 12px; color: var(--ink-2); }
 #props .row-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .btn {

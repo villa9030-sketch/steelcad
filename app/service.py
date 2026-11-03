@@ -100,6 +100,9 @@ def _err(ex: Exception):
             'code': 'interno'}
 
 
+_MAGLIE_TUBI: dict = {}          # id(solido del tubo) -> (solido, maglia): vedi scene()
+
+
 class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin):
     def __init__(self):
         self.path: Path | None = None
@@ -368,14 +371,23 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         for st in r.structures:
             nomi = self.nomi_tubi(st)
             for mem in st.members:
-                m = tessellate(mem.solid.wrapped)
+                # 03/11: un tubo che non è cambiato ha lo stesso solido (dalla cache dei tubi): la sua maglia non si
+                # rifà (scaffale da 78 tubi: 0,6 s a ogni modifica solo per questo)
+                tenuta = _MAGLIE_TUBI.get(id(mem.solid))
+                if tenuta is None or tenuta[0] is not mem.solid:
+                    if len(_MAGLIE_TUBI) > 3000:
+                        _MAGLIE_TUBI.clear()
+                    tenuta = _MAGLIE_TUBI[id(mem.solid)] = (mem.solid, tessellate(mem.solid.wrapped))
+                m = tenuta[1]
                 objs.append({'id': f'{st.id}/{mem.id}', 'kind': 'member',
                              'name': f'{nomi[mem.id]} — {mem.profile.name} · {fmt_mm(round(mem.length, 1))}',
                              'group': mem.group, **m})
         from cad_engine.structures.nomi import nome_punto
         import build123d as _bd
+        from cad_engine.structures.nomi import _limiti
+        lim = {st.id: _limiti(st.members) for st in r.structures if st.members}
         nodi = [{'id': f'{st.id}:{k}', 'structure': st.id, 'key': k, **v,
-                 'nome': nome_punto(_bd.Vector(*v['xyz']), st.members)}
+                 'nome': nome_punto(_bd.Vector(*v['xyz']), st.members, lim.get(st.id))}
                 for st in r.structures for k, v in (st.nodes or {}).items()]
         # i bordi dove si può piegare: passandoci sopra col mouse si accendono, clic = flangia lì
         data = getattr(r.body, 'sheet', None) if r.body is not None else None
@@ -3652,7 +3664,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             self.doc.features = resto[:pos] + new_sk + [new_st] + resto[pos:]
             for k, v in nuovo.parameters.items():
                 self.doc.parameters[k] = v
-        return self._change(f'{self.MODELLI_ST[t["kind"]][0]}: nuove misure', fn)
+            if old.get('type') == 'structure':          # i tubi aggiunti e le divisioni restano (03/11)
+                persi.extend(self._riporta_aggiunte(old, new_st))
+        persi = []
+        r = self._change(f'{self.MODELLI_ST[t["kind"]][0]}: nuove misure', fn)
+        if r.get('ok') and persi:
+            r['message'] = 'Misure cambiate. Non rifatto: ' + '; '.join(persi)
+        return r
 
     def _structure_from_sketch(self, sid, sk, v) -> dict:
         """Le linee dello sketch diventano tubolari. Con "ripetizioni" lo scheletro si ripete a distanza
@@ -3687,6 +3705,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if n > 1 and v.get('connect'):
                 sk_def['connect'] = {'profile': str(v.get('connect_profile') or v['profile']),
                                      'group': v.get('connect_group') or 'Collegamenti'}
+                if v.get('connect_points'):           # non nei punti a T della sagoma (fai_tubi)
+                    tutti = sorted({q for ab in self.doc.solved_sketch(sid).lines.values() for q in ab})
+                    sk_def['connect']['points'] = [q for q in tutti if q not in v['connect_points']]
             st = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'structure'), None)
             if st is None:
                 extra = {'esterno': True, 'angoli': {'type': 'butt', 'passa': 'verticali'}} if v.get('esterno') else {}
@@ -4206,6 +4227,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if m['id'] in info['members'] or not info['members']:
                 profilo = m.get('profile', profilo)
                 break
+        else:
+            # 03/11: negli incroci (pezzi «D1~2») e negli scheletri il tubo proposto è quello dei tubi che ci sono
+            st_r = next((x for x in self.result.structures if x.id == st_id), None)
+            usati = [m for m in (st_r.members if st_r else []) if m.id in info['members']] or (st_r.members if st_r else [])
+            if usati:
+                profilo = usati[0].profile.name.replace('×', 'x')
         angolo = self.angolo_info(st_id, key)
         return {
             'kind': 'node', 'id': node_id, 'structure': st_id, 'key': key,
@@ -4651,7 +4678,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return _ok(path=str(q), name=q.stem, folder=str(q.parent), thumb=_anteprima(q))
 
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
-    ANTEPRIMA_OK = {'fai_tubi', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
+    ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
                     'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati'}

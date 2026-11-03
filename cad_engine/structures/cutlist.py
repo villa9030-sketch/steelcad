@@ -11,9 +11,22 @@ from collections import OrderedDict
 from .frame import describe_cut
 
 
+def _base(nome: str) -> str:
+    """«Fianco in alto (2)» → «Fianco in alto»: i pezzi uguali si contano insieme."""
+    if nome.endswith(')') and ' (' in nome:
+        testa, coda = nome.rsplit(' (', 1)
+        if coda[:-1].isdigit():
+            return testa
+    return nome
+
+
 def cut_list(structures) -> dict:
+    """Le righe hanno anche «dove» (03/11): i nomi da officina dei pezzi di quella riga («Montante a sinistra»,
+    «Fianco in alto × 2»), così chi taglia sa a cosa serve ogni misura."""
+    from .nomi import nomi_aste
     righe: OrderedDict = OrderedDict()
     for st in structures:
+        nomi = nomi_aste(st.members)
         for m in st.members:
             tagli = tuple(sorted(round(a, 1) for a in m.cuts))
             key = (m.profile.name, m.material, round(m.length, 1), tagli, m.lavorazioni)
@@ -23,14 +36,18 @@ def cut_list(structures) -> dict:
                     'profile': m.profile.name, 'description': m.profile.description, 'material': m.material,
                     'length_mm': round(m.length, 1), 'cuts': [describe_cut(a) for a in tagli],
                     'qty': 0, 'members': [], 'kg_each': m.kg(), 'groups': [], 'lavorata': bool(m.lavorazioni),
+                    '_dove': OrderedDict(),
                 }
             r['qty'] += 1
+            b = _base(nomi.get(m.id, m.id))
+            r['_dove'][b] = r['_dove'].get(b, 0) + 1
             r['members'].append(f'{st.id}/{m.id}')
             if m.group and m.group not in r['groups']:
                 r['groups'].append(m.group)
     lista = sorted(righe.values(), key=lambda r: (r['profile'], r['material'], -r['length_mm']))
     for r in lista:
         r['kg_total'] = r['kg_each'] * r['qty']
+        r['dove'] = [n if k == 1 else f'{n} × {k}' for n, k in r.pop('_dove').items()]
     per_profilo: OrderedDict = OrderedDict()
     for r in lista:
         k = (r['profile'], r['material'])

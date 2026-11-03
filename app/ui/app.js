@@ -823,6 +823,16 @@ canvas.addEventListener('pointermove', ev => {
   const cambia = (h?.id ?? null) !== (hover?.id ?? null) || (h?.face ?? null) !== (hover?.face ?? null);
   hover = h;
   if (cambia) paint();
+  if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) {
+    const q = puntoMisura(h.point);
+    puntoSegno(q);
+    tip.textContent = `A ${virgola(q)} ${PUNTO.vert ? 'da terra' : 'dall’inizio'} · clic: prendi questa misura`;
+    const r = view.getBoundingClientRect();
+    tip.style.left = (ev.clientX - r.left + 14) + 'px';
+    tip.style.top = (ev.clientY - r.top + 14) + 'px';
+    tip.style.display = 'block';
+    return;
+  }
   if (h) {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
@@ -847,6 +857,9 @@ canvas.addEventListener('pointerup', ev => {
   const h = pick(ev);
   ultimoClic = h;
   if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
+  if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) { puntoPreso(h.point); return; }
+  if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
+  DIVSCEGLI = false;
   MINI.dove = { p: h?.point ?? null, t: performance.now() };      // la barretta compare qui
   // secondo clic sulla stessa flangia: la sua faccia (disegna, fora, taglia lì)
   if (h && sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia && document.getElementById('mini-barra')) {
@@ -869,6 +882,11 @@ function cliccaTraverso(id) {
   else if (id !== TRAV.primo) TRAV.secondo = id;
   sel = { id, ids: [TRAV.primo, TRAV.secondo].filter(Boolean) };
   paint();
+  if (TRAV.primo && TRAV.secondo) {
+    // in piedi o sdraiati, e la misura «in mezzo» (03/11: per metterlo in mezzo si toglievano 15 mm a mano)
+    const [st, a] = TRAV.primo.split('/'), b = TRAV.secondo.split('/')[1];
+    chiamaMuto('traverso_info', st, a, b).then(r => { if (TRAV && r.ok) { TRAV.info = r; pannelloTraverso(); } });
+  }
   pannelloTraverso();
 }
 function pannelloTraverso() {
@@ -877,32 +895,128 @@ function pannelloTraverso() {
   hint.hidden = false;
   hint.textContent = !TRAV.primo ? 'Clicca il primo tubo (per esempio una gamba)' : !TRAV.secondo ? `✓ ${nome(TRAV.primo)} · ora clicca il secondo tubo` : `✓ ${nome(TRAV.primo)} · ✓ ${nome(TRAV.secondo)}`;
   const pronto = TRAV.primo && TRAV.secondo;
-  const inPiedi = pronto && [TRAV.primo, TRAV.secondo].every(id => /^(Gamba|Montante|Sbarra)/.test(nome(id)));
+  const inPiedi = pronto && (TRAV.info ? TRAV.info.in_piedi : [TRAV.primo, TRAV.secondo].every(id => /^(Gamba|Montante|Sbarra)/.test(nome(id))));
+  const rif = TRAV.rif || (inPiedi ? 'sotto' : 'centro');
+  const scelte = inPiedi ? [['sotto', 'al sotto del tubo'], ['meta', 'a metà tubo'], ['sopra', 'al sopra del tubo']]
+    : [['centro', 'al centro del traverso'], ['bordo', 'al bordo del traverso']];
   $('#props').innerHTML = `<h3>Nuovo traverso</h3>
     <p class="hint">${pronto ? `Tra «${esc(nome(TRAV.primo))}» e «${esc(nome(TRAV.secondo))}»` : 'Clicca due tubi nel disegno: il traverso va tra loro.'}</p>
-    ${pronto ? `<label class="lbl">${inPiedi ? 'Altezza da terra' : 'Distanza dall’inizio del tubo (da sinistra o da davanti)'}<input class="field" id="tr-q" value="${esc(TRAV.q || '400')}"></label>
-    ${inPiedi ? `<div class="seg">${[['sotto', 'al sotto del tubo'], ['meta', 'a metà tubo'], ['sopra', 'al sopra del tubo']].map(([k, t]) => `<button class="btn${(TRAV.rif || 'sotto') === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div>` : ''}
-    <label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || ultimaAsta.profile || '40x40x3')}"></label>
+    ${pronto ? `<label class="lbl" for="tr-q">${inPiedi ? 'Altezza da terra' : 'Distanza dall’inizio del tubo, da sinistra o da davanti'}</label>
+    <div class="ff"><span class="inp"><input class="field" id="tr-q" value="${esc(TRAV.q || '400')}"><i>mm</i></span>
+      <button class="btn" id="tr-mezzo" title="Scrive la misura che lo mette in mezzo">${inPiedi ? 'A metà altezza' : 'In mezzo'}</button></div>
+    <div class="sub">La misura arriva</div>
+    <div class="seg">${scelte.map(([k, t]) => `<button class="btn${rif === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div>
+    <label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || TRAV.info?.profilo || ultimaAsta.profile || '40x40x3')}"></label>
     <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <label class="check"><input type="checkbox" id="tr-dietro" checked> Anche dall’altra parte (dietro), alla stessa misura</label>
+    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche dall’altra parte (dietro), alla stessa misura</label>
     <div class="row-btns"><button class="btn" id="tr-no">Annulla</button><button class="btn primary" id="tr-ok">Aggiungi</button></div>`
     : '<div class="row-btns"><button class="btn" id="tr-no">Annulla</button></div>'}`;
-  $('#tr-no').onclick = finisciTraverso;
-  document.querySelectorAll('[data-rif]').forEach(b => { b.onclick = () => { TRAV.rif = b.dataset.rif; TRAV.q = $('#tr-q').value; pannelloTraverso(); }; });
+  $('#tr-no').onclick = () => { anteprimaVia(); finisciTraverso(); };
+  const tieni = () => { TRAV.q = $('#tr-q').value; TRAV.prof = $('#tr-prof').value; TRAV.dietro = $('#tr-dietro').checked; };
+  document.querySelectorAll('[data-rif]').forEach(b => { b.onclick = () => { tieni(); TRAV.rif = b.dataset.rif; pannelloTraverso(); }; });
   if (!pronto) return;
-  const vai = () => {
+  $('#tr-mezzo').onclick = () => {
+    tieni();
+    if (TRAV.info) TRAV.q = String(TRAV.info.mezzo).replace('.', ',');
+    TRAV.rif = inPiedi ? 'meta' : 'centro';
+    pannelloTraverso();
+  };
+  const argomenti = () => {
     const st = TRAV.primo.split('/')[0], a = TRAV.primo.split('/')[1], b = TRAV.secondo.split('/')[1];
-    const q = $('#tr-q').value.trim(), prof = $('#tr-prof').value.trim(), dietro = $('#tr-dietro').checked, rif = TRAV.rif || 'sotto';
+    return [st, a, b, $('#tr-q').value.trim(), rif, $('#tr-prof').value.trim(), $('#tr-dietro').checked, ''];
+  };
+  const vai = () => {
+    const args = argomenti(), dietro = args[6];
     inCoda(async () => {
-      const r = await call('add_traverso', st, a, b, q, rif, prof, dietro, '');
+      const r = await call('add_traverso', ...args);
       if (!r.ok && dietro && /altra parte/.test(r.message || '')) { toast(r.message, 'err'); return; }
-      if (await apply(r)) { TRAV = null; $('#trav-hint').hidden = true; await select(r.select); }
+      if (await apply(r)) { anteprimaVia(); TRAV = null; $('#trav-hint').hidden = true; await select(r.select); }
     });
   };
   $('#tr-ok').onclick = vai;
   $('#tr-q').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+  anteprimaPannello('add_traverso', argomenti);
   $('#tr-q').focus(); $('#tr-q').select();
 }
+
+// DIVIDI (03/11, il telaio 807 × 725 × 795 di Stefano: «complicatissimo, il contrario di intuitivo»): clic su un tubo
+// del fianco o del telaio sopra → in quante parti → montanti e traversi a filo del lato, quadri uguali. Dove si
+// incrociano uno passa intero e l'altro si taglia in due (come in officina)
+let DIV = null, DIVSCEGLI = false;
+async function iniziaDividi(s) {
+  const [st, mid] = s.id.split('/');
+  const r = await chiamaMuto('dividi_info', st, mid);
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  // prima il lato che hai cliccato: la faccia del tubo che guardava verso di te (sopra, il fianco…)
+  const N = { sinistra: [-1, 0, 0], destra: [1, 0, 0], davanti: [0, -1, 0], dietro: [0, 1, 0], sotto: [0, 0, -1], sopra: [0, 0, 1] };
+  const n = ultimoClic?.id === s.id ? ultimoClic.normal : null;
+  // il telaio sopra resta il primo (dalla vista iso un tubo in alto si clicca spesso sul davanti)
+  const dot = k => k === 'sopra' ? 2 : n ? N[k].reduce((t, c, i) => t + c * n[i], 0) : 0;
+  r.facce.sort((a, b) => dot(b.key) - dot(a.key));
+  const f = r.facce[0];
+  // «uguale anche dall'altra parte» già spuntato per i fianchi (di solito sono uguali); davanti e dietro no
+  DIV = { st, mid, info: r, faccia: f.key, u: '2', v: '2', mu: '', mv: '', rif: 'centro', opposta: !!f.opposta && /sinistra|destra/.test(f.key), chiudi: false, prof: r.profilo };
+  pannelloDividi();
+}
+function dividiArgomenti() {
+  const leggi = k => {
+    const n = DIV[k];
+    if (n === 'mis') {
+      const misure = ($(`#dv-m${k}`)?.value || '').split(/[\s;]+/).map(x => x.trim()).filter(Boolean);
+      return misure.length ? { misure, rif: DIV.rif } : null;
+    }
+    return n === '1' ? null : { parti: +n };
+  };
+  return [DIV.st, DIV.mid, DIV.faccia, leggi('u'), leggi('v'), !!$('#dv-opp')?.checked, $('#dv-prof')?.value.trim() || DIV.prof, !!$('#dv-chiudi')?.checked];
+}
+function pannelloDividi() {
+  const f = DIV.info.facce.find(x => x.key === DIV.faccia);
+  const sopra = !f.in_piedi;
+  // come si chiama ogni direzione sul lato scelto (in piedi: montanti e traversi; sopra: da davanti a dietro…)
+  const lungoX = f.key === 'davanti' || f.key === 'dietro' || sopra;
+  const nomeU = sopra ? 'Tubi da davanti a dietro' : 'Montanti (in piedi)';
+  const nomeV = sopra ? 'Tubi da sinistra a destra' : 'Traversi (sdraiati)';
+  const daU = lungoX ? 'da sinistra' : 'da davanti', daV = sopra ? 'da davanti' : 'da terra';
+  const quanto = k => k === 'u' ? (lungoX ? 'larghezza' : 'profondità') : (sopra ? 'profondità' : 'altezza');
+  const riga = (k, nome, lung, da) => `<div class="sub">${nome} <span class="fsub">· dividono ${quanto(k)} ${virgola(lung)}</span></div>
+    <div class="seg">${[['1', 'No'], ['2', 'In 2'], ['3', 'In 3'], ['4', 'In 4'], ['mis', 'A misura']].map(([x, t]) => `<button class="btn${DIV[k] === x ? ' on' : ''}" data-dv${k}="${x}">${t}</button>`).join('')}</div>
+    ${DIV[k] === 'mis' ? `<label class="lbl" for="dv-m${k}">A che misura ${da} (mm; più tubi: 300 600)</label><input class="field" id="dv-m${k}" value="${esc(DIV['m' + k])}" placeholder="es. 265">` : ''}`;
+  const misura = DIV.u === 'mis' || DIV.v === 'mis';
+  $('#props').innerHTML = `<h3>Dividi il lato</h3>
+    <p class="hint">Montanti e traversi a filo del lato, con i quadri uguali. Dove si incrociano, uno passa intero e l’altro è tagliato in due.</p>
+    ${DIV.info.facce.length > 1 ? `<div class="seg">${DIV.info.facce.map(x => `<button class="btn${x.key === DIV.faccia ? ' on' : ''}" data-dvf="${x.key}">${esc(x.label)}</button>`).join('')}</div>` : `<div class="sub">${esc(f.label)}</div>`}
+    ${riga('u', nomeU, f.u, daU)}${riga('v', nomeV, f.v, daV)}
+    ${misura ? `<div class="sub">La misura arriva</div><div class="seg">${[['centro', 'al centro del tubo'], ['bordo', 'al bordo del tubo']].map(([k, t]) => `<button class="btn${DIV.rif === k ? ' on' : ''}" data-dvr="${k}">${t}</button>`).join('')}</div>` : ''}
+    ${f.opposta ? `<label class="check"><input type="checkbox" id="dv-opp" ${DIV.opposta ? 'checked' : ''}> Uguale anche ${esc(f.opposta)}</label>` : ''}
+    ${f.aperti ? `<label class="check"><input type="checkbox" id="dv-chiudi" ${DIV.chiudi ? 'checked' : ''}> ${esc(f.aperti)}</label>` : ''}
+    <label class="lbl">Tubo<input class="field" id="dv-prof" list="dl-prof" value="${esc(DIV.prof)}"></label>
+    <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+    <div class="row-btns"><button class="btn" id="dv-no">Annulla</button><button class="btn primary" id="dv-ok">Dividi</button></div>`;
+  const tieni = () => {
+    DIV.opposta = !!$('#dv-opp')?.checked; DIV.chiudi = !!$('#dv-chiudi')?.checked; DIV.prof = $('#dv-prof').value.trim();
+    if ($('#dv-mu')) DIV.mu = $('#dv-mu').value;
+    if ($('#dv-mv')) DIV.mv = $('#dv-mv').value;
+  };
+  const rifai = fn => b => { b.onclick = () => { tieni(); fn(b); pannelloDividi(); }; };
+  document.querySelectorAll('[data-dvf]').forEach(rifai(b => { DIV.faccia = b.dataset.dvf; DIV.opposta = !!DIV.info.facce.find(x => x.key === DIV.faccia)?.opposta && /sinistra|destra/.test(DIV.faccia); }));
+  document.querySelectorAll('[data-dvu]').forEach(rifai(b => { DIV.u = b.dataset.dvu; }));
+  document.querySelectorAll('[data-dvv]').forEach(rifai(b => { DIV.v = b.dataset.dvv; }));
+  document.querySelectorAll('[data-dvr]').forEach(rifai(b => { DIV.rif = b.dataset.dvr; }));
+  $('#dv-no').onclick = () => { anteprimaVia(); DIV = null; refreshSel(); };
+  const vai = () => {
+    const args = dividiArgomenti();
+    inCoda(async () => {
+      const r = await call('dividi', ...args);
+      if (await apply(r, r.message)) { anteprimaVia(); DIV = null; await select(r.select); }
+    });
+  };
+  $('#dv-ok').onclick = vai;
+  document.querySelectorAll('#props input.field').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  anteprimaPannello('dividi', dividiArgomenti);
+  const campo = $('#dv-mu') || $('#dv-mv');
+  if (campo) campo.focus();
+}
+
 // una sagoma nuova nella struttura: si sceglie da dove la si guarda, poi si disegna
 function sagomaNuova() {
   modal(`<h3>Disegna la sagoma</h3><p class="hint">Ogni linea diventa un tubo. Poi la puoi ripetere dietro e collegare.</p>
@@ -1939,6 +2053,7 @@ $('#params').addEventListener('focusout', ev => {
 let selTok = 0, selGen = 0;
 async function select(id, face = null, ids = null, silenzioso = false, nomeNoto = null) {
   const mio = ++selTok;
+  puntoVia();                                        // il segno del punto sul tubo di prima
   if ($('#modal').hidden) anteprimaVia();             // l'anteprima del pannello di prima
   const stessa = sel && sel.id === id && sel.face === face;
   if (!stessa) { selGen++; MINI.faccia = false; }
@@ -1961,7 +2076,7 @@ async function select(id, face = null, ids = null, silenzioso = false, nomeNoto 
   aggiornaLayout();
 }
 function clearSelection() {
-  nascondiMini(); togliManiglie(); MINI.faccia = false; MINI.s = null;
+  nascondiMini(); togliManiglie(); MINI.faccia = false; MINI.s = null; puntoVia();
   selTok++; selGen++;
   togliAnteprimaForo();
   if ($('#modal').hidden) anteprimaVia();
@@ -2017,6 +2132,10 @@ function azione(id) {
   const sel1 = async q => { await select(q); };
   switch (id) {
     case 'piega': runCmd('flange_help'); return;
+    case 'dividi':                                  // DIVIDI dalla barra: col tubo già scelto, o il prossimo cliccato
+      // il tubo che hai appena cliccato tu (non quello scelto dall'ultimo comando): subito il pannello
+      if (sel?.id && ultimoClic?.id === sel.id && objs.get(sel.id)?.data?.kind === 'member') { inCoda(() => iniziaDividi({ id: sel.id })); return; }
+      DIVSCEGLI = true; t('Clicca un tubo del lato da dividere (il fianco, il telaio sopra…).'); return;
     case 'tipo_foro': t('Clicca un foro già fatto sul pezzo: a destra scegli svasato o filettato. Per un foro nuovo c’è «Foro».'); return;
     case 'foro': inCoda(() => foroDialog('tondo')); return;
     case 'asola': inCoda(() => foroDialog('asola')); return;
@@ -2615,6 +2734,7 @@ async function renderProps(s) {
     const c = s.cosa;
     h = `<h3>${esc(s.title)}</h3>${tab([['Fuori tutto', c.fuori_tutto.join(' × ') + ' mm'], ['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]])}
       <div class="sub">Cosa puoi fare adesso</div><div class="cosa">
+      <button class="cosa-b" data-azione="dividi"><b>Dividi un lato</b><span>Montanti e traversi in mezzo, quadri uguali: clicca un tubo del lato</span></button>
       <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi, poi scrivi a che altezza</span></button>
       <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
       <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
@@ -2656,6 +2776,7 @@ async function renderProps(s) {
       ${altri > 0 ? `<label class="check"><input type="checkbox" id="p-all" checked> Anche gli altri ${altri === 1 ? 'tubo' : altri + ' tubi'} di «${esc(s.group)}»</label>` : ''}</div>
       <div class="row-btns"><button class="btn primary" id="p-apply">Cambia tubo</button></div>
       <div class="cosa">
+        ${s.tubo?.facce?.length ? `<button class="cosa-b" id="p-dividi"><b>Dividi il lato</b><span>Montanti e traversi in mezzo, quadri uguali: ${esc(s.tubo.facce.join(' o ').toLowerCase())}</span></button>` : ''}
         <button class="cosa-b" id="p-trav"><b>Traverso da qui</b><span>Parte da questo tubo, poi clicchi dove arriva</span></button>
         <button class="cosa-b" id="p-punto"><b>Tubo nuovo da un punto di questo tubo</b><span>${s.tubo?.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia</span></button>
         <div class="group-row" id="p-punto-riga" hidden><label class="lbl" for="p-punto-q">${s.tubo?.verticale ? 'Altezza da terra (mm)' : 'Distanza dall’inizio (mm)'}</label>
@@ -2744,17 +2865,59 @@ async function renderProps(s) {
   if ($('#p-anc')) $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
   $('#p-del').onclick = deleteSelected;
   $('#p-trav').onclick = () => iniziaTraverso(s.id);
+  if ($('#p-dividi')) $('#p-dividi').onclick = () => iniziaDividi(s);
   // 03/11: un punto qualsiasi sul tubo (il montante a 265 da terra), poi le frecce come da un angolo
-  $('#p-punto').onclick = () => { $('#p-punto-riga').hidden = false; $('#p-punto-q').focus(); };
+  $('#p-punto').onclick = () => {
+    $('#p-punto-riga').hidden = false; $('#p-punto-q').focus();
+    PUNTO = { id: s.id, mis: s.tubo?.misura, vert: !!s.tubo?.verticale };
+  };
+  $('#p-punto-q').oninput = () => { const q = parseFloat($('#p-punto-q').value.replace(',', '.')); if (PUNTO && isFinite(q)) puntoSegno(q); };
   const metti = () => {
     const q = $('#p-punto-q').value.trim();
     if (!q) { toast('Scrivi la misura.', 'err'); return; }
     const [st, mid] = s.id.split('/');
+    puntoVia();
     inCoda(async () => { const r = await call('punto_su_tubo', st, mid, q); if (await apply(r) && r.node) await select(r.node); });
   };
   $('#p-punto-ok').onclick = metti;
   $('#p-punto-q').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); metti(); } };
   wireLavorazioni(s);
+}
+
+// Il punto sul tubo col mouse (03/11): passando sul tubo compare la misura (da terra o dall'inizio, come nel campo),
+// il clic la scrive nel campo e la si corregge scrivendo; un segnetto mostra dov'è
+let PUNTO = null, puntoMesh = null;
+function puntoMisura(p) {
+  const m = PUNTO.mis;
+  const q = PUNTO.vert ? p.z - m.z0 : (p.x - m.da[0]) * m.dir[0] + (p.y - m.da[1]) * m.dir[1] + (p.z - m.da[2]) * m.dir[2];
+  return Math.max(1, Math.min(Math.round(q), Math.floor(PUNTO.vert ? m.da[2] - m.z0 + m.lunghezza : m.lunghezza) - 1));
+}
+function puntoSegno(q) {
+  if (!PUNTO?.mis) return;
+  const m = PUNTO.mis;
+  const pos = PUNTO.vert ? [m.da[0], m.da[1], m.z0 + q] : m.da.map((c, i) => c + m.dir[i] * q);
+  if (!puntoMesh) {
+    puntoMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0x2f3a8f, depthTest: false }));
+    puntoMesh.renderOrder = 10;
+    scene.add(puntoMesh);
+  }
+  const r = Math.max(4, (m.lunghezza || 500) / 80);
+  puntoMesh.scale.set(r, r, r);
+  puntoMesh.position.set(...pos);
+  puntoMesh.visible = true;
+  ridisegna();
+}
+function puntoVia() {
+  if (PUNTO) tip.style.display = 'none';
+  PUNTO = null;
+  if (puntoMesh) { scene.remove(puntoMesh); puntoMesh.geometry.dispose(); puntoMesh = null; ridisegna(); }
+}
+function puntoPreso(p) {
+  const q = puntoMisura(p);
+  puntoSegno(q);
+  const f = $('#p-punto-q');
+  f.value = virgola(q);
+  f.focus(); f.select();
 }
 
 // Lavorazioni sul tubo (22/10): clic sulla faccia del tubo → sketch su quella faccia, come sulla lamiera
@@ -5097,7 +5260,7 @@ function nodePanel(s) {
   if (a && a.scelte.length) {
     h += `<div class="sub">Come si saldano qui?</div><div class="angoli">${a.scelte.map(x =>
       `<button class="angolo${x.key === a.ora ? ' on' : ''}" data-angolo="${x.key}">${disegnoGiunto(x.disegno)}<span>${esc(x.label)}</span></button>`).join('')}</div>
-      ${a.simili > 1 ? `<label class="check"><input type="checkbox" id="n-tutti" checked> Uguale su tutti i ${a.simili} angoli come questo</label>` : ''}
+      ${a.simili > 1 ? `<label class="check"><input type="checkbox" id="n-tutti" checked> Uguale su tutti i ${a.simili} ${a.incrocio ? 'incroci' : 'angoli'} come questo</label>` : ''}
       <table class="grid" style="margin-top:6px">${a.righe.map(r => `<tr><td>${esc(r[0])}</td><td style="text-align:right">${esc(r[1])}</td></tr>`).join('')}</table>`;
   }
   if (!ultimaAsta.profile) ultimaAsta.profile = s.default_profile;
@@ -5205,9 +5368,9 @@ function renderBottom() {
 
   const c = S.cutlist;
   $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols"><table class="grid"><thead><tr><th>Profilo</th><th class="n">Lunghezza mm</th>
-    <th>Tagli</th><th class="n">Q.tà</th><th>Gruppo</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
+    <th>Tagli</th><th class="n">Q.tà</th><th>Dove va</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
     ${c.rows.map(r => `<tr data-ids="${esc(r.members.join(','))}"><td>${esc(r.profile)} ${esc(r.material)}</td><td class="n">${num(r.length_mm)}</td>
-      <td>${esc(r.cuts.join(' / '))}</td><td class="n">${r.qty}</td><td>${esc(r.groups.join(', '))}</td>
+      <td>${esc(r.cuts.join(' / '))}</td><td class="n">${r.qty}</td><td title="${esc(r.groups.join(', '))}">${esc((r.dove || r.groups).join(' · '))}</td>
       <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
     <tr class="tot"><td colspan="3">Totale</td><td class="n">${c.pieces}</td><td></td><td></td><td class="n">${kg(c.kg)}</td></tr></tbody></table>
     <table class="grid"><thead><tr><th>Per profilo</th><th class="n">Pezzi</th><th class="n">Metri</th><th class="n">kg</th></tr></thead><tbody>
@@ -5431,7 +5594,11 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     }
     if (r.togli?.length) antGruppo.add(gruppoAnteprima(r.togli, ANT_TOGLI, ANT_TOGLI_EDGE));   // quello che si toglie, in arancio
     scene.add(antGruppo);
-    if (stato) { stato.className = 'ant-stato ok'; stato.textContent = opz.frase ? '' : 'Anteprima: in azzurro il pezzo come verrà.'; }
+    if (stato) {
+      stato.className = 'ant-stato ok';
+      // DIVIDI: quanti tubi e che quadri vengono (03/11), è la cosa che l'officina controlla
+      stato.textContent = opz.frase ? '' : metodo === 'dividi' && r.message ? `In azzurro: ${r.message}` : 'Anteprima: in azzurro il pezzo come verrà.';
+    }
     // se il risultato esce dalla vista, si allarga l'inquadratura per vederlo tutto
     const box = new THREE.Box3().setFromObject(antGruppo);
     if (!box.isEmpty() && opz.vista === 'iso' && !antCamera) {
