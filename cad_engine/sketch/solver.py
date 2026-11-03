@@ -687,16 +687,18 @@ def _status(sk, dof, conflict, redundant, values) -> SketchStatus:
     if redundant:
         if len(redundant) == 1:
             n = nome(redundant[0])
-            testo = (f'{n[0].upper()}{n[1:]} non serve: la misura è già decisa dagli altri vincoli. '
-                     'Toglila, altrimenti andrà in conflitto quando cambi le quote.')
+            testo = (f'{n[0].upper()}{n[1:]} è di troppo: quella misura la decidono già le altre. '
+                     'Toglila, se no quando cambi le quote vanno una contro l’altra.')
         else:
-            testo = ('Questi vincoli non servono, la geometria è già decisa dagli altri: '
-                     + '; '.join(nome(c) for c in redundant) + '. Togline almeno uno.')
+            testo = ('Queste misure sono di troppo, il disegno è già deciso dalle altre: '
+                     + '; '.join(nome(c) for c in redundant) + '. Togline almeno una.')
         return SketchStatus(REDUNDANT, dof, testo, redundant=redundant)
     if dof == 0:
-        return SketchStatus(FULLY, 0, 'Lo sketch è completamente vincolato.')
-    gradi = 'grado di libertà' if dof == 1 else 'gradi di libertà'
-    return SketchStatus(UNDER, dof, f'Lo sketch ha ancora {dof} {gradi}: mancano quote o vincoli.')
+        return SketchStatus(FULLY, 0, 'Il disegno è tutto quotato: forma e posizione sono decise.')
+    # 03/11: parole da officina, niente «gradi di libertà»: quante misure mancano perché niente si muova più
+    misure = 'manca 1 misura' if dof == 1 else f'mancano {dof} misure'
+    return SketchStatus(UNDER, dof, f'Il disegno si può ancora muovere: {misure} per fissarlo del tutto '
+                                    '(si può già usare).')
 
 
 def _result(sk, s, pid, lid, cid_, aid, status, values, solved: bool) -> SolvedSketch:

@@ -76,6 +76,11 @@ def main():
             pg.locator('#m-ok').click()
             time.sleep(2.0)
             ok('6 cerchi', len([c for c in pg.evaluate('window.__steelcad.sketch.v.circles') if not c['ref']]) == 6)
+            # 03/11 secondo giro: il passo della serie a sinistra col suo nome da officina, non «px1»
+            par = pg.locator('#params').inner_text()
+            print('misure:', par.replace(chr(10), ' / '))
+            ok('passo della serie: «Distanza tra i fori della fila» in grassetto', pg.locator('#params b', has_text='Distanza tra i fori della fila').count() == 1)
+            pg.screenshot(path=str(SHOTS / '01b_passo_con_nome.png'))
             # il testo sotto l'ultimo foro a destra
             pg.locator('#ribbon [data-tool="text"]').first.click()
             xt, yt = a_schermo([250, 78])

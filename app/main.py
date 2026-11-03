@@ -178,6 +178,9 @@ class Api:
     def sketch_hole_type(self, sid, eids, spec):
         return self._call(self._svc.sketch_hole_type, sid, eids, spec)
 
+    def incastri_possibili(self):
+        return self._call(self._svc.incastri_possibili)
+
     def auto_tabs(self, fid, flid, n, w, gioco, sporgenza=0):
         return self._call(self._svc.auto_tabs, fid, flid, n, w, gioco, sporgenza)
 
@@ -459,6 +462,21 @@ class Api:
 
     def fori_dove(self, face_name, punto):
         return self._call(self._svc.fori_dove, face_name, punto)
+
+    def piega_bordi(self, fid, bordi, fields, angoli='aperti', gioco=0.5):
+        return self._call(self._svc.piega_bordi, fid, bordi, fields, angoli, gioco)
+
+    def angoli_sviluppo_info(self, fid=None):
+        return self._call(self._svc.angoli_sviluppo_info, fid)
+
+    def angoli_sviluppo(self, fid, tipo, valore, punti=None):
+        return self._call(self._svc.angoli_sviluppo, fid, tipo, valore, punti)
+
+    def fori_da_modificare(self, fid):
+        return self._call(self._svc.fori_da_modificare, fid)
+
+    def fori_modifica(self, fid, spec):
+        return self._call(self._svc.fori_modifica, fid, spec)
 
     def sketch_scritte_sotto(self, sid, cerchi, testi, h, stencil=None, gioco=2):
         return self._call(self._svc.sketch_scritte_sotto, sid, cerchi, testi, h, stencil, gioco)

@@ -173,7 +173,7 @@ def test_lamiera_da_zero_disegnata():
     # una L: si parte dall'origine, l'ultimo tratto torna all'origine
     r = s.sketch_add_polyline('S1', ['O', [300, 0], [300, 100], [120, 100], [120, 250], [0, 250]], True)
     v = s.sketch_view('S1')['sketch']
-    assert r['ok'] and v['ok'] and 'completamente' in v['status']
+    assert r['ok'] and v['ok'] and 'tutto quotato' in v['status']
     assert sorted(d['label'] for d in s.state()['dimensions']) == ['100', '150', '180', '300']
     assert s.sketch_add_circle('S1', [60, 50], 7)['ok']
     r = s.create_from_sketch('S1', 'sheet', {'thickness': 3, 'radius': 3, 'k': 0.42})
@@ -193,7 +193,7 @@ def test_disegno_aperto_poi_chiuso_senza_quote_doppie():
     ultimo = s.sketch_view('S1')['sketch']['points'][-1]['id']
     assert s.sketch_add_polyline('S1', [ultimo, [0, 60], 'O'], False)['ok']
     v = s.sketch_view('S1')['sketch']
-    assert v['ok'] and 'completamente' in v['status']                            # niente quote doppie
+    assert v['ok'] and 'tutto quotato' in v['status']                            # niente quote doppie
     assert s.create_from_sketch('S1', 'plate', {'thickness': 5})['ok']
     assert s.state()['bom'][0]['type'] == 'piastra'
 
@@ -204,10 +204,10 @@ def test_rettangolo_cerchio_elimina():
     assert s.sketch_add_rectangle('S1', 'O', [200, 120])['ok']
     assert s.sketch_add_circle('S1', [50, 60], 5)['ok']
     v = s.sketch_view('S1')['sketch']
-    assert 'completamente' in v['status'] and len(v['circles']) == 1
+    assert 'tutto quotato' in v['status'] and len(v['circles']) == 1
     assert s.sketch_delete('S1', [v['circles'][0]['id']])['ok']
     v = s.sketch_view('S1')['sketch']
-    assert v['circles'] == [] and 'completamente' in v['status']
+    assert v['circles'] == [] and 'tutto quotato' in v['status']
     assert len(v['points']) == 5                                                 # 4 angoli + origine
 
 
@@ -225,7 +225,7 @@ def test_sulla_faccia_ci_sono_i_bordi_del_pezzo_e_ci_si_fa_l_offset():
     v = s.sketch_view(sid)['sketch']
     bordi = [l['id'] for l in v['lines'] if l['label'] == 'bordo del pezzo']
     assert len(bordi) == 4 and all(l['construction'] for l in v['lines'])
-    assert 'completamente vincolato' in v['status']
+    assert 'tutto quotato' in v['status']
     assert s.sketch_offset(sid, bordi, 10, 'in')['ok']
     v0 = s.state()['info']['part']['volume_mm3']
     assert s.create_from_sketch(sid, 'cut', {})['ok']
@@ -370,7 +370,7 @@ def test_strumento_asola():
     s.new_project('zero', {'name': 'P'})
     assert s.sketch_add_slot('S1', [0, 0], [80, 0], 6)['ok']
     v = s.sketch_view('S1')['sketch']
-    assert v['ok'] and v['profiles'] == 1 and 'completamente' in v['status']
+    assert v['ok'] and v['profiles'] == 1 and 'tutto quotato' in v['status']
     quote = sorted(d['label'] for d in s.state()['dimensions'] if d['sketch'] == 'S1')
     assert quote == ['80', 'R6']
     r = next(d for d in s.state()['dimensions'] if d['type'] == 'radius')
