@@ -2037,3 +2037,42 @@ body { --alt-rib: 132px; }
 #mini-barra > button.via.con-scritta { color: var(--c-err-testo); }
 #mini-barra > button.via.con-scritta img { filter: none; }
 #mini-barra > button.piu { width: 36px; font-size: 18px; color: var(--c-testo-2); }
+/* il pannello di destra (regola 2): titolo e cos'è, «Cosa puoi fare», i campi, «Dettagli» chiuso, il pulsante blu fermo in fondo */
+#props-panel > h2 { display: none; }
+#props-panel { padding-bottom: 0; border-bottom: 0; }
+#props .fhead { margin-bottom: var(--s-3); }
+#props .fhead h3 { margin: 0 !important; }
+#props .fsub { margin-top: 2px; color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#props .fsub .fid { color: var(--c-spento); font-size: var(--fs-piccolo); }
+#props .cosa-fai { padding: var(--s-3) 0; gap: var(--s-1); border-top: 1px solid var(--c-linea); }
+#props .cosa-fai h4 { margin-bottom: 2px; }
+#props .azioni { display: flex; flex-direction: column; gap: 2px; }
+#props .btn.azione { justify-content: flex-start; gap: var(--s-2); width: 100%; min-height: var(--h-riga); padding: 0 var(--s-2);
+  border-color: transparent; background: none; color: var(--c-testo); font-weight: 500; text-align: left; }
+#props .btn.azione:hover { background: var(--c-sopra); border-color: transparent; }
+#props .btn.azione img { flex: none; width: 18px; height: 18px; }
+#props .btn.azione.danger { color: var(--c-err-testo); }
+#props .btn.azione.danger:hover { background: var(--c-err-tenue); }
+#props .btn.azione[hidden] { display: none; }
+#props .pl-corpo { padding-top: var(--s-3); border-top: 1px solid var(--c-linea); }
+#props .pl-corpo > .hint:first-child { margin-top: 0; }
+#props .dettagli table.grid { margin-top: var(--s-1); }
+#props .dettagli .piega-riga { margin: var(--s-2) 0 0; color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#props .pl-fine { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; gap: var(--s-2); margin: var(--s-4) calc(-1 * var(--s-3)) 0;
+  padding: var(--s-3); border-top: 1px solid var(--c-linea); background: var(--c-pannello); }
+#props .pl-fine .btn.primary { min-width: 120px; }
+/* la barra di prova sul pezzo (Togli il foro, Piega qui…): dentro la vista, in basso al centro, al posto di Inquadra/Quote/Tema.
+   Il pallino dice lo stato: grigio mentre calcola, verde si può fare, rosso no */
+#prova-barra { position: absolute; bottom: 10px; max-width: calc(100% - 24px); gap: var(--s-3); padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4); }
+body.in-prova #navbar { display: none; }
+#prova-barra .pallino { background: var(--c-spento); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-spento) 22%, transparent); }
+#prova-barra.si .pallino { background: var(--c-ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-ok) 22%, transparent); }
+#prova-barra.togli.si .pallino { background: var(--c-warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-warn) 22%, transparent); }
+#prova-barra .frase b { font: 600 var(--fs-testo)/1.3 var(--font); color: var(--c-testo); }
+#prova-barra .frase small { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#prova-barra .tasti .btn { min-height: 36px; }
+#prova-barra .btn kbd { margin-left: 6px; border-color: currentColor; background: none; color: inherit; opacity: .75; }
+.btn.danger.pieno { background: var(--c-err); border-color: var(--c-err); color: var(--c-su-colore); }
+.btn.danger.pieno:hover { background: color-mix(in srgb, var(--c-err) 88%, #000); border-color: transparent; }
+.btn.danger.pieno:disabled { background: var(--c-incavo); border-color: var(--c-linea); color: var(--c-spento); }
+#prova-barra .frase small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }

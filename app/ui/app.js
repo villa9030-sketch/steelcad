@@ -632,15 +632,16 @@ function pannelloPiegaBordo(e, fatta = null) {
   const [flange, end] = libero ? [null, null] : (fatta ? [fatta.flange, fatta.end] : e.ref.split('/'));
   const feature = fatta ? fatta.feature : e.feature;
   const d = fatta ? fatta.def : ultimaBordo;
-  $('#props').innerHTML = `<h3>${fatta ? 'Piega sul bordo' : 'Piega su questo bordo'}</h3>
-    <p class="hint" style="margin:6px 0">${libero ? 'Altezza fuori tutto dallo spigolo esterno; la piega parte dal bordo.'
-      : 'Verso dentro a 90°: la parete che pieghi dopo su quel lato sale e resta dentro (gioco 0,2 mm).'}</p>
+  // 04/11 (regola 2): cos'è, cosa puoi fare, i campi, il pulsante blu in fondo
+  $('#props').innerHTML = pannelloLam({ titolo: fatta ? 'Piega sul bordo' : 'Piega su questo bordo',
+    cose: libero ? 'altezza fuori tutto dallo spigolo esterno' : 'sul fianco della piega, verso dentro',
+    azioni: fatta ? [...azioniFaccia(fatta).slice(0, 3), azioneLam('delete', 'Togli questa piega', 'id="f-del"', 'danger', 'Canc')] : [],
+    corpo: `${libero ? '' : '<p class="hint">Verso dentro a 90°: la parete che pieghi dopo su quel lato sale e resta dentro (gioco 0,2 mm).</p>'}
     ${flangeFields(d, VERSI_PUNTA, POS_UI)}
-    ${libero ? `<div class="ff"><label>Gioco all’inizio<span class="inp"><input class="field" id="f-t0" value="${esc(String(d.trim0 ?? '').replace('.', ','))}" placeholder="auto"><i>mm</i></span></label>
+    ${libero ? `<details class="fsec"${d.trim0 || d.trim1 ? ' open' : ''}><summary>Gioco agli angoli</summary><div class="ff"><label>Gioco all’inizio<span class="inp"><input class="field" id="f-t0" value="${esc(String(d.trim0 ?? '').replace('.', ','))}" placeholder="auto"><i>mm</i></span></label>
       <label>Gioco alla fine<span class="inp"><input class="field" id="f-t1" value="${esc(String(d.trim1 ?? '').replace('.', ','))}" placeholder="auto"><i>mm</i></span></label></div>
-      <p class="hint" style="margin:2px 0 6px">Vuoto: se la piega tocca un’altra parete si accorcia da sola in quell’angolo.</p>` : ''}
-    <div class="row-btns"><button class="btn primary" id="f-add">${fatta ? 'Cambia' : 'Aggiungi piega'}</button></div>
-    ${fatta ? '<div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button></div>' : ''}`;
+      <p class="hint">Vuoto: se la piega tocca un’altra parete si accorcia da sola in quell’angolo.</p></details>` : ''}`,
+    fine: `<button class="btn primary big" id="f-add">${fatta ? 'Cambia la piega' : 'Aggiungi la piega'}</button>` });
   $('#f-pos').closest('.seg-row').style.display = 'none';      // «Misura» qui non serve
   const vai = () => {
     const f = readFlange();
@@ -703,10 +704,12 @@ function selectEdge(e) {
     { chi: 'edge=' + e.id, scritte: true, piu: () => { nascondiMini(); MINI.dove = null; selectEdge(e); } });
     return;                                        // il pannello completo solo con «⋯»
   }
-  $('#props').innerHTML = `<h3>Flangia su questo bordo</h3><table class="grid"><tr><td>Bordo</td><td>${esc(e.label)}</td></tr></table>
-    <p class="hint" style="margin:6px 0">${punta ? 'Piega sul bordo libero della flangia: la sua lunghezza resta la quota esterna fino allo spigolo della nuova piega.' : 'Lunghezza dallo spigolo esterno alla punta.'}</p>
-    ${flangeFields(d, punta ? VERSI_PUNTA : VERSI_UI, POS_UI)}
-    <div class="row-btns"><button class="btn primary" id="f-add">Aggiungi flangia su ${esc(e.label)}</button></div>`;
+  $('#props').innerHTML = pannelloLam({ titolo: 'Flangia su questo bordo', cose: `bordo: ${esc(e.label)}`,
+    azioni: [azioneLam('pattern_rect', 'Piega anche altri bordi', 'id="f-piu-bordi"', '', 'Più bordi insieme, tutti uguali (una vaschetta)')],
+    corpo: `<p class="hint">${punta ? 'Piega sul bordo libero della flangia: la sua lunghezza resta la quota esterna fino allo spigolo della nuova piega.' : 'Lunghezza dallo spigolo esterno alla punta.'}</p>
+    ${flangeFields(d, punta ? VERSI_PUNTA : VERSI_UI, POS_UI)}`,
+    fine: `<button class="btn primary big" id="f-add">Aggiungi flangia su ${esc(e.label)}</button>` });
+  $('#f-piu-bordi').onclick = () => { anteprimaVia(); pieghePiuBordi(e); };
   const vai = () => {
     const f = readFlange();
     if (punta) ultimaPunta = f; else ultimaFlangia = f;
@@ -2786,7 +2789,7 @@ function miniFlangia(s, lavora) {
     schedaCalcola(true);
     inCoda(async () => { const ok = await apply(await call('edit_flange', s.feature, s.flange, campi)); fantasmaFlangia(0); if (ok) await refreshSel(); schedaCalcola(false); });
   };
-  barretta(s.title, [
+  barretta(titoloFlangia(s), [
     ...(e ? [['flange', 'Piega sulla punta', () => { MINI.dove = { p: v3(e.a).lerp(v3(e.b), 0.5), t: performance.now() }; selectEdge(e); }]] : []),
     ...lavora, '|',
     ['delete', 'Togli la piega', () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); }]].map(v => (v === '|' ? ['|'] : v)),
@@ -2801,7 +2804,8 @@ function miniFlangia(s, lavora) {
     return p0 && p1 ? [(p1[0] - p0[0]) / 100, (p1[1] - p0[1]) / 100] : [1, 0];
   };
   const qL = quota(m.clone(), NUM(L), {
-    unita: 'mm', num: L, tira: {
+    // 04/11: sulla quota si legge se è fuori tutto o dal bordo (B_staffa 15: «60 è fuori o dentro?»)
+    unita: 'mm', num: L, etichetta: (POS_UI[f.position || 'inside'] || '').toLowerCase(), tira: {
       muovi: (dx, dy, maiusc, ent) => {
         const [ux, uy] = pxmm(), l2 = ux * ux + uy * uy || 1;
         let dl = (dx * ux + dy * uy) / l2;
@@ -2858,6 +2862,7 @@ const pittogrammaForo = tipo => `<svg width="46" height="28" viewBox="0 0 80 46"
 function miniForo(s) {
   const fo = s.foro, h = fo.hole || {}, n = fo.uguali.length, tipo = h.tipo || 'semplice', t = +fo.spessore || 0;
   if (!MINI.stessa) MINI.tutti = true;
+  if (sel?.pannello) { nascondiMini(); return; }     // 04/11: col pannello aperto («⋯») la scheda accanto direbbe le stesse cose
   const c3 = fo.centri?.[fo.cerchio];
   if (c3) MINI.ancora = v3(c3);                      // la scheda punta al centro del foro, non a dove hai cliccato
   const cerchi = () => (MINI.tutti ? fo.uguali : [fo.cerchio]);
@@ -3117,23 +3122,26 @@ async function renderProps(s) {
     wireMate(s);
     return;
   } else if (s.kind === 'fold') {
-    $('#props').innerHTML = foldPanel(s) + faceSketchButton(s);
+    $('#props').innerHTML = foldPanel(s);
     wireFold(s);
     return;
   } else if (s.kind === 'endmiter') {
     pannelloTesta(s);
     return;
   } else if (s.kind === 'sidebend' || s.kind === 'edgeflange') {
-    pannelloPiegaBordo(null, s);
-    if (s.face) $('#props').insertAdjacentHTML('beforeend', faceSketchButton(s));   // e ci si disegna sopra
+    pannelloPiegaBordo(null, s);                    // con le azioni della sua faccia (ci si disegna sopra)
     return;
   } else if (s.kind === 'flange') {
-    $('#props').innerHTML = flangePanel(s) + faceSketchButton(s);
+    $('#props').innerHTML = flangePanel(s);
     wireFlange(s);
     maniglieFlangia(s);
     return;
   } else if (s.kind === 'body' && s.flange_form) {
-    $('#props').innerHTML = h + faceSketchButton(s) + newFlangePanel(s.flange_form);
+    // 04/11 (regola 2): il lato della base cliccato: la flangia nuova, col pulsante blu in fondo
+    $('#props').innerHTML = pannelloLam({ titolo: 'Flangia su questo lato', cose: esc(`${s.flange_form.label} di ${s.title}`),
+      azioni: [azioneLam('pattern_rect', 'Piega anche altri bordi', 'data-cmd="flange_help"')],
+      corpo: newFlangePanel(s.flange_form), dettagli: righeIt(s.rows.filter(r => r[0] !== 'Faccia')),
+      fine: `<button class="btn primary big" id="f-add">Aggiungi flangia su ${esc(s.flange_form.label)}</button>` });
     wireNewFlange(s.flange_form);
     return;
   } else if (s.kind === 'node') {
@@ -3144,21 +3152,31 @@ async function renderProps(s) {
   selForo = s.kind === 'body' && s.foro?.sketch ? { sketch: s.foro.sketch, eids: [s.foro.cerchio], cosa: 'il foro' }
     : s.kind === 'body' && s.contorno?.eids?.length ? { sketch: s.contorno.sketch, eids: s.contorno.eids, cosa: 'il taglio' } : null;
   if (s.kind === 'body' && s.contorno) {
-    $('#props').innerHTML = h + pannelloContorno(s.contorno);
+    $('#props').innerHTML = pannelloTaglio(s, quanti);
     wireContorno(s.contorno);
     return;
   } else if (s.kind === 'body' && s.foro) {
-    $('#props').innerHTML = h + foroPanel(s.foro);
+    $('#props').innerHTML = pannelloForo(s, quanti);
     wireForo(s.foro);
     return;
   } else if (s.kind === 'body') {
+    // 04/11: la faccia cliccata (o il pezzo intero) col pannello in ordine: cos'è, cosa puoi fare, Dettagli chiusi
+    let corpo = '', fine = '';
     if (s.step) {                          // pezzo da STEP: lo spessore di una lastra piana si cambia (28/10)
-      h += s.step.pieghe ? `<p class="hint">Pezzo da STEP con ${s.step.pieghe} ${s.step.pieghe === 1 ? 'piega' : 'pieghe'}: lo spessore (${virgola(s.step.t)} mm) segue il file 3D.</p>`
-        : `<div class="ff"><label>Spessore<span class="inp"><input class="field" id="st-sp" value="${esc(virgola(s.step.t))}"><i>mm</i></span></label>
-           <button class="btn primary" id="st-ok">Applica</button></div>
+      corpo = s.step.pieghe ? `<p class="hint">Pezzo da STEP con ${s.step.pieghe} ${s.step.pieghe === 1 ? 'piega' : 'pieghe'}: lo spessore (${virgola(s.step.t)} mm) segue il file 3D.</p>`
+        : `<div class="ff"><label>Spessore<span class="inp"><input class="field" id="st-sp" value="${esc(virgola(s.step.t))}"><i>mm</i></span></label><span></span></div>
            <p class="hint">La faccia di sotto (con i fori) resta dov’è: lo spessore cresce verso l’interno del pezzo.</p>`;
+      if (!s.step.pieghe) fine = '<button class="btn primary big" id="st-ok">Cambia lo spessore</button>';
     }
-    h += faceSketchButton(s);              // esporta, spiega, sviluppo: sono nella barra in alto
+    const lab = s.face?.label ? s.face.label.replace(/ di "[^"]*"$/, '') : '';
+    const lamiera = !!S?.sheet?.data;
+    h = s.face ? pannelloLam({ titolo: esc(maiuscola(lab) || 'Faccia') + quanti, cose: esc(`${s.face.planar ? 'faccia piana' : 'faccia curva'} di ${s.title}`),
+      azioni: s.face.planar ? azioniFaccia(s) : [azioneLam('dimension', 'Misura', 'data-cmd="misura"')], corpo, fine,
+      dettagli: righeIt(s.rows.filter(r => r[0] !== 'Faccia')) })
+      : pannelloLam({ titolo: esc(s.title), cose: 'il pezzo intero', corpo, fine,
+        azioni: [lamiera ? azioneLam('flat', 'Sviluppo', 'data-cmd="unfold"', '', 'Spiega o ripiega la lamiera (U)') : '', azioneLam('dimension', 'Misura', 'data-cmd="misura"'),
+          lamiera ? azioneLam('library', 'Raggio e K della piega', 'data-azione="piegatrice"') : ''],
+        dettagli: righeIt(s.rows) });
   }
   $('#props').innerHTML = h;
   if ($('#st-ok')) {
@@ -3331,6 +3349,31 @@ function faceSketchButton(s) {
   if (!s.face?.planar || !s.face.name) return '';
   return `<div class="row-btns"><button class="btn" data-face-sketch="${esc(s.face.name)}">Disegna su questa faccia</button></div>`;
 }
+// 04/11 (regola 2 dell'impaginazione): il pannello di destra sempre nello stesso ordine. In cima il titolo e cos'è;
+// «Cosa puoi fare» con le azioni (pulsanti col nome); i campi del comando; «Dettagli» (peso, ingombro…) chiuso;
+// in fondo, fermo, il pulsante principale blu (se c'è). Le azioni: [html del pulsante] già fatti, con i loro id.
+function pannelloLam({ titolo, cose = '', azioni = [], corpo = '', dettagli = [], dettagliHtml = '', fine = '', testa = '' }) {
+  const az = azioni.filter(Boolean);
+  const righe = dettagli.filter(r => r && r[1] != null && r[1] !== '');
+  return `<div class="fhead"${testa}><div><h3>${titolo}</h3>${cose ? `<div class="fsub">${cose}</div>` : ''}</div></div>`
+    + (az.length ? `<section class="sezione cosa-fai"><h4>Cosa puoi fare</h4><div class="azioni">${az.join('')}</div></section>` : '')
+    + (corpo ? `<div class="pl-corpo">${corpo}</div>` : '')
+    + (righe.length || dettagliHtml ? `<details class="fsec dettagli"><summary>Dettagli</summary>${righe.length ? `<table class="grid">${righe.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>` : ''}${dettagliHtml}</details>` : '')
+    + (fine ? `<div class="pl-fine">${fine}</div>` : '');
+}
+// un'azione del pannello: icona + nome (data: gli attributi che la fanno funzionare, es. data-azione="foro" o id="h-sk")
+const azioneLam = (icona, nome, data, cls = '', titolo = '') =>
+  `<button type="button" class="btn azione${cls ? ' ' + cls : ''}" ${data}${titolo ? ` title="${esc(titolo)}"` : ''}><img src="icons/${icona}.svg" alt="">${esc(nome)}</button>`;
+// le azioni di una faccia piana della lamiera (le stesse della barretta, più quelle che non ci stanno)
+function azioniFaccia(s) {
+  if (!s.face?.planar || !s.face.name) return [];
+  return [azioneLam('hole', 'Foro', 'data-azione="foro"'), azioneLam('slot', 'Asola', 'data-azione="asola"'),
+    azioneLam('project', 'Disegna su questa faccia', `data-face-sketch="${esc(s.face.name)}"`),
+    azioneLam('cut', 'Taglio', 'data-azione="taglia"'), azioneLam('dimension', 'Misura', 'data-cmd="misura"')];
+}
+// i numeri dei Dettagli con la virgola (l'area arrivava «98784.0 mm²»)
+const righeIt = rows => (rows || []).map(([k, v]) => [k, typeof v === 'string' ? v.replace(/(\d)\.(\d)/g, '$1,$2') : v]);
+const maiuscola = t => (t ? t[0].toUpperCase() + t.slice(1) : t);
 // ------------------------------------------------------------- un foro cliccato sul pezzo: semplice, svasato, filettato
 // Come in ogni CAD: clic sulla parete del foro, a destra il tipo. Vale per il cerchio che l'ha fatto (e, se vuoi, per
 // tutti i fori uguali dello stesso disegno).
@@ -3338,13 +3381,19 @@ const FILETTI_M = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12', 'M16'];
 // il taglio cliccato sul pezzo (rettangolo, raccordi, contorno): le sue misure, da cambiare lì (22/10)
 function pannelloContorno(co) {
   const righe = co.campi.map((c, i) => `<label>${esc(c.label)}<span class="inp"><input class="field" data-ci="${i}" value="${esc(virgola(Math.round(c.value * 100) / 100))}"><i>${c.kind === 'angle' || /°/.test(c.label) ? '°' : 'mm'}</i></span></label>`).join('');
-  if (co.rapido) return `<p class="hint">Fatte col comando Foro: si cambiano dalla stessa finestra (misure, al centro / agli angoli / in fila, distanze dai bordi).</p>
-    <div class="row-btns"><button class="btn primary" id="co-cambia">Sposta o cambia…</button><button class="btn" id="co-sk">Modifica il disegno</button></div>
-    ${co.eids?.length ? '<div class="row-btns"><button class="btn danger" id="co-togli" title="Toglie questo taglio dal suo disegno (Canc); gli altri restano">Togli questo taglio</button></div>' : ''}`;
+  if (co.rapido) return '<p class="hint">Fatte col comando Foro: si cambiano dalla stessa finestra (misure, al centro / agli angoli / in fila, distanze dai bordi).</p>';
   return `<div class="ff">${righe}</div>
-    <p class="hint">Cambia le misure e premi Applica: il taglio si rifà. La posizione è dall’origine del disegno (l’angolo del pezzo su cui hai disegnato).</p>
-    <div class="row-btns"><button class="btn primary" id="co-ok">Applica</button><button class="btn" id="co-sk">Modifica il disegno</button></div>
-    ${co.eids?.length ? '<div class="row-btns"><button class="btn danger" id="co-togli" title="Toglie questo taglio dal suo disegno (Canc); gli altri restano">Togli questo taglio</button></div>' : ''}`;
+    <p class="hint">Cambia le misure e premi Applica: il taglio si rifà. La posizione è dall’origine del disegno (l’angolo del pezzo su cui hai disegnato).</p>`;
+}
+// 04/11 (regola 2): il taglio cliccato. Cosa puoi fare (sposta, disegno, togli), le misure, Dettagli, «Applica» in fondo
+function pannelloTaglio(s, quanti = '') {
+  const co = s.contorno;
+  return pannelloLam({ titolo: esc(s.title) + quanti, cose: 'taglio nella lamiera',
+    azioni: [co.rapido ? azioneLam('move', 'Sposta o cambia…', 'id="co-cambia"', '', 'Riapre la finestra: misure, al centro / agli angoli / in fila, distanze dai bordi') : '',
+      azioneLam('sketch', 'Modifica il disegno', 'id="co-sk"'),
+      co.eids?.length ? azioneLam('delete', 'Togli questo taglio', 'id="co-togli"', 'danger', 'Toglie questo taglio dal suo disegno (Canc); gli altri restano') : ''],
+    corpo: pannelloContorno(co), dettagli: righeIt(s.rows.filter(r => r[0] !== 'Faccia')),
+    fine: co.rapido ? '' : '<button class="btn primary big" id="co-ok">Applica</button>' });
 }
 function wireContorno(co) {
   const vai = () => {
@@ -3368,7 +3417,7 @@ function wireContorno(co) {
 function togliDalTaglio(sid, eids, cosa) {
   if (!sid || !eids?.length) return;
   clearSelection();
-  provaSulPezzo({ metodo: 'togli_dal_taglio', argomenti: () => [sid, eids],
+  provaSulPezzo({ metodo: 'togli_dal_taglio', argomenti: () => [sid, eids], togli: true, conferma: `Togli ${cosa}`,
     accetta: r => r.code === 'ultimo',                  // era l'unico contorno: va via tutto il taglio (lo dice la barra)
     frase: r => (r?.code === 'ultimo' ? `Toglie ${cosa} e il suo taglio (era l’unico contorno)` : r?.frase || `Toglie ${cosa}: la lamiera torna piena`),
     // 03/11: una conferma sola. Quello che sparisce insieme al taglio lo dice già questa barra (prima, dopo la barra,
@@ -3400,12 +3449,18 @@ function foroPanel(fo) {
       .map(([k, l]) => `<button type="button" data-k="${k}" class="${tipo === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div id="h-sva"${tipo === 'svasato' ? '' : ' hidden'}>${sv}</div><div id="h-fil"${tipo === 'filettato' ? '' : ' hidden'}>${fi}</div>
     <div id="h-ins"${tipo === 'inserto' ? '' : ' hidden'}>${ins}</div>
-    ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} ${fo.importato ? 'su questa faccia' : 'di questo disegno'}</label>` : ''}
-    <div class="row-btns"><button class="btn primary" id="h-ok">Applica</button>
-      <button class="btn" id="h-sk" title="Apre il disegno del foro: lo sposti, cambi le quote, ne aggiungi altri">Modifica il disegno</button></div>
-    ${!fo.cambiabile ? '' : `<div class="row-btns"><button class="btn" id="h-cambia" title="Riapre la finestra del Foro: diametro, al centro / agli angoli / in fila, distanze dai bordi">Sposta o cambia ${n > 1 ? 'questi fori' : 'il foro'}…</button></div>`}
-    <div class="row-btns"><button class="btn" id="h-vite" title="Salva il pezzo, apre un assieme e ci mette la vite in questo foro">Metti una vite in questo foro…</button>
-      <button class="btn danger" id="h-togli" title="Toglie questo foro dal disegno del suo taglio (Canc); gli altri restano">Togli questo foro</button></div></div>`;
+    ${n > 1 ? `<label class="check"><input type="checkbox" id="h-tutti" checked> anche gli altri ${n - 1} fori Ø${esc(virgola(Math.round(fo.d * 100) / 100))} ${fo.importato ? 'su questa faccia' : 'di questo disegno'}</label>` : ''}</div>`;
+}
+// 04/11 (regola 2): il foro cliccato. Cos'è, cosa puoi fare (sposta, disegno, vite, togli), il tipo e le misure,
+// Dettagli chiusi, «Applica» in fondo
+function pannelloForo(s, quanti = '') {
+  const fo = s.foro, n = fo.uguali.length;
+  return pannelloLam({ titolo: esc(s.title) + quanti, cose: esc(n > 1 ? `${n} fori uguali ${fo.importato ? 'su questa faccia' : 'nello stesso disegno'}` : 'foro nella lamiera'),
+    azioni: [fo.cambiabile ? azioneLam('move', `Sposta o cambia ${n > 1 ? 'questi fori' : 'il foro'}…`, 'id="h-cambia"', '', 'Riapre la finestra del Foro: diametro, al centro / agli angoli / in fila, distanze dai bordi') : '',
+      azioneLam('sketch', 'Modifica il disegno', 'id="h-sk"', '', 'Apre il disegno del foro: lo sposti, cambi le quote, ne aggiungi altri'),
+      azioneLam('fastener', 'Metti una vite in questo foro…', 'id="h-vite"', '', 'Salva il pezzo, apre un assieme e ci mette la vite in questo foro'),
+      azioneLam('delete', 'Togli questo foro', 'id="h-togli"', 'danger', 'Toglie questo foro dal disegno del suo taglio (Canc); gli altri restano')],
+    corpo: foroPanel(fo), dettagli: righeIt(s.rows), fine: '<button class="btn primary big" id="h-ok">Applica</button>' });
 }
 // anteprima della svasatura sul pezzo mentre scrivi: il cono com'è, rosso se va più giù dello spessore (21/10)
 const anteprimaForo = new THREE.Group();
@@ -4081,9 +4136,8 @@ document.addEventListener('click', ev => {
 });
 let ultimaPunta = { length: '20', angle: '90', direction: 'up', position: 'inside' };
 function newFlangePanel(ff) {
-  return `<div class="sub">Flangia su questo lato</div><p class="hint" style="margin:0 0 6px">${esc(ff.label)}: lunghezza dallo spigolo esterno alla punta.</p>
-    ${flangeFields(ultimaFlangia, VERSI_UI, POS_UI)}
-    <div class="row-btns"><button class="btn primary" id="f-add">Aggiungi flangia su ${esc(ff.label)}</button></div>`;
+  return `<p class="hint">${esc(ff.label)}: lunghezza dallo spigolo esterno alla punta.</p>
+    ${flangeFields(ultimaFlangia, VERSI_UI, POS_UI)}`;
 }
 function wireNewFlange(ff) {
   const vai = () => {
@@ -4118,6 +4172,12 @@ function askTipCorners(a) {
 }
 async function refreshSel() { if (sel) await select(sel.id, sel.face, sel.ids, true, sel.nome); }
 
+// il nome della piega, uguale sulla barretta, nel pannello e (come lato) nell'albero: «Piega davanti», «Orlo»…
+function titoloFlangia(s) {
+  const lato = (s.rows || []).find(r => r[0] === 'Lato')?.[1] || '';
+  if (s.parent) return Math.abs(+s.def?.angle) >= 170 ? 'Orlo' : 'Piega sulla punta';
+  return lato ? `Piega ${LATI[lato] || lato}` : s.title;
+}
 function flangePanel(s) {
   const riga = k => (s.rows.find(r => r[0] === k) || [])[1];
   const dove = s.parent ? `sulla punta di ${s.parent}` : (riga('Lato') || '');
@@ -4138,7 +4198,7 @@ function flangePanel(s) {
   const sezPunta = s.tip_child ? '' : `<details class="fsec"${s.tip_form ? ' open' : ''} id="f-punta"><summary>Piega sulla punta</summary>
     <p class="hint">Una flangia sul bordo libero di ${esc(s.flange)}: bordo di scatola, omega, Z…</p>
     ${flangeFields(ultimaPunta, VERSI_PUNTA, POS_UI, 't')}
-    <div class="row-btns"><button class="btn primary" id="t-add">Aggiungi sulla punta</button>
+    <div class="row-btns"><button class="btn" id="t-add">Aggiungi sulla punta</button>
       <button class="btn" id="t-orlo" title="Risvolto a 180° (orlo): la parete resta lunga fino al bordo esterno della piega">Orlo 180°</button>
       <button class="btn" id="t-gradino" title="Gradino (joggle): la parete si sposta di poco e continua parallela, per sovrapporre due lamiere a filo">Gradino…</button></div></details>`;
   const sezIncastri = s.tip_contact ? `<details class="fsec" open id="f-incastri"><summary>Incastri sulla punta</summary>
@@ -4147,18 +4207,29 @@ function flangePanel(s) {
       <label>Larghezza<span class="inp"><input class="field" id="i-w" value="15"><i>mm</i></span></label>
       <label>Gioco<span class="inp"><input class="field" id="i-c" value="0,2"><i>mm</i></span></label>
       <label>Sporgenza<span class="inp"><input class="field" id="i-s" value="0"><i>mm</i></span></label></div>
-    <div class="row-btns"><button class="btn primary" id="i-add">Crea gli incastri</button></div></details>` : '';
+    <div class="row-btns"><button class="btn" id="i-add">Crea gli incastri</button></div></details>` : '';
   const dati = s.rows.filter(r => !['Lato', 'Piegata sulla punta di'].includes(r[0]));
-  const lato = riga('Lato') || '';
-  const titolo = s.parent ? (Math.abs(+s.def.angle) >= 170 ? 'Orlo' : 'Piega sulla punta') : `Piega ${LATI[lato] || lato}`;
+  const titolo = titoloFlangia(s);
   const sotto = s.parent ? `sulla piega ${s.parent}` : (riga('Larghezza') ? `bordo da ${riga('Larghezza')}` : '');
-  return `<div class="fhead" data-flangia="${esc(s.flange)}"><div><h3>${esc(titolo)}</h3><div class="fsub">${esc(sotto)} <span class="fid">${esc(s.flange)}</span></div></div></div>
-    ${flangeFields(s.def, s.parent ? VERSI_PUNTA : (s.directions?.up ? VERSI_UI : s.directions), POS_UI)}
-    ${sezLinguetta}${sezAngoli}${sezIncastri}${sezPunta}
-    ${rigaPiega(dati)}
-    <div class="fp-fine"><button class="link danger" id="f-del" title="Canc">Togli questa piega</button>
-      <button class="btn primary big" id="f-fatto">Fatto</button></div>`;
+  // 04/11 (regola 2): cos'è, cosa puoi fare, quanto è alta / angolo / verso / misura, le sezioni che si aprono,
+  // Dettagli chiusi, «Fatto» in fondo
+  const faccia = azioniFaccia(s).slice(0, 3);
+  return pannelloLam({ titolo: esc(titolo), cose: `${esc(sotto)} <span class="fid">${esc(s.flange)}</span>`, testa: ` data-flangia="${esc(s.flange)}"`,
+    azioni: [s.tip_child ? '' : azioneLam('flange', 'Piega sulla punta', 'data-apri="f-punta"', '', 'Una piega sul bordo libero: bordo di scatola, omega, Z, orlo'),
+      ...faccia, azioneLam('delete', 'Togli questa piega', 'id="f-del"', 'danger', 'Canc')],
+    corpo: `${flangeFields(s.def, s.parent ? VERSI_PUNTA : (s.directions?.up ? VERSI_UI : s.directions), POS_UI)}${sezLinguetta}${sezAngoli}${sezIncastri}${sezPunta}`,
+    dettagliHtml: rigaPiega(righeIt(dati)), fine: '<button class="btn primary big" id="f-fatto">Fatto</button>' });
 }
+// un'azione che apre una sezione del pannello (es. «Piega sulla punta»): la apre e ci va
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('#props [data-apri]');
+  if (!b) return;
+  const d = document.getElementById(b.dataset.apri);
+  if (!d) return;
+  d.open = true;
+  d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  d.querySelector('input')?.focus();
+});
 // i dati di piega stanno in un posto solo (la scheda Lamiera in basso): qui un riassunto e "cambia"
 function rigaPiega(righe = []) {
   const d = S?.sheet?.def || {}, pd = S?.bend_default || {};
@@ -5933,17 +6004,20 @@ async function impostazioniDialog(sezione = 'piegatrice') {
 
 function foldPanel(s) {
   const d = s.def;
-  return `<div class="fhead"><div><h3>Piega ${esc(s.fold)}</h3><div class="fsub">piega su linea</div></div>
-      <button class="ibtn danger" id="f-del" title="Elimina la piega (la lamiera torna piana lì)"><img src="icons/delete.svg" alt=""></button></div>
-    <div class="ff"><label>Angolo<span class="inp"><input class="field" id="f-ang" value="${esc(String(d.angle).replace('.', ','))}"><i>°</i></span></label><span></span></div>
-    <div class="seg-row"><span>Verso</span><div class="seg" id="f-dir">${[['up', 'su'], ['down', 'giù']].map(([k, t]) => `<button type="button" data-v="${k}" class="${d.direction === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
-    <div class="row-btns"><button class="btn" id="f-flip">Piega l’altra parte</button></div>
-    <div class="sub">Bumping (raggio grande a colpi)</div>
+  // 04/11 (regola 2): la piega su una linea (anche le pieghe di un profilo piegato)
+  return pannelloLam({ titolo: `Piega ${esc(s.fold)}`, cose: 'piega su una linea dello sviluppo',
+    azioni: [azioneLam('fold', 'Piega l’altra parte', 'id="f-flip"', '', 'La linea resta lì: si alza l’altra parte della lamiera'),
+      ...azioniFaccia(s).slice(0, 3),
+      azioneLam('delete', 'Togli la piega', 'id="f-del"', 'danger', 'Elimina la piega (la lamiera torna piana lì)')],
+    corpo: `<div class="ff"><label>Angolo<span class="inp"><input class="field" id="f-ang" value="${esc(String(d.angle).replace('.', ','))}"><i>°</i></span></label><span></span></div>
+    <div class="seg-row"><span>Verso</span><div class="seg" id="f-dir">${[['up', 'In su'], ['down', 'In giù']].map(([k, t]) => `<button type="button" data-v="${k}" class="${d.direction === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+    <p class="hint">La lunghezza la calcolo io: quella che serve perché lo sviluppo resti quello disegnato.</p>
+    <details class="fsec"${d.bump?.colpi ? ' open' : ''}><summary>A colpi (raggio grande)</summary>
     <div class="ff"><label>Colpi<input class="field" id="f-colpi" value="${esc(String(d.bump?.colpi ?? ''))}" placeholder="vuoto = piega normale"></label>
       <label>Raggio grande<span class="inp"><input class="field" id="f-rg" value="${esc(String(d.bump?.raggio ?? '').replace('.', ','))}"><i>mm</i></span></label></div>
-    ${s.colpi?.length ? `<p class="hint" style="margin:4px 0">Battuta dei colpi (dalla linea, nello sviluppo): ${s.colpi.map(c => num(c, 1)).join(' · ')} mm</p>` : ''}
-    <p class="hint">La lunghezza la calcolo io: quella che serve perché lo sviluppo resti quello disegnato.</p>
-    ${rigaPiega(s.rows.filter(r => r[0] !== 'Piega su linea'))}`;
+    ${s.colpi?.length ? `<p class="hint">Battuta dei colpi (dalla linea, nello sviluppo): ${s.colpi.map(c => num(c, 1)).join('; ')} mm</p>` : ''}</details>`,
+    dettagliHtml: rigaPiega(righeIt(s.rows.filter(r => r[0] !== 'Piega su linea'))),
+    fine: '<button class="btn primary big" id="f-fatto">Fatto</button>' });
 }
 function wireFold(s) {
   const edit = f => inCoda(async () => { if (await apply(await call('edit_fold', s.feature, s.fold, f))) await refreshSel(); });
@@ -5954,6 +6028,7 @@ function wireFold(s) {
   const bump = () => edit({ bump: $('#f-colpi').value.trim() ? { colpi: $('#f-colpi').value.trim(), raggio: $('#f-rg').value.trim() } : null });
   ['#f-colpi', '#f-rg'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') bump(); }; $(q).onchange = bump; });
   $('#f-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('delete_fold', s.feature, s.fold))); };
+  $('#f-fatto').onclick = () => clearSelection();
 }
 function wireFlange(s) {
   // le modifiche valgono subito: Invio o uscendo dal campo, clic su Verso/Misura
@@ -7735,7 +7810,7 @@ async function origineBordi(ids) {
   document.body.appendChild(box);
   $('#or-chiudi').onclick = chiudiOrigine;
   if ($('#or-togli')) $('#or-togli').onclick = () => { chiudiOrigine();
-    provaSulPezzo({ metodo: 'togli_fori_da_taglio', argomenti: () => [sid, ids], frase: r => r?.frase || 'Chiude i fori scelti',
+    provaSulPezzo({ metodo: 'togli_fori_da_taglio', argomenti: () => [sid, ids], togli: true, conferma: 'Chiudi i fori', frase: r => r?.frase || 'Chiude i fori scelti',
       sotto: () => 'La lamiera torna piena dove c’erano · si annulla con Ctrl+Z',
       fai: () => inCoda(async () => { const x = await call('togli_fori_da_taglio', sid, ids); await apply(x, x.message); }) }); };
   $('#or-apri').onclick = () => { chiudiOrigine(); exitSketch(); inCoda(() => enterSketch(r.sketch)); };
@@ -9165,8 +9240,11 @@ function provaSulPezzo(o) {
   const b = document.createElement('div');
   b.id = 'prova-barra';
   b.innerHTML = `<span class="pallino"></span><span class="frase"><b></b><small></small></span><span class="sep"></span>
-    <span class="tasti"><button class="btn primary" id="pr-ok">Conferma <kbd>Invio</kbd></button><button class="btn" id="pr-no">Annulla <kbd>Esc</kbd></button>${o.altro ? '<button class="btn" id="pr-altro" title="Tutte le opzioni">⋯</button>' : ''}</span>`;
-  document.body.appendChild(b);
+    <span class="tasti"><button class="btn ${o.togli ? 'danger pieno' : 'primary'}" id="pr-ok">${esc(o.conferma || (o.togli ? 'Togli' : 'Conferma'))} <kbd>Invio</kbd></button><button class="btn" id="pr-no">Annulla <kbd>Esc</kbd></button>${o.altro ? '<button class="btn" id="pr-altro" title="Tutte le opzioni">⋯</button>' : ''}</span>`;
+  // 04/11: la barra sta dentro la vista, al posto della barra Inquadra/Quote/Tema (prima le stava sopra); i colori dicono
+  // lo stato: grigio mentre calcola, verde si può fare, rosso no. «Togli» è rosso pieno
+  if (o.togli) b.classList.add('togli');
+  view.appendChild(b);
   document.body.classList.add('in-prova');
   PROVA = { ...o, el: b, r: null };
   const stato = document.createElement('span');            // dove l'anteprima scrive come è andata (la frase lo dice)
@@ -9179,7 +9257,7 @@ function provaSulPezzo(o) {
       const va = r.ok || !!o.accetta?.(r);
       PROVA.r = { ...r, ok: va };
       b.classList.remove('calcolo');
-      b.classList.toggle('no', !va);
+      b.classList.toggle('no', !va); b.classList.toggle('si', va);
       b.querySelector('.frase b').textContent = va ? o.frase(r) : 'Così non si può fare';
       b.querySelector('.frase small').textContent = va ? (o.sotto ? o.sotto(r) : '') : (r.message || '');
       $('#pr-ok').disabled = !va;
