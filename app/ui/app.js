@@ -4294,22 +4294,31 @@ async function viteriaDialog() {
     const pr = await call('asm_vite_proposta', foro, [vv.x, vv.y, vv.z]);
     if (pr?.ok) ultimo = { ...ultimo, tipo: ultimo.tipo === 'vite_tspei' ? 'vite_tspei' : pr.proposta.tipo, misura: pr.proposta.misura, L: pr.proposta.L };
   }
-  modal(`<h3>Viteria</h3>
-    <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
-    <div class="form"><label class="tutta-riga">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
-      <label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div>
-    ${foro ? `<label class="check"><input type="checkbox" id="vt-f" checked> nel foro che hai cliccato</label>
-      <label class="check" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked> <span id="vt-tutti-t">anche negli altri fori uguali del pezzo</span></label>
-      <label class="check"><input type="checkbox" id="vt-app" checked> appoggiata sotto la testa (dal lato che stai guardando)</label>`
-      : `<div class="ff"><label>Quante<span class="inp"><input class="field" id="vt-n" value="${esc(String(ultimo.n || 1))}"></span></label><span></span></div>
-      <p class="hint">Per metterle nei fori: clicca prima un foro del pezzo, poi «Viteria»: le metto in quel foro e, se vuoi, in tutti i fori uguali.</p>`}
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Inserisci</button></div>`, close => {
+  // 04/11 (regola 2): la viteria nel pannello a destra, come Vite nei fori (prima una finestra in mezzo, sopra il pezzo)
+  viteriaChiudi();
+  const el = document.createElement('div');
+  el.id = 'viteria-pan'; el.className = 'pannello-cmd';
+  el.innerHTML = `<div class="pc-testa"><h3>Viteria</h3><p>Viti, dadi, rondelle e rivetti dalle norme ISO: il pezzo si fa la prima volta e poi si riusa. In distinta va tra gli acquisti</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Cosa</h4><select class="field" id="vt-t" aria-label="Cosa">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
+      <div class="ff"><label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div></section>
+    <section class="sezione"><h4>Dove</h4>
+    ${foro ? `<label class="interruttore"><input type="checkbox" id="vt-f" checked><i></i>Nel foro che hai cliccato</label>
+      <label class="interruttore" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked><i></i><span id="vt-tutti-t">Anche negli altri fori uguali del pezzo</span></label>
+      <label class="interruttore"><input type="checkbox" id="vt-app" checked><i></i>Appoggiata sotto la testa (dal lato che guardi)</label>`
+      : `<div class="ff"><label>Quante<span class="inp"><input class="field num" id="vt-n" value="${esc(String(ultimo.n || 1))}"></span></label><span></span></div>
+      <p class="hint">Per metterle nei fori: clicca prima un foro del pezzo, poi «Viteria»: le metto in quel foro e, se vuoi, in tutti i fori uguali.</p>`}</section></div>
+    <div class="pc-fondo"><button class="btn" id="vt-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vt-ok">Inserisci</button></div>`;
+  document.body.appendChild(el);
+  VIT.el = el;
+  const close = viteriaChiudi;
+  {
     if (foro) call('asm_fori_uguali', foro.inst, foro.face).then(x => {      // quanti fori uguali ha il pezzo
       if (!x?.ok || x.n < 2 || !$('#vt-tutti-w')) return;
       $('#vt-tutti-w').hidden = false;
-      $('#vt-tutti-t').textContent = `in tutti i ${x.n} fori uguali del pezzo (una vite per foro)`;
-      $('#m-ok').textContent = `Inserisci (${x.n})`;
-      $('#vt-tutti').onchange = () => { $('#m-ok').textContent = $('#vt-tutti').checked ? `Inserisci (${x.n})` : 'Inserisci'; };
+      $('#vt-tutti-t').textContent = `In tutti i ${x.n} fori uguali del pezzo (una vite per foro)`;
+      $('#vt-ok').textContent = `Inserisci (${x.n})`;
+      $('#vt-tutti').onchange = () => { $('#vt-ok').textContent = $('#vt-tutti').checked ? `Inserisci (${x.n})` : 'Inserisci'; };
     });
     const rifai = () => {
       const c = cat[$('#vt-t').value];
@@ -4318,8 +4327,8 @@ async function viteriaDialog() {
       $('#vt-lw').hidden = !c.lunghezze.length;
     };
     $('#vt-t').onchange = rifai; rifai();
-    $('#m-no').onclick = close;
-    $('#m-ok').onclick = () => {
+    $('#vt-no').onclick = close;
+    VIT.ok = $('#vt-ok').onclick = () => {
       const tipo = $('#vt-t').value, misura = $('#vt-m').value, L = cat[tipo].lunghezze.length ? +$('#vt-l').value : null;
       const n = $('#vt-n') ? $('#vt-n').value.trim() : 1;
       viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L, n };
@@ -4330,8 +4339,15 @@ async function viteriaDialog() {
       close();
       inCoda(async () => { const r2 = await call('asm_insert_viteria', tipo, misura, L, dove, opz); if (await apply(r2, r2.message) && r2.select) await select(r2.select); });
     };
-  });
+  }
 }
+const VIT = { el: null, ok: null };
+function viteriaChiudi() { VIT.el?.remove(); VIT.el = null; VIT.ok = null; }
+window.addEventListener('keydown', e => {
+  if (!VIT.el || e.target.closest?.('input:not([type=checkbox]), textarea')) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); viteriaChiudi(); }
+  else if (e.key === 'Enter' && !e.target.closest?.('select')) { e.preventDefault(); e.stopImmediatePropagation(); VIT.ok?.(); }
+}, true);
 function pickInstEdge(ev) {                          // lo spigolo di una copia dell'assieme sotto il mouse (punto nel mondo)
   const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
   const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height]; };
@@ -4384,7 +4400,9 @@ function asmClick(ev) {
     const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2, true);
     if (await apply(r, 'Accoppiato.') && r.select) {
       await select(r.select);
-      if (u.val === null) setTimeout(() => { const c = $('#m-off') || $('#m-ang'); if (c) { c.focus(); c.select(); } }, 60);   // a pannello pronto
+      // a pannello pronto (04/11: si aspetta che ci sia; con 60 ms fissi, la prima volta il pannello arrivava dopo)
+      if (u.val === null) { const t0 = performance.now(); const fuoco = () => { const c = $('#m-off') || $('#m-ang');
+        if (c && c.offsetParent) { c.focus(); c.select(); } else if (performance.now() - t0 < 3000) setTimeout(fuoco, 40); }; setTimeout(fuoco, 40); }
     }
   });
 }
