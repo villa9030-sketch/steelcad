@@ -29,6 +29,12 @@ try:
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         pg.click('#b-prepara'); time.sleep(2.5)
         pg.screenshot(path=str(OUT / '1_prepara.png'))
+        # 03/11: con cose da guardare niente verde «a posto», e il giallo «Da guardare» sta in cima
+        testo = pg.inner_text('#modal-box')
+        da_guardare = pg.is_visible('#modal-box .prep-avvisi')
+        log('da guardare', da_guardare, '| verde «a posto»', 'a posto per il laser' in testo)
+        assert da_guardare and 'a posto per il laser' not in testo, 'verde e giallo insieme'
+        assert pg.evaluate("document.querySelector('#modal-box .prep-ok').classList.contains('prep-avvisi')"), 'Da guardare non è il primo'
         pg.click('#modal-box [data-voce="officina"]'); time.sleep(0.3)
         pg.click('#m-ok'); time.sleep(4)
         pg.screenshot(path=str(OUT / '2_dopo_salva.png'))

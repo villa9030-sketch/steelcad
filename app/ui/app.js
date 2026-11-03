@@ -312,6 +312,11 @@ function buildScene(sc) {
   for (const g of ctxGeo) g.dispose();
   ctxGeo = [];
   model.clear(); objs.clear();
+  // 03/11 (collaudo): il cartellino del mouse era ancora quello del progetto di prima («L 40×40×4 · 920» su un
+  // cancello 60×40) finché non si muoveva il mouse: con la scena nuova si toglie, al prossimo movimento torna giusto
+  hover = null; hoverEdge = null;
+  const cartellino = document.getElementById('hover-tip');
+  if (cartellino) { cartellino.style.display = 'none'; cartellino.textContent = ''; }
   interfPulisci();                                 // le interferenze di prima non valgono più
   if (saldGroup) model.add(saldGroup);             // le saldature restano sul pezzo
   for (const d of sc.objects) {
@@ -1181,11 +1186,61 @@ function goTo(dir, keepDir = false) {
   if (!objs.size) return;
   fitBox(new THREE.Box3().setFromObject(model), dir, keepDir);
 }
+// 03/11 (collaudo tubi): la parte della vista che si vede davvero. Il pannello di destra (e la finestra di lato) stanno
+// SOPRA la vista e in basso c'è la barretta Inquadra/Quote: Inquadra e il centraggio usano solo il rettangolo libero,
+// altrimenti il modello finisce mezzo sotto il pannello. In pixel della vista: {l, r, t, b}
+function areaLibera() {
+  const vr = canvas.getBoundingClientRect();
+  const A = { l: 0, r: vr.width, t: 0, b: vr.height };
+  const sopra = [];
+  if (!document.body.classList.contains('senza-destra')) sopra.push($('#right'));
+  // chiuso, il pannello si riapre al primo clic su un pezzo o un angolo: nel 3D il suo posto si tiene libero lo stesso,
+  // così il modello non ci finisce sotto e la vista non deve saltare quando si apre
+  else if (!SK) A.r = Math.min(A.r, vr.width - 320);
+  sopra.push(document.querySelector('#modal.laterale .modal-box'));
+  for (const el of sopra) {
+    if (!el || !el.offsetWidth) continue;
+    const r = el.getBoundingClientRect();
+    if (r.left > vr.left + vr.width / 2 && r.left < vr.right) A.r = Math.min(A.r, r.left - vr.left - 10);
+  }
+  const nb = $('#navbar');
+  if (nb?.offsetHeight) { const r = nb.getBoundingClientRect(); if (r.top > vr.top + vr.height / 2) A.b = Math.min(A.b, r.top - vr.top - 6); }
+  if (A.r - A.l < 200) { A.l = 0; A.r = vr.width; }            // finestra minuscola: meglio tutta la vista
+  if (A.b - A.t < 150) { A.t = 0; A.b = vr.height; }
+  return A;
+}
+// lo spostamento del disegno messo dall'ultimo Inquadra (senza finestre aperte): chiusa un'anteprima si torna a questo
+let spostaBase = null;
+function applicaSposta(s) {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (s && (Math.abs(s.x) > 0.5 || Math.abs(s.y) > 0.5)) camera.setViewOffset(w, h, s.x, s.y, w, h);
+  else if (camera.view?.enabled) camera.clearViewOffset();
+  ridisegna();
+}
+// il punto (nel mondo) cade nella parte libera della vista, con un margine per le frecce intorno? Se la vista sta ancora
+// andando verso un'inquadratura nuova, si guarda dove arriverà
+function dentroVista(p, margine = 0) {
+  const pos = camera.position.clone(), tg = controls.target.clone();
+  if (anim) { camera.position.copy(anim.to.pos); camera.lookAt(anim.to.target); camera.updateMatrixWorld(); }
+  const q = p.clone().project(camera);
+  if (anim) { camera.position.copy(pos); camera.lookAt(tg); camera.updateMatrixWorld(); }
+  const A = areaLibera(), x = (q.x + 1) / 2 * canvas.clientWidth, y = (1 - q.y) / 2 * canvas.clientHeight;
+  return q.z < 1 && x > A.l + margine && x < A.r - margine && y > A.t + margine && y < A.b - margine;
+}
 function fitBox(box, dir, keepDir = false, subito = false, tutto3d = false) {
   const c = box.getCenter(new THREE.Vector3());
   const rad = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
   const fov = THREE.MathUtils.degToRad(camera.fov);
   let dist = rad / Math.sin(Math.min(fov, fov * camera.aspect) / 2) * 1.08;
+  if (!SK || tutto3d) {
+    // solo la parte libera della vista: il centro del modello va nel suo centro
+    const A = areaLibera(), W = canvas.clientWidth || 1, H = canvas.clientHeight || 1;
+    const tv = Math.tan(fov / 2) * (A.b - A.t) / H, to = Math.tan(fov / 2) * camera.aspect * (A.r - A.l) / W;
+    dist = rad / Math.sin(Math.atan(Math.min(tv, to))) * 1.08;
+    const sposta = { x: W / 2 - (A.l + A.r) / 2, y: H / 2 - (A.t + A.b) / 2 };
+    applicaSposta(sposta);
+    if (!document.querySelector('#modal.laterale .modal-box')?.offsetWidth) spostaBase = sposta;
+  } else { applicaSposta(null); spostaBase = null; }
   if (SK && !tutto3d) {
     // nel disegno si guarda la faccia di fronte: si inquadra larghezza × altezza, non la sfera intorno
     // (una faccia lunga e bassa verrebbe minuscola)
@@ -1641,11 +1696,9 @@ function tuboDaFreccia(n, dir) {
     if (!(await apply(r))) return;
     await select(r.node);                         // si continua dal capo del tubo nuovo
     // il capo del tubo è uscito dalla vista: si riquadra tutto, così le frecce si vedono
+    // (03/11: conta solo la parte libera della vista, il pannello di destra ci sta sopra; margine per le frecce)
     const capo = nodes.find(x => x.id === r.node);
-    if (capo) {
-      const q = new THREE.Vector3(...capo.xyz).project(camera);
-      if (Math.abs(q.x) > 0.75 || Math.abs(q.y) > 0.75) { goTo(vistaIso()); setTimeout(placeDims, 450); }
-    }
+    if (capo && !dentroVista(new THREE.Vector3(...capo.xyz), 90)) { goTo(null, true); setTimeout(placeDims, 450); }
   });
 }
 function clickNode(n) {
@@ -2318,6 +2371,17 @@ $('#props').addEventListener('click', ev => {
 });
 
 // ------------------------------------------------------------- prepara per il laser / l'officina
+// 03/11 (collaudo): il verde «a posto» sopra il giallo «Da guardare» sembrava dire due cose opposte. Prima quello che va
+// guardato; il verde solo se non c'è niente da guardare (se no il controllo fatto resta una riga piccola sotto)
+function prepControllo(c) {
+  if (!c) return '';
+  const avvisi = c.avvisi || [];
+  const grave = c.ok ? '' : `<div class="prep-ok no"><b>Attenzione:</b> ${esc(c.testo)}</div>`;
+  const guarda = avvisi.length ? `<div class="prep-ok no prep-avvisi"><b>Da guardare:</b><span>${avvisi.map(esc).join('<br>')}</span></div>` : '';
+  if (!c.ok) return grave + guarda;
+  if (avvisi.length) return guarda + '<div class="prep-nota">Per il resto: contorno chiuso, fori e pieghe controllati.</div>';
+  return '<div class="prep-ok"><b>Il pezzo è a posto per il laser.</b> Contorno chiuso, fori e pieghe controllati.</div>';
+}
 async function preparaDialog() {
   const info = await call('prepara_info');
   if (!info.ok) { toast(info.message, 'err'); return; }
@@ -2328,8 +2392,7 @@ async function preparaDialog() {
       <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small>${
         v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span></label>`).join('');
   modal(`<h3>Cosa ti serve?</h3>
-    ${c ? `<div class="prep-ok${c.ok ? '' : ' no'}">${c.ok ? '<b>Il pezzo è a posto per il laser.</b> ' : '<b>Attenzione:</b> '}${esc(c.ok ? 'Contorno chiuso, fori e pieghe controllati.' : c.testo)}</div>` : ''}
-    ${c && c.avvisi && c.avvisi.length ? `<div class="prep-ok no prep-avvisi"><b>Da guardare:</b><span>${c.avvisi.map(esc).join('<br>')}</span></div>` : ''}
+    ${prepControllo(c)}
     <div class="prep-voci">${voci}</div>
     <div class="prep-dove">Si salvano in <b id="prep-dir">${esc(cartella)}</b> <button class="link" id="prep-cambia">Cambia cartella</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
@@ -6176,7 +6239,7 @@ function confermaAccesa(stato, si) {
 let antGruppo = null, antTimer = null, antN = 0, antCamera = null, antUltimi = '', antNascosto = false, antInVolo = false, antDopo = null;
 function anteprimaVia() {
   clearTimeout(antTimer); antN++; antUltimi = '';
-  if (camera.view?.enabled) { camera.clearViewOffset(); ridisegna(); }
+  applicaSposta(spostaBase);                        // lo spostamento dell'ultimo Inquadra (la parte libera della vista)
   if (antCamera) {                                  // la vista torna com'era prima della finestra
     camera.position.copy(antCamera.pos); controls.target.copy(antCamera.target); controls.update(); antCamera = null; ridisegna();
   }

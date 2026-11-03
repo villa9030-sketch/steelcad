@@ -18,9 +18,26 @@ def _base(nome: str) -> str:
     return re.sub(r'\s*\(\d+\)$', '', str(nome or '')).strip()
 
 
+NOME_CORTO = 32          # oltre, nella distinta il nome non si legge al volo (03/11, collaudo)
+
+
+def _tipi(distinti: list) -> str:
+    """«Traverso in mezzo…», «Fianco a sinistra, a 383 da terra», «Fianco a destra…» → «Traverso e fianchi»: solo i
+    tipi di tubo, al plurale se sono più d'uno; dove stanno lo dicono i numeri di posizione sull'isometrica."""
+    conta = {}
+    for n in distinti:
+        t = n.split(' ')[0]
+        conta[t] = conta.get(t, 0) + 1
+    parole = [PLURALI.get(t, t) if k > 1 else t for t, k in conta.items()]
+    parole = [parole[0]] + [p[:1].lower() + p[1:] for p in parole[1:]]
+    return parole[0] if len(parole) == 1 else ', '.join(parole[:-1]) + ' e ' + parole[-1]
+
+
 def nome_riga(nomi: list) -> str:
     """Il nome di una riga della distinta di taglio dai nomi dei suoi tubi: uno solo → quello; tutti dello stesso
-    tipo → «Gambe» o «Fianchi: in alto; a destra, a 383 da terra»; tipi diversi → i nomi in fila."""
+    tipo → «Gambe» o «Montanti: a sinistra; a destra»; tipi diversi → «Traverso e fianchi». Sempre corto: un
+    carpentiere lo deve leggere al volo (03/11: i pezzi tagliati dagli incroci davano «Traverso in mezzo…; Fianco a
+    sinistra, a 383 da terra…», lunghissimo)."""
     distinti = list(dict.fromkeys(_base(n) for n in nomi if _base(n)))
     if not distinti:
         return 'Tubo'
@@ -33,8 +50,9 @@ def nome_riga(nomi: list) -> str:
         if len(distinti) >= 4 or tipo not in PLURALI:
             return plurale
         resto = [n[len(tipo):].strip(' ,') for n in distinti]
-        return f'{plurale}: ' + '; '.join(r for r in resto if r)
-    return '; '.join(distinti)
+        lungo = f'{plurale}: ' + '; '.join(r for r in resto if r)
+        return lungo if len(lungo) <= NOME_CORTO else plurale
+    return _tipi(distinti)
 
 
 def _tagli(cuts: list) -> str:

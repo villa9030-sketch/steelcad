@@ -46,6 +46,16 @@ def test_nome_riga_da_officina():
     assert nome_riga(['Montante a sinistra', 'Montante a destra']) == 'Montanti: a sinistra; a destra'
 
 
+def test_nome_riga_corto_per_i_pezzi_degli_incroci():
+    """03/11 (collaudo): un pezzo tagliato dagli incroci prendeva tutti i nomi in fila, illeggibile in officina."""
+    n = nome_riga(['Traverso in mezzo, a 400 da terra', 'Fianco a sinistra, a 383 da terra', 'Fianco a destra, a 383 da terra'])
+    assert n == 'Traverso e fianchi'
+    assert nome_riga(['Fianco a sinistra, a 383 da terra', 'Fianco a destra, a 383 da terra']) == 'Fianchi'
+    assert nome_riga(['Traverso davanti', 'Gamba dietro', 'Mensola']) == 'Traverso, gamba e mensola'
+    for x in (n, nome_riga(['Fianco in alto', 'Fianco a destra, a 383 da terra'])):
+        assert len(x) <= 32
+
+
 def test_distinta_di_taglio_senza_sigle(telaio):
     """I pezzi degli incroci (A1~1, M7~2…) sono righe normali col nome da officina, mai con le sigle."""
     righe = righe_taglio(telaio.result.structures)

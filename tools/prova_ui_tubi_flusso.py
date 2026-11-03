@@ -172,9 +172,17 @@ def main():
             foto('sagoma_tubi')
 
             # 7. telaio da zero con le frecce
+            # (03/11) il cartellino del mouse di questo progetto non deve restare sul progetto nuovo
+            sx, sy = pg.evaluate('(p) => window.__steelcad.toScreen(p)', centro(next(iter(pg.evaluate("[...window.__steelcad.objs.keys()]")))))
+            c3 = pg.locator('#c3d').bounding_box()
+            pg.mouse.move(c3['x'] + sx, c3['y'] + sy, steps=3)
+            time.sleep(0.3)
+            prima = pg.evaluate("(() => { const t = document.querySelector('#hover-tip'); return t.style.display === 'block' ? t.textContent : ''; })()")
             pg.evaluate("window.__steelcad.nuovo('vuoto')")
             pg.click('#n-ok')
             pg.wait_for_function("window.__steelcad.nodes.length === 1")
+            dopo = pg.evaluate("(() => { const t = document.querySelector('#hover-tip'); return t.style.display === 'block' ? t.textContent : ''; })()")
+            ok(f'progetto nuovo: sparito il cartellino di prima ({prima!r} → {dopo!r})', prima and not dopo)
             pg.evaluate("window.__steelcad.select(window.__steelcad.nodes[0].id)")
             pg.wait_for_selector('.freccia-3d')
             pg.fill('#n-len', '1600')
@@ -184,22 +192,31 @@ def main():
             pg.wait_for_function("document.querySelector('#props h3') && /Angolo|Punto/.test(document.querySelector('#props h3').textContent)")
             time.sleep(0.5)
             pg.fill('#n-len', '700')
-            # la freccia nel 3D se si vede; se il capo del tubo nuovo è finito fuori dalla vista, il pulsante del pannello
-            si_vede = pg.evaluate("""() => { const f = [...document.querySelectorAll('.freccia-3d')].find(e => e.textContent.includes('Dietro'));
-                if (!f) return false; const r = f.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-                if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
-                const e = document.elementFromPoint(x, y); return !!e && f.contains(e); }""")
-            if si_vede:
-                pg.click('.freccia-3d:has-text("Dietro")')
-            else:
-                print('NOTA: il capo del tubo nuovo è fuori dalla vista, uso «Dietro» del pannello', flush=True)
-                pg.click('#props button:text-is("Dietro")')
+            # 03/11: dopo il tubo da 1600 il capo nuovo e le sue frecce devono restare nella parte libera della vista
+            # (non sotto il pannello di destra): si clicca la freccia «Dietro» nel 3D, come una persona
+            vis = pg.evaluate("""() => [...document.querySelectorAll('.freccia-3d')].map(f => {
+                const r = f.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+                const e = document.elementFromPoint(x, y); return [f.textContent.trim(), !!e && f.contains(e)]; })""")
+            ok(f'dopo il tubo da 1600 tutte le frecce del capo si vedono {vis}', vis and all(v for _, v in vis))
+            pg.click('.freccia-3d:has-text("Dietro")')
             pg.wait_for_function('window.__steelcad.state.cutlist.pieces === 2')
             scena_pronta()
             nomi = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.data.name)")
             ok(f'da zero: due tubi con le frecce {nomi}', any(x.startswith('Traverso davanti') and x.endswith('1600') for x in nomi)
                and any(x.startswith('Fianco a destra') and x.endswith('700') for x in nomi))
             foto('da_zero')
+            # «Inquadra» col pannello di destra aperto: il modello sta tutto nella parte libera, non sotto il pannello
+            pg.click('#navbar [data-cmd="fit"]')
+            time.sleep(0.6)
+            fuori = pg.evaluate("""() => { const S = window.__steelcad, T = S.THREE, b = new T.Box3();
+                for (const o of S.objs.values()) b.expandByObject(o.mesh);
+                const dx = document.querySelector('#right').getBoundingClientRect().left, cv = document.querySelector('#c3d').getBoundingClientRect();
+                const nb = document.querySelector('#navbar').getBoundingClientRect(); let peggio = [];
+                for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
+                    const [sx, sy] = S.toScreen([x, y, z]); if (cv.left + sx > dx || cv.top + sy > nb.top || sx < 0 || sy < 0) peggio.push([Math.round(sx), Math.round(sy)]); }
+                return peggio; }""")
+            ok(f'Inquadra: il modello tutto fuori dal pannello di destra {fuori}', not fuori)
+            foto('inquadra_col_pannello')
 
             # 8. il caso di Stefano (23/10): traverso spezzato dalla gamba nel mezzo → «tubo unico» sopra, gamba sotto
             angolo = "window.__steelcad.nodes.find(n => n.xyz[0] === 1600 && n.xyz[1] === 0).id"
