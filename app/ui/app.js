@@ -3139,7 +3139,9 @@ async function renderProps(s) {
   } else if (s.kind === 'body' && s.flange_form) {
     // 04/11 (regola 2): il lato della base cliccato: la flangia nuova, col pulsante blu in fondo
     $('#props').innerHTML = pannelloLam({ titolo: 'Flangia su questo lato', cose: esc(`${s.flange_form.label} di ${s.title}`),
-      azioni: [azioneLam('pattern_rect', 'Piega anche altri bordi', 'data-cmd="flange_help"')],
+      azioni: [azioneLam('pattern_rect', 'Piega anche altri bordi', 'data-cmd="flange_help"'),
+        // sul fianco si disegna la sezione della lamiera a contorno
+        s.face?.planar && s.face.name ? azioneLam('project', 'Disegna su questa faccia', `data-face-sketch="${esc(s.face.name)}"`, '', 'Per la lamiera a contorno: la sezione parte dallo spigolo') : ''],
       corpo: newFlangePanel(s.flange_form), dettagli: righeIt(s.rows.filter(r => r[0] !== 'Faccia')),
       fine: `<button class="btn primary big" id="f-add">Aggiungi flangia su ${esc(s.flange_form.label)}</button>` });
     wireNewFlange(s.flange_form);
