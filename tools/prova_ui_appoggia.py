@@ -132,6 +132,18 @@ try:
         ok('rinominato: elenco e distinta «Staffa motore»', 'Staffa motore' in pg.inner_text('#tree')
            and any(b['description'].startswith('Staffa motore') for b in pg.evaluate('window.__steelcad.state.bom')))
         pg.screenshot(path=str(out / 'ap10_rinominato.png'))
+        # il pannello del pezzo: il nome si cambia anche lì
+        pg.click('#tree .node[data-kind="instance"][data-ref="I2"]'); time.sleep(0.3)
+        pg.click('#mini-barra .piu'); pg.wait_for_selector('#a-nome', timeout=5000)
+        ok('campo «Nome del pezzo» nel pannello', pg.input_value('#a-nome') == 'Staffa motore')
+        pg.screenshot(path=str(out / 'ap11_pannello_nome.png'))
+        # nuovo assieme: i pezzi recenti con la cartella corta
+        pg.keyboard.press('Escape')
+        pg.evaluate("window.__steelcad.runCmd && 0")
+        pg.click('#top .brand'); pg.wait_for_selector('#home:not([hidden])')
+        pg.click('#home [data-new="assieme"]'); pg.wait_for_selector('#na-tab', timeout=5000); time.sleep(0.3)
+        ok('nuovo assieme: cartella corta (…\cartella)', all(len(x) < 60 for x in pg.eval_on_selector_all('#na-tab .hint[title]', 'els => els.map(e => e.textContent)')))
+        pg.screenshot(path=str(out / 'ap12_nuovo_assieme.png'))
         ok('nessun errore JavaScript', not err)
         if err:
             print(err)

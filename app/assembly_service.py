@@ -595,7 +595,14 @@ class AssemblyMixin:
                 return {'ok': False, 'message': ex.message}
             R, T = r['R'], r['T']
             posa = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
-            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, **self._appoggia_info(ia, ib, r)}
+            # se così entra nell'altro (una faccia interna, una vaschetta più piccola del pezzo): lo si dice subito
+            try:
+                prova_b = {**ib, 'R': R.tolist(), 'T': T.tolist()}
+                dentro = sum(x['volume'] for x in A.interferences(A.Assembly('prova', [ia, prova_b]), self.asm_parts))
+            except Exception:  # noqa: BLE001 - è solo un avviso
+                dentro = 0.0
+            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, 'dentro': round(float(dentro), 1),
+                    **self._appoggia_info(ia, ib, r)}
         esito = {}
 
         def fn():

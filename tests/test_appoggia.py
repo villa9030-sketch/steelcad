@@ -225,3 +225,16 @@ def test_file_vecchio_con_dentro_lamiera_si_vede_col_nome_del_file(assieme):
     assert s.asm_insert(str(cart / 'Piastra vecchia.steelcad'))['ok']
     assert s.asm.instances[-1]['name'] == 'Piastra vecchia'
     assert any(b['description'].startswith('Piastra vecchia') for b in s.state()['bom'])
+
+
+def test_anteprima_avvisa_se_entra_nell_altro(assieme):
+    s, _ = assieme
+    r = s.asm_appoggia(_faccia(s, 'I2', 'SM1/sopra'), _faccia(s, 'I1', 'SM1/sopra'), None, True)
+    assert r['dentro'] == 0
+    # la piastra (più grande) contro la faccia interna della parete della staffa ferma: sbatte sulla base
+    t = Service()
+    assert t.new_assembly('x')['ok']
+    f = s.asm.instance('I2')['file']
+    assert t.asm_insert(f)['ok'] and t.asm_insert(s.asm.instance('I1')['file'])['ok']
+    r = t.asm_appoggia(_faccia(t, 'I2', 'SM1/sopra'), _faccia(t, 'I1', 'SM1/FL1/interno'), None, True)
+    assert r['ok'] and r['dentro'] > 1

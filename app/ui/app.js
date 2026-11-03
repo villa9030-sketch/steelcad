@@ -81,7 +81,7 @@ setInterval(() => {
   const v = `${S.path || S.name}:${sceneVersion}`;
   if (v === tavolePronte) return;
   tavolePronte = v;
-  chiamaMuto('prepara_tavole').catch(() => {});
+  chiamaMuto('prepara_tavole').then(r => { if (r?.interrotto && tavolePronte === v) tavolePronte = null; }).catch(() => {});   // fermata: si riprova
 }, 1500);
 
 let S = null;            // ultimo stato del progetto
@@ -1580,6 +1580,7 @@ function renderPanels() {
   document.body.classList.toggle('assembly', assieme);
   $('#b-back').hidden = !S.can_back;
   if (!assieme && ASM.tool) asmTool(null);
+  if (!assieme && APP.el) appoggiaChiudi(false);     // uscito dall'assieme col pannello di Appoggia aperto
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi(); renderStoria();
   aggiornaLayout();
   if (!sel && !SK) $('#props').innerHTML = '';
@@ -3435,6 +3436,12 @@ function appoggiaDistanze() {
     return `${esc(d.basso)} <b>${mmTesto(d.da_basso)}</b> · ${esc(d.alto)} <b>${mmTesto(d.da_alto)}</b>`; }).join(' · ') + ' mm';
   const liberi = ['u', 'v'].filter(k => !r.dirs[k].tiene).map(k => `${r.dirs[k].basso}/${r.dirs[k].alto}`);
   el.querySelector('.ap-nota').textContent = liberi.length ? `${liberi.join(', ')}: non c’è un lato piano per tenerlo; resta lì ma non segue i pezzi se cambiano.` : '';
+  const err = el.querySelector('.ap-err');
+  if (r.dentro > 1) {
+    const cm3 = r.dentro / 1000;
+    err.textContent = `Così entra in «${r.nome_fermo}» (${cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(r.dentro) + ' mm³'}): scegli un’altra faccia, «Capovolgi» o spostalo dal bordo.`;
+    err.hidden = false;
+  }
 }
 function appoggiaDisegna() {
   const r = APP.info, el = APP.el, o = APP.opz;
@@ -3525,9 +3532,9 @@ function instancePanel(s) {
         <input type="range" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" style="width:100%" title="Trascina: il pezzo si muove">`;
     }).join('')}
     ${dovePanel(s)}
-    <div class="sub">Sposta di (mm)</div>
+    <div${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
     <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
-    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div>
+    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div></div>
     <div class="sub">Ruota di 90°</div>
     <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
@@ -3555,7 +3562,7 @@ function dovePanel(s) {
     <p class="hint" style="margin-top:2px">L’angolo in basso a sinistra, davanti${fermo ? '' : ': scrivi dove lo vuoi e Invio'}.</p>
     ${d.sotto ? `<div class="sub">Dai bordi di «${esc(d.sotto.name)}» (mm)</div>
       <div class="xyz xyz4">${campo('a-bs', 'sinistra', d.sotto.sinistra)}${campo('a-bd', 'destra', d.sotto.destra)}${campo('a-bv', 'davanti', d.sotto.davanti)}${campo('a-bt', 'dietro', d.sotto.dietro)}</div>` : ''}
-    ${fermo ? '<p class="hint" style="margin-top:2px">Lo tengono gli accoppiamenti: per spostarlo rifai «Appoggia» o cambia l’accoppiamento.</p>' : ''}`;
+    ${fermo ? `<p class="hint" style="margin-top:2px">Lo tengono gli accoppiamenti: per spostarlo ${(s.movimenti || []).length ? 'cambia le misure qui sopra o ' : ''}rifai «Appoggia».</p>` : ''}`;
 }
 function wireDove(s, fai) {
   const d = s.dove;
@@ -3657,7 +3664,8 @@ function paintScassi() {
 }
 // il campo del valore e il pulsante «gira» di ogni accoppiamento (niente = non serve)
 const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco', centra: 'Fuori centro', testa: 'Gioco di saldatura' };
-const MATE_GIRA = { faccia: ['Allinea invece di affacciare', 'Affaccia invece di allineare'], distanza: ['Allinea invece di affacciare', 'Affaccia invece di allineare'],
+// 03/11: «Allinea invece di affacciare» erano parole da CAD: a filo (le facce dalla stessa parte) o contro (una sull'altra)
+const MATE_GIRA = { faccia: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'], distanza: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'],
   asse: ['Gira dall’altra parte'], parallelo: ['Gira dall’altra parte'], angolo: ['Angolo dall’altra parte'], tangente: ['Dall’altra parte'] };
 function matePanel(s) {
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
@@ -4585,6 +4593,11 @@ async function drawingsDialog() {
   aggiorna();
 }
 
+// 03/11: il percorso intero occupava tre righe per pezzo: basta la cartella (e quella sopra); intero passandoci sopra
+function cartellaCorta(f) {
+  const p = String(f || '').split(/[\\/]/).filter(Boolean);
+  return p.length > 2 ? '…\\' + p.slice(-2).join('\\') : String(f || '');
+}
 async function newAssemblyDialog() {
   const info = await call('home_info');
   let pezzi = (info.ok ? info.recent : []).filter(x => !x.assembly).map(x => ({ ...x, scelto: 0, n: 1 }));
@@ -4594,7 +4607,7 @@ async function newAssemblyDialog() {
   const righe = () => pezzi.map((x, i) => `<tr class="${x.scelto ? 'scelto' : ''}">
       <td class="na-c"><input type="checkbox" data-i="${i}" ${x.scelto ? 'checked' : ''} aria-label="Metti nell’assieme"></td>
       <td class="na-p"><span class="na-pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : '<img class="icona" src="icons/box.svg" alt="">'}</span></td>
-      <td><b>${esc(x.name)}</b> <span class="na-base" data-base="${i}"></span><br><span class="hint">${esc(x.folder || '')}</span></td>
+      <td><b>${esc(x.name)}</b> <span class="na-base" data-base="${i}"></span><br><span class="hint" title="${esc(x.folder || '')}">${esc(cartellaCorta(x.folder))}</span></td>
       <td class="na-q"><label class="na-n">nr <input class="field" data-n="${i}" value="${x.n}" inputmode="numeric"></label></td>
       <td class="hint na-w">${esc(x.when || '')}</td></tr>`).join('')
     || '<tr><td colspan="5" class="hint">Nessun pezzo recente: usa «Sfoglia…» oppure crea l’assieme vuoto.</td></tr>';

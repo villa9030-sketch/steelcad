@@ -397,16 +397,19 @@ def solve(asm: Assembly, parts: dict) -> dict:
     # sta. Prima le viti restavano ferme e l'accoppiamento «aspettava» senza che si capisse perché
     liberi = []
     while True:
-        conta = {}
+        conta, fermo = {}, {}
         for m in mates:
             a, b = m['a']['inst'], m['b']['inst']
             if a not in fatti and b not in fatti and a != b:
                 conta[a] = conta.get(a, 0) + 1
                 conta[b] = conta.get(b, 0) + 1
+                fermo[a] = fermo.get(a, 0) + 1       # 'a' è il pezzo cliccato come fermo
         if not conta:
             break
         ordine = {i['id']: k for k, i in enumerate(asm.instances)}
-        radice = max(conta, key=lambda x: (conta[x], -ordine.get(x, 0)))
+        # a parità resta fermo quello scelto come fermo negli accoppiamenti (03/11, Appoggia tra due pezzi liberi:
+        # si muoveva quello sotto invece di quello da appoggiare)
+        radice = max(conta, key=lambda x: (conta[x], fermo.get(x, 0), -ordine.get(x, 0)))
         fatti.add(radice)
         liberi.append(radice)
         metti()
