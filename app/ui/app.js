@@ -848,6 +848,10 @@ canvas.addEventListener('pointermove', ev => {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
     tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${f?.label || 'faccia'}`) : h.name;
+    // il cartellino di un tubo: il nome da officina in grassetto, sotto tubo e lunghezza (notte 03/11)
+    const parti = h.face == null && o.data.kind === 'member' ? String(h.name || '').split(' — ') : [];
+    tip.classList.toggle('t-cartellino', parti.length > 1);
+    if (parti.length > 1) tip.innerHTML = `<b>${esc(parti[0])}</b><span>${esc(parti.slice(1).join(', '))} mm</span>`;
     if (sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia) tip.textContent += ' · clic ancora: la faccia';
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
@@ -871,8 +875,8 @@ canvas.addEventListener('pointerup', ev => {
   ultimoClic = h;
   if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
   if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) { puntoPreso(h.point); return; }
-  if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
-  DIVSCEGLI = false;
+  if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; passoTubi(null); ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
+  if (DIVSCEGLI) { DIVSCEGLI = false; passoTubi(null); }
   MINI.dove = { p: h?.point ?? null, t: performance.now() };      // la barretta compare qui
   // secondo clic sulla stessa flangia: la sua faccia (disegna, fora, taglia lì)
   if (h && sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia && document.getElementById('mini-barra')) {
@@ -889,7 +893,7 @@ function iniziaTraverso(primo = null) {
   if (primo) { sel = { id: primo, ids: [primo] }; paint(); }
   pannelloTraverso();
 }
-function finisciTraverso() { TRAV = null; $('#trav-hint').hidden = true; clearSelection(); }
+function finisciTraverso() { TRAV = null; passoTubi(null); clearSelection(); }
 function cliccaTraverso(id) {
   if (!TRAV.primo) TRAV.primo = id;
   else if (id !== TRAV.primo) TRAV.secondo = id;
@@ -904,26 +908,26 @@ function cliccaTraverso(id) {
 }
 function pannelloTraverso() {
   const nome = id => objs.get(id)?.data?.name?.split(' — ')[0] || 'tubo';
-  const hint = $('#trav-hint');
-  hint.hidden = false;
-  hint.textContent = !TRAV.primo ? 'Clicca il primo tubo (per esempio una gamba)' : !TRAV.secondo ? `✓ ${nome(TRAV.primo)} · ora clicca il secondo tubo` : `✓ ${nome(TRAV.primo)} · ✓ ${nome(TRAV.secondo)}`;
+  apriPannelloTubi();
   const pronto = TRAV.primo && TRAV.secondo;
+  passoTubi(!TRAV.primo ? 'Clicca il primo tubo, per esempio una gamba' : !TRAV.secondo ? `Ora clicca il secondo tubo (il primo è «${nome(TRAV.primo)}»)`
+    : 'Scrivi a che misura va il traverso, a destra', pronto ? [['Invio', 'aggiungi'], ['Esc', 'annulla']] : [['Esc', 'annulla']]);
   const inPiedi = pronto && (TRAV.info ? TRAV.info.in_piedi : [TRAV.primo, TRAV.secondo].every(id => /^(Gamba|Montante|Sbarra)/.test(nome(id))));
   const rif = TRAV.rif || (inPiedi ? 'sotto' : 'centro');
-  const scelte = inPiedi ? [['sotto', 'al sotto del tubo'], ['meta', 'a metà tubo'], ['sopra', 'al sopra del tubo']]
-    : [['centro', 'al centro del traverso'], ['bordo', 'al bordo del traverso']];
-  $('#props').innerHTML = `<h3>Nuovo traverso</h3>
-    <p class="hint">${pronto ? `Tra «${esc(nome(TRAV.primo))}» e «${esc(nome(TRAV.secondo))}»` : 'Clicca due tubi nel disegno: il traverso va tra loro.'}</p>
-    ${pronto ? `<label class="lbl" for="tr-q">${inPiedi ? 'Altezza da terra' : 'Distanza dall’inizio del tubo, da sinistra o da davanti'}</label>
-    <div class="ff"><span class="inp"><input class="field" id="tr-q" value="${esc(TRAV.q || '400')}"><i>mm</i></span>
+  const scelte = inPiedi ? [['sotto', 'Sotto il tubo'], ['meta', 'A metà tubo'], ['sopra', 'Sopra il tubo']]
+    : [['centro', 'Al centro del tubo'], ['bordo', 'Al bordo del tubo']];
+  $('#props').innerHTML = `<div class="t-pan"><h3>Nuovo traverso</h3>
+    <p class="t-cose">${pronto ? `Tra «${esc(nome(TRAV.primo))}» e «${esc(nome(TRAV.secondo))}»` : 'Clicca due tubi nel disegno: il traverso va tra loro.'}</p>
+    ${pronto ? `<section class="sezione"><label class="lbl" for="tr-q">${inPiedi ? 'Altezza da terra' : 'Distanza dall’inizio del tubo, da sinistra o da davanti'}</label>
+    <div class="t-in-riga"><span class="campo-unita"><input class="field" id="tr-q" value="${esc(TRAV.q || '400')}"><i>mm</i></span>
       <button class="btn" id="tr-mezzo" title="Scrive la misura che lo mette in mezzo">${inPiedi ? 'A metà altezza' : 'In mezzo'}</button></div>
     <div class="sub">La misura arriva</div>
-    <div class="seg">${scelte.map(([k, t]) => `<button class="btn${rif === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div>
-    <label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || TRAV.info?.profilo || ultimaAsta.profile || '40x40x3')}"></label>
+    <div class="seg">${scelte.map(([k, t]) => `<button class="btn${rif === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div></section>
+    <section class="sezione"><label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || TRAV.info?.profilo || ultimaAsta.profile || '40x40x3')}"></label>
     <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche dall’altra parte (dietro), alla stessa misura</label>
-    <div class="row-btns"><button class="btn" id="tr-no">Annulla</button><button class="btn primary" id="tr-ok">Aggiungi</button></div>`
-    : '<div class="row-btns"><button class="btn" id="tr-no">Annulla</button></div>'}`;
+    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche dall’altra parte (dietro), alla stessa misura</label></section>
+    <div class="t-piede"><button class="btn" id="tr-no">Annulla</button><button class="btn primary" id="tr-ok">Aggiungi il traverso</button></div>`
+    : '<div class="t-piede"><button class="btn" id="tr-no">Annulla</button></div>'}</div>`;
   $('#tr-no').onclick = () => { anteprimaVia(); finisciTraverso(); };
   const tieni = () => { TRAV.q = $('#tr-q').value; TRAV.prof = $('#tr-prof').value; TRAV.dietro = $('#tr-dietro').checked; };
   document.querySelectorAll('[data-rif]').forEach(b => { b.onclick = () => { tieni(); TRAV.rif = b.dataset.rif; pannelloTraverso(); }; });
@@ -943,7 +947,7 @@ function pannelloTraverso() {
     inCoda(async () => {
       const r = await call('add_traverso', ...args);
       if (!r.ok && dietro && /altra parte/.test(r.message || '')) { toast(r.message, 'err'); return; }
-      if (await apply(r)) { anteprimaVia(); TRAV = null; $('#trav-hint').hidden = true; await select(r.select); }
+      if (await apply(r)) { anteprimaVia(); TRAV = null; passoTubi(null); await select(r.select); }
     });
   };
   $('#tr-ok').onclick = vai;
@@ -995,6 +999,7 @@ function dividiArgomenti() {
 }
 function pannelloDividi() {
   const f = DIV.info.facce.find(x => x.key === DIV.faccia);
+  apriPannelloTubi();
   if (f.tubi?.length) { sel = { id: `${DIV.st}/${DIV.mid}`, ids: f.tubi.filter(id => objs.has(id)) }; paint(); }   // il lato che si divide, acceso
   latoAcceso(f.rett);                                // e il lato colorato nel 3D (si vede anche con l'anteprima)
   const sopra = !f.in_piedi;
@@ -1004,20 +1009,21 @@ function pannelloDividi() {
   const nomeV = sopra ? 'Tubi da sinistra a destra' : 'Traversi (sdraiati)';
   const daU = lungoX ? 'da sinistra' : 'da davanti', daV = sopra ? 'da davanti' : 'da terra';
   const quanto = k => k === 'u' ? (lungoX ? 'larghezza' : 'profondità') : (sopra ? 'profondità' : 'altezza');
-  const riga = (k, nome, lung, da) => `<div class="sub">${nome} <span class="fsub">· dividono ${quanto(k)} ${virgola(lung)}</span></div>
+  const riga = (k, nome, lung, da) => `<section class="sezione"><h4>${nome}</h4><p class="hint">Dividono ${quanto(k)} ${virgola(lung)} mm</p>
     <div class="seg">${[['1', 'No'], ['2', 'In 2'], ['3', 'In 3'], ['4', 'In 4'], ['mis', 'A misura']].map(([x, t]) => `<button class="btn${DIV[k] === x ? ' on' : ''}" data-dv${k}="${x}">${t}</button>`).join('')}</div>
-    ${DIV[k] === 'mis' ? `<label class="lbl" for="dv-m${k}">A che misura ${da} (mm; più tubi: 300 600)</label><input class="field" id="dv-m${k}" value="${esc(DIV['m' + k])}" placeholder="es. 265">` : ''}`;
+    ${DIV[k] === 'mis' ? `<label class="lbl" for="dv-m${k}">A che misura ${da} (mm; più tubi: 300 600)</label><input class="field" id="dv-m${k}" value="${esc(DIV['m' + k])}" placeholder="es. 265">` : ''}</section>`;
   const misura = DIV.u === 'mis' || DIV.v === 'mis';
-  $('#props').innerHTML = `<h3>Dividi il lato</h3>
-    <p class="hint">Montanti e traversi a filo del lato, con i quadri uguali. Dove si incrociano, uno passa intero e l’altro è tagliato in due.</p>
-    ${DIV.info.facce.length > 1 ? `<div class="seg">${DIV.info.facce.map(x => `<button class="btn${x.key === DIV.faccia ? ' on' : ''}" data-dvf="${x.key}">${esc(x.label)}</button>`).join('')}</div>` : `<div class="sub">${esc(f.label)}</div>`}
+  passoTubi('Scegli in quante parti, guarda l’anteprima e premi «Dividi»');
+  $('#props').innerHTML = `<div class="t-pan"><h3>Dividi il lato</h3>
+    <p class="t-cose">Montanti e traversi a filo del lato, con i quadri uguali. Dove si incrociano, uno passa intero e l’altro è tagliato in due.</p>
+    <section class="sezione"><h4>Quale lato</h4>${DIV.info.facce.length > 1 ? `<div class="seg">${DIV.info.facce.map(x => `<button class="btn${x.key === DIV.faccia ? ' on' : ''}" data-dvf="${x.key}">${esc(x.label)}</button>`).join('')}</div>` : `<div class="riga"><span>${esc(f.label)}</span></div>`}</section>
     ${riga('u', nomeU, f.u, daU)}${riga('v', nomeV, f.v, daV)}
-    ${misura ? `<div class="sub">La misura arriva</div><div class="seg">${[['centro', 'al centro del tubo'], ['bordo', 'al bordo del tubo']].map(([k, t]) => `<button class="btn${DIV.rif === k ? ' on' : ''}" data-dvr="${k}">${t}</button>`).join('')}</div>` : ''}
-    ${f.opposta ? `<label class="check"><input type="checkbox" id="dv-opp" ${DIV.opposta ? 'checked' : ''}> Uguale anche ${esc(f.opposta)}</label>` : ''}
-    ${f.aperti ? `<label class="check"><input type="checkbox" id="dv-chiudi" ${DIV.chiudi ? 'checked' : ''}> ${esc(f.aperti)}</label>` : ''}
-    <label class="lbl">Tubo<input class="field" id="dv-prof" list="dl-prof" value="${esc(DIV.prof)}"></label>
+    ${misura ? `<section class="sezione"><h4>La misura arriva</h4><div class="seg">${[['centro', 'Al centro del tubo'], ['bordo', 'Al bordo del tubo']].map(([k, t]) => `<button class="btn${DIV.rif === k ? ' on' : ''}" data-dvr="${k}">${t}</button>`).join('')}</div></section>` : ''}
+    <section class="sezione"><label class="lbl">Tubo<input class="field" id="dv-prof" list="dl-prof" value="${esc(DIV.prof)}"></label>
     <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <div class="row-btns"><button class="btn" id="dv-no">Annulla</button><button class="btn primary" id="dv-ok">Dividi</button></div>`;
+    ${f.opposta ? `<label class="check"><input type="checkbox" id="dv-opp" ${DIV.opposta ? 'checked' : ''}> Uguale anche ${esc(f.opposta)}</label>` : ''}
+    ${f.aperti ? `<label class="check"><input type="checkbox" id="dv-chiudi" ${DIV.chiudi ? 'checked' : ''}> ${esc(f.aperti)}</label>` : ''}</section>
+    <div class="t-piede"><button class="btn" id="dv-no">Annulla</button><button class="btn primary" id="dv-ok">Dividi</button></div></div>`;
   const tieni = () => {
     DIV.opposta = !!$('#dv-opp')?.checked; DIV.chiudi = !!$('#dv-chiudi')?.checked; DIV.prof = $('#dv-prof').value.trim();
     if ($('#dv-mu')) DIV.mu = $('#dv-mu').value;
@@ -1028,12 +1034,12 @@ function pannelloDividi() {
   document.querySelectorAll('[data-dvu]').forEach(rifai(b => { DIV.u = b.dataset.dvu; }));
   document.querySelectorAll('[data-dvv]').forEach(rifai(b => { DIV.v = b.dataset.dvv; }));
   document.querySelectorAll('[data-dvr]').forEach(rifai(b => { DIV.rif = b.dataset.dvr; }));
-  $('#dv-no').onclick = () => { anteprimaVia(); latoAcceso(null); const id = `${DIV.st}/${DIV.mid}`; DIV = null; select(id); };
+  $('#dv-no').onclick = () => { anteprimaVia(); latoAcceso(null); passoTubi(null); const id = `${DIV.st}/${DIV.mid}`; DIV = null; select(id); };
   const vai = () => {
     const args = dividiArgomenti();
     inCoda(async () => {
       const r = await call('dividi', ...args);
-      if (await apply(r, r.message)) { anteprimaVia(); latoAcceso(null); DIV = null; await select(r.select); }
+      if (await apply(r, r.message)) { anteprimaVia(); latoAcceso(null); passoTubi(null); DIV = null; await select(r.select); }
     });
   };
   $('#dv-ok').onclick = vai;
@@ -1063,26 +1069,27 @@ function piediArgomenti() {
 function disegnaPiedi() {
   const P = PIEDI, r = P.info, v = P.v;
   const seg = (k, scelte) => `<div class="seg">${scelte.map(([x, t]) => `<button class="btn${P[k] === x ? ' on' : ''}" data-pd-${k}="${x}">${t}</button>`).join('')}</div>`;
-  const campo = (id, l, val) => `<label>${l}<span class="inp"><input class="field" id="${id}" value="${esc(String(val ?? '').replace('.', ','))}"><i>mm</i></span></label>`;
-  let h = P.testa;
+  const campo = (id, l, val) => `<label class="lbl">${l}<span class="campo-unita"><input class="field" id="${id}" value="${esc(String(val ?? '').replace('.', ','))}"><i>mm</i></span></label>`;
+  let h = `<div class="t-pan">${P.testa}`;
   if (P.cosa === 'piedi') {
-    h += `<h3>${P.testa ? 'Piedi' : 'Piedi sotto le gambe'}</h3>
-      <p class="hint">Su tutte le ${r.gambe} gambe a terra. In azzurro come vengono.</p>
-      ${seg('tipo', [['piastra', 'Piastra coi fori'], ['piedino', 'Piedino regolabile']])}
-      ${P.tipo === 'piastra' ? `<div class="ff">${campo('pd-lato', 'Lato', v.lato)}${campo('pd-sp', 'Spessore', v.sp)}</div>
-        <div class="sub">Fori</div>${seg('fori', [['0', 'Senza'], ['2', '2 in diagonale'], ['4', '4 negli angoli']])}
-        ${P.fori !== '0' ? `<div class="ff">${campo('pd-foro', 'Ø fori', v.foro)}${campo('pd-bordo', 'Dal bordo', v.dal_bordo)}</div>` : ''}
-        <p class="hint">La piastra va sotto la gamba, centrata: l’altezza fuori tutto cresce dello spessore.</p>`
-      : `<div class="sub">Vite</div>${seg('misura', r.piedini.map(x => [x, x]))}
-        <p class="hint">Sotto ogni gamba un lamierino sp. 5 con la madrevite, e il piedino (da comprare: va in distinta).</p>`}
-      <div class="row-btns">${r.piedi ? '<button class="btn danger" id="pd-via">Togli i piedi</button>' : ''}<button class="btn" id="pd-no">Annulla</button><button class="btn primary" id="pd-ok">${r.piedi ? 'Cambia' : 'Metti i piedi'}</button></div>`;
+    h += `${P.testa ? '<h4 class="t-titoletto">Piedi</h4>' : '<h3>Piedi sotto le gambe</h3>'}
+      <p class="t-cose">Su tutte le ${r.gambe} gambe a terra. In azzurro come vengono.</p>
+      <section class="sezione">${seg('tipo', [['piastra', 'Piastra coi fori'], ['piedino', 'Piedino regolabile']])}
+      ${P.tipo === 'piastra' ? `<div class="t-campi">${campo('pd-lato', 'Lato', v.lato)}${campo('pd-sp', 'Spessore', v.sp)}</div></section>
+        <section class="sezione"><h4>Fori</h4>${seg('fori', [['0', 'Senza'], ['2', '2 in diagonale'], ['4', '4 negli angoli']])}
+        ${P.fori !== '0' ? `<div class="t-campi">${campo('pd-foro', 'Ø fori', v.foro)}${campo('pd-bordo', 'Dal bordo', v.dal_bordo)}</div>` : ''}
+        <p class="hint">La piastra va sotto la gamba, centrata: l’altezza fuori tutto cresce dello spessore.</p></section>`
+      : `</section><section class="sezione"><h4>Vite</h4>${seg('misura', r.piedini.map(x => [x, x]))}
+        <p class="hint">Sotto ogni gamba un lamierino sp. 5 con la madrevite, e il piedino (da comprare: va in distinta).</p></section>`}
+      <div class="t-piede">${r.piedi ? '<button class="btn danger" id="pd-via">Togli i piedi</button>' : ''}<button class="btn" id="pd-no">Annulla</button><button class="btn primary" id="pd-ok">${r.piedi ? 'Cambia i piedi' : 'Metti i piedi'}</button></div>`;
   } else {
-    h += `<h3>${P.testa ? 'Tappi' : 'Tappi sulle teste dei tubi'}</h3>
-      <p class="hint">${r.teste ? `Su tutte le ${r.teste} teste aperte dei tubi (tagliate dritte, che non battono contro niente).` : 'Non ci sono teste di tubo aperte.'}</p>
-      ${seg('tappo', [['plastica', 'Tappo in plastica'], ['lamierino', 'Lamierino saldato']])}
-      ${P.tappo === 'lamierino' ? `<div class="ff">${campo('pd-spt', 'Spessore', v.sp_t)}</div>` : '<p class="hint">Da comprare: va in distinta con la misura del tubo.</p>'}
-      <div class="row-btns">${r.tappi ? '<button class="btn danger" id="pd-via">Togli i tappi</button>' : ''}<button class="btn" id="pd-no">Annulla</button><button class="btn primary" id="pd-ok">${r.tappi ? 'Cambia' : 'Metti i tappi'}</button></div>`;
+    h += `${P.testa ? '<h4 class="t-titoletto">Tappi</h4>' : '<h3>Tappi sulle teste dei tubi</h3>'}
+      <p class="t-cose">${r.teste ? `Su tutte le ${r.teste} teste aperte dei tubi (tagliate dritte, che non battono contro niente).` : 'Non ci sono teste di tubo aperte.'}</p>
+      <section class="sezione">${seg('tappo', [['plastica', 'Tappo in plastica'], ['lamierino', 'Lamierino saldato']])}
+      ${P.tappo === 'lamierino' ? `<div class="t-campi">${campo('pd-spt', 'Spessore', v.sp_t)}</div>` : '<p class="hint">Da comprare: va in distinta con la misura del tubo.</p>'}</section>
+      <div class="t-piede">${r.tappi ? '<button class="btn danger" id="pd-via">Togli i tappi</button>' : ''}<button class="btn" id="pd-no">Annulla</button><button class="btn primary" id="pd-ok">${r.tappi ? 'Cambia i tappi' : 'Metti i tappi'}</button></div>`;
   }
+  h += '</div>';
   $('#props').innerHTML = h;
   const tieni = () => { for (const [id, k] of [['#pd-lato', 'lato'], ['#pd-sp', 'sp'], ['#pd-foro', 'foro'], ['#pd-bordo', 'dal_bordo'], ['#pd-spt', 'sp_t']]) if ($(id)) v[k] = $(id).value; };
   for (const k of ['tipo', 'fori', 'misura', 'tappo']) document.querySelectorAll(`[data-pd-${k}]`).forEach(b => {
@@ -1495,7 +1502,10 @@ function buildDims() {
   if (!showDims || !S) return;
   // con uno sketch aperto si vedono solo le sue quote, sfalsate nel suo piano (non verso di te)
   // le quote ripetute (le copie di una serie) una volta sola: «10 ×300»
-  const lista = S.dimensions.filter(d => (SK ? d.sketch === SK.sid : !d.local) && !d.in_gruppo);
+  // notte 03/11: in una struttura (cancello, scaffale) le quote calcolate dal modello (la posizione di ogni sbarra,
+  // «tf+2*g+…») facevano un mucchio di numeri uno sull'altro: nel 3D restano solo quelle con un nome (L, H, P…)
+  const formula = d => !SK && !d.param && typeof d.expr === 'string' && /[a-z]/i.test(d.expr) && S.cutlist?.rows?.length && !S.sheet;
+  const lista = S.dimensions.filter(d => (SK ? d.sketch === SK.sid : !d.local) && !d.in_gruppo && !formula(d));
   const box = new THREE.Box3();
   if (SK) SK.v.points.filter(p => p.id !== 'O').forEach(p => box.expandByPoint(v3(p.xyz)));
   if (box.isEmpty()) box.setFromObject(model);
@@ -1615,6 +1625,7 @@ function placeDims() {
     el.style.display = p.z > 1 ? 'none' : '';
     el.style.left = ((p.x + 1) / 2 * w + dx) + 'px';
     el.style.top = ((1 - p.y) / 2 * h + dy) + 'px';
+    el.style.setProperty('--ang', Math.atan2(dy, dx) + 'rad');      // la punta arancio guarda dove va il tubo
   }
 }
 function editDim(el, d) {
@@ -1666,7 +1677,9 @@ function paintNodes() {
     el.classList.toggle('sel', !!sel && sel.id === el.dataset.id);
     el.classList.toggle('target', !!linkFrom && n.structure === linkFrom.st && n.key !== linkFrom.key);
   }
-  $('#link-hint').hidden = !linkFrom;
+  const lh = $('#link-hint');
+  if (linkFrom && !lh.querySelector('.t-passo')) lh.innerHTML = '<span class="t-passo">Clicca l’angolo dove arriva il tubo nuovo</span><span class="g-tasto"><kbd>Esc</kbd> annulla</span>';
+  lh.hidden = !linkFrom;
   buildFrecce();
 }
 // Le frecce intorno all'angolo scelto (22/10): Su, Giù, Avanti, Dietro, Destra, Sinistra. Clic = tubo nuovo da lì,
@@ -1682,7 +1695,7 @@ function buildFrecce() {
   for (const [dir, testo, v] of FRECCE) {
     const el = document.createElement('button');
     el.className = 'freccia-3d';
-    el.textContent = testo;
+    el.innerHTML = `<svg class="t-punta" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2.5L10.5 6L2 9.5L4 6Z"/></svg>${testo}`;
     el.title = `Tubo nuovo verso ${testo.toLowerCase()}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); tuboDaFreccia(n, dir); });
     nodesBox.appendChild(el);
@@ -2330,7 +2343,7 @@ function azione(id) {
     case 'dividi':                                  // DIVIDI dalla barra: col tubo già scelto, o il prossimo cliccato
       // il tubo che hai appena cliccato tu (non quello scelto dall'ultimo comando): subito il pannello
       if (sel?.id && ultimoClic?.id === sel.id && objs.get(sel.id)?.data?.kind === 'member') { inCoda(() => iniziaDividi({ id: sel.id })); return; }
-      DIVSCEGLI = true; t('Clicca un tubo del lato da dividere (il fianco, il telaio sopra…).'); return;
+      DIVSCEGLI = true; passoTubi('Clicca un tubo del lato da dividere: il fianco, il davanti, il telaio sopra'); return;
     case 'piedi': case 'tappi': {                 // PIEDI e TAPPI (03/11): su tutte le gambe / teste in un colpo
       const id0 = sel?.id || '';
       const st = (id0.startsWith('struct=') ? id0.slice(7) : /[/:]/.test(id0) ? id0.split(/[/:]/)[0] : '') || S?.cutlist?.rows?.[0]?.members?.[0]?.split('/')[0];
@@ -2532,7 +2545,7 @@ function placeBarra() {
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
       const x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
-      let y = Math.max(r.top + 34, Math.min(q[1] + 30, r.bottom - h - 8));
+      let y = Math.max(r.top + 34, Math.min(q[1] + (+m.dataset.giu || 30), r.bottom - h - 8));   // giu: i tubi la vogliono più sotto (il nome non copre il tubo)
       // 29/10: la barretta (col suo nome sopra, ~28 px) non copre le quote: sotto di loro, o sopra se sotto non c'è posto
       const sopraNome = 28, tocca = yy => QUOTE.filter(z => z.el.style.display !== 'none').map(z => z.el.getBoundingClientRect())
         .filter(b => b.right > x - 4 && b.left < x + w + 4 && b.bottom > yy - sopraNome - 4 && b.top < yy + h + 4);
@@ -2687,6 +2700,7 @@ function miniBarra(s) {
   if (d && performance.now() - d.t < 2500) MINI.ancora = d.p ? d.p.clone() : null;
   else if (!MINI.stessa) MINI.ancora = null;
   const assieme = S.mode === 'assembly' && s.kind === 'instance';
+  if (s.kind === 'member' && S.mode !== 'assembly') { miniTubo(s, !!(d && performance.now() - d.t < 2500)); return; }
   if (!assieme && (S.mode === 'assembly' || !['body', 'flange', 'fold', 'sidebend', 'edgeflange', 'endmiter'].includes(s.kind) || s.flange_form)) { nascondiMini(); return; }
   MINI.s = s;
   if (!MINI.ancora) MINI.ancora = ancoraDi(s);
@@ -2723,6 +2737,31 @@ function miniBarra(s) {
   const nome = MINI.faccia ? `Faccia di ${s.title.toLowerCase()}` : s.kind === 'body' ? (faccia || 'Faccia') : s.title;
   // 03/11: sulla faccia i pulsanti con il nome scritto (Foro, Asola, Disegna qui…): con le sole icone non si trovavano
   barretta(nome, [...lavora, ['dimension', 'Misura', () => runCmd('misura')]], { chi: `${sel.id}:${sel.face}:${MINI.faccia}`, scritte: !!lavora.length });
+}
+// TUBI (notte 03/11, regola 3): clic su un tubo nel 3D = la barretta accanto al tubo, coi comandi che si usano di
+// più, scritti; «⋯» apre il pannello intero (come la lamiera). Dall'albero o dopo un comando: subito il pannello.
+// Il tubo in piedi ha la barretta di lato (sotto coprirebbe la gamba), quello sdraiato sotto il punto cliccato
+function apriPannelloTubi() { if (sel) { sel.pannello = true; sel.soloMini = false; } nascondiMini(); aggiornaLayout(); }
+function miniTubo(s, daClic) {
+  const resta = MINI.stessa && sel?.soloMini && document.getElementById('mini-barra');
+  if (!daClic && !resta) { nascondiMini(); if (sel) { sel.pannello = true; sel.soloMini = false; } aggiornaLayout(); return; }
+  MINI.s = s;
+  if (!MINI.ancora) MINI.ancora = ancoraDi(s);
+  if (!MINI.ancora) { nascondiMini(); return; }
+  togliQuote();
+  sel.soloMini = !sel.pannello; aggiornaLayout();
+  const tb = s.tubo || {}, mis = (s.rows.find(r => r[0] === 'Da tagliare')?.[1] || '').replace(/, dritto$/, '');
+  const poi = (fn, campo) => () => { apriPannelloTubi(); fn?.(); if (campo) { const c = $(campo); if (c) { c.focus(); c.select?.(); } } };
+  const id = s.id;
+  barretta(`${s.title}${mis ? ', ' + mis : ''}`, [
+    ['box', 'Cambia tubo', poi(null, '#p-prof')],
+    ['extend', 'Traverso da qui', poi(() => iniziaTraverso(id))],
+    ...(tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : []),
+    ['line', 'Tubo nuovo da qui', poi(() => $('#p-punto')?.click())],
+    ...(s.lavorabile ? [['hole', 'Fori qui', poi(() => $('#p-lav')?.click())]] : []),
+  ].slice(0, 5), { chi: 'tubo:' + id, scritte: true });
+  const m = document.getElementById('mini-barra');
+  if (m) { if (tb.verticale) m.classList.add('lato'); else m.dataset.giu = '58'; placeBarra(); }
 }
 // la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
 function miniFlangia(s, lavora) {
@@ -2980,19 +3019,8 @@ async function renderProps(s) {
   const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span class="spento" style="font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
   if (!profili) profili = await call('profile_suggestions');
-  if (s.kind === 'structure' && s.cosa) {
-    const c = s.cosa;
-    h = `<h3>${esc(s.title)}</h3>${tab([['Fuori tutto', c.fuori_tutto.join(' × ') + ' mm'], ['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]])}
-      <div class="sub">Cosa puoi fare adesso</div><div class="cosa">
-      <button class="cosa-b" data-azione="dividi"><b>Dividi un lato</b><span>Montanti e traversi in mezzo, quadri uguali: clicca un tubo del lato</span></button>
-      <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi, poi scrivi a che altezza</span></button>
-      <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
-      <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
-      <button class="cosa-b" data-azione="piedi"><b>Piedi sotto le gambe</b><span>Piastra coi fori o piedino regolabile, su tutte le gambe</span></button>
-      <button class="cosa-b" data-azione="tappi"><b>Tappi sulle teste dei tubi</b><span>In plastica o lamierino saldato, su tutte le teste aperte</span></button>
-      <button class="cosa-b" data-azione="fori"><b>Fori sui tubi</b><span>Clicca la faccia del tubo e disegna</span></button>
-      <button class="cosa-b primary" data-cmd="prepara"><b>Prepara per l’officina</b><span>Lista di taglio dei tubi, tavola quotata</span></button></div>`;
-  }
+  if (s.kind === 'structure') { pannelloStruttura(s); return; }     // tubi e strutture: i pannelli stanno più giù
+  if (s.kind === 'member') { pannelloTubo(s, quanti); return; }
   if (s.kind === 'structure' || (s.kind === 'body' && s.template)) {
     const t = s.template, idf = s.kind === 'structure' ? s.id : s.tpl_id;
     const forma = s.kind === 'body';
@@ -3018,29 +3046,8 @@ async function renderProps(s) {
     }
     return;
   }
-  if (s.kind === 'member') {
-    const anc = Object.entries(s.anchors).map(([k, v]) => `<option value="${k}"${k === s.anchor ? ' selected' : ''}>${esc(v)}</option>`).join('');
-    const altri = (s.tubo?.gruppo_n || 1) - 1;
-    h = `<h3>${esc(s.title)}${quanti}</h3>${s.group ? `<div class="fsub" style="margin:-4px 0 6px">${esc(s.group)}</div>` : ''}${tab(s.rows)}`;
-    h += `<div class="group-row"><label class="lbl" for="p-prof">Tubo</label>
-      <input class="field" id="p-prof" list="dl-prof" value="${esc(s.profile)}" spellcheck="false">
-      <datalist id="dl-prof">${profili.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-      ${altri > 0 ? `<label class="check"><input type="checkbox" id="p-all" checked> Anche gli altri ${altri === 1 ? 'tubo' : altri + ' tubi'} di «${esc(s.group)}»</label>` : ''}</div>
-      <div class="row-btns"><button class="btn primary" id="p-apply">Cambia tubo</button></div>
-      <div class="cosa">
-        ${s.tubo?.facce?.length ? `<button class="cosa-b" id="p-dividi"><b>Dividi il lato</b><span>Montanti e traversi in mezzo, quadri uguali: ${esc(s.tubo.facce.join(' o ').toLowerCase())}</span></button>` : ''}
-        <button class="cosa-b" id="p-trav"><b>Traverso da qui</b><span>Parte da questo tubo, poi clicchi dove arriva</span></button>
-        <button class="cosa-b" id="p-punto"><b>Tubo nuovo da un punto di questo tubo</b><span>${s.tubo?.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia</span></button>
-        <div class="group-row" id="p-punto-riga" hidden><label class="lbl" for="p-punto-q">${s.tubo?.verticale ? 'Altezza da terra (mm)' : 'Distanza dall’inizio (mm)'}</label>
-          <input class="field" id="p-punto-q" value="" placeholder="es. 265"><div class="row-btns"><button class="btn primary" id="p-punto-ok">Metti il punto</button></div></div>
-        <div id="p-pos"></div>
-      </div>
-      ${pannelloLavorazioni(s)}
-      ${s.esterno ? '' : `<details class="altro"><summary>Altro</summary><label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
-      <select class="field" id="p-anc">${anc}</select><div class="row-btns"><button class="btn" id="p-flip">Inverti</button></div></details>`}
-      <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div>`;
-  } else if (s.kind === 'accessorio') {         // clic su un piede o un tappo: il pannello per cambiarli tutti
-    await pannelloPiedi(s.structure, s.cosa, `<h3>${esc(s.title)}</h3>${tab(s.rows)}`);
+  if (s.kind === 'accessorio') {         // clic su un piede o un tappo: il pannello per cambiarli tutti
+    await pannelloPiedi(s.structure, s.cosa, `<h3>${esc(s.title)}</h3><section class="sezione t-misure">${tRighe(s.rows)}</section>`);
     return;
   } else if (s.kind === 'instance') {
     $('#props').innerHTML = instancePanel(s);
@@ -3081,7 +3088,7 @@ async function renderProps(s) {
     wireNewFlange(s.flange_form);
     return;
   } else if (s.kind === 'node') {
-    $('#props').innerHTML = h + nodePanel(s);
+    $('#props').innerHTML = nodePanel(s);
     wireNode(s);
     return;
   }
@@ -3110,52 +3117,6 @@ async function renderProps(s) {
     $('#st-ok').onclick = vai;
     $('#st-sp').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
   }
-  if (s.kind !== 'member') return;
-  const tutti = () => $('#p-all')?.checked ?? false;
-  const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
-  $('#p-apply').onclick = () => edit({ profile: $('#p-prof').value.trim() });
-  $('#p-prof').onkeydown = ev => { if (ev.key === 'Enter') edit({ profile: $('#p-prof').value.trim() }); };
-  // 03/11: come sta il profilo (rettangolare, angolare, piatto, UPN): le posizioni col disegnino della sezione vista
-  // di testa, «su» in alto e «fuori» a destra; passandoci sopra l'anteprima nel 3D, clic = lo gira così
-  chiamaMuto('member_posizioni', s.id).then(r => {
-    const box = $('#p-pos');
-    if (!box || !r.ok || !r.posizioni?.length) return;
-    const tutti_ = r.posizioni.flatMap(p => p.disegno.flat());
-    const m = Math.max(...tutti_.map(([x, y]) => Math.max(Math.abs(x), Math.abs(y)))) * 1.25 || 1;
-    const svg = p => `<svg width="64" height="64" viewBox="${-m} ${-m} ${2 * m} ${2 * m}" aria-hidden="true">
-      <line x1="${-m}" y1="0" x2="${m}" y2="0" stroke="#5A636D" stroke-width="${m / 60}" stroke-dasharray="${m / 12}"/>
-      <line x1="0" y1="${-m}" x2="0" y2="${m}" stroke="#5A636D" stroke-width="${m / 60}" stroke-dasharray="${m / 12}"/>
-      <path fill-rule="evenodd" fill="#B8C0C8" stroke="#16191D" stroke-width="${m / 40}" d="${p.disegno.map(c => 'M' + c.map(([x, y]) => `${x} ${-y}`).join(' L') + ' Z').join(' ')}"/></svg>`;
-    box.innerHTML = `<div class="sub">Come sta il profilo <span class="fsub">· visto di testa: ${esc(r.su)} in alto, ${esc(r.destra)} a destra</span></div>
-      <div class="angoli">${r.posizioni.map((p, i) => `<button class="angolo${p.ora ? ' on' : ''}" data-posiz="${i}">${svg(p)}<span>${esc(p.testo)}</span></button>`).join('')}</div>`;
-    box.querySelectorAll('[data-posiz]').forEach(b => {
-      const p = r.posizioni[+b.dataset.posiz], campi = { rotate: p.rotate, flip: p.flip };
-      b.onclick = () => { anteprimaVia(); edit(campi); };
-      b.onmouseenter = () => { if (!p.ora) anteprima('edit_member', () => [s.id, campi, tutti()], null); };
-      b.onmouseleave = () => anteprimaVia();
-    });
-  });
-  if ($('#p-flip')) $('#p-flip').onclick = () => edit({ toggle_flip: true });
-  if ($('#p-anc')) $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
-  $('#p-del').onclick = deleteSelected;
-  $('#p-trav').onclick = () => iniziaTraverso(s.id);
-  if ($('#p-dividi')) $('#p-dividi').onclick = () => iniziaDividi(s);
-  // 03/11: un punto qualsiasi sul tubo (il montante a 265 da terra), poi le frecce come da un angolo
-  $('#p-punto').onclick = () => {
-    $('#p-punto-riga').hidden = false; $('#p-punto-q').focus();
-    PUNTO = { id: s.id, mis: s.tubo?.misura, vert: !!s.tubo?.verticale };
-  };
-  $('#p-punto-q').oninput = () => { const q = parseFloat($('#p-punto-q').value.replace(',', '.')); if (PUNTO && isFinite(q)) puntoSegno(q); };
-  const metti = () => {
-    const q = $('#p-punto-q').value.trim();
-    if (!q) { toast('Scrivi la misura.', 'err'); return; }
-    const [st, mid] = s.id.split('/');
-    puntoVia();
-    inCoda(async () => { const r = await call('punto_su_tubo', st, mid, q); if (await apply(r) && r.node) await select(r.node); });
-  };
-  $('#p-punto-ok').onclick = metti;
-  $('#p-punto-q').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); metti(); } };
-  wireLavorazioni(s);
 }
 
 // Il punto sul tubo col mouse (03/11): passando sul tubo compare la misura (da terra o dall'inizio, come nel campo),
@@ -3171,7 +3132,7 @@ function puntoSegno(q) {
   const m = PUNTO.mis;
   const pos = PUNTO.vert ? [m.da[0], m.da[1], m.z0 + q] : m.da.map((c, i) => c + m.dir[i] * q);
   if (!puntoMesh) {
-    puntoMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0x2f3a8f, depthTest: false }));
+    puntoMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xFF6B1A, depthTest: false }));   // arancio dei tubi
     puntoMesh.renderOrder = 10;
     scene.add(puntoMesh);
   }
@@ -3182,7 +3143,7 @@ function puntoSegno(q) {
   ridisegna();
 }
 function puntoVia() {
-  if (PUNTO) tip.style.display = 'none';
+  if (PUNTO) { tip.style.display = 'none'; passoTubi(null); }
   PUNTO = null;
   if (puntoMesh) { scene.remove(puntoMesh); puntoMesh.geometry.dispose(); puntoMesh = null; ridisegna(); }
 }
@@ -6037,48 +5998,199 @@ function ricordaTubo() {
   if (!$('#n-len')) return;
   ultimaAsta = { ...ultimaAsta, length: $('#n-len').value.trim(), profile: $('#n-prof').value.trim(), nome: $('#n-nome')?.value.trim() || '' };
 }
-// i disegnini dell'angolo: due tubi visti di fronte, come si saldano
+// ===================================================================== TUBI E STRUTTURE: i pannelli (notte 03→04/11)
+// Sempre lo stesso ordine (regola 2): titolo e cos'è → «Cosa puoi fare adesso» → i campi → Dettagli (chiuso) → in
+// fondo il pulsante. Il pulsante di un campo diventa blu solo quando hai cambiato qualcosa: il prossimo passo si vede
+const tRighe = rows => rows.map(([k, v]) => `<div class="riga"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+const tAzione = (attr, icona, nome, spiega = '') => `<button class="cosa-b t-az" ${attr}><img src="icons/${icona}.svg" alt=""><b>${esc(nome)}</b>${spiega ? `<span>${esc(spiega)}</span>` : ''}</button>`;
+const tMinuscola = t => (t ? t.charAt(0).toLowerCase() + t.slice(1) : '');
+function bluSeCambia(campi, btn) {
+  campi = [...campi].filter(Boolean);
+  if (!btn || !campi.length) return;
+  const prima = campi.map(i => i.value);
+  const guarda = () => btn.classList.toggle('primary', campi.some((i, k) => i.value !== prima[k]));
+  campi.forEach(i => { i.addEventListener('input', guarda); i.addEventListener('change', guarda); });
+}
+// la struttura intera (clic nell'albero, o appena creata dal modello): cosa puoi fare e le misure del modello
+function pannelloStruttura(s) {
+  const c = s.cosa, t = s.template;
+  const fuori = c?.fuori_tutto?.length ? `fuori tutto ${c.fuori_tutto.join(' × ')} mm` : '';
+  const cose = [t ? `${t.title} da modello` : 'Struttura disegnata', fuori].filter(Boolean).join(', ');
+  let h = `<div class="t-pan"><h3>${esc(s.title)}</h3><p class="t-cose">${esc(cose)}</p>`;
+  if (c) h += `<section class="sezione"><h4>Cosa puoi fare adesso</h4><div class="cosa t-azioni">
+    ${tAzione('data-azione="dividi"', 'pattern_rect', 'Dividi un lato', 'Montanti e traversi in mezzo, quadri uguali')}
+    ${tAzione('data-azione="traverso"', 'extend', 'Aggiungi un traverso', 'Clicca due tubi, poi scrivi l’altezza')}
+    ${tAzione('data-azione="giunti"', 'joint', 'Come sono saldati gli angoli', 'Clicca un angolo, scegli col disegnino')}
+    ${tAzione('data-azione="tubonuovo"', 'line', 'Tubo nuovo da un angolo', 'Le frecce Su, Giù, Avanti… (mensole)')}
+    ${tAzione('data-azione="piedi"', 'flat', 'Piedi sotto le gambe', 'Piastra coi fori o piedino regolabile')}
+    ${tAzione('data-azione="tappi"', 'finish', 'Tappi sulle teste dei tubi', 'In plastica o lamierino saldato')}
+    ${tAzione('data-azione="fori"', 'hole', 'Fori sui tubi', 'Clicca la faccia del tubo e disegna')}
+    ${tAzione('data-cmd="prepara"', 'export', 'Prepara per l’officina', 'Lista di taglio dei tubi, tavola quotata')}</div></section>`;
+  if (t) {
+    h += `<section class="sezione"><h4>Misure e tubi del ${esc(tMinuscola(t.title))}</h4>
+      <div class="form st-tpl">${t.fields.map(([k, l, v, scelte]) => scelte
+        ? `<label class="lbl">${esc(l)}<select class="field" data-tf="${esc(k)}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
+        : `<label class="lbl">${esc(l)}<input class="field" data-tf="${esc(k)}" list="dl-prof" value="${esc(String(v ?? '').replace('.', ','))}"></label>`).join('')}</div>
+      <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+      <p class="hint">Cambia e premi «Applica le misure»: la struttura si rifà. I tubi ritoccati a mano restano.</p></section>`;
+  } else h += `<p class="hint">Struttura disegnata: le misure si cambiano dal disegno (clic sul disegno nell’albero), il tubo cliccando i tubi.</p>`;
+  const det = c ? [['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]] : [];
+  for (const r of s.rows || []) if (!(c && r[0] === 'Peso')) det.push(r);
+  h += `<details class="fsec"><summary>Dettagli</summary>${tRighe(det)}</details>`;
+  if (t) h += `<div class="t-piede"><button class="btn" id="tpl-apply">Applica le misure</button></div>`;
+  $('#props').innerHTML = h + '</div>';
+  if (!t) return;
+  const vai = () => {
+    const v = {};
+    document.querySelectorAll('[data-tf]').forEach(i => { v[i.dataset.tf] = i.value.trim(); });
+    inCoda(async () => { if (await apply(await call('structure_template_apply', s.id, v), 'Struttura rifatta con le misure nuove.')) await select('struct=' + s.id); });
+  };
+  $('#tpl-apply').onclick = vai;
+  document.querySelectorAll('input[data-tf]').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
+  bluSeCambia(document.querySelectorAll('[data-tf]'), $('#tpl-apply'));
+}
+// il tubo cliccato: le misure da officina in cima, poi cosa ci puoi fare, il tubo, come sta il profilo
+function pannelloTubo(s, quanti) {
+  const tb = s.tubo || {}, altri = (tb.gruppo_n || 1) - 1;
+  const riga = k => s.rows.find(r => r[0] === k)?.[1];
+  const tubo = riga('Tubo') || s.profile || '';
+  const cose = s.group ? `${s.group}, ${tMinuscola(tubo)}` : tubo;
+  const anc = Object.entries(s.anchors || {}).map(([k, v]) => `<option value="${k}"${k === s.anchor ? ' selected' : ''}>${esc(v)}</option>`).join('');
+  const n = ultimoClic?.id === s.id ? ultimoClic.normal : (tb.verticale ? [0, -1, 0] : null);   // in piedi: davanti
+  const fatte = (s.lavorazioni || []).map(l => `<div class="riga"><span>${esc(l.label)}${l.through ? ' (passante)' : ''}${l.members.length > 1 ? `, su ${l.members.length} tubi` : ''}</span>
+    <button class="btn piccolo" data-lav-sk="${esc(l.sketch)}">Modifica</button></div>`).join('');
+  $('#props').innerHTML = `<div class="t-pan"><h3>${esc(s.title)}${quanti}</h3><p class="t-cose">${esc(cose)}</p>
+    <section class="sezione t-misure">${tRighe(s.rows.filter(r => r[0] === 'Da tagliare' || r[0] === 'Batte contro'))}</section>
+    <section class="sezione"><h4>Cosa puoi fare adesso</h4><div class="cosa t-azioni">
+      ${tb.facce?.length ? tAzione('id="p-dividi"', 'pattern_rect', 'Dividi il lato', `Montanti e traversi in mezzo: ${tb.facce.join(' o ').toLowerCase()}`) : ''}
+      ${tAzione('id="p-trav"', 'extend', 'Traverso da qui', 'Parte da questo tubo, poi clicchi dove arriva')}
+      ${tAzione('id="p-punto"', 'line', 'Tubo nuovo da un punto di questo tubo', `${tb.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia`)}
+      <div class="t-punto" id="p-punto-riga" hidden><label class="lbl" for="p-punto-q">${tb.verticale ? 'Altezza da terra' : 'Distanza dall’inizio del tubo'}</label>
+        <div class="t-in-riga"><span class="campo-unita"><input class="field" id="p-punto-q" value="" placeholder="es. 265"><i>mm</i></span>
+        <button class="btn primary" id="p-punto-ok">Metti il punto</button></div><p class="hint">O passa col mouse sul tubo e clicca dove vuoi.</p></div>
+      ${s.lavorabile ? tAzione('id="p-lav"', 'hole', `Disegna sulla faccia ${facciaCliccata(n)}`, 'Fori, asole, intagli: prima clicca la faccia giusta') : ''}
+    </div>${!s.lavorabile && s.non_lavorabile ? `<p class="hint">${esc(s.non_lavorabile)}</p>` : ''}
+    ${fatte ? `<div class="t-righe"><div class="sub">Lavorazioni sul tubo</div>${fatte}</div>` : ''}</section>
+    <section class="sezione"><h4>Tubo</h4>
+      <div class="t-in-riga"><input class="field" id="p-prof" list="dl-prof" value="${esc(s.profile)}" spellcheck="false" aria-label="Tubo"><button class="btn" id="p-apply">Cambia tubo</button></div>
+      <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+      ${altri > 0 ? `<label class="check"><input type="checkbox" id="p-all" checked> Anche gli altri ${altri === 1 ? 'tubo' : altri + ' tubi'} di «${esc(s.group)}»</label>` : ''}</section>
+    <div id="p-pos"></div>
+    <details class="fsec"><summary>Dettagli</summary>${tRighe(s.rows.filter(r => r[0] === 'Tubo' || r[0] === 'Peso'))}
+      ${s.esterno ? '' : `<label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
+      <div class="t-in-riga"><select class="field" id="p-anc">${anc}</select><button class="btn" id="p-flip">Inverti</button></div>`}</details>
+    <div class="t-piede"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div></div>`;
+  const tutti = () => $('#p-all')?.checked ?? false;
+  const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
+  $('#p-apply').onclick = () => edit({ profile: $('#p-prof').value.trim() });
+  $('#p-prof').onkeydown = ev => { if (ev.key === 'Enter') edit({ profile: $('#p-prof').value.trim() }); };
+  bluSeCambia([$('#p-prof')], $('#p-apply'));
+  // 03/11: come sta il profilo (rettangolare, angolare, piatto, UPN): le posizioni col disegnino della sezione vista
+  // di testa, «su» in alto e «fuori» a destra; passandoci sopra l'anteprima nel 3D, clic = lo gira così
+  chiamaMuto('member_posizioni', s.id).then(r => {
+    const box = $('#p-pos');
+    if (!box || !r.ok || !r.posizioni?.length) return;
+    const tutti_ = r.posizioni.flatMap(p => p.disegno.flat());
+    const m = Math.max(...tutti_.map(([x, y]) => Math.max(Math.abs(x), Math.abs(y)))) * 1.25 || 1;
+    const svg = p => `<svg width="64" height="64" viewBox="${-m} ${-m} ${2 * m} ${2 * m}" aria-hidden="true">
+      <line class="t-asse" x1="${-m}" y1="0" x2="${m}" y2="0" stroke-width="${m / 60}" stroke-dasharray="${m / 12}"/>
+      <line class="t-asse" x1="0" y1="${-m}" x2="0" y2="${m}" stroke-width="${m / 60}" stroke-dasharray="${m / 12}"/>
+      <path class="t-sezione" fill-rule="evenodd" stroke-width="${m / 40}" d="${p.disegno.map(c => 'M' + c.map(([x, y]) => `${x} ${-y}`).join(' L') + ' Z').join(' ')}"/></svg>`;
+    box.innerHTML = `<section class="sezione"><h4>Come sta il profilo</h4><p class="hint">Visto di testa: ${esc(r.su)} in alto, ${esc(r.destra)} a destra.</p>
+      <div class="angoli">${r.posizioni.map((p, i) => `<button class="angolo${p.ora ? ' on' : ''}" data-posiz="${i}">${svg(p)}<span>${esc(p.testo)}</span></button>`).join('')}</div></section>`;
+    box.querySelectorAll('[data-posiz]').forEach(b => {
+      const p = r.posizioni[+b.dataset.posiz], campi = { rotate: p.rotate, flip: p.flip };
+      b.onclick = () => { anteprimaVia(); edit(campi); };
+      b.onmouseenter = () => { if (!p.ora) anteprima('edit_member', () => [s.id, campi, tutti()], null); };
+      b.onmouseleave = () => anteprimaVia();
+    });
+  });
+  if ($('#p-flip')) $('#p-flip').onclick = () => edit({ toggle_flip: true });
+  if ($('#p-anc')) $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
+  $('#p-del').onclick = deleteSelected;
+  $('#p-trav').onclick = () => iniziaTraverso(s.id);
+  if ($('#p-dividi')) $('#p-dividi').onclick = () => iniziaDividi(s);
+  // 03/11: un punto qualsiasi sul tubo (il montante a 265 da terra), poi le frecce come da un angolo
+  $('#p-punto').onclick = () => {
+    $('#p-punto-riga').hidden = false; $('#p-punto-q').focus();
+    PUNTO = { id: s.id, mis: tb.misura, vert: !!tb.verticale };
+    passoTubi(`Passa sul tubo e clicca dove parte il tubo nuovo, o scrivi ${tb.verticale ? 'l’altezza da terra' : 'la distanza'} a destra`);
+  };
+  $('#p-punto-q').oninput = () => { const q = parseFloat($('#p-punto-q').value.replace(',', '.')); if (PUNTO && isFinite(q)) puntoSegno(q); };
+  const metti = () => {
+    const q = $('#p-punto-q').value.trim();
+    if (!q) { toast('Scrivi la misura.', 'err'); return; }
+    const [st, mid] = s.id.split('/');
+    puntoVia();
+    inCoda(async () => { const r = await call('punto_su_tubo', st, mid, q); if (await apply(r) && r.node) await select(r.node); });
+  };
+  $('#p-punto-ok').onclick = metti;
+  $('#p-punto-q').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); metti(); } };
+  const lav = $('#p-lav');
+  if (lav) lav.onclick = () => inCoda(async () => {
+    const nn = ultimoClic?.id === s.id && ultimoClic.normal ? ultimoClic.normal : (tb.verticale ? [0, -1, 0] : [0, 0, 1]);
+    const r = await call('sketch_on_tube', s.id, nn);
+    if (await apply(r)) await enterSketch(r.sketch);
+  });
+  document.querySelectorAll('#props [data-lav-sk]').forEach(x => { x.onclick = () => enterSketch(x.dataset.lavSk); });
+}
+// la barra «prossimo passo» dei tubi (regola 4): una riga in basso al centro della vista, Esc scritto come tasto.
+// È #trav-hint (le prove lo cercano lì): traverso, Dividi senza tubo, punto sul tubo
+function passoTubi(testo, tasti = [['Esc', 'annulla']]) {
+  const b = $('#trav-hint');
+  if (!b) return;
+  if (!testo) { b.hidden = true; b.textContent = ''; return; }
+  b.innerHTML = `<span class="t-passo">${esc(testo)}</span>${tasti.map(([k, t]) => `<span class="g-tasto"><kbd>${esc(k)}</kbd> ${esc(t)}</span>`).join('')}`;
+  b.hidden = false;
+}
+// i disegnini dell'angolo: due tubi visti di fronte, come si saldano. I colori dal foglio di stile (chiaro e scuro):
+// .gt-p il tubo che passa intero (chiaro), .gt-t quello tagliato (scuro), .gt-l il taglio
 function disegnoGiunto(tipo) {
-  const g = '#8C96A0', c = '#B8C0C8';
   const forme = {
-    miter: `<polygon points="10,10 26,26 26,76 10,76" fill="${g}"/><polygon points="10,10 76,10 76,26 26,26" fill="${c}"/><line x1="10" y1="10" x2="26" y2="26" stroke="#16191D" stroke-width="2"/>`,
-    verticale: `<rect x="10" y="10" width="16" height="66" fill="${g}"/><rect x="27" y="10" width="49" height="16" fill="${c}"/>`,
-    orizzontale: `<rect x="10" y="10" width="66" height="16" fill="${c}"/><rect x="10" y="27" width="16" height="49" fill="${g}"/>`,
+    miter: `<polygon class="gt-t" points="10,10 26,26 26,76 10,76"/><polygon class="gt-p" points="10,10 76,10 76,26 26,26"/><line class="gt-l" x1="10" y1="10" x2="26" y2="26"/>`,
+    verticale: `<rect class="gt-t" x="10" y="10" width="16" height="66"/><rect class="gt-p" x="27" y="10" width="49" height="16"/>`,
+    orizzontale: `<rect class="gt-p" x="10" y="10" width="66" height="16"/><rect class="gt-t" x="10" y="27" width="16" height="49"/>`,
     // incroci (03/11): il tubo che passa è intero e chiaro, l'altro è in due pezzi scuri che gli battono contro
     // (staccati di un filo, così si vede subito chi è tagliato)
-    croce_v: `<rect x="35" y="4" width="16" height="78" fill="${c}"/><rect x="4" y="35" width="27" height="16" fill="${g}"/><rect x="55" y="35" width="27" height="16" fill="${g}"/>`
-      + `<line x1="31" y1="33" x2="31" y2="53" stroke="#16191D" stroke-width="2"/><line x1="55" y1="33" x2="55" y2="53" stroke="#16191D" stroke-width="2"/>`,
-    croce_o: `<rect x="4" y="35" width="78" height="16" fill="${c}"/><rect x="35" y="4" width="16" height="27" fill="${g}"/><rect x="35" y="55" width="16" height="27" fill="${g}"/>`
-      + `<line x1="33" y1="31" x2="53" y2="31" stroke="#16191D" stroke-width="2"/><line x1="33" y1="55" x2="53" y2="55" stroke="#16191D" stroke-width="2"/>`,
+    croce_v: `<rect class="gt-p" x="35" y="4" width="16" height="78"/><rect class="gt-t" x="4" y="35" width="27" height="16"/><rect class="gt-t" x="55" y="35" width="27" height="16"/>`
+      + `<line class="gt-l" x1="31" y1="33" x2="31" y2="53"/><line class="gt-l" x1="55" y1="33" x2="55" y2="53"/>`,
+    croce_o: `<rect class="gt-p" x="4" y="35" width="78" height="16"/><rect class="gt-t" x="35" y="4" width="16" height="27"/><rect class="gt-t" x="35" y="55" width="16" height="27"/>`
+      + `<line class="gt-l" x1="33" y1="31" x2="53" y2="31"/><line class="gt-l" x1="33" y1="55" x2="53" y2="55"/>`,
   };
-  return `<svg width="60" height="60" viewBox="0 0 86 86" aria-hidden="true">${forme[tipo] || ''}</svg>`;
+  return `<svg class="giunto" width="56" height="56" viewBox="0 0 86 86" aria-hidden="true">${forme[tipo] || ''}</svg>`;
 }
+// la freccia di un verso (Su, Giù…) disegnata nel pulsante del pannello: come la vedi nel disegno iso
+const VERSO_SVG = { su: 'M8 13V3M4 7l4-4 4 4', giu: 'M8 3v10M4 9l4 4 4-4', avanti: 'M11 5L4 12M4 7v5h5', dietro: 'M5 11l7-7M7 4h5v5',
+  destra: 'M3 6l10 4M9 12.5l4-2.5-2-4', sinistra: 'M13 10L3 6M7 3.5L3 6l2 4' };
+const versoSvg = d => `<svg class="t-verso" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="${VERSO_SVG[d] || ''}"/></svg>`;
+// l'angolo (o l'incrocio, o un capo libero) cliccato: come si saldano i tubi qui, e il tubo nuovo da qui con le frecce
 function nodePanel(s) {
   const a = s.angolo;
-  let h = '';
+  let h = `<div class="t-pan"><h3>${esc(s.title)}</h3>`;
+  h += `<p class="t-cose">${a ? (a.incrocio ? 'Due tubi che si incrociano' : (a.quanti || a.righe.length) === 1 ? 'Il capo di un tubo: da qui puoi continuare' : `Qui si incontrano ${a.quanti || a.righe.length} tubi`) : s.rows?.length ? esc(s.rows[0][1].replace(/^./, x => x.toUpperCase())) : 'Un capo libero: da qui parte un tubo nuovo'}</p>`;
   if (a && a.scelte.length) {
-    h += `<div class="sub">Come si saldano qui?</div><div class="angoli">${a.scelte.map(x =>
+    h += `<section class="sezione"><h4>Come si saldano qui?</h4><div class="angoli">${a.scelte.map(x =>
       `<button class="angolo${x.key === a.ora ? ' on' : ''}" data-angolo="${x.key}">${disegnoGiunto(x.disegno)}<span>${esc(x.label)}</span></button>`).join('')}</div>
       ${a.simili > 1 ? `<label class="check"><input type="checkbox" id="n-tutti" checked> Uguale su tutti i ${a.simili} ${a.incrocio ? 'incroci' : 'angoli'} come questo</label>` : ''}
-      <table class="grid" style="margin-top:6px">${a.righe.map(r => `<tr><td>${esc(r[0])}</td><td class="destra">${esc(r[1])}</td></tr>`).join('')}</table>`;
-  }
+      <div class="t-righe">${tRighe(a.righe)}</div></section>`;
+  } else if (a?.righe?.length) h += `<section class="sezione t-righe">${tRighe(a.righe)}</section>`;
   if (!ultimaAsta.profile) ultimaAsta.profile = s.default_profile;
-  h += `<div class="sub">Tubo nuovo da qui</div>
-    <p class="hint" style="margin:0 0 6px">Scrivi lunghezza e tubo, poi clicca una freccia nel disegno (o qui sotto). Poi si riparte dal capo del tubo.</p>
-    <div class="xyz"><label>Lunghezza<input class="field" id="n-len" value="${esc(ultimaAsta.length)}"></label>
-    <label style="grid-column:span 2">Tubo<input class="field" id="n-prof" list="dl-prof2" value="${esc(ultimaAsta.profile)}" spellcheck="false"></label></div>
+  h += `<section class="sezione"><h4>Tubo nuovo da qui</h4>
+    <p class="hint">Scrivi lunghezza e tubo, poi clicca una freccia nel disegno o qui sotto. Si riparte dal capo del tubo nuovo.</p>
+    <div class="t-campi"><label class="lbl">Lunghezza<span class="campo-unita"><input class="field" id="n-len" value="${esc(ultimaAsta.length)}"><i>mm</i></span></label>
+    <label class="lbl">Tubo<input class="field" id="n-prof" list="dl-prof2" value="${esc(ultimaAsta.profile)}" spellcheck="false"></label></div>
     <datalist id="dl-prof2">${(profili || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
-    <label class="lbl" style="display:block;margin-top:4px">Nome (se vuoi)<input class="field" id="n-nome" value="" placeholder="es. Mensola"></label>
-    <div class="dirs">${FRECCE.map(([d, t]) => `<button class="btn" data-freccia="${d}">${t}</button>`).join('')}</div>
-    <div class="row-btns"><button class="btn" id="n-link">Unisci a un altro angolo…</button></div>`;
+    <label class="lbl">Nome (se vuoi)<input class="field" id="n-nome" value="" placeholder="es. Mensola"></label>
+    <div class="dirs">${FRECCE.map(([d, t]) => `<button class="btn" data-freccia="${d}">${versoSvg(d)}${t}</button>`).join('')}</div>
+    <div class="row-btns"><button class="btn" id="n-link">Unisci a un altro angolo…</button></div></section>`;
   const p = s.position;
   if (p.mode !== 'fixed') {
     const cosa = { abs: 'Misure da zero (mm, anche nomi di misure)', from: 'Spostamento dall’angolo da cui parte', sketch: 'Spostamento dal punto del disegno' }[p.mode];
-    h += `<details class="altro"><summary>Sposta l’angolo</summary><p class="hint" style="margin:0 0 4px">${esc(cosa)}: verso destra, verso dietro, verso su.</p><div class="xyz">${['Destra', 'Dietro', 'Su'].map((t, i) =>
+    h += `<details class="fsec"><summary>Sposta l’angolo</summary><p class="hint">${esc(cosa)}: verso destra, verso dietro, verso su.</p><div class="xyz">${['Destra', 'Dietro', 'Su'].map((t, i) =>
       `<label>${t}<input class="field" data-xyz="${i}" value="${esc(String(p.values[i] ?? 0).replace('.', ','))}"></label>`).join('')}</div>
       <div class="row-btns"><button class="btn" id="n-move">Sposta</button></div></details>`;
   }
-  return h;
+  return h + '</div>';
 }
 function wireNode(s) {
   document.querySelectorAll('[data-angolo]').forEach(b => {
@@ -6096,8 +6208,7 @@ function wireNode(s) {
   $('#n-link').onclick = () => {
     ricordaTubo();
     linkFrom = { st: s.structure, key: s.key, profile: ultimaAsta.profile, group: '' };
-    paintNodes();
-    toast('Clicca l’altro angolo: li unisco con un tubo.');
+    paintNodes();                               // la barra in basso dice cosa fare (Esc annulla)
   };
 }
 // --------------------------------------------------------------- distinta, cut list, info
@@ -6147,11 +6258,12 @@ function disegnaSaldature() {
 function formaPezzo(r) {
   const ang = (r.cuts || []).map(c => /°/.test(c) ? parseFloat(c.replace(',', '.')) : 0);
   if (!ang.some(a => a)) return '';
-  const W = 46, h = 10, o = a => Math.min(16, h * Math.tan(a * Math.PI / 180));
+  // notte 03/11: un po' più grande e coi colori del foglio di stile (si vede anche sullo scuro)
+  const W = 56, h = 12, o = a => Math.min(18, h * Math.tan(a * Math.PI / 180));
   const [a0, a1] = ang.length === 2 ? ang : [ang[0] || 0, 0];
   const pts = r.forma === 'parallelo' ? [[o(a0), 0], [W, 0], [W - o(a1), h], [0, h]]
     : [[o(a0), 0], [W - o(a1), 0], [W, h], [0, h]];
-  return `<svg class="forma-pezzo" width="${W + 2}" height="${h + 2}" viewBox="-1 -1 ${W + 2} ${h + 2}" aria-hidden="true" style="vertical-align:middle;margin-right:6px"><polygon points="${pts.map(p => p.join(',')).join(' ')}" fill="#B8C0C8" stroke="#16191D" stroke-width="1"/></svg>`;
+  return `<svg class="forma-pezzo" width="${W + 2}" height="${h + 2}" viewBox="-1 -1 ${W + 2} ${h + 2}" aria-hidden="true"><polygon points="${pts.map(p => p.join(',')).join(' ')}"/></svg>`;
 }
 function renderBottom() {
   renderMancanti();
@@ -6178,19 +6290,19 @@ function renderBottom() {
 
   const c = S.cutlist;
   // 03/11: come la distinta di taglio della tavola: posizione, nome da officina (mai le sigle dei tubi), poi le misure
-  $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols"><table class="grid"><thead><tr><th class="n">Pos.</th><th>Nome</th><th>Profilo</th><th class="n">Lunghezza mm</th>
-    <th>Tagli</th><th class="n">Q.tà</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
-    ${c.rows.map((r, i) => `<tr data-ids="${esc(r.members.join(','))}"><td class="n">${i + 1}</td><td>${esc(r.nome || (r.dove || r.groups).join(' · '))}</td>
-      <td>${esc(r.profile)} ${esc(r.material)}</td><td class="n">${num(r.length_mm)}</td>
-      <td>${formaPezzo(r)}${esc(r.tagli_testo || r.tagli || r.cuts.join(' / '))}</td><td class="n">${r.qty}</td>
+  $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols t-taglio"><table class="grid"><thead><tr><th class="n">Pos.</th><th>Nome</th><th>Tubo</th><th class="n">Lunghezza (mm)</th>
+    <th>Tagli</th><th class="n">Pezzi</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
+    ${c.rows.map((r, i) => `<tr data-ids="${esc(r.members.join(','))}"><td class="n t-pos">${i + 1}</td><td>${esc(r.nome || (r.dove || r.groups).join(', '))}</td>
+      <td class="t-nowrap">${esc(r.profile)} <span class="spento">${esc(r.material)}</span></td><td class="n t-lung">${num(r.length_mm)}</td>
+      <td><span class="t-tagli">${formaPezzo(r)}<span>${esc(r.tagli_testo || r.tagli || r.cuts.join(' / '))}</span></span></td><td class="n"><b>${r.qty}</b></td>
       <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
     <tr class="tot"><td colspan="5">Totale</td><td class="n">${c.pieces}</td><td></td><td class="n">${kg(c.kg)}</td></tr></tbody></table>
-    <table class="grid"><thead><tr><th>Per profilo</th><th class="n">Pezzi</th><th class="n">Metri</th><th class="n">kg</th></tr></thead><tbody>
-    ${c.totals.map(t => `<tr><td>${esc(t.profile)} ${esc(t.material)}</td><td class="n">${t.pieces}</td>
+    <table class="grid"><thead><tr><th>Per tubo</th><th class="n">Pezzi</th><th class="n">Metri</th><th class="n">kg</th></tr></thead><tbody>
+    ${c.totals.map(t => `<tr><td class="t-nowrap">${esc(t.profile)} <span class="spento">${esc(t.material)}</span></td><td class="n">${t.pieces}</td>
       <td class="n">${num(t.total_length_mm / 1000, 2)}</td><td class="n">${kg(t.kg)}</td></tr>`).join('')}</tbody></table></div>`
-    + (c.accessori?.length ? `<h4 style="margin:12px 0 4px">Piedi e tappi</h4><table class="grid"><thead><tr><th>Descrizione</th><th class="n">Q.tà</th><th>Dove va</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
-      ${c.accessori.map(a => `<tr data-ids="${esc(a.ids.join(','))}"><td>${esc(a.description)}${a.acquisto ? ' · <b>da acquistare</b>' : ''}</td><td class="n">${a.qty}</td>
-        <td title="${esc(a.dove.join(' · '))}">${esc(a.dove.slice(0, 2).join(' · ') + (a.dove.length > 2 ? ` e altre ${a.dove.length - 2}` : ''))}</td><td class="n">${a.kg_each ? kg(a.kg_each) : ''}</td><td class="n">${a.kg_total ? kg(a.kg_total) : ''}</td></tr>`).join('')}</tbody></table>` : '')
+    + (c.accessori?.length ? `<h4 class="t-sotto">Piedi e tappi</h4><table class="grid t-acc"><thead><tr><th>Descrizione</th><th class="n">Pezzi</th><th>Dove va</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
+      ${c.accessori.map(a => `<tr data-ids="${esc(a.ids.join(','))}"><td>${esc(a.description)}${a.acquisto ? ' <span class="t-compra">da acquistare</span>' : ''}</td><td class="n"><b>${a.qty}</b></td>
+        <td title="${esc(a.dove.join(', '))}">${esc(a.dove.slice(0, 2).join(', ') + (a.dove.length > 2 ? ` e altre ${a.dove.length - 2}` : ''))}</td><td class="n">${a.kg_each ? kg(a.kg_each) : ''}</td><td class="n">${a.kg_total ? kg(a.kg_total) : ''}</td></tr>`).join('')}</tbody></table>` : '')
     : '<p class="empty">Nessuna struttura in tubolare in questo progetto.</p>';
 
   const i = S.info;
@@ -6435,7 +6547,7 @@ function anteprimaPannello(metodo, argomenti, dentro = '#props') {
   let st = box.querySelector('.ant-stato');
   if (!st) {
     st = document.createElement('div'); st.className = 'ant-stato';
-    (box.querySelector('#f-add')?.closest('.row-btns') || box.querySelector('.row-btns') || box.lastElementChild)?.before(st);
+    (box.querySelector('#f-add')?.closest('.row-btns') || box.querySelector('.t-piede') || box.querySelector('.row-btns') || box.lastElementChild)?.before(st);
   }
   const vai = () => anteprima(metodo, argomenti, st);
   box.querySelectorAll('input, select').forEach(i => { i.addEventListener('input', vai); i.addEventListener('change', vai); });
@@ -7222,6 +7334,11 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') {
     if (!$('#modal').hidden) { $('#modal').hidden = true; return; }
     if (linkFrom) { linkFrom = null; paintNodes(); return; }
+    // tubi (notte 03/11): Esc chiude il comando in corso, come dice la barra in basso
+    if (TRAV) { anteprimaVia(); finisciTraverso(); return; }
+    if (DIV && $('#dv-no')) { $('#dv-no').click(); return; }
+    if (DIVSCEGLI) { DIVSCEGLI = false; passoTubi(null); return; }
+    if (PUNTO) { puntoVia(); if ($('#p-punto-riga')) $('#p-punto-riga').hidden = true; return; }
     if (inCampo) { document.activeElement.blur(); return; }
     clearSelection(); return;
   }
