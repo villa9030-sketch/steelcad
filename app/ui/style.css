@@ -2365,3 +2365,86 @@ body:has(.pannello-cmd) #viewcube { right: 326px; }
 #tree .node .n-conta { margin-left: var(--s-1); padding: 0 6px; border-radius: 9px; background: var(--c-incavo); color: var(--c-testo-2); font-size: var(--fs-piccolo);
   line-height: 18px; font-variant-numeric: tabular-nums; }
 .acts .spingi { margin-right: auto; }
+/* ================================================================ LAMIERA E DISEGNO (notte 03→04/11)
+   Dentro la vista e nel pannello di destra quando lavori una lamiera, un disegno e lo sviluppo. Solo token e componenti. */
+/* barra «prossimo passo» del disegno: UNA riga (regola 4). Il testo lungo si taglia coi puntini, intero passando col mouse */
+#sk-foot { max-width: min(980px, calc(100% - 24px)); }
+.sk-help { white-space: nowrap; min-width: 0; gap: var(--s-3); }
+.sk-help .g-cmd { flex: none; }
+.sk-help .g-cmd img { width: 20px; height: 20px; }
+.sk-help .g-testo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sk-help .g-testo small { display: inline; margin-left: var(--s-2); font-size: var(--fs-etichetta); }
+.sk-help .g-sep { flex: none; height: 20px; align-self: center; }
+.sk-help .g-tasto { flex: none; gap: 5px; font-size: var(--fs-etichetta); }
+/* un problema del disegno (contorno aperto…) è «da guardare», non un errore: ambra, sotto la riga */
+.sk-problema { margin-top: var(--s-1); font: 500 var(--fs-etichetta)/1.35 var(--font); color: var(--c-warn-testo); white-space: normal; }
+/* la casella del comando (lunghezza, diametro…) sta SOPRA la barra «prossimo passo», non la copre */
+#sk-cmd { bottom: 56px; gap: var(--s-2); }   /* subito sopra la barra (una riga, alta 44) */
+#sk-cmd-label { font-size: var(--fs-fitto); color: var(--c-testo-2); }
+#sk-cmd .u { color: var(--c-spento); font-size: var(--fs-piccolo); }
+/* gli agganci del disegno nel colore di modalità (verde acqua); il suggerimento vicino al mouse scuro e quieto */
+#sk-snap svg * { stroke: var(--modo-disegno); stroke-width: 2.2; }
+#sk-tip { background: var(--c-suggerimento); border-radius: var(--r-campo); padding: 3px 8px; font: 500 var(--fs-etichetta)/1.3 var(--font); }
+#sk-tip b { color: var(--c-sel); }
+.sk-legend .l-draw, body.dark .sk-legend .l-draw { border-color: var(--modo-disegno); }
+/* le finestre del disegno (Testo, Gradino…): l'unità DENTRO il campo, come .campo-unita */
+.form .inp { position: relative; display: block; }
+.form .inp .field { width: 100%; padding-right: 34px; }
+.form .inp i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: var(--fs-etichetta);
+  color: var(--c-spento); pointer-events: none; }
+/* la barretta sul pezzo (regola 3): azioni col nome, «Togli» in rosso quieto, «⋯» per il resto */
+#mini-barra > button.con-scritta { height: 36px; gap: 6px; }
+#mini-barra > button.via.con-scritta { color: var(--c-err-testo); }
+#mini-barra > button.via.con-scritta img { filter: none; }
+#mini-barra > button.piu { width: 36px; font-size: 18px; color: var(--c-testo-2); }
+/* il pannello di destra (regola 2): titolo e cos'è, «Cosa puoi fare», i campi, «Dettagli» chiuso, il pulsante blu fermo in fondo */
+#props-panel > h2 { display: none; }
+#props-panel { padding-bottom: 0; border-bottom: 0; }
+#props .fhead { margin-bottom: var(--s-3); }
+#props .fhead h3 { margin: 0 !important; }
+#props .fsub { margin-top: 2px; color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#props .fsub .fid { color: var(--c-spento); font-size: var(--fs-piccolo); }
+#props .cosa-fai { padding: var(--s-3) 0; gap: var(--s-1); border-top: 1px solid var(--c-linea); }
+#props .cosa-fai h4 { margin-bottom: 2px; }
+#props .azioni { display: flex; flex-direction: column; gap: 2px; }
+#props .btn.azione { justify-content: flex-start; gap: var(--s-2); width: 100%; min-height: var(--h-riga); padding: 0 var(--s-2);
+  border-color: transparent; background: none; color: var(--c-testo); font-weight: 500; text-align: left; }
+#props .btn.azione:hover { background: var(--c-sopra); border-color: transparent; }
+#props .btn.azione img { flex: none; width: 18px; height: 18px; }
+#props .btn.azione.danger { color: var(--c-err-testo); }
+#props .btn.azione.danger:hover { background: var(--c-err-tenue); }
+#props .btn.azione[hidden] { display: none; }
+#props .pl-corpo { padding-top: var(--s-3); border-top: 1px solid var(--c-linea); }
+#props .pl-corpo > .hint:first-child { margin-top: 0; }
+#props .dettagli table.grid { margin-top: var(--s-1); }
+#props .dettagli .piega-riga { margin: var(--s-2) 0 0; color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#props .pl-fine { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; gap: var(--s-2); margin: var(--s-4) calc(-1 * var(--s-3)) 0;
+  padding: var(--s-3); border-top: 1px solid var(--c-linea); background: var(--c-pannello); }
+#props .pl-fine .btn.primary { min-width: 120px; }
+/* la barra di prova sul pezzo (Togli il foro, Piega qui…): dentro la vista, in basso al centro, al posto di Inquadra/Quote/Tema.
+   Il pallino dice lo stato: grigio mentre calcola, verde si può fare, rosso no */
+#prova-barra { position: absolute; bottom: 10px; max-width: calc(100% - 24px); gap: var(--s-3); padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4); }
+body.in-prova #navbar { display: none; }
+#prova-barra .pallino { background: var(--c-spento); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-spento) 22%, transparent); }
+#prova-barra.si .pallino { background: var(--c-ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-ok) 22%, transparent); }
+#prova-barra.togli.si .pallino { background: var(--c-warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-warn) 22%, transparent); }
+#prova-barra .frase b { font: 600 var(--fs-testo)/1.3 var(--font); color: var(--c-testo); }
+#prova-barra .frase small { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#prova-barra .tasti .btn { min-height: 36px; }
+#prova-barra .btn kbd { margin-left: 6px; border-color: currentColor; background: none; color: inherit; opacity: .75; }
+.btn.danger.pieno { background: var(--c-err); border-color: var(--c-err); color: var(--c-su-colore); }
+.btn.danger.pieno:hover { background: color-mix(in srgb, var(--c-err) 88%, #000); border-color: transparent; }
+.btn.danger.pieno:disabled { background: var(--c-incavo); border-color: var(--c-linea); color: var(--c-spento); }
+#prova-barra .frase small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+/* le quote misurate col comando Misura: bordo giallo (sono «quello che stai toccando»), testo leggibile */
+#mis-box .dim.mis { border-color: var(--c-sel); background: var(--c-sel-tenue); color: var(--c-testo); }
+#prova-barra, #sk-foot { width: max-content; }
+#sk-cmd .sk-invio { padding: 1px 6px; border: 1px solid var(--c-linea); border-bottom-width: 2px; border-radius: 4px; background: var(--c-incavo);
+  color: var(--c-testo-2); font: 600 11px var(--font); }
+#sk-foot { padding: 8px var(--s-4) !important; }
+/* schermi bassi (1366×768): le azioni del pannello più fitte, così i campi si vedono senza scorrere */
+@media (max-height: 800px) {
+  #props .btn.azione { min-height: 28px; }
+  #props .cosa-fai { padding: var(--s-2) 0; }
+  #props .fp-pic svg { max-height: 104px; }
+}
