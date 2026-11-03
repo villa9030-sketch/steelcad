@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -72,7 +73,7 @@ try:
         r = pg.evaluate("async ([sid, a, b]) => window.__steelcad.apply(await (await fetch('/api/sketch_add_rectangle', {method: 'POST', body: JSON.stringify([sid, a, b])})).json())",
                         [sid, [min(xs) + 100, min(ys) + 20], [max(xs) - 100, max(ys) - 20]])
         time.sleep(0.6)
-        pg.click('#ribbon [data-make="sheet"]'); pg.wait_for_selector('#m-sp')
+        comando(pg, '#ribbon [data-make="sheet"]'); pg.wait_for_selector('#m-sp')
         pg.fill('#m-sp', '3'); pg.click('#m-ok')
         pg.wait_for_function('!window.__steelcad.sketch && window.__steelcad.state.sheet', timeout=30000); time.sleep(1)
         pg.screenshot(path=str(SHOTS / '2_lamiera_nel_contesto.png'))

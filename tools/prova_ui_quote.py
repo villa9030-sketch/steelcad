@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -56,7 +57,7 @@ try:
             import math
             return math.dist(l['pa'], l['pb'])
 
-        pg.click('#ribbon [data-tool="dim"]'); time.sleep(0.3)
+        comando(pg, '#ribbon [data-tool="dim"]'); time.sleep(0.3)
         ok('Quota: il suggerimento spiega cosa cliccare', 'Quota' in pg.inner_text('#sk-help') or 'linea' in pg.inner_text('#sk-help'))
         clic([50, 0])                                       # il lato di sotto
         pg.screenshot(path=str(SHOTS / '1_dopo_clic_lato.png'))
@@ -109,7 +110,7 @@ try:
         v = pg.evaluate('window.__steelcad.sketch.v')
         c = v['circles'][-1]['xc']
         sx = min(q['xy'][0] for q in v['points'] if q['id'] != 'O')
-        pg.click('#ribbon [data-tool="dim"]'); time.sleep(0.3)
+        comando(pg, '#ribbon [data-tool="dim"]'); time.sleep(0.3)
         clic(c)                                             # il centro del foro
         aiuto = pg.inner_text('#sk-help')
         ok(f'clic sul centro del foro: chiede l’altro punto o la linea ({aiuto[:50]})', 'altro punto' in aiuto or 'linea' in aiuto)

@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
@@ -47,7 +48,7 @@ try:
             pg.click(f'input[data-p="{k}"]', click_count=3); pg.keyboard.type(v); pg.keyboard.press('Enter'); time.sleep(1.2)
         pg.mouse.move(760, 480); time.sleep(0.3); pg.mouse.click(760, 480); time.sleep(1.2)
         pg.click('#mini-barra button:has-text("Disegna qui")'); time.sleep(3)
-        pg.click('[data-tool="circle"]'); time.sleep(0.5)
+        comando(pg, '[data-tool="circle"]'); time.sleep(0.5)
 
         def schermo(P):
             x, y = pg.evaluate('p => window.__steelcad.skScreen(p)', P)
@@ -64,7 +65,7 @@ try:
         ok(f'i 4 fori dove li ha visti: {cerchi}', cerchi == [(25, 25), (275, 25), (275, 175), (25, 175)])
         pg.mouse.move(900, 600); time.sleep(0.4)
         pg.screenshot(path=str(out / 'v1_quattro_fori.png'))
-        pg.keyboard.press('Escape'); time.sleep(0.3); pg.click('#ribbon [data-skdone]') if pg.is_visible('#ribbon [data-skdone]') else None
+        pg.keyboard.press('Escape'); time.sleep(0.3); comando(pg, '#ribbon [data-skdone]') if comando_visibile(pg, '#ribbon [data-skdone]') else None
         time.sleep(1)
         ok('nessun errore in pagina', not err)
         if err:

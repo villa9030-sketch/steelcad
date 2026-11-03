@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / '.venv' / 'Scripts' / 'python.exe'
@@ -88,7 +89,7 @@ def main():
             pg.keyboard.type('100x50'); pg.keyboard.press('Enter')
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 4')
             time.sleep(0.7)
-            pg.click('#ribbon [data-tool="fillet"]')
+            comando(pg, '#ribbon [data-tool="fillet"]')
             clic([0, 0])                                        # lo spigolo sta sopra l'origine
             ok(f'raccordo: lo spigolo sull’origine si sceglie ({pg.inner_text("#sk-cmd")!r})', 'Raggio' in pg.inner_text('#sk-cmd'))
             pg.keyboard.press('Control+A'); pg.keyboard.type('8'); pg.keyboard.press('Enter')
@@ -103,7 +104,7 @@ def main():
             ok(f'raccordo R12 con due linee, contorno chiuso ({rr}, {v()["profiles"]})', rr == [8, 12] and v()['profiles'] == 1)
             ok('resta attivo il Raccordo', pg.evaluate("window.__steelcad.sketch.tool") == 'fillet')
             # smusso sullo spigolo in alto a sinistra
-            pg.click('#ribbon [data-tool="chamfer"]')
+            comando(pg, '#ribbon [data-tool="chamfer"]')
             clic([0, 50]); pg.keyboard.press('Control+A'); pg.keyboard.type('6'); pg.keyboard.press('Enter')
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 5', timeout=8000)
             ok(f'smusso 6 sullo spigolo ({v()["profiles"]} contorno)', v()['profiles'] == 1)
@@ -112,13 +113,13 @@ def main():
             pg.keyboard.press('l'); clic([10, 10]); clic([40, 10]); pg.keyboard.press('Escape')
             pg.keyboard.press('l'); clic([60, 20]); clic([60, 40]); pg.keyboard.press('Escape')
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 7')
-            pg.click('#ribbon [data-tool="fillet"]')
+            comando(pg, '#ribbon [data-tool="fillet"]')
             clic([30, 10]); clic([60, 30])
             pg.keyboard.press('Control+A'); pg.keyboard.type('0'); pg.keyboard.press('Enter')
             pg.wait_for_function("window.__steelcad.sketch.v.lines.some(l => Math.abs(l.xb[0] - 60) < 1e-6 && Math.abs(l.xb[1] - 10) < 1e-6 || Math.abs(l.xa[0] - 60) < 1e-6 && Math.abs(l.xa[1] - 10) < 1e-6)", timeout=8000)
             ok('raccordo R0: le due linee staccate si uniscono nello spigolo (60; 10)', True)
             pg.screenshot(path=str(SHOTS / '2_raccordo_r0.png'))
-            pg.click('#ribbon [data-skdone]')
+            comando(pg, '#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
 
             # ------------------------------------------------ raccordo degli spigoli del pezzo (bordi arancio)
@@ -131,7 +132,7 @@ def main():
             pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.3); fermo()
             pts = [p['xy'] for p in v()['points'] if p['id'] != 'O']
             angolo = [max(q[0] for q in pts), max(q[1] for q in pts)]
-            pg.click('#ribbon [data-tool="fillet"]')
+            comando(pg, '#ribbon [data-tool="fillet"]')
             clic(angolo)
             ok(f'raccordo: lo spigolo del pezzo si sceglie ({pg.inner_text("#sk-cmd")!r})', 'Raggio' in pg.inner_text('#sk-cmd'))
             pg.keyboard.press('Control+A'); pg.keyboard.type('6'); pg.keyboard.press('Enter')
@@ -140,7 +141,7 @@ def main():
             ok(f'raccordo R6 sullo spigolo del pezzo: bordo arancio arrotondato e nell’albero ({"Raccordo spigolo R6" in alb})',
                'Raccordo spigolo R6' in alb)
             pg.screenshot(path=str(SHOTS / '2b_raccordo_spigolo_pezzo.png'))
-            pg.click('#ribbon [data-skdone]')
+            comando(pg, '#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
 
             # ------------------------------------------------ vedi attraverso: i fori della flangia di fronte
@@ -154,7 +155,7 @@ def main():
             pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(0.4)
             pg.evaluate(f"window.__steelcad.enterSketch('{s2}')")
             pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.3); fermo()
-            ok('scheda SKETCH: c’è "Vedi attraverso"', pg.is_visible('#rb-xray'))
+            ok('scheda SKETCH: c’è "Vedi attraverso"', comando_visibile(pg, '#rb-xray'))
             pg.keyboard.press('v')
             pg.wait_for_function('window.__steelcad.sketch.v.xray', timeout=15000)
             foro = next((c for c in v()['circles'] if c['xray']), None)
@@ -170,7 +171,7 @@ def main():
             pg.keyboard.press('v')
             pg.wait_for_function('!window.__steelcad.sketch.v.xray', timeout=15000)
             ok('di nuovo V: vista attraverso spenta, il cerchio resta', any(not c['ref'] for c in v()['circles']))
-            pg.click('#ribbon [data-skdone]')
+            comando(pg, '#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
 
             # ------------------------------------------------ lamiera a contorno: la sezione disegnata diventa flange
@@ -189,7 +190,7 @@ def main():
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 4")
             ok('stato: la spezzata aperta può diventare lamiera', 'Lamiera a contorno' in pg.inner_text('#sk-status'))
             pg.screenshot(path=str(SHOTS / '0a_sezione.png'))
-            pg.click('#sk-more > button'); pg.click('#sk-contour')
+            pg.click('#sk-more > button'); comando(pg, '#sk-contour')
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             pieghe = [(b['flange'], b['parent'], round(b['length'], 2), round(b['angle'], 1), b['direction']) for b in st['sheet']['data']['bends']]
@@ -218,7 +219,7 @@ def main():
                 clic(xy)
             pg.keyboard.press('Escape')
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 3")
-            pg.click('#sk-tab')
+            comando(pg, '#sk-tab')
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             ok(f'Aggiungi materiale: linguetta 20 × 24 sp. 2 ({st["info"]["part"]["volume_mm3"] - v0:.0f} mm³)',
@@ -309,8 +310,8 @@ def main():
                     testo = pg.inner_text('#toasts')[:70].replace('\n', ' ') if tipo == 'toast' else ''
                     ok(f'barra {tab.upper()} → {cmd}: risponde {testo!r}', risposta)
             ok('schermata del pezzo: comandi nella barra in alto, pannello a destra chiuso',
-               pg.is_visible('#ribbon [data-azione="tipo_foro"]') and not pg.is_visible('#right'))
-            pg.click('#ribbon [data-cmd="unfold"]')
+               comando_visibile(pg, '#ribbon [data-azione="tipo_foro"]') and not pg.is_visible('#right'))
+            comando(pg, '#ribbon [data-cmd="unfold"]')
             pg.wait_for_function('window.__steelcad.look.flat', timeout=20000)   # dopo l'animazione
             time.sleep(0.3)
             ok('barra → Spiega: sviluppo a video', pg.evaluate('window.__steelcad.look.flat'))
@@ -319,7 +320,7 @@ def main():
             pg.evaluate("window.__steelcad.runCmd('flat_sketch')")
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_flat")
             ok('barra → Sullo sviluppo: sketch sullo sviluppo', True)
-            pg.click('#ribbon [data-skdone]')
+            comando(pg, '#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
             time.sleep(0.4)
 

@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -52,7 +53,7 @@ def main():
             pg.evaluate('window.__steelcad.hideHome && window.__steelcad.hideHome()')
             pg.evaluate('(s) => window.__steelcad.enterSketch(s)', sid)
             time.sleep(1.5)
-            pg.locator('#ribbon [data-make="cut"]').first.click()
+            comando(pg, '#ribbon [data-make="cut"]')
             pg.wait_for_selector('#sovr-card', timeout=60000)
             time.sleep(1.0)
             pg.screenshot(path=str(SHOTS / '01_sovrapposti_in_rosso.png'))

@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -87,7 +88,7 @@ def main():
             ok('dalla barretta: la finestra col bordo a destra già scelto', pg.locator('.pg-bordo').count() == 1 and 'destra' in pg.locator('.pg-bordi').inner_text())
             pg.locator('#m-no').click()
             time.sleep(0.5)
-            pg.locator('[data-rbody="lamiera"] [data-cmd="flange_help"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-cmd="flange_help"]')
             pg.wait_for_selector('#pg-corpo', timeout=10000)
             time.sleep(0.5)
             pg.screenshot(path=str(SHOTS / '01_piega_aperta.png'))
@@ -119,7 +120,7 @@ def main():
             pg.screenshot(path=str(SHOTS / '04_vaschetta_fatta.png'))
             st = pg.evaluate('window.__steelcad.state')
             ok('nella storia: «Pieghe su 4 bordi»', 'Pieghe su 4 bordi' in st['storia']['passi'])
-            pg.locator('[data-rbody="lamiera"] [data-cmd="unfold"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-cmd="unfold"]')
             time.sleep(2.0)
             pg.screenshot(path=str(SHOTS / '05_sviluppo.png'))
             b.close()

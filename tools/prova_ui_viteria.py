@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -42,7 +43,7 @@ try:
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8)
-        ok('nella barra dell’assieme c’è «Viteria»', pg.is_visible('#ribbon [data-cmd="asm_viteria"]'))
+        ok('nella barra dell’assieme c’è «Viteria»', comando_visibile(pg, '#ribbon [data-cmd="asm_viteria"]'))
         # clic sulla parete del foro
         foro = pg.evaluate("""() => { const S = window.__steelcad, o = S.objs.get('I1'); return o.data.faces.find(f => /foro|cerchio|C\d/i.test(f.label || f.name || ''))?.index ?? null; }""")
         r = api('asm_state') if False else None
@@ -52,7 +53,7 @@ try:
                 idx = f
                 break
         pg.evaluate("([id, f]) => window.__steelcad.select(id, f)", ['I1', idx]); time.sleep(0.8)
-        pg.click('#ribbon [data-cmd="asm_viteria"]'); pg.wait_for_selector('#vt-t')
+        comando(pg, '#ribbon [data-cmd="asm_viteria"]'); pg.wait_for_selector('#vt-t')
         ok('la finestra propone «nel foro che hai cliccato»', pg.is_visible('#vt-f') and pg.is_checked('#vt-f'))
         pg.select_option('#vt-t', 'vite_tcei'); pg.select_option('#vt-m', 'M6'); pg.select_option('#vt-l', '20')
         pg.click('#m-ok')

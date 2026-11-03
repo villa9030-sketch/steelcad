@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
@@ -90,7 +91,7 @@ try:
         mid = pg.evaluate(api, ['select', ['I2']])['selection']['mates'][0]
         pg.evaluate(aggiorna, ['asm_edit_mate', [mid, {'offset': -2}]])
         time.sleep(0.8)
-        pg.click('#ribbon [data-cmd="asm_interf"]')
+        comando(pg, '#ribbon [data-cmd="asm_interf"]')
         pg.wait_for_function("window.__interf.n > 0", timeout=20000); time.sleep(0.8)
         lab = pg.eval_on_selector_all('#interf-box .dim.interf', 'els => els.map(e => e.textContent)')
         print('   cartellini:', lab)

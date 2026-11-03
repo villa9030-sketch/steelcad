@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -42,8 +43,8 @@ try:
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.2)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         pg.evaluate("(sid) => window.__steelcad.enterSketch(sid)", sid); pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.8)
-        ok('nello sketch c’è il pulsante «Testo»', pg.is_visible('#ribbon [data-tool="text"]'))
-        pg.click('#ribbon [data-tool="text"]'); time.sleep(0.3)
+        ok('nello sketch c’è il pulsante «Testo»', comando_visibile(pg, '#ribbon [data-tool="text"]'))
+        comando(pg, '#ribbon [data-tool="text"]'); time.sleep(0.3)
         ok('il suggerimento in basso spiega il Testo', 'Testo' in pg.inner_text('#sk-help'))
         time.sleep(1.5)                                   # l'inquadratura dello sketch si assesta
         x, y = pg.evaluate("() => { const [x, y] = window.__steelcad.skScreen([30, 40]), r = document.querySelector('#c3d').getBoundingClientRect(); return [r.left + x, r.top + y]; }")

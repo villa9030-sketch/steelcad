@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -57,10 +58,10 @@ def main():
                 x, y = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', xy)
                 return box['x'] + x, box['y'] + y
 
-            pg.locator('#ribbon [data-tool="select"]').first.click()
+            comando(pg, '#ribbon [data-tool="select"]')
             pg.mouse.click(*a_schermo([55.1, 90]))
             time.sleep(0.4)
-            pg.locator('#ribbon [data-act="pattern"]').first.click()
+            comando(pg, '#ribbon [data-act="pattern"]')
             pg.wait_for_selector('#p-c', timeout=10000)
             pg.locator('#p-c').fill('6')
             pg.locator('#p-c').dispatch_event('input')
@@ -82,7 +83,7 @@ def main():
             ok('passo della serie: «Distanza tra i fori della fila» in grassetto', pg.locator('#params b', has_text='Distanza tra i fori della fila').count() == 1)
             pg.screenshot(path=str(SHOTS / '01b_passo_con_nome.png'))
             # il testo sotto l'ultimo foro a destra
-            pg.locator('#ribbon [data-tool="text"]').first.click()
+            comando(pg, '#ribbon [data-tool="text"]')
             xt, yt = a_schermo([250, 78])
             pg.mouse.move(xt, yt)
             pg.mouse.click(xt, yt)
@@ -98,10 +99,10 @@ def main():
             pg.keyboard.press('Escape')
             time.sleep(0.5)
             # una scritta sotto ogni foro, in una volta
-            pg.locator('#ribbon [data-tool="select"]').first.click()
+            comando(pg, '#ribbon [data-tool="select"]')
             pg.keyboard.press('Control+A')
             time.sleep(0.3)
-            pg.locator('#ribbon [data-act="scritte"]').first.click()
+            comando(pg, '#ribbon [data-act="scritte"]')
             pg.wait_for_selector('[data-ss="5"]', timeout=10000)
             for i, t in enumerate(['1.0', '1.2', '1.5', '2.0', '2.5', '3.0']):
                 pg.locator(f'[data-ss="{i}"]').fill(t)

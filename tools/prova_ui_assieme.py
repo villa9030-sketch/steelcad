@@ -6,6 +6,7 @@ apri il pezzo e torna, interferenze, distinta.
 import subprocess, sys, tempfile, time, shutil
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(__file__).resolve().parents[1]; PY = ROOT / '.venv' / 'Scripts' / 'python.exe'; PORTA = 5130
 out = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else Path(tempfile.mkdtemp())
 out.mkdir(parents=True, exist_ok=True)
@@ -44,7 +45,7 @@ try:
             pass
         ok('pagina iniziale → nuovo assieme', pg.evaluate("document.querySelector('#home').hidden"))
         # 03/11: con una sola scheda le linguette in alto non si vedono: si guardano i comandi dell'assieme
-        ok('comandi dell’ASSIEME in alto e niente Parametri', pg.is_visible('#ribbon [data-asm-tool="faccia"]') and not pg.is_visible('#params'))
+        ok('comandi dell’ASSIEME in alto e niente Parametri', comando_visibile(pg, '#ribbon [data-asm-tool="faccia"]') and not pg.is_visible('#params'))
         for f in ('piastra', 'staffa'):
             pg.evaluate("async (p) => { const r = await (await fetch('/api/asm_insert', {method: 'POST', body: JSON.stringify([p])})).json(); await window.__steelcad.apply(r); }", str(cart / (f + '.steelcad')))
         pg.wait_for_function("window.__steelcad.objs.size === 2", timeout=15000); time.sleep(0.8)
@@ -60,7 +61,7 @@ try:
                 best.applyMatrix4(o.mesh.matrixWorld);
                 const q = best.clone().project(S.camera); const r = document.querySelector('#c3d').getBoundingClientRect();
                 return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height]; }""", [iid, nome, verso])
-        pg.click('[data-asm-tool="faccia"]')
+        comando(pg, '[data-asm-tool="faccia"]')
         x, y = schermo('I1', 'SM1/sopra', 1); pg.mouse.move(x, y); time.sleep(0.2); pg.mouse.click(x, y); time.sleep(0.5)
         ok('primo clic: chiede la faccia dell’altro pezzo', 'altro pezzo' in pg.inner_text('#sk-help'))
         # la faccia di sotto della staffa: giro la vista da sotto? basta la faccia sopra della staffa (allinea poi con Inverti)
@@ -97,7 +98,7 @@ try:
         except Exception:
             pass
         ok('← Assieme: di nuovo nell’assieme', pg.evaluate("window.__steelcad.objs.size") == 2)
-        pg.click('[data-cmd="asm_interf"]'); time.sleep(1.5)
+        comando(pg, '[data-cmd="asm_interf"]'); time.sleep(1.5)
         ok('controllo interferenze risponde: ' + pg.inner_text('#toasts')[-80:].replace('\n', ' '), 'interferenz' in pg.inner_text('#toasts').lower())
         pg.click('.tabs button[data-tab="bom"]')
         ok('distinta dell’assieme: ' + pg.inner_text('#tab-bom')[:90].replace('\n', ' '), 'piastra' in pg.inner_text('#tab-bom').lower() and 'staffa' in pg.inner_text('#tab-bom').lower())

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
@@ -66,8 +67,8 @@ try:
                 const q = c.clone().project(S.camera); const r = document.querySelector('#c3d').getBoundingClientRect();
                 return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height]; }""", [iid, nome])
 
-        ok('pulsante «Appoggia» con il nome nella barra', pg.is_visible('[data-asm-tool="appoggia"]:has-text("Appoggia")'))
-        pg.click('[data-asm-tool="appoggia"]')
+        ok('pulsante «Appoggia» con il nome nella barra', comando_visibile(pg, '[data-asm-tool="appoggia"]:has-text("Appoggia")'))
+        comando(pg, '[data-asm-tool="appoggia"]')
         ok('suggerimento: faccia del pezzo da mettere', 'pezzo da mettere' in pg.inner_text('#sk-help'))
         x, y = schermo('I2', 'SM1/sopra')
         pg.mouse.move(x, y); time.sleep(0.2); pg.mouse.click(x, y); time.sleep(0.4)
@@ -103,7 +104,7 @@ try:
            and abs(m[0] - 1) < 1e-9 and abs(m[10] - 1) < 1e-9)
         pg.screenshot(path=str(out / 'ap6_fatto.png'))
         # di nuovo, e Annulla: torna dov'era
-        pg.click('[data-asm-tool="appoggia"]')
+        comando(pg, '[data-asm-tool="appoggia"]')
         x, y = schermo('I2', 'SM1/sopra'); pg.mouse.click(x, y); time.sleep(0.3)
         x, y = schermo('I1', 'SM1/sopra'); pg.mouse.click(x, y)
         pg.wait_for_selector('#appoggia .ap-dove', timeout=15000); time.sleep(0.4)

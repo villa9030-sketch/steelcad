@@ -6,6 +6,7 @@ piedi e tappi dalla barra con l'anteprima, la distinta di taglio coi piedi e i t
 import os, subprocess, sys, tempfile, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
 SP = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -52,7 +53,7 @@ try:
             pg.mouse.click(box['x'] + xy[0], box['y'] + xy[1]); time.sleep(1.8)
 
         # 1. Dividi: clic sul DAVANTI del tubo davanti in alto → propone il davanti, acceso nel 3D
-        pg.click('.rb[data-azione="dividi"]'); time.sleep(0.5)
+        comando(pg, '.rb[data-azione="dividi"]'); time.sleep(0.5)
         clic_punto([400, 0, 775]); time.sleep(1.5)
         ok('clic sul davanti del tubo: proposto «Il davanti»', 'on' in (pg.get_attribute('[data-dvf="davanti"]', 'class') or ''))
         foto('Dividi: clic sul davanti del tubo in alto → «Il davanti» acceso')
@@ -60,7 +61,7 @@ try:
         box = pg.locator('#c3d').bounding_box()
         pg.mouse.click(box['x'] + 40, box['y'] + 40); time.sleep(1)       # clic nel vuoto: niente scelto
         # clic sul SOPRA dello stesso tubo → il telaio sopra
-        pg.click('.rb[data-azione="dividi"]'); time.sleep(0.5)
+        comando(pg, '.rb[data-azione="dividi"]'); time.sleep(0.5)
         clic_punto([400, 15, 795]); time.sleep(1.5)
         ok('clic sul sopra del tubo: proposto «Il telaio sopra»', 'on' in (pg.get_attribute('[data-dvf="sopra"]', 'class') or ''))
         foto('Dividi: clic sul sopra del tubo → «Il telaio sopra» acceso')
@@ -74,7 +75,7 @@ try:
         pg.locator('.angoli').screenshot(path=str(SP / 'incrocio_disegnini.png'))
         # 3. Piedi dalla barra: anteprima, poi Metti
         pg.evaluate("window.__steelcad.select('struct=ST1')"); time.sleep(1)
-        pg.click('.rb[data-azione="piedi"]'); time.sleep(2.5)
+        comando(pg, '.rb[data-azione="piedi"]'); time.sleep(2.5)
         ok('pannello piedi aperto', pg.is_visible('#pd-ok'))
         foto('Piedi: piastra 80×80 sp. 6, 4 fori, anteprima')
         pg.click('[data-pd-tipo="piedino"]'); time.sleep(2.5)
@@ -86,7 +87,7 @@ try:
         ok('4 piastre in distinta', any(a['qty'] == 4 and a['description'].startswith('Piastra 80×80') for a in acc))
         foto('Piedi messi')
         # 4. Tappi
-        pg.click('.rb[data-azione="tappi"]'); time.sleep(2.5)
+        comando(pg, '.rb[data-azione="tappi"]'); time.sleep(2.5)
         foto('Tappi: anteprima sulle teste aperte')
         pg.click('#pd-ok'); time.sleep(3)
         st = api('state')

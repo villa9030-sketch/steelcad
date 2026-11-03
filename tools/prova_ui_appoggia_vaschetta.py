@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
@@ -74,7 +75,7 @@ try:
                 return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height]; }""", [iid, nome])
 
         def appoggia(mob, fer, nome):
-            pg.click('[data-asm-tool="appoggia"]')
+            comando(pg, '[data-asm-tool="appoggia"]')
             x, y = schermo(*mob); pg.mouse.move(x, y); time.sleep(0.2); pg.mouse.click(x, y); time.sleep(0.4)
             x, y = schermo(*fer); pg.mouse.move(x, y); time.sleep(0.2); pg.mouse.click(x, y)
             pg.wait_for_selector('#appoggia .ap-dove', timeout=15000)

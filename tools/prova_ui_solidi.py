@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -47,8 +48,8 @@ try:
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.2)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8)
-        ok('nella scheda PIASTRA ci sono Raccordo e Smusso', pg.is_visible('#ribbon [data-azione="raccordo3d"]') and pg.is_visible('#ribbon [data-azione="smusso3d"]'))
-        pg.click('#ribbon [data-azione="raccordo3d"]'); time.sleep(0.3)
+        ok('nella scheda PIASTRA ci sono Raccordo e Smusso', comando_visibile(pg, '#ribbon [data-azione="raccordo3d"]') and comando_visibile(pg, '#ribbon [data-azione="smusso3d"]'))
+        comando(pg, '#ribbon [data-azione="raccordo3d"]'); time.sleep(0.3)
         ok('il suggerimento chiede gli spigoli', 'spigoli' in pg.inner_text('#sk-help'))
         for k in (0, 1):
             x, y = pg.evaluate(SPIGOLO, k)
@@ -69,7 +70,7 @@ try:
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
         pg.evaluate("window.__steelcad.enterSketch('S1')"); pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.8)
         ok('«Rivoluzione» attiva (contorno chiuso + asse)', pg.is_enabled('#ribbon [data-make="revolve"]'))
-        pg.click('#ribbon [data-make="revolve"]'); pg.wait_for_selector('#rv-a'); pg.click('#m-ok')
+        comando(pg, '#ribbon [data-make="revolve"]'); pg.wait_for_selector('#rv-a'); pg.click('#m-ok')
         pg.wait_for_function('!window.__steelcad.sketch && window.__steelcad.objs.has("body")', timeout=20000); time.sleep(1)
         ok('la punta è un solido di rivoluzione', 'Rivoluzione' in str(pg.evaluate('window.__steelcad.state.tree')))
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8); pg.mouse.move(5, 895)

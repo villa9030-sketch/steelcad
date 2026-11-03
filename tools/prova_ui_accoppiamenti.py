@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -73,7 +74,7 @@ try:
         tutti = ['faccia', 'asse', 'distanza', 'angolo', 'tangente', 'parallelo', 'perpendicolare', 'centra', 'blocca',
                  'spigolo', 'spigolo_faccia']
         ok('nella barra in alto ci sono tutti e 11 gli accoppiamenti',
-           all(pg.is_visible(f'#ribbon [data-asm-tool="{t}"]') for t in tutti))
+           all(comando_visibile(pg, f'#ribbon [data-asm-tool="{t}"]') for t in tutti))
         pg.screenshot(path=str(SHOTS / '1_barra.png'))
 
         def clic(iid, n):
@@ -81,7 +82,7 @@ try:
             pg.mouse.move(x, y); time.sleep(0.15); pg.mouse.click(x, y); time.sleep(0.4)
 
         # Distanza: sopra della base, sopra del piatto (allineate), poi scrivo 40
-        pg.click('#ribbon [data-asm-tool="distanza"]')
+        comando(pg, '#ribbon [data-asm-tool="distanza"]')
         ok('Distanza: chiede la faccia del pezzo fermo', 'pezzo che sta fermo' in pg.inner_text('#sk-help'))
         clic('I1', [0, 0, 1])
         ok('… poi quella dell’altro pezzo', 'altro pezzo' in pg.inner_text('#sk-help'))
@@ -111,7 +112,7 @@ try:
         pg.click('#tree .node[data-kind="mate"][data-ref="M1"]'); pg.wait_for_selector('#m-del'); pg.click('#m-del'); time.sleep(0.8)
 
         # Angolo: sopra della base, fianco del piatto (+X): 90° adesso, poi 30
-        pg.click('#ribbon [data-asm-tool="angolo"]')
+        comando(pg, '#ribbon [data-asm-tool="angolo"]')
         clic('I1', [0, 0, 1]); clic('I2', [1, 0, 0])
         pg.wait_for_selector('#m-ang', timeout=15000)
         ok(f'Angolo: parte da quello che c’è ({pg.input_value("#m-ang")}°)', pg.input_value('#m-ang').startswith('90'))
@@ -124,7 +125,7 @@ try:
 
         # Blocca: due clic, il piatto resta dov'è
         prima = pg.evaluate("window.__steelcad.objs.get('I2').data.matrix.map(x => x.toFixed(3)).join()")
-        pg.click('#ribbon [data-asm-tool="blocca"]')
+        comando(pg, '#ribbon [data-asm-tool="blocca"]')
         ok('Blocca: chiede il pezzo che sta fermo', 'pezzo che sta fermo' in pg.inner_text('#sk-help'))
         clic('I1', [0, 0, 1]); clic('I2', None)
         pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children.length === 2", timeout=15000)
@@ -145,7 +146,7 @@ try:
         PUNTO = """([iid, q]) => { const S = window.__steelcad, T = S.THREE, o = S.objs.get(iid), r = document.querySelector('#c3d').getBoundingClientRect();
           const P = new T.Vector3(...q); if (o.pos) P.applyMatrix4(o.pos); const v = P.project(S.camera);
           return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }"""
-        pg.click('#ribbon [data-asm-tool="spigolo"]')
+        comando(pg, '#ribbon [data-asm-tool="spigolo"]')
         ok('Spigolo su spigolo: chiede uno spigolo', 'spigolo' in pg.inner_text('#sk-help'))
         for iid, q in (('I1', [150, 0, 10]), ('I2', [50, 0, 0])):
             x, y = pg.evaluate(PUNTO, [iid, q])
@@ -157,10 +158,10 @@ try:
         pg.screenshot(path=str(SHOTS / '5_spigolo.png'))
         # vista esplosa: i pezzi si allontanano e tornano
         prima = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.mesh.matrix.elements[12]).join()")
-        pg.click('#ribbon [data-cmd="asm_esploso"]'); time.sleep(0.8)
+        comando(pg, '#ribbon [data-cmd="asm_esploso"]'); time.sleep(0.8)
         aperta = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.mesh.matrix.elements[12]).join()")
         pg.mouse.move(5, 895); pg.screenshot(path=str(SHOTS / '6_esploso.png'))
-        pg.click('#ribbon [data-cmd="asm_esploso"]'); time.sleep(0.8)
+        comando(pg, '#ribbon [data-cmd="asm_esploso"]'); time.sleep(0.8)
         chiusa = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.mesh.matrix.elements[12]).join()")
         ok('Esploso: i pezzi si allontanano e tornano al loro posto', aperta != prima and chiusa == prima)
         ok('nessun errore in pagina', not errori)

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -73,7 +74,7 @@ def main():
             pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=150000)
             pg.evaluate('window.__steelcad.hideHome && window.__steelcad.hideHome()')
             time.sleep(1.0)
-            pg.locator('[data-rbody="lamiera"] [data-azione="angoli_tondi"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-azione="angoli_tondi"]')
             pg.wait_for_selector('#ag-corpo', timeout=20000)
             time.sleep(1.0)
             ok('8 cerchi sugli spigoli vivi', pg.locator('.ag-angolo').count() == 8)
@@ -96,7 +97,7 @@ def main():
             pg.screenshot(path=str(SHOTS / '03_sviluppo_fatto.png'))
             ok('nessun cerchio rimasto a video', pg.locator('.ag-angolo').count() == 0)
             ok('nell’albero «Angoli R8»', 'Angoli R8' in pg.locator('#tree').inner_text())
-            pg.locator('[data-rbody="lamiera"] [data-cmd="unfold"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-cmd="unfold"]')
             time.sleep(2.0)
             pg.get_by_text('Iso', exact=True).first.click()
             time.sleep(1.5)

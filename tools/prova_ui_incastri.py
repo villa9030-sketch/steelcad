@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -75,7 +76,7 @@ def main():
             pg.evaluate('window.__steelcad.hideHome && window.__steelcad.hideHome()')
             time.sleep(1.0)
             pg.screenshot(path=str(SHOTS / '00_barra.png'))
-            pg.locator('[data-rbody="lamiera"] [data-azione="incastri"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-azione="incastri"]')
             pg.wait_for_selector('#in-corpo', timeout=20000)
             pg.wait_for_function("document.querySelector('.ant-stato.ok') && !document.querySelector('.ant-stato.calcolo')", timeout=60000)
             time.sleep(0.8)

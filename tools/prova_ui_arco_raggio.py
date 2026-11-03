@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -58,7 +59,7 @@ def main():
                 return box['x'] + x, box['y'] + y
 
             # la prima gamba: clic sullo zero, mouse a destra, 28 Invio, Esc
-            pg.locator('#ribbon [data-tool="line"]').first.click()
+            comando(pg, '#ribbon [data-tool="line"]')
             x0, y0 = a_schermo([0, 0])
             pg.mouse.move(x0, y0)
             pg.mouse.click(x0, y0)
@@ -69,7 +70,7 @@ def main():
             pg.keyboard.press('Escape')
             time.sleep(1.2)
             # l'arco: parte da solo dalla fine della linea
-            pg.locator('#ribbon [data-tool="arcr"]').first.click()
+            comando(pg, '#ribbon [data-tool="arcr"]')
             time.sleep(0.4)
             pg.locator('[data-arcr-g="180"]').click()
             pg.locator('[data-arcr-p="squadra"]').click()

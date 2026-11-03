@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / '.venv' / 'Scripts' / 'python.exe'
@@ -57,7 +58,7 @@ def main():
 
     def taglia(pg):
         # «Togli materiale»: se si può si fa subito (29/10); la barra di conferma compare solo se non si può (rossa)
-        pg.click('[data-make="cut"]')
+        comando(pg, '[data-make="cut"]')
         for _ in range(150):
             if pg.evaluate("!window.__steelcad.sketch || !!document.querySelector('#prova-barra.no')"):
                 break
@@ -248,7 +249,7 @@ def main():
                not st['errors'] and v0 - st['info']['part']['volume_mm3'] > 1000)
 
             # 3) spiega
-            pg.click('#ribbon [data-cmd="unfold"]')
+            comando(pg, '#ribbon [data-cmd="unfold"]')
             pg.wait_for_function('window.__steelcad.look.flat', timeout=20000)   # dopo l'animazione
             time.sleep(0.3)
             look = pg.evaluate('window.__steelcad.look')
@@ -520,28 +521,28 @@ def main():
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 4')
             time.sleep(0.6)
             box = pg.locator('#c3d').bounding_box()
-            pg.click('#ribbon [data-tool="fillet"]')
+            comando(pg, '#ribbon [data-tool="fillet"]')
             clic([100, 50])
             ok('Raccordo: chiede il raggio', 'Raggio' in pg.inner_text('#sk-cmd') and pg.evaluate("document.activeElement.id") == 'sk-cmd-in')
             pg.keyboard.press('Control+A'); pg.keyboard.type('10'); pg.keyboard.press('Enter')
             pg.wait_for_function('window.__steelcad.sketch.v.arcs.length === 1')
             v = pg.evaluate('window.__steelcad.sketch.v')
             ok(f'raccordo R10 nello spigolo, contorno chiuso ({v["profiles"]})', abs(v['arcs'][0]['r'] - 10) < 1e-6 and v['profiles'] == 1)
-            pg.click('#ribbon [data-tool="chamfer"]')
+            comando(pg, '#ribbon [data-tool="chamfer"]')
             clic([0, 50]); pg.keyboard.press('Control+A'); pg.keyboard.type('8'); pg.keyboard.press('Enter')
             pg.wait_for_function('window.__steelcad.sketch.v.lines.length === 5')
             ok('smusso 8 nell’altro spigolo', pg.evaluate('window.__steelcad.sketch.v.profiles') == 1)
-            pg.click('#ribbon [data-tool="polygon"]')
+            comando(pg, '#ribbon [data-tool="polygon"]')
             pg.click('#sk-cmd-in'); pg.keyboard.press('Control+A'); pg.keyboard.type('5'); pg.keyboard.press('Enter')
             clic([50, 25]); clic([62, 25])
             pg.wait_for_function('window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 10')
             ok('pentagono', True)
-            pg.click('#ribbon [data-tool="arc3"]')
+            comando(pg, '#ribbon [data-tool="arc3"]')
             clic([15, 8]); clic([25, 18]); clic([35, 8])
             pg.wait_for_function('window.__steelcad.sketch.v.arcs.length === 2')
             ok('arco per tre punti', True)
             pg.screenshot(path=str(SHOTS / '15_strumenti_nuovi.png'))
-            pg.click('#ribbon [data-skdone]')
+            comando(pg, '#ribbon [data-skdone]')
             pg.wait_for_function('!window.__steelcad.sketch')
 
             # regole di lamiera e tabella pieghe dalla scheda LAMIERA
@@ -554,7 +555,7 @@ def main():
             pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.length === 1")
             ok('scheda LAMIERA per un progetto in lamiera', pg.evaluate("document.querySelector('[data-rtab=\"lamiera\"]').classList.contains('on')"))
-            pg.click('#ribbon [data-cmd="sheet_rules"]')            # barra → Regole piega
+            comando(pg, '#ribbon [data-cmd="sheet_rules"]')            # barra → Regole piega
             pg.wait_for_selector('#r-name')
             pg.fill('#r-name', 'S235 sp. 2 R2 K0,4')
             pg.click('#r-save')
@@ -564,7 +565,7 @@ def main():
             pg.evaluate("fetch('/api/set_sheet_tech', {method: 'POST', body: JSON.stringify(['SM1', {radius: 5}])})")
             time.sleep(0.4); pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.def.radius === 5")
-            pg.click('#ribbon [data-cmd="sheet_rules"]')
+            comando(pg, '#ribbon [data-cmd="sheet_rules"]')
             pg.wait_for_selector('[data-rule-apply]')
             pg.click('[data-rule-apply]')
             pg.wait_for_function("window.__steelcad.state.sheet.def.radius === 2")

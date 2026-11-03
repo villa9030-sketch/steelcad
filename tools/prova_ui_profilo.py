@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -47,7 +48,7 @@ try:
         time.sleep(0.6)
         ok('nello sketch c’è «Estrudi in lamiera» ed è attivo con la U aperta', pg.is_enabled('#ribbon [data-make="profilo"]'))
         pg.screenshot(path=str(SHOTS / '1_profilo.png'))
-        pg.click('#ribbon [data-make="profilo"]'); pg.wait_for_selector('#pf-L')
+        comando(pg, '#ribbon [data-make="profilo"]'); pg.wait_for_selector('#pf-L')
         pg.fill('#pf-L', '1000'); pg.fill('#pf-sp', '3'); pg.fill('#pf-colpi', '14')
         ok('«Estrudi» spento finché non dici se la linea è l’interno o l’esterno', pg.is_disabled('#m-ok'))
         pg.click('#pf-lato button[data-gira="0"]')          # 30/10: si sceglie per forza (l'interno)

@@ -6,6 +6,7 @@ finestra di lato, risultato in azzurro, errore in rosso, sparisce alla chiusura.
 import os, subprocess, tempfile, time, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(r'C:\Users\Stefano\Documents\Vs code\steelcad'); OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp()); OUT.mkdir(exist_ok=True)
 cart = Path(tempfile.mkdtemp())
 srv = subprocess.Popen([str(ROOT / '.venv/Scripts/python.exe'), str(ROOT / 'app/dev_server.py'), '--porta', '5185', '--cartella', str(cart)],
@@ -28,7 +29,7 @@ try:
         api('sketch_add_polyline', 'S1', [[0, 0], [0, 900], [1500, 900], [1500, 0]], False)
         ricarica()
         pg.click('#tree .node:has-text("Sagoma") >> nth=0'); pg.wait_for_function('window.__steelcad.sketch'); time.sleep(1)
-        pg.click('[data-make="tubi"]'); time.sleep(3)
+        comando(pg, '[data-make="tubi"]'); time.sleep(3)
         chk('tubi: finestra di lato e anteprima', pg.evaluate("document.getElementById('modal').classList.contains('laterale')") and anteprima_ok())
         pg.screenshot(path=str(OUT / '1_tubi.png'))
         pg.fill('#ft-p', 'boh'); time.sleep(2.5)
@@ -39,7 +40,7 @@ try:
         api('new_project', 'zero', {'name': 'Staffa'}); api('sketch_add_rectangle', 'S1', [0, 0], [300, 200])
         ricarica()
         pg.click('#tree .node:has-text("Contorno") >> nth=0'); pg.wait_for_function('window.__steelcad.sketch'); time.sleep(1)
-        pg.click('[data-make="sheet"]'); time.sleep(3)
+        comando(pg, '[data-make="sheet"]'); time.sleep(3)
         chk('lamiera dal contorno: anteprima', anteprima_ok())
         pg.screenshot(path=str(OUT / '2_lamiera.png'))
         pg.fill('#m-r', '2'); pg.fill('#m-k', '0,4'); pg.click('#m-ok'); time.sleep(3)

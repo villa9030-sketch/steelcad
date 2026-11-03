@@ -6,6 +6,7 @@ si disegna su una parete cliccata, sullo sviluppo, e i bordi liberi si accendono
 import os, subprocess, tempfile, time, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(r'C:\Users\Stefano\Documents\Vs code\steelcad'); OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp()); OUT.mkdir(exist_ok=True)
 cart = Path(tempfile.mkdtemp())
 srv = subprocess.Popen([str(ROOT / '.venv/Scripts/python.exe'), str(ROOT / 'app/dev_server.py'), '--porta', '5203', '--cartella', str(cart)],
@@ -39,7 +40,7 @@ try:
         idx = pg.evaluate("(() => { const o = window.__steelcad.objs.get('body'); return o ? (o.data.faces.find(f => f.name === 'FM1/cassone_destra/fuori') || {}).index : null; })()")
         if idx is not None:
             pg.evaluate("i => window.__steelcad.select('body', i)", idx); time.sleep(1)
-            pg.click('#ribbon [data-azione="taglia"]'); pg.wait_for_function('window.__steelcad.sketch', timeout=10000); time.sleep(0.8)
+            comando(pg, '#ribbon [data-azione="taglia"]'); pg.wait_for_function('window.__steelcad.sketch', timeout=10000); time.sleep(0.8)
             faccia = pg.evaluate('window.__steelcad.sketch.v.on_face')   # (lo sketch nuovo nell'albero si chiama «Disegno 1» finché è vuoto)
             chk(f'Taglio: sketch sulla parete cliccata ({faccia})', 'cassone_destra' in str(faccia))
             pg.screenshot(path=str(OUT / '2_sketch_parete.png'))

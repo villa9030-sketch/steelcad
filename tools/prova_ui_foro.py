@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(os.environ.get('RADIUS_PY') or ROOT / '.venv' / 'Scripts' / 'python.exe')
@@ -81,7 +82,7 @@ def main():
                 time.sleep(0.8)
 
             # 1) «Foro» nella barra in alto
-            pg.locator('[data-rbody="lamiera"] [data-azione="foro"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-azione="foro"]')
             pg.wait_for_selector('#fo-d', timeout=10000)
             time.sleep(0.6)
             pg.screenshot(path=str(SHOTS / '01_foro_aperto.png'))
@@ -125,7 +126,7 @@ def main():
 
             # 3) «Dove clicco»: clic sulla base
             pg.keyboard.press('Escape')
-            pg.locator('[data-rbody="lamiera"] [data-azione="foro"]').click()
+            comando(pg, '[data-rbody="lamiera"] [data-azione="foro"]')
             try:
                 pg.wait_for_selector('#fo-d', timeout=20000)
             except Exception:

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
@@ -71,7 +72,7 @@ try:
                 return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height]; }""", [iid, [x, y - 6.5 - 3, z]])
 
         # vista dall'alto un po' girata per vedere le pareti dei fori: Iso va bene, avvicino
-        pg.click('[data-asm-tool="asse"]')
+        comando(pg, '[data-asm-tool="asse"]')
         fa = vicino_al_foro('I1', 25, 25, 8)
         fb = vicino_al_foro('I2', 20, 30, 5)
         pg.mouse.move(*fa); time.sleep(0.2); pg.mouse.click(*fa); time.sleep(0.4)

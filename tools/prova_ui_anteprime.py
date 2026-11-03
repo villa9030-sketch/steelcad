@@ -7,6 +7,7 @@ di cosa toglie. Invio conferma, Esc annulla.
 import os, subprocess, tempfile, time, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(r'C:\Users\Stefano\Documents\Vs code\steelcad'); OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp()); OUT.mkdir(exist_ok=True)
 cart = Path(tempfile.mkdtemp())
 srv = subprocess.Popen([str(ROOT / '.venv/Scripts/python.exe'), str(ROOT / 'app/dev_server.py'), '--porta', '5215', '--cartella', str(cart)],
@@ -37,7 +38,7 @@ try:
 
         # 1. piega su linea: senza finestra
         sketch([[150, -5], [150, 105]])
-        pg.click('#ribbon [data-make="fold"]')
+        comando(pg, '#ribbon [data-make="fold"]')
         f = pronta()
         chk('niente finestra: c’è la barra sul pezzo', not pg.is_visible('#modal-box #m-ang'))
         chk('frase: ' + f.replace('\n', ' / '), 'in su di 90°' in f and 'più piccola' in f)
@@ -55,7 +56,7 @@ try:
 
         # 2. rossa: la linea non arriva ai bordi
         sketch([[40, 30], [80, 60]])
-        pg.click('#ribbon [data-make="fold"]')
+        comando(pg, '#ribbon [data-make="fold"]')
         f = pronta()
         chk('rossa: ' + f.replace('\n', ' / ')[:120], pg.evaluate("document.querySelector('#prova-barra').classList.contains('no')"))
         chk('non si conferma finché è rossa', pg.is_disabled('#pr-ok'))
@@ -68,14 +69,14 @@ try:
 
         # 3. il taglio si fa subito, senza conferma (29/10)
         sketch([[20, 20], [70, 20], [70, 40], [20, 40]], True)
-        pg.click('#ribbon [data-make="cut"]'); time.sleep(2.5)
+        comando(pg, '#ribbon [data-make="cut"]'); time.sleep(2.5)
         chk('taglio subito, senza barra', not pg.is_visible('#prova-barra') and not pg.evaluate("!!window.__steelcad.sketch"))
         chk('tagliato', 'Finestra 50 × 20' in str(api('state')['tree']))
         pg.screenshot(path=str(OUT / '3_taglio.png'))
 
         # 4. il taglio che non si può fare: barra rossa col motivo
         sketch([[90, 20], [130, 50]])
-        pg.click('#ribbon [data-make="cut"]')
+        comando(pg, '#ribbon [data-make="cut"]')
         f = pronta()
         chk('taglio impossibile, rossa: ' + f.replace('\n', ' / ')[:120], pg.evaluate("document.querySelector('#prova-barra').classList.contains('no')"))
         pg.screenshot(path=str(OUT / '4_taglio_rosso.png'))

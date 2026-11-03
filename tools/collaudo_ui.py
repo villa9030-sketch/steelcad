@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / '.venv' / 'Scripts' / 'python.exe'
@@ -51,7 +52,7 @@ def scenario_sketch(pg):
 
 def scenario_sketch_sel(pg):
     scenario_sketch(pg)
-    pg.click('#ribbon [data-tool="select"]')
+    comando(pg, '#ribbon [data-tool="select"]')
     pg.keyboard.press('Control+a')
 
 

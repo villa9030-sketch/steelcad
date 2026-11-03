@@ -6,6 +6,7 @@ r"""Il telaio di Stefano (807 × 725 × 795, 30×30×2) dall'inizio, come lo far
 import os, subprocess, sys, tempfile, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
 SP = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -44,18 +45,18 @@ try:
             pg.mouse.move(box['x'] + xy[0], box['y'] + xy[1]); time.sleep(0.3)
             pg.mouse.click(box['x'] + xy[0], box['y'] + xy[1]); time.sleep(1.8)
         # 1. croce sopra
-        pg.click('.rb[data-azione="dividi"]'); time.sleep(0.5); passo('barra: Dividi')
+        comando(pg, '.rb[data-azione="dividi"]'); time.sleep(0.5); passo('barra: Dividi')
         clic_punto([400, 15, 795]); time.sleep(1.5); passo('clic sul tubo davanti in alto (pannello Dividi, anteprima 2×2)')
         pg.click('#dv-ok'); time.sleep(3); passo('Dividi')
         # 2. fianchi
-        pg.click('.rb[data-azione="dividi"]'); time.sleep(0.5); passo('barra: Dividi')
+        comando(pg, '.rb[data-azione="dividi"]'); time.sleep(0.5); passo('barra: Dividi')
         clic_punto([807, 200, 780]); time.sleep(1.5); passo('clic sul fianco a destra in alto')
         if 'on' not in (pg.get_attribute('[data-dvf="destra"]', 'class') or ''):
             pg.click('[data-dvf="destra"]'); time.sleep(1.5); passo('sceglie «Il fianco a destra»')
         pg.check('#dv-chiudi'); time.sleep(2.5); passo('spunta «tubo a terra»')
         pg.click('#dv-ok'); time.sleep(3); passo('Dividi')
         # 3. traverso a 265 da terra, dietro
-        pg.click('.rb[data-azione="dividi"]'); time.sleep(0.5); passo('barra: Dividi')
+        comando(pg, '.rb[data-azione="dividi"]'); time.sleep(0.5); passo('barra: Dividi')
         clic_punto([795, 725, 650]); time.sleep(1.5); passo('clic sulla gamba dietro a destra')
         if 'on' not in (pg.get_attribute('[data-dvf="dietro"]', 'class') or ''):
             pg.click('[data-dvf="dietro"]'); time.sleep(1); passo('sceglie «Il dietro»')
