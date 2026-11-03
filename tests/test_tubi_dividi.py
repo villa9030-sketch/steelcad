@@ -149,7 +149,7 @@ def test_scaffale_grande_incroci_tutti_uguali_e_maglie_tenute():
     info = s.angolo_info('ST1', k)
     assert info['incrocio'] and info['simili'] == 36
     # passano interi i montanti, su tutti gli incroci in un colpo
-    mont = next(x['key'] for x in info['scelte'] if x['disegno'] == 'verticale')
+    mont = next(x['key'] for x in info['scelte'] if x['disegno'] == 'croce_v')
     r = s.set_angolo('ST1', k, mont, True)
     assert r['ok'] and '36 incroci' in r['message']
     st = s.result.structures[0]

@@ -441,7 +441,7 @@ function paint() {
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   for (const [id, o] of objs) {
     let c = o.base;
-    const intero = o.data.kind === 'member';
+    const intero = o.data.kind === 'member' || o.data.kind === 'accessorio';
     const scelto = selIds.has(id) && (intero || sel.face == null || (sel.ids && sel.ids.length > 1));
     if (scelto) c = comeSel(o.base) ? C_SEL_BLU : C_SEL;
     else if (hover && hover.id === id && (intero || hover.face == null)) c = C_HOVER;
@@ -949,16 +949,27 @@ function pannelloTraverso() {
 // del fianco o del telaio sopra → in quante parti → montanti e traversi a filo del lato, quadri uguali. Dove si
 // incrociano uno passa intero e l'altro si taglia in due (come in officina)
 let DIV = null, DIVSCEGLI = false;
+// il lato proposto da Dividi, colorato nel 3D (03/11: «evidenzia il lato proposto»): un velo giallo coi bordi
+let latoMesh = null;
+function latoAcceso(rett) {
+  if (latoMesh) { scene.remove(latoMesh); latoMesh.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); latoMesh = null; }
+  if (rett?.length === 4) {
+    const p = rett.map(v3), g = new THREE.BufferGeometry().setFromPoints([p[0], p[1], p[2], p[0], p[2], p[3]]);
+    latoMesh = new THREE.Group();
+    latoMesh.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xFFB000, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })));
+    latoMesh.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(p), new THREE.LineBasicMaterial({ color: 0xFFB000 })));
+    latoMesh.renderOrder = 40;
+    scene.add(latoMesh);
+  }
+  ridisegna();
+}
 async function iniziaDividi(s) {
   const [st, mid] = s.id.split('/');
-  const r = await chiamaMuto('dividi_info', st, mid);
-  if (!r.ok) { toast(r.message, 'err'); return; }
-  // prima il lato che hai cliccato: la faccia del tubo che guardava verso di te (sopra, il fianco…)
-  const N = { sinistra: [-1, 0, 0], destra: [1, 0, 0], davanti: [0, -1, 0], dietro: [0, 1, 0], sotto: [0, 0, -1], sopra: [0, 0, 1] };
+  // prima il lato che hai cliccato: la faccia del tubo che guardava verso di te (il sopra del tubo → il telaio
+  // sopra; il davanti del tubo → il davanti). Il lato proposto si accende nel 3D
   const n = ultimoClic?.id === s.id ? ultimoClic.normal : null;
-  // il telaio sopra resta il primo (dalla vista iso un tubo in alto si clicca spesso sul davanti)
-  const dot = k => k === 'sopra' ? 2 : n ? N[k].reduce((t, c, i) => t + c * n[i], 0) : 0;
-  r.facce.sort((a, b) => dot(b.key) - dot(a.key));
+  const r = await chiamaMuto('dividi_info', st, mid, n);
+  if (!r.ok) { toast(r.message, 'err'); return; }
   const f = r.facce[0];
   // «uguale anche dall'altra parte» già spuntato per i fianchi (di solito sono uguali); davanti e dietro no
   DIV = { st, mid, info: r, faccia: f.key, u: '2', v: '2', mu: '', mv: '', rif: 'centro', opposta: !!f.opposta && /sinistra|destra/.test(f.key), chiudi: false, prof: r.profilo };
@@ -977,6 +988,8 @@ function dividiArgomenti() {
 }
 function pannelloDividi() {
   const f = DIV.info.facce.find(x => x.key === DIV.faccia);
+  if (f.tubi?.length) { sel = { id: `${DIV.st}/${DIV.mid}`, ids: f.tubi.filter(id => objs.has(id)) }; paint(); }   // il lato che si divide, acceso
+  latoAcceso(f.rett);                                // e il lato colorato nel 3D (si vede anche con l'anteprima)
   const sopra = !f.in_piedi;
   // come si chiama ogni direzione sul lato scelto (in piedi: montanti e traversi; sopra: da davanti a dietro…)
   const lungoX = f.key === 'davanti' || f.key === 'dietro' || sopra;
@@ -1008,12 +1021,12 @@ function pannelloDividi() {
   document.querySelectorAll('[data-dvu]').forEach(rifai(b => { DIV.u = b.dataset.dvu; }));
   document.querySelectorAll('[data-dvv]').forEach(rifai(b => { DIV.v = b.dataset.dvv; }));
   document.querySelectorAll('[data-dvr]').forEach(rifai(b => { DIV.rif = b.dataset.dvr; }));
-  $('#dv-no').onclick = () => { anteprimaVia(); DIV = null; refreshSel(); };
+  $('#dv-no').onclick = () => { anteprimaVia(); latoAcceso(null); const id = `${DIV.st}/${DIV.mid}`; DIV = null; select(id); };
   const vai = () => {
     const args = dividiArgomenti();
     inCoda(async () => {
       const r = await call('dividi', ...args);
-      if (await apply(r, r.message)) { anteprimaVia(); DIV = null; await select(r.select); }
+      if (await apply(r, r.message)) { anteprimaVia(); latoAcceso(null); DIV = null; await select(r.select); }
     });
   };
   $('#dv-ok').onclick = vai;
@@ -1021,6 +1034,60 @@ function pannelloDividi() {
   anteprimaPannello('dividi', dividiArgomenti);
   const campo = $('#dv-mu') || $('#dv-mv');
   if (campo) campo.focus();
+}
+
+// PIEDI e TAPPI (03/11): «sotto le gambe una piastra 80×80 sp. 6 con 4 fori, o il piedino regolabile; sulle teste
+// libere il tappo». Un pannello, una scelta, su tutte le gambe (o teste) in un colpo, con l'anteprima in azzurro
+let PIEDI = null;
+async function pannelloPiedi(st, cosa, testa = '') {
+  const r = await chiamaMuto('piedi_info', st);
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  const p = r.piedi || r.proposta, t = r.tappi;
+  PIEDI = { st, cosa, testa, info: r, tipo: r.piedi ? (r.piedi.tipo || 'piastra') : 'piastra', fori: String(p.fori ?? 4),
+    misura: p.misura || 'M10', tappo: t ? (t.tipo || 'plastica') : 'plastica', v: { ...r.proposta, ...(r.piedi || {}), sp_t: t?.sp ?? 3 } };
+  disegnaPiedi();
+}
+function piediArgomenti() {
+  const P = PIEDI, val = id => ($(id)?.value || '').trim().replace(',', '.');
+  if (P.cosa === 'tappi') return [P.st, P.tappo === 'lamierino' ? { tipo: 'lamierino', sp: val('#pd-spt') } : { tipo: 'plastica' }];
+  if (P.tipo === 'piedino') return [P.st, { tipo: 'piedino', misura: P.misura }];
+  return [P.st, { tipo: 'piastra', lato: val('#pd-lato'), sp: val('#pd-sp'), fori: +P.fori, foro: val('#pd-foro'), dal_bordo: val('#pd-bordo') }];
+}
+function disegnaPiedi() {
+  const P = PIEDI, r = P.info, v = P.v;
+  const seg = (k, scelte) => `<div class="seg">${scelte.map(([x, t]) => `<button class="btn${P[k] === x ? ' on' : ''}" data-pd-${k}="${x}">${t}</button>`).join('')}</div>`;
+  const campo = (id, l, val) => `<label>${l}<span class="inp"><input class="field" id="${id}" value="${esc(String(val ?? '').replace('.', ','))}"><i>mm</i></span></label>`;
+  let h = P.testa;
+  if (P.cosa === 'piedi') {
+    h += `<h3>${P.testa ? 'Piedi' : 'Piedi sotto le gambe'}</h3>
+      <p class="hint">Su tutte le ${r.gambe} gambe a terra. In azzurro come vengono.</p>
+      ${seg('tipo', [['piastra', 'Piastra coi fori'], ['piedino', 'Piedino regolabile']])}
+      ${P.tipo === 'piastra' ? `<div class="ff">${campo('pd-lato', 'Lato', v.lato)}${campo('pd-sp', 'Spessore', v.sp)}</div>
+        <div class="sub">Fori</div>${seg('fori', [['0', 'Senza'], ['2', '2 in diagonale'], ['4', '4 negli angoli']])}
+        ${P.fori !== '0' ? `<div class="ff">${campo('pd-foro', 'Ø fori', v.foro)}${campo('pd-bordo', 'Dal bordo', v.dal_bordo)}</div>` : ''}
+        <p class="hint">La piastra va sotto la gamba, centrata: l’altezza fuori tutto cresce dello spessore.</p>`
+      : `<div class="sub">Vite</div>${seg('misura', r.piedini.map(x => [x, x]))}
+        <p class="hint">Sotto ogni gamba un lamierino sp. 5 con la madrevite, e il piedino (da comprare: va in distinta).</p>`}
+      <div class="row-btns">${r.piedi ? '<button class="btn danger" id="pd-via">Togli i piedi</button>' : ''}<button class="btn" id="pd-no">Annulla</button><button class="btn primary" id="pd-ok">${r.piedi ? 'Cambia' : 'Metti i piedi'}</button></div>`;
+  } else {
+    h += `<h3>${P.testa ? 'Tappi' : 'Tappi sulle teste dei tubi'}</h3>
+      <p class="hint">${r.teste ? `Su tutte le ${r.teste} teste aperte dei tubi (tagliate dritte, che non battono contro niente).` : 'Non ci sono teste di tubo aperte.'}</p>
+      ${seg('tappo', [['plastica', 'Tappo in plastica'], ['lamierino', 'Lamierino saldato']])}
+      ${P.tappo === 'lamierino' ? `<div class="ff">${campo('pd-spt', 'Spessore', v.sp_t)}</div>` : '<p class="hint">Da comprare: va in distinta con la misura del tubo.</p>'}
+      <div class="row-btns">${r.tappi ? '<button class="btn danger" id="pd-via">Togli i tappi</button>' : ''}<button class="btn" id="pd-no">Annulla</button><button class="btn primary" id="pd-ok">${r.tappi ? 'Cambia' : 'Metti i tappi'}</button></div>`;
+  }
+  $('#props').innerHTML = h;
+  const tieni = () => { for (const [id, k] of [['#pd-lato', 'lato'], ['#pd-sp', 'sp'], ['#pd-foro', 'foro'], ['#pd-bordo', 'dal_bordo'], ['#pd-spt', 'sp_t']]) if ($(id)) v[k] = $(id).value; };
+  for (const k of ['tipo', 'fori', 'misura', 'tappo']) document.querySelectorAll(`[data-pd-${k}]`).forEach(b => {
+    b.onclick = () => { tieni(); P[k] = b.getAttribute(`data-pd-${k}`); disegnaPiedi(); };
+  });
+  const metodo = P.cosa === 'piedi' ? 'set_piedi' : 'set_tappi';
+  const fine = async r2 => { if (await apply(r2, r2.message)) { anteprimaVia(); PIEDI = null; await select('struct=' + P.st); } };
+  $('#pd-ok').onclick = () => inCoda(async () => fine(await call(metodo, ...piediArgomenti())));
+  $('#pd-no').onclick = () => { anteprimaVia(); PIEDI = null; clearSelection(); };
+  if ($('#pd-via')) $('#pd-via').onclick = () => inCoda(async () => fine(await call(metodo, P.st, null)));
+  document.querySelectorAll('#props input.field').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') $('#pd-ok').click(); }; });
+  anteprimaPannello(metodo, piediArgomenti);
 }
 
 // una sagoma nuova nella struttura: si sceglie da dove la si guarda, poi si disegna
@@ -2148,6 +2215,12 @@ function azione(id) {
       // il tubo che hai appena cliccato tu (non quello scelto dall'ultimo comando): subito il pannello
       if (sel?.id && ultimoClic?.id === sel.id && objs.get(sel.id)?.data?.kind === 'member') { inCoda(() => iniziaDividi({ id: sel.id })); return; }
       DIVSCEGLI = true; t('Clicca un tubo del lato da dividere (il fianco, il telaio sopra…).'); return;
+    case 'piedi': case 'tappi': {                 // PIEDI e TAPPI (03/11): su tutte le gambe / teste in un colpo
+      const id0 = sel?.id || '';
+      const st = (id0.startsWith('struct=') ? id0.slice(7) : /[/:]/.test(id0) ? id0.split(/[/:]/)[0] : '') || S?.cutlist?.rows?.[0]?.members?.[0]?.split('/')[0];
+      if (!st) { t('Prima serve una struttura.', 'err'); return; }
+      inCoda(() => pannelloPiedi(st, id)); return;
+    }
     case 'tipo_foro': t('Clicca un foro già fatto sul pezzo: a destra scegli svasato o filettato. Per un foro nuovo c’è «Foro».'); return;
     case 'foro': inCoda(() => foroDialog('tondo')); return;
     case 'angoli_tondi': inCoda(() => angoliSviluppo()); return;
@@ -2741,6 +2814,7 @@ function maniglieFlangia(s) {
 }
 async function renderProps(s) {
   if (s.kind !== 'flange') togliManiglie();
+  latoAcceso(null);
   miniBarra(s);
   togliAnteprimaForo();
   selForo = null;
@@ -2756,6 +2830,8 @@ async function renderProps(s) {
       <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi, poi scrivi a che altezza</span></button>
       <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
       <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
+      <button class="cosa-b" data-azione="piedi"><b>Piedi sotto le gambe</b><span>Piastra coi fori o piedino regolabile, su tutte le gambe</span></button>
+      <button class="cosa-b" data-azione="tappi"><b>Tappi sulle teste dei tubi</b><span>In plastica o lamierino saldato, su tutte le teste aperte</span></button>
       <button class="cosa-b" data-azione="fori"><b>Fori sui tubi</b><span>Clicca la faccia del tubo e disegna</span></button>
       <button class="cosa-b primary" data-cmd="prepara"><b>Prepara per l’officina</b><span>Lista di taglio dei tubi, tavola quotata</span></button></div>`;
   }
@@ -2799,12 +2875,15 @@ async function renderProps(s) {
         <button class="cosa-b" id="p-punto"><b>Tubo nuovo da un punto di questo tubo</b><span>${s.tubo?.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia</span></button>
         <div class="group-row" id="p-punto-riga" hidden><label class="lbl" for="p-punto-q">${s.tubo?.verticale ? 'Altezza da terra (mm)' : 'Distanza dall’inizio (mm)'}</label>
           <input class="field" id="p-punto-q" value="" placeholder="es. 265"><div class="row-btns"><button class="btn primary" id="p-punto-ok">Metti il punto</button></div></div>
-        ${s.tubo?.verticale ? '' : '<button class="cosa-b" id="p-rot"><b>Giralo di 90°</b><span>Per i tubi rettangolari: in piedi o sdraiato</span></button>'}
+        <div id="p-pos"></div>
       </div>
       ${pannelloLavorazioni(s)}
       ${s.esterno ? '' : `<details class="altro"><summary>Altro</summary><label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
       <select class="field" id="p-anc">${anc}</select><div class="row-btns"><button class="btn" id="p-flip">Inverti</button></div></details>`}
       <div class="row-btns"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div>`;
+  } else if (s.kind === 'accessorio') {         // clic su un piede o un tappo: il pannello per cambiarli tutti
+    await pannelloPiedi(s.structure, s.cosa, `<h3>${esc(s.title)}</h3>${tab(s.rows)}`);
+    return;
   } else if (s.kind === 'instance') {
     $('#props').innerHTML = instancePanel(s);
     wireInstance(s);
@@ -2878,7 +2957,26 @@ async function renderProps(s) {
   const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
   $('#p-apply').onclick = () => edit({ profile: $('#p-prof').value.trim() });
   $('#p-prof').onkeydown = ev => { if (ev.key === 'Enter') edit({ profile: $('#p-prof').value.trim() }); };
-  if ($('#p-rot')) $('#p-rot').onclick = () => edit({ rotate_by: 90 });
+  // 03/11: come sta il profilo (rettangolare, angolare, piatto, UPN): le posizioni col disegnino della sezione vista
+  // di testa, «su» in alto e «fuori» a destra; passandoci sopra l'anteprima nel 3D, clic = lo gira così
+  chiamaMuto('member_posizioni', s.id).then(r => {
+    const box = $('#p-pos');
+    if (!box || !r.ok || !r.posizioni?.length) return;
+    const tutti_ = r.posizioni.flatMap(p => p.disegno.flat());
+    const m = Math.max(...tutti_.map(([x, y]) => Math.max(Math.abs(x), Math.abs(y)))) * 1.25 || 1;
+    const svg = p => `<svg width="64" height="64" viewBox="${-m} ${-m} ${2 * m} ${2 * m}" aria-hidden="true">
+      <line x1="${-m}" y1="0" x2="${m}" y2="0" stroke="#5A636D" stroke-width="${m / 60}" stroke-dasharray="${m / 12}"/>
+      <line x1="0" y1="${-m}" x2="0" y2="${m}" stroke="#5A636D" stroke-width="${m / 60}" stroke-dasharray="${m / 12}"/>
+      <path fill-rule="evenodd" fill="#B8C0C8" stroke="#16191D" stroke-width="${m / 40}" d="${p.disegno.map(c => 'M' + c.map(([x, y]) => `${x} ${-y}`).join(' L') + ' Z').join(' ')}"/></svg>`;
+    box.innerHTML = `<div class="sub">Come sta il profilo <span class="fsub">· visto di testa: ${esc(r.su)} in alto, ${esc(r.destra)} a destra</span></div>
+      <div class="angoli">${r.posizioni.map((p, i) => `<button class="angolo${p.ora ? ' on' : ''}" data-posiz="${i}">${svg(p)}<span>${esc(p.testo)}</span></button>`).join('')}</div>`;
+    box.querySelectorAll('[data-posiz]').forEach(b => {
+      const p = r.posizioni[+b.dataset.posiz], campi = { rotate: p.rotate, flip: p.flip };
+      b.onclick = () => { anteprimaVia(); edit(campi); };
+      b.onmouseenter = () => { if (!p.ora) anteprima('edit_member', () => [s.id, campi, tutti()], null); };
+      b.onmouseleave = () => anteprimaVia();
+    });
+  });
   if ($('#p-flip')) $('#p-flip').onclick = () => edit({ toggle_flip: true });
   if ($('#p-anc')) $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
   $('#p-del').onclick = deleteSelected;
@@ -5723,6 +5821,12 @@ function disegnoGiunto(tipo) {
     miter: `<polygon points="10,10 26,26 26,76 10,76" fill="${g}"/><polygon points="10,10 76,10 76,26 26,26" fill="${c}"/><line x1="10" y1="10" x2="26" y2="26" stroke="#16191D" stroke-width="2"/>`,
     verticale: `<rect x="10" y="10" width="16" height="66" fill="${g}"/><rect x="27" y="10" width="49" height="16" fill="${c}"/>`,
     orizzontale: `<rect x="10" y="10" width="66" height="16" fill="${c}"/><rect x="10" y="27" width="16" height="49" fill="${g}"/>`,
+    // incroci (03/11): il tubo che passa è intero e chiaro, l'altro è in due pezzi scuri che gli battono contro
+    // (staccati di un filo, così si vede subito chi è tagliato)
+    croce_v: `<rect x="35" y="4" width="16" height="78" fill="${c}"/><rect x="4" y="35" width="27" height="16" fill="${g}"/><rect x="55" y="35" width="27" height="16" fill="${g}"/>`
+      + `<line x1="31" y1="33" x2="31" y2="53" stroke="#16191D" stroke-width="2"/><line x1="55" y1="33" x2="55" y2="53" stroke="#16191D" stroke-width="2"/>`,
+    croce_o: `<rect x="4" y="35" width="78" height="16" fill="${c}"/><rect x="35" y="4" width="16" height="27" fill="${g}"/><rect x="35" y="55" width="16" height="27" fill="${g}"/>`
+      + `<line x1="33" y1="31" x2="53" y2="31" stroke="#16191D" stroke-width="2"/><line x1="33" y1="55" x2="53" y2="55" stroke="#16191D" stroke-width="2"/>`,
   };
   return `<svg width="60" height="60" viewBox="0 0 86 86" aria-hidden="true">${forme[tipo] || ''}</svg>`;
 }
@@ -5815,6 +5919,17 @@ function disegnaSaldature() {
   lineeInBlocco(saldGroup, tratti, 20);
   ridisegna();
 }
+// 03/11: il pezzo di tubo disegnato coi suoi tagli (dritto, 45° a trapezio o a parallelogramma), accanto alla scritta:
+// chi taglia vede subito come vengono le punte
+function formaPezzo(r) {
+  const ang = (r.cuts || []).map(c => /°/.test(c) ? parseFloat(c.replace(',', '.')) : 0);
+  if (!ang.some(a => a)) return '';
+  const W = 46, h = 10, o = a => Math.min(16, h * Math.tan(a * Math.PI / 180));
+  const [a0, a1] = ang.length === 2 ? ang : [ang[0] || 0, 0];
+  const pts = r.forma === 'parallelo' ? [[o(a0), 0], [W, 0], [W - o(a1), h], [0, h]]
+    : [[o(a0), 0], [W - o(a1), 0], [W, h], [0, h]];
+  return `<svg class="forma-pezzo" width="${W + 2}" height="${h + 2}" viewBox="-1 -1 ${W + 2} ${h + 2}" aria-hidden="true" style="vertical-align:middle;margin-right:6px"><polygon points="${pts.map(p => p.join(',')).join(' ')}" fill="#B8C0C8" stroke="#16191D" stroke-width="1"/></svg>`;
+}
 function renderBottom() {
   renderMancanti();
   disegnaSaldature();
@@ -5844,12 +5959,15 @@ function renderBottom() {
     <th>Tagli</th><th class="n">Q.tà</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
     ${c.rows.map((r, i) => `<tr data-ids="${esc(r.members.join(','))}"><td class="n">${i + 1}</td><td>${esc(r.nome || (r.dove || r.groups).join(' · '))}</td>
       <td>${esc(r.profile)} ${esc(r.material)}</td><td class="n">${num(r.length_mm)}</td>
-      <td>${esc(r.tagli || r.cuts.join(' / '))}</td><td class="n">${r.qty}</td>
+      <td>${formaPezzo(r)}${esc(r.tagli_testo || r.tagli || r.cuts.join(' / '))}</td><td class="n">${r.qty}</td>
       <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
     <tr class="tot"><td colspan="5">Totale</td><td class="n">${c.pieces}</td><td></td><td class="n">${kg(c.kg)}</td></tr></tbody></table>
     <table class="grid"><thead><tr><th>Per profilo</th><th class="n">Pezzi</th><th class="n">Metri</th><th class="n">kg</th></tr></thead><tbody>
     ${c.totals.map(t => `<tr><td>${esc(t.profile)} ${esc(t.material)}</td><td class="n">${t.pieces}</td>
       <td class="n">${num(t.total_length_mm / 1000, 2)}</td><td class="n">${kg(t.kg)}</td></tr>`).join('')}</tbody></table></div>`
+    + (c.accessori?.length ? `<h4 style="margin:12px 0 4px">Piedi e tappi</h4><table class="grid"><thead><tr><th>Descrizione</th><th class="n">Q.tà</th><th>Dove va</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
+      ${c.accessori.map(a => `<tr data-ids="${esc(a.ids.join(','))}"><td>${esc(a.description)}${a.acquisto ? ' · <b>da acquistare</b>' : ''}</td><td class="n">${a.qty}</td>
+        <td title="${esc(a.dove.join(' · '))}">${esc(a.dove.slice(0, 2).join(' · ') + (a.dove.length > 2 ? ` e altre ${a.dove.length - 2}` : ''))}</td><td class="n">${a.kg_each ? kg(a.kg_each) : ''}</td><td class="n">${a.kg_total ? kg(a.kg_total) : ''}</td></tr>`).join('')}</tbody></table>` : '')
     : '<p class="empty">Nessuna struttura in tubolare in questo progetto.</p>';
 
   const i = S.info;

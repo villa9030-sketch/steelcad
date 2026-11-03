@@ -11,6 +11,10 @@ from pathlib import Path
 from cad_engine import drawings as D
 from cad_engine.errors import SteelCADError
 
+
+def _corto(t: str, n: int) -> str:
+    return t if len(t) <= n else t[:n - 1].rstrip() + '…'
+
 FISSI = ('azienda', 'disegnatore')
 # i nomi che il programma dà da solo a un pezzo nuovo: non dicono niente, meglio il nome del file del progetto
 NOMI_DI_SERIE = {'', 'pezzo', 'lamiera', 'piastra', 'progetto', 'struttura', 'profilo', 'tubo'}
@@ -123,6 +127,8 @@ class DrawingsMixin:
         for st in result.structures:
             for m in st.members:
                 b.Add(forma, m.solid.wrapped)
+            for a in getattr(st, 'accessori', None) or []:          # piedi e tappi (03/11)
+                b.Add(forma, a.solid.wrapped)
         cl = cut_list(result.structures)
         tot = tot or 2
         base = {**campi, 'titolo': nome_pezzo(doc.meta, self._percorso_di(doc), 'Struttura'), 'materiale': doc.material,

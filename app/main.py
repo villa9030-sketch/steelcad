@@ -274,8 +274,23 @@ class Api:
     def traverso_info(self, st_id, a_id, b_id):
         return self._call(self._svc.traverso_info, st_id, a_id, b_id)
 
-    def dividi_info(self, st_id, mid):
-        return self._call(self._svc.dividi_info, st_id, mid)
+    def export_taglio_tubi(self, path):
+        return self._call(self._svc.export_taglio_tubi, path)
+
+    def member_posizioni(self, obj_id):
+        return self._call(self._svc.member_posizioni, obj_id)
+
+    def piedi_info(self, st_id):
+        return self._call(self._svc.piedi_info, st_id)
+
+    def set_piedi(self, st_id, spec=None):
+        return self._call(self._svc.set_piedi, st_id, spec)
+
+    def set_tappi(self, st_id, spec=None):
+        return self._call(self._svc.set_tappi, st_id, spec)
+
+    def dividi_info(self, st_id, mid, normale=None):
+        return self._call(self._svc.dividi_info, st_id, mid, normale)
 
     def dividi(self, st_id, mid, faccia, larghezza=None, altezza=None, opposta=False, profile=None, chiudi=False):
         return self._call(self._svc.dividi, st_id, mid, faccia, larghezza, altezza, opposta, profile, chiudi)

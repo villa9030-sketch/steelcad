@@ -390,6 +390,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 objs.append({'id': f'{st.id}/{mem.id}', 'kind': 'member',
                              'name': f'{nomi[mem.id]} — {mem.profile.name} · {fmt_mm(round(mem.length, 1))}',
                              'group': mem.group, **m})
+            for a in st.accessori or []:                  # piedi e tappi (03/11)
+                tenuta = _MAGLIE_TUBI.get(id(a.solid))
+                if tenuta is None or tenuta[0] is not a.solid:
+                    tenuta = _MAGLIE_TUBI[id(a.solid)] = (a.solid, tessellate(a.solid.wrapped))
+                objs.append({'id': f'{st.id}/{a.id}', 'kind': 'accessorio', 'name': f'{a.nome} — {a.descrizione}',
+                             'tipo': a.tipo, **({'look': {'color': '#3A3F45'}} if a.acquisto else {}), **tenuta[1]})
         from cad_engine.structures.nomi import nome_punto
         import build123d as _bd
         from cad_engine.structures.nomi import _limiti
@@ -772,6 +778,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 return _ok(selection=self._flange_selection(fid_, flid_))
             st_id, mid = obj_id.split('/')
             st = next(s for s in self.result.structures if s.id == st_id)
+            a = next((x for x in st.accessori or [] if x.id == mid), None)
+            if a is not None:                  # un piede o un tappo (03/11): il suo pannello, per cambiarli tutti
+                return _ok(selection={'kind': 'accessorio', 'structure': st_id, 'title': a.nome,
+                                      'cosa': 'tappi' if mid.startswith('TAPPO') else 'piedi',
+                                      'rows': [['Cosa', a.descrizione + (' (da acquistare)' if a.acquisto else '')]]
+                                      + ([['Peso', fmt_kg(a.kg)]] if a.kg else [])})
             m = next(x for x in st.members if x.id == mid)
             fdef = self.doc.feature(st_id)
             orig = mid.split(SEP_PEZZO)[0]        # un pezzo di un tubo tagliato da un incrocio: i dati sono del tubo
@@ -4691,6 +4703,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 while True:
                     usati = {m.get(x) for m in fdef['members'] for x in ('from', 'to')}
                     usati |= {v['from'] for v in punti.values() if isinstance(v, dict) and 'from' in v}
+                    usati |= {k for v in punti.values() if isinstance(v, dict) for k in v.get('mezzo') or ()}
                     orfani = [k for k in punti if k not in usati]
                     if not orfani or len(punti) <= 1:
                         break
@@ -5053,7 +5066,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return _ok(path=str(q), name=q.stem, folder=str(q.parent), thumb=_anteprima(q))
 
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
-    ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
+    ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'set_piedi', 'set_tappi', 'edit_member', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
                     'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi', 'auto_tabs', 'angoli_sviluppo',
@@ -5086,7 +5099,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return {'ok': False, 'message': r.get('message') or 'Così non si può fare.', 'vero': True, 'code': r.get('code'),
                     'fantasma': self._fantasma(metodo, args), 'soluzioni': r.get('soluzioni') or []}
         oggetti = [{'positions': o['positions'], 'indices': o['indices'], 'edges': o['edges']}
-                   for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member')]
+                   for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member', 'accessorio')]
         out = {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}
         if metodo == 'angoli_sviluppo':
             # si guarda sullo sviluppo (03/11): lo sviluppo nuovo in azzurro e le punte che vanno via in arancio
@@ -5451,6 +5464,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
              'desc': 'I disegni quotati con il cartiglio, da stampare' + (', con la lista di taglio dei tubi.' if strutture else '.'),
              'file': f'{nome}_disegni.pdf', 'si': corpo is not None or strutture or self.asm is not None,
              'scelta': strutture or self.asm is not None, 'motivo': None},
+            # 03/11: per la troncatrice o il laser tubo (anche esterno): la lista dei tagli che si apre con Excel
+            {'id': 'tubi', 'titolo': 'Per la troncatrice o il laser tubo',
+             'desc': 'La lista dei tubi da tagliare: misura, tagli a 45° (a trapezio o a parallelogramma), quanti, dove vanno (si apre con Excel).',
+             'file': f'{nome}_taglio_tubi.csv', 'si': strutture, 'scelta': strutture,
+             'motivo': None if strutture else 'il progetto non ha tubi'},
             {'id': 'step', 'titolo': 'Per un altro programma 3D', 'desc': 'Il pezzo in 3D (STEP), per chi usa SolidWorks, Inventor e simili.',
              'file': f'{nome}.step', 'si': corpo is not None or strutture or self.asm is not None, 'scelta': False, 'motivo': None},
         ]
@@ -5458,6 +5476,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             voci.insert(1, {'id': 'taglio', 'titolo': 'Per la troncatrice',
                             'desc': 'La lista di taglio dei tubi: nome, profilo, lunghezza, tagli, quanti (si apre con Excel).',
                             'file': f'{nome}_taglio.xlsx', 'si': True, 'scelta': True, 'motivo': None})
+        voci = [v for v in voci if v['id'] != 'tubi' or v['si']]           # la lista dei tubi solo se ci sono tubi
         return {'ok': True, 'nome': nome, 'cartella': str(base / nome), 'voci': voci, 'controllo': controllo}
 
     def prepara(self, cartella: str, scelte: list, campi: dict | None = None) -> dict:
@@ -5485,6 +5504,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     r = self.export_lista_taglio(str(p))
                 elif v['id'] == 'piegatrice':
                     r = self.export_bend_table(str(p))
+                elif v['id'] == 'tubi':
+                    r = self.export_taglio_tubi(str(p))
                 elif v['id'] == 'officina':
                     c = {**self.drawing_fields().get('fields', {}), **(campi or {})}
                     r = self.export_drawings(str(p), c, True)
@@ -5585,6 +5606,36 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             xlsx.scrivi(path, [('Lista di taglio', tab, [6, 50, 14, 10, 13, 14, 6, 9, 9, 8], [0]),
                                ('Barre da comprare', tot, [14, 10, 8, 9, 9], [0])])
             return {'ok': True, 'path': str(path), 'message': f'Lista di taglio salvata: {len(righe)} righe ({Path(path).name}).'}
+
+    def export_taglio_tubi(self, path: str) -> dict:
+        """La distinta di taglio dei tubi in CSV (punto e virgola, virgola decimale: si apre in Excel), per la
+        troncatrice o il laser tubo: una riga per misura, coi tagli scritti per intero; sotto le barre da comprare
+        e i piedi e tappi."""
+        try:
+            cl = cut_list(self.result.structures)
+            if not cl['rows']:
+                raise SteelCADError('Il progetto non ha tubi da tagliare.', code='tubi')
+            n = lambda v, d=1: f'{v:.{d}f}'.replace('.', ',')  # noqa: E731
+            righe = ['Pos.;Profilo;Materiale;Lunghezza mm;Taglio 1;Taglio 2;Come vengono le punte;Angolo sul lato da mm;'
+                     'Q.tà;Dove va;Lavorato;kg cad.;kg tot.']
+            for i, r in enumerate(cl['rows'], 1):
+                forma = {'trapezio': 'a trapezio (punte dallo stesso lato)',
+                         'parallelo': 'a parallelogramma (punte da lati opposti)'}.get(r.get('forma'), '')
+                lato = n(r['lato_taglio']) if r.get('lato_taglio') and r.get('quadro') is False else ''
+                righe.append(';'.join([str(i), r['profile'], r['material'], n(r['length_mm']), *(r['cuts'] + ['', ''])[:2],
+                                       forma, lato, str(r['qty']), ' · '.join(r.get('dove') or r['groups']).replace(';', ','),
+                                       'sì' if r.get('lavorata') else '', n(r['kg_each'], 2), n(r['kg_total'], 2)]))
+            righe += ['', 'Barre da comprare;Profilo;Materiale;Pezzi;Metri;kg']
+            for t in cl['totals']:
+                righe.append(';'.join(['', t['profile'], t['material'], str(t['pieces']), n(t['total_length_mm'] / 1000, 2),
+                                       n(t['kg'], 2)]))
+            if cl.get('accessori'):
+                righe += ['', 'Piedi e tappi;Descrizione;Q.tà;Da acquistare;kg tot.']
+                for a in cl['accessori']:
+                    righe.append(';'.join(['', a['description'], str(a['qty']), 'sì' if a['acquisto'] else '',
+                                           n(a['kg_total'], 2) if a['kg_total'] else '']))
+            Path(path).write_text('\n'.join(righe) + '\n', encoding='utf-8-sig')
+            return _ok(message=f'Lista di taglio salvata: {cl["pieces"]} pezzi, {len(cl["rows"])} misure.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 

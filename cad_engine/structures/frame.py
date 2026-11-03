@@ -89,6 +89,7 @@ class StructureResult:
     warnings: list = None    # frasi per l'utente (aste che si compenetrano, …)
     nodes: dict = None       # {punto: {'xyz', 'members', 'joint', 'auto'}} per l'interfaccia
     incroci: dict = None     # {«A×B»: {'a', 'b', 'passa', 'xyz'}}: tubi che si attraversano, uno passa
+    accessori: list = None   # piedi e tappi (accessori.Accessorio): solidi a parte, righe a parte in distinta
 
     def compound(self) -> bd.Compound:
         return bd.Compound([m.solid for m in self.members])
@@ -166,6 +167,13 @@ def _skeletons(fdef, params, sketches, pts, nome, fid) -> list:
 def _point(k, v, params, sketches, nome, fid, _resolve=None) -> bd.Vector:
     """Un punto dello scheletro: [x, y, z], un punto di uno sketch, oppure un altro punto
     dello scheletro ("from"); negli ultimi due casi con uno spostamento [dx, dy, dz]."""
+    if isinstance(v, dict) and 'mezzo' in v and _resolve is not None:
+        # in mezzo tra due punti (il traverso «In mezzo», 03/11): cambiando le misure del modello resta in mezzo
+        ka, kb = v['mezzo']
+        base = (_resolve(ka) + _resolve(kb)) * 0.5
+        if v.get('offset'):
+            base = base + _vec(v['offset'], params, f'lo spostamento del punto {k}')
+        return base
     if isinstance(v, dict) and 'from' in v:
         base = _resolve(v['from'])
         if v.get('offset'):
@@ -220,6 +228,7 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
     righe = [{**m, **{k: v for k, v in ritocchi.get(m['id'], {}).items() if k != 'deleted'}}
              for m in righe if not ritocchi.get(m['id'], {}).get('deleted')]
     members = []
+    su_verticali = _su_verticali(righe, pts)
     for m in righe:
         mid = m.get('id')
         if m.get('from') not in pts or m.get('to') not in pts:
@@ -230,7 +239,9 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         prof = parse(m.get('profile') or '')
         mat = m.get('material', fdef.get('material', 'S235'))
         materials.get(mat)
-        x, y = _section_axes((b - a).normalized(), m.get('rotate', 0), m.get('flip', False))
+        a_mano = 'anchor' in m or 'offset' in m
+        su = None if a_mano else su_verticali.get(mid)
+        x, y = _section_axes((b - a).normalized(), m.get('rotate', 0), m.get('flip', False), su)
         anc = m.get('anchor', 'center')
         if anc not in ANCHORS:
             raise FeatureError(f'Ancoraggio "{anc}" sconosciuto per l\'asta {mid}: usa centro, sopra, sotto, '
@@ -241,7 +252,8 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         members.append(Member(mid, m.get('group', ''), prof, mat, a, b, x, y, shift))
         members[-1].ruolo = m.get('ruolo', '')
         members[-1].nome = m.get('name', '')
-        members[-1]._a_mano = 'anchor' in m or 'offset' in m
+        members[-1]._a_mano = a_mano
+        members[-1]._su = su
         members[-1]._rif = m.get('rif', 'sotto')
         members[-1]._rif_scelto = 'rif' in m
     if not members:       # si parte da un nodo e si costruisce: nessuna asta va bene
@@ -279,6 +291,10 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
     res = StructureResult(fid, nome, members, _interferences(members, legati, chiavi),
                           _node_info(pts, members, nodes, fdef))
     res.incroci = incroci
+    if fdef.get('piedi') or fdef.get('tappi'):
+        from .accessori import calcola
+        from .nomi import nomi_aste
+        res.accessori = calcola(members, fdef, nomi_aste(members))
     return res
 
 
@@ -309,7 +325,7 @@ def _incroci(members, pts, scelte, ritocchi):
     """Due tubi che si attraversano (la croce sopra un telaio, il montante in mezzo al fianco col traverso a metà,
     03/11: «l'intersezione dei tubi non è contemplata»): come in officina uno passa intero e l'altro si taglia in
     due pezzi che gli battono contro (giunto a T su tutti e due i lati). Passa quello scelto in «incroci»
-    ({"A×B": "A"}), se no il più lungo (a pari lunghezza quello in piedi). Ritorna le aste (coi pezzi al posto dei
+    ({"A×B": "A"}), se no quello in piedi (il montante), se no il più lungo. Ritorna le aste (coi pezzi al posto dei
     tubi tagliati) e {chiave: {'a', 'b', 'passa', 'xyz'}} per l'interfaccia."""
     import copy
     tagli: dict = {}                       # id del tubo tagliato -> [(parametro lungo l'asse, punto)]
@@ -331,7 +347,12 @@ def _incroci(members, pts, scelte, ritocchi):
             scelto = scelte.get(chiave)
             if scelto not in (a.id, b.id):
                 la, lb = a.axis_length, b.axis_length
-                if abs(la - lb) > 1e-6:
+                va, vb = _classe(a.w) == 'verticali', _classe(b.w) == 'verticali'
+                if va != vb:
+                    # un montante (in piedi) e un traverso: passa il montante, il traverso si taglia, come in
+                    # officina (03/11: nello scaffale da 3 m passava il traverso e i montanti erano a pezzi)
+                    scelto = a.id if va else b.id
+                elif abs(la - lb) > 1e-6:
                     scelto = a.id if la > lb else b.id
                 else:
                     scelto = a.id if (_classe(a.w) == 'verticali') >= (_classe(b.w) == 'verticali') else b.id
@@ -445,11 +466,52 @@ def _member_key(m: Member, nodes) -> tuple:
     return tuple(parti)
 
 
-def _section_axes(w: bd.Vector, rotate_deg: float, flip: bool):
-    """Altezza del profilo verso l'alto (Z) per le aste orizzontali; per quelle verticali verso Y."""
+def _su_verticali(righe, pts) -> dict:
+    """Per i tubi in piedi non quadri (60×40) di un telaio piano, dove va l'altezza del profilo: nel piano del
+    telaio, come i tubi sdraiati a cui sono attaccati (03/11: nel cancello 60×40 i montanti avevano il 60 di
+    profondità e i traversi il 60 nel piano, e il 45° dell'angolo non combaciava). Solo se i tubi sdraiati attaccati
+    vanno tutti in una direzione; un tavolo (traversi in X e in Y) resta com'era. {id: direzione}"""
+    def chiave(p):
+        return (round(p.X, 3), round(p.Y, 3), round(p.Z, 3))
+    dirs = {}
+    capi: dict = {}
+    for m in righe:
+        a, b = pts.get(m.get('from')), pts.get(m.get('to'))
+        if a is None or b is None or (b - a).length < 1e-6:
+            continue
+        w = (b - a).normalized()
+        dirs[m.get('id')] = (w, a, b, m)
+        for p in (a, b):
+            capi.setdefault(chiave(p), []).append(m.get('id'))
+    out = {}
+    for mid, (w, a, b, m) in dirs.items():
+        if abs(w.Z) < 0.999 or m.get('rotate'):
+            continue
+        try:
+            prof = parse(m.get('profile') or '')
+        except Exception:  # noqa: BLE001 - il profilo sbagliato lo dice dopo, con l'errore giusto
+            continue
+        if abs(prof.width - prof.height) < 1e-6:
+            continue
+        orizz = []
+        for p in (a, b):
+            for o in capi.get(chiave(p), []):
+                wo = dirs[o][0]
+                if o != mid and abs(wo.Z) < 0.05:
+                    d = bd.Vector(abs(wo.X), abs(wo.Y), 0)
+                    if not any((d - e).length < 1e-6 for e in orizz):
+                        orizz.append(d)
+        if len(orizz) == 1:
+            out[mid] = orizz[0]
+    return out
+
+
+def _section_axes(w: bd.Vector, rotate_deg: float, flip: bool, su: bd.Vector | None = None):
+    """Altezza del profilo verso l'alto (Z) per le aste orizzontali; per quelle verticali verso Y, o verso `su`
+    (la direzione dei tubi sdraiati attaccati, vedi _su_verticali)."""
     up = bd.Vector(0, 0, 1)
     if abs(w.dot(up)) > 0.999:
-        up = bd.Vector(0, 1, 0)
+        up = su if su is not None else bd.Vector(0, 1, 0)
     y = (up - w * w.dot(up)).normalized()
     x = y.cross(w).normalized()
     if rotate_deg:

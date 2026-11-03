@@ -73,6 +73,16 @@ class StruttureMixin:
                 return k
         return None
 
+    def _scelta(self, obj_id: str) -> str:
+        """Il tubo appena fatto da scegliere: se un incrocio l'ha tagliato in pezzi («D1» → «D1~1»), il primo pezzo
+        (03/11: dopo «Dividi» con la croce usciva «Quello che hai cliccato non c'è più»)."""
+        st_id, mid = obj_id.split('/', 1)
+        st = next((s for s in self.result.structures if s.id == st_id), None)
+        if st is None or any(m.id == mid for m in st.members):
+            return obj_id
+        pezzo = next((m.id for m in st.members if m.id.split(SEP_PEZZO)[0] == mid), None)
+        return f'{st_id}/{pezzo}' if pezzo else obj_id
+
     def _limiti(self, st):
         b = bd.Compound([m.solid for m in st.members]).bounding_box() if st.members else None
         return b
@@ -82,9 +92,11 @@ class StruttureMixin:
         st = self._st(st_id)
         from cad_engine.structures import cut_list
         cl = cut_list([st])
-        b = self._limiti(st)
+        solidi = [m.solid for m in st.members] + [a.solid for a in st.accessori or []]    # coi piedi e i tappi
+        b = bd.Compound(solidi).bounding_box() if solidi else None
         fuori = [round(v) for v in (b.size.X, b.size.Y, b.size.Z)] if b else []
-        return {'fuori_tutto': fuori, 'tubi': cl['pieces'], 'misure': len(cl['rows']), 'kg': round(cl['kg'], 1),
+        kg = cl['kg'] + sum(a['kg_total'] for a in cl.get('accessori') or [])          # coi piedi e i lamierini
+        return {'fuori_tutto': fuori, 'tubi': cl['pieces'], 'misure': len(cl['rows']), 'kg': round(kg, 1),
                 'esterno': bool(self.doc.feature(st_id).get('esterno'))}
 
     def tubo_info(self, st, m) -> dict:
@@ -202,14 +214,17 @@ class StruttureMixin:
         """Due tubi che si attraversano (03/11): chi passa intero e chi si taglia in due pezzi che gli battono contro."""
         inc = st.incroci[key]
         scelte = []
+        # il disegnino (03/11: i due erano uguali): la croce vista da dove si capisce, il tubo che passa intero e
+        # l'altro in due pezzi. In piedi = in verticale nel disegnino; tra due sdraiati (visti dall'alto) quello da
+        # davanti a dietro è il verticale
+        rango = {'verticali': 0, 'y': 1, 'x': 2}
+        ra, rb = (rango.get(self._classe_tubo(st, x) or '', 3) for x in (inc['a'], inc['b']))
+        in_verticale = inc['a'] if ra <= rb else inc['b']
         for mid in (inc['a'], inc['b']):
             nome = self._nome_tubo(st, mid)
-            m = next((x for x in st.members if x.id == mid), None)
-            v = m is not None and _classe(m.w) == 'verticali' or any(
-                _classe(x.w) == 'verticali' for x in st.members if x.id.split(SEP_PEZZO)[0] == mid)
             nome = nome.split(' (')[0] if nome.endswith(')') else nome      # «Fianco in alto (1)»: il tubo è uno
             scelte.append({'key': f'passa:{mid}', 'label': f'Passa intero: {_senza_quota(nome).lower()}',
-                           'disegno': 'verticale' if v else 'orizzontale'})
+                           'disegno': 'croce_v' if mid == in_verticale else 'croce_o'})
         righe = [[self._nome_tubo(st, x.id), f'{fmt_mm(round(x.length, 1))} dritto']
                  for x in st.members if x.id.split(SEP_PEZZO)[0] in (inc['a'], inc['b'])]
         return _ok(nome='Incrocio', quanti=2, scelte=scelte, ora=f'passa:{inc["passa"]}',
@@ -373,7 +388,8 @@ class StruttureMixin:
             z0 = min(p.Z for m in st.members for p in (m.start, m.end))
             in_piedi = abs(ma.w.Z) > 0.95
             al_bordo = rif == 'bordo' and not in_piedi
-            if str(quota).strip().lower() in ('mezzo', 'in mezzo', 'metà', 'meta'):
+            mezzo = str(quota).strip().lower() in ('mezzo', 'in mezzo', 'metà', 'meta')
+            if mezzo:
                 q = self._mezzo(ma, z0)
                 if in_piedi:
                     rif = 'meta'
@@ -395,6 +411,8 @@ class StruttureMixin:
                 rif = 'sopra' if abs(bz.max.Z - pa.Z) < 1e-3 else ('sotto' if abs(bz.min.Z - pa.Z) < 1e-3 else 'meta')
             if (pa - pb).length < 1:
                 raise SteelCADError('I due punti coincidono: scegli due tubi distanti.', code='traverso')
+            if mezzo:        # il punto resta in mezzo al tubo anche cambiando le misure del modello
+                aggancio = [x + (self._capi_tubo(st, t),) for x, t in zip(aggancio, (ma, mb))]
             coppie = [aggancio]
             if opposto:
                 altro_a = self._tubo_tra(st, *self._specchio(st, [ma.start, ma.end], pb - pa))
@@ -403,6 +421,8 @@ class StruttureMixin:
                     raise SteelCADError('Dall’altra parte non ci sono due tubi uguali: togli «anche dietro».',
                                         code='traverso')
                 altra = [self._su_tubo(st, altro_a, q, z0), self._su_tubo(st, altro_b, q, z0)]
+                if mezzo:
+                    altra = [x + (self._capi_tubo(st, t),) for x, t in zip(altra, (altro_a, altro_b))]
                 # in mezzo l'altra parte è lo stesso traverso (03/11: «In mezzo» con «anche dietro» lo faceva doppio)
                 if not any((x[2] - y[2]).length < 1 for x in altra for y in aggancio):
                     coppie.append(altra)
@@ -415,11 +435,13 @@ class StruttureMixin:
             punti = fdef.setdefault('points', {})
             aste = fdef.setdefault('members', [])
             usati = {m.id for m in st.members} | {m['id'] for m in aste}
-            for (ka, offa, _), (kb, offb, _) in coppie:
+            for ga, gb in coppie:
                 chiavi = []
-                for k, off in ((ka, offa), (kb, offb)):
+                for g in (ga, gb):
+                    k, off = g[0], g[1]
+                    capi = g[3] if len(g) > 3 else None
                     nk = self._free_id(fdef, 'P', punti)
-                    punti[nk] = {'from': k, 'offset': [round(c, 3) for c in off]}
+                    punti[nk] = {'mezzo': list(capi)} if capi else {'from': k, 'offset': [round(c, 3) for c in off]}
                     chiavi.append(nk)
                 mid = self._free_id(fdef, 'A', usati)
                 usati.add(mid)
@@ -430,9 +452,17 @@ class StruttureMixin:
                 nuovi.append(f'{st_id}/{mid}')
         r = self._change('Traverso' if len(coppie) == 1 else f'{len(coppie)} traversi', fn)
         if r.get('ok'):
-            r['select'] = nuovi[0]
+            r['select'] = self._scelta(nuovi[0])
             r['message'] = 'Traverso aggiunto.' if len(nuovi) == 1 else f'{len(nuovi)} traversi aggiunti.'
         return r
+
+    def _capi_tubo(self, st, m):
+        """Le chiavi dei due angoli alle teste del tubo m (per un punto «in mezzo»); None se una testa non è un
+        angolo fisso (un pezzo di tubo tagliato da un incrocio): allora il punto si mette a misura come prima."""
+        ka, kb = self._punto_di(st, m.start), self._punto_di(st, m.end)
+        if not ka or not kb or '×' in ka or '×' in kb:
+            return None
+        return (ka, kb)
 
     def _tubo_tra(self, st, p, q):
         for m in st.members:
@@ -567,6 +597,181 @@ class StruttureMixin:
                 r['message'] = 'Tubo aggiunto. In quell’angolo ora la gamba passa e i tubi ci battono contro.'
         return r
 
+    # ------------------------------------------------------------------ come sta il profilo (03/11)
+    # Tubi rettangolari e profili aperti (angolari, piatti, UPN): «girarli di 90° e scegliere da che parte stanno deve
+    # essere chiaro». Le posizioni possibili, ognuna col disegnino della sezione vista di testa, «su» in alto e
+    # «fuori» (verso l'esterno della struttura) a destra.
+    POSIZIONI = {'RHS': (0, 90), 'FLAT': (0, 90), 'IPE': (0, 90), 'HEA': (0, 90), 'HEB': (0, 90),
+                 'L': (0, 90, 180, 270), 'UPN': (0, 90, 180, 270), 'U': (0, 90, 180, 270), 'C': (0, 90, 180, 270)}
+
+    def _vista_testa(self, st, m):
+        """Gli assi del disegnino: (destra, su, parole). Tubo sdraiato: su = in alto, destra = verso fuori; in piedi:
+        visto da sopra, destra = verso destra, su = verso dietro."""
+        if abs(m.w.Z) > 0.95:
+            return bd.Vector(1, 0, 0), bd.Vector(0, 1, 0), ('dietro', 'destra')
+        su = bd.Vector(0, 0, 1)
+        destra = su.cross(m.w).normalized()
+        lim = self._limiti_linee(st)
+        c = bd.Vector(*[(a + b) / 2 for a, b in lim])
+        mezzo = (m.start + m.end) * 0.5
+        if (mezzo - c).dot(destra) < 0:
+            destra = -destra
+        return destra, su, ('su', 'fuori')
+
+    @staticmethod
+    def _contorni(prof) -> list:
+        """I contorni della sezione (fuori e dentro), punti 2D nel piano del profilo."""
+        f = prof.section()
+        out = []
+        for w in [f.outer_wire()] + list(f.inner_wires()):
+            pts = []
+            for e in w.order_edges():
+                n = 1 if e.geom_type == bd.GeomType.LINE else 6
+                pts += [e @ (k / n) for k in range(n)]
+            out.append([(p.X, p.Y) for p in pts])
+        return out
+
+    @staticmethod
+    def _parola_posizione(prof, pts2d, rot):
+        fam = prof.family
+        xs = [x for x, _ in pts2d]
+        ys = [y for _, y in pts2d]
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        cx = sum(xs) / len(xs) - (max(xs) + min(xs)) / 2
+        cy = sum(ys) / len(ys) - (max(ys) + min(ys)) / 2
+        if fam in ('RHS', 'FLAT'):
+            return f'{"In piedi" if h > w + 1e-6 else "Sdraiato"} (alto {fmt_mm(round(h, 1))})'
+        if fam in ('IPE', 'HEA', 'HEB'):
+            return 'Anima in piedi' if h > w + 1e-6 else 'Anima sdraiata'
+        return None
+
+    def member_posizioni(self, obj_id: str) -> dict:
+        """Le posizioni del profilo cliccato (girato di 90°, 180°…), col disegnino della sezione vista di testa."""
+        from cad_engine.structures.frame import _section_axes
+        try:
+            st_id, mid = obj_id.split('/', 1)
+            st = self._st(st_id)
+            m = next((x for x in st.members if x.id == mid), None)
+            if m is None:
+                raise SteelCADError('Quel tubo non c’è più: riprova.', code='tubo')
+        except (SteelCADError, ValueError) as ex:
+            return _err(getattr(ex, 'message', str(ex)))
+        rots = self.POSIZIONI.get(m.profile.family)
+        if not rots:
+            return _ok(posizioni=[])
+        fdef = self.doc.feature(st_id)
+        base = mid.split(SEP_PEZZO)[0]
+        d = next((x for x in fdef.get('members') or [] if x['id'] == base), None) or \
+            (fdef.get('overrides') or {}).get(base) or {}
+        ora_r, flip = float(d.get('rotate', 0)) % 360, bool(d.get('flip', False))
+        destra, su, (n_su, n_destra) = self._vista_testa(st, m)
+        contorni = self._contorni(m.profile)
+        out = []
+        for r in rots:
+            x, y = _section_axes(m.w, r, flip, getattr(m, '_su', None))
+            disegno = [[(round((x * px + y * py).dot(destra), 2), round((x * px + y * py).dot(su), 2)) for px, py in c]
+                       for c in contorni]
+            fam = m.profile.family
+            testo = self._parola_posizione(m.profile, disegno[0], r)
+            if testo is None:
+                # angolari e U: dove sta lo spigolo (o la schiena) — il baricentro sta da quella parte
+                xs = [p[0] for p in disegno[0]]
+                ys = [p[1] for p in disegno[0]]
+                cx = sum(xs) / len(xs) - (max(xs) + min(xs)) / 2
+                cy = sum(ys) / len(ys) - (max(ys) + min(ys)) / 2
+                alto = {'su': ('in alto', 'in basso'), 'dietro': ('dietro', 'davanti')}[n_su]
+                lato = {'fuori': ('fuori', 'dentro'), 'destra': ('a destra', 'a sinistra')}[n_destra]
+                if fam == 'L':
+                    testo = f'Spigolo {alto[0] if cy > 0 else alto[1]}, {lato[0] if cx > 0 else lato[1]}'
+                else:
+                    aperta = (lato[1] if cx > 0 else lato[0]) if abs(cx) > abs(cy) else (alto[1] if cy > 0 else alto[0])
+                    testo = f'Aperto {"verso " + aperta if aperta in ("fuori", "dentro") else aperta}'
+            giro = 180 if len(rots) == 2 else 360          # un rettangolo girato di 180° è uguale
+            out.append({'rotate': r, 'flip': flip, 'disegno': disegno, 'testo': testo,
+                        'ora': abs(((ora_r - r) + giro / 2) % giro - giro / 2) < 1e-6})
+        if not any(p['ora'] for p in out):
+            out[0]['ora'] = True
+        return _ok(posizioni=out, su=n_su, destra=n_destra, ribalta=m.profile.family == 'L' and
+                   abs(m.profile.width - m.profile.height) > 1e-6)
+
+    # ------------------------------------------------------------------ piedi e tappi (03/11)
+    # In officina, finito il telaio: sotto le gambe la piastra coi fori (o il piedino regolabile), sulle teste dei
+    # tubi rimaste aperte il tappo. Un comando per tutte le gambe a terra, uno per tutte le teste libere.
+    def piedi_info(self, st_id: str) -> dict:
+        """Per il pannello «Piedi e tappi»: quante gambe a terra e teste libere, cosa c'è già, le misure proposte."""
+        from cad_engine.structures.accessori import PIEDINI, _teste_libere, gambe_a_terra, proposta
+        try:
+            st = self._st(st_id)
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        fdef = self.doc.feature(st_id)
+        gambe = gambe_a_terra(st.members)
+        tubo = max((max(m.profile.width, m.profile.height) for m in gambe), default=30)
+        coperte = {(m.id, 0 if m.start.Z < m.end.Z else 1) for m in gambe} if fdef.get('piedi') else set()
+        teste = _teste_libere(st.members, coperte)
+        return _ok(gambe=len(gambe), teste=len(teste), piedi=fdef.get('piedi'), tappi=fdef.get('tappi'),
+                   proposta=proposta(tubo),
+                   piedini=list(PIEDINI))
+
+    def _altezza(self, st) -> float:
+        solidi = [m.solid for m in st.members] + [a.solid for a in st.accessori or []]
+        return bd.Compound(solidi).bounding_box().size.Z
+
+    def set_piedi(self, st_id: str, spec: dict | None = None) -> dict:
+        """Piastra o piedino regolabile sotto tutte le gambe a terra (spec None: si tolgono)."""
+        from cad_engine.structures.accessori import gambe_a_terra
+        try:
+            st = self._st(st_id)
+            if spec and not gambe_a_terra(st.members):
+                raise SteelCADError('Non ci sono gambe a terra: servono tubi in piedi che arrivano giù.', code='piedi')
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        spec = {k: v for k, v in (spec or {}).items() if v not in (None, '')} or None
+
+        def fn():
+            fdef = self.doc.feature(st_id)
+            if spec:
+                fdef['piedi'] = spec
+            else:
+                fdef.pop('piedi', None)
+        cosa = 'Piedi tolti' if not spec else ('Piastre sotto le gambe' if spec.get('tipo', 'piastra') == 'piastra'
+                                                else 'Piedini sotto le gambe')
+        r = self._change(cosa, fn)
+        if r.get('ok') and spec:
+            st = self._st(st_id)
+            piedi = [a for a in st.accessori or [] if a.id.startswith('PIEDE-')]
+            h = self._altezza(st)
+            r['message'] = (f'{len(piedi)} × {piedi[0].descrizione[0].lower()}{piedi[0].descrizione[1:]}' + (
+                f' e piedino {spec.get("misura", "M10")}' if spec.get('tipo') == 'piedino' else '') +
+                f'. Altezza fuori tutto coi piedi: {fmt_mm(round(h, 1))}.') if piedi else cosa + '.'
+        elif r.get('ok'):
+            r['message'] = 'Piedi tolti.'
+        return r
+
+    def set_tappi(self, st_id: str, spec: dict | None = None) -> dict:
+        """Tappo in plastica (da comprare) o lamierino saldato su tutte le teste libere dei tubi (None: si tolgono)."""
+        try:
+            self._st(st_id)
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        spec = {k: v for k, v in (spec or {}).items() if v not in (None, '')} or None
+
+        def fn():
+            fdef = self.doc.feature(st_id)
+            if spec:
+                fdef['tappi'] = spec
+            else:
+                fdef.pop('tappi', None)
+        r = self._change('Tappi sulle teste dei tubi' if spec else 'Tappi tolti', fn)
+        if r.get('ok') and spec:
+            tappi = [a for a in self._st(st_id).accessori or [] if a.id.startswith('TAPPO-')]
+            d = tappi[0].descrizione if tappi else ''
+            r['message'] = (f'{len(tappi)} × {d[0].lower()}{d[1:]}.' if tappi
+                            else 'Non ci sono teste di tubo aperte: niente tappi da mettere.')
+        elif r.get('ok'):
+            r['message'] = 'Tappi tolti.'
+        return r
+
     # ------------------------------------------------------------------ dividi una faccia (03/11)
     # «Complicatissimo, il contrario di intuitivo»: per il fianco 2×2 e la croce sopra servivano punti, frecce e
     # misure tolte a mano. Ora: clic su un tubo del fianco (o del telaio sopra) → «Dividi in 2 / in 3» → montanti e
@@ -657,8 +862,10 @@ class StruttureMixin:
             raise SteelCADError(f'In {n} parti non ci stanno: i tubi si toccano.', code='dividi')
         return [a + ba + k * luce + (k - 1) * t + t / 2 for k in range(1, n)]
 
-    def dividi_info(self, st_id: str, mid: str) -> dict:
-        """Per il pannello «Dividi»: le facce su cui sta il tubo cliccato, con le misure."""
+    def dividi_info(self, st_id: str, mid: str, normale=None) -> dict:
+        """Per il pannello «Dividi»: le facce su cui sta il tubo cliccato, con le misure. La prima è il lato più
+        probabile: quello verso cui guarda la faccia del tubo cliccata (`normale`, nel 3D). 03/11: su un tubo dello
+        spigolo in alto veniva sempre prima «Il telaio sopra», anche cliccando il davanti del tubo."""
         try:
             st = self._st(st_id)
             m = next((x for x in st.members if x.id == mid), None)
@@ -681,10 +888,30 @@ class StruttureMixin:
             facce.append({'key': nome, 'label': self.NOMI_FACCE[nome], 'u': round(f['u'][1] - f['u'][0], 1),
                           'v': round(f['v'][1] - f['v'][0], 1), 'in_piedi': f['asse'] != 2,
                           'opposta': self.NOMI_FACCE[altra].lower() if self._faccia(st, altra) else '',
-                          'aperti': aperti or ''})
+                          'aperti': aperti or '',
+                          # i tubi del lato e il lato stesso (4 angoli, un filo fuori): nel 3D si vede quale si divide
+                          'tubi': [f'{st_id}/{x.id}' for x in f['tubi']], 'rett': self._rettangolo(f)})
         if not facce:
             return _err('Questo tubo non sta su un lato della struttura: clicca un tubo del fianco o del telaio sopra.')
+        if normale and len(normale) == 3:
+            verso = {k: [0, 0, 0] for k in self.FACCE}
+            for k, (asse, s_) in self.FACCE.items():
+                verso[k][asse] = s_
+            dot = lambda k: sum(a * float(b) for a, b in zip(verso[k], normale))    # noqa: E731
+            facce.sort(key=lambda f: -round(dot(f['key']), 3))
         return _ok(facce=facce, profilo=m.profile.name.replace('×', 'x'))
+
+    @staticmethod
+    def _rettangolo(f) -> list:
+        """I quattro angoli del lato (sul fuori dei tubi, mezzo millimetro fuori) per colorarlo nel 3D."""
+        out = []
+        for a, b in ((0, 0), (1, 0), (1, 1), (0, 1)):
+            p = [0.0, 0.0, 0.0]
+            p[f['asse']] = f['val'] + 0.5 * f['verso']
+            p[f['iu']] = f['u'][a]
+            p[f['iv']] = f['v'][b]
+            out.append([round(c, 3) for c in p])
+        return out
 
     def dividi(self, st_id: str, mid: str, faccia: str, larghezza=None, altezza=None, opposta: bool = False,
                profile: str | None = None, chiudi: bool = False) -> dict:
@@ -727,7 +954,7 @@ class StruttureMixin:
         quanti = len(linee)
         r = self._change(f'{self.NOMI_FACCE[faccia]}: diviso' + (' (anche l’altro lato)' if opposta else ''), fn)
         if r.get('ok'):
-            r['select'] = nuovi[0]
+            r['select'] = self._scelta(nuovi[0])
             lu, lv = quadri
             dim = (lambda xs: fmt_mm(round(xs[0], 1)) if max(xs) - min(xs) < 0.05 else ' / '.join(fmt_mm(round(x, 1)) for x in xs))
             n = len(lu) * len(lv)
@@ -845,6 +1072,9 @@ class StruttureMixin:
                 new_st.setdefault('members', []).append(m)
         if old.get('incroci'):
             new_st['incroci'] = dict(old['incroci'])
+        for k in ('piedi', 'tappi'):                       # piedi e tappi restano (03/11)
+            if old.get(k):
+                new_st[k] = dict(old[k])
         persi = []
         if not divisioni:
             return persi
