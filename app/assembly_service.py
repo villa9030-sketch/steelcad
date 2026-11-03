@@ -126,8 +126,14 @@ class AssemblyMixin:
             m = re.match(r'^(.*?)(?: \((\d+)\))?$', str(i.get('name') or ''))
             base, n = m.group(1), m.group(2)
             nome = part.doc.meta.get('name') or Path(i['file']).stem
-            if A.nome_di_partenza(base) and base != nome:
+            # 03/11: anche la copia che si chiamava come il pezzo («Piastra base») segue il pezzo rinominato da solo
+            # (clic sul nome in alto); un nome dato a mano solo alla copia resta. dal_pezzo: il nome del pezzo che aveva
+            dal = i.get('dal_pezzo')
+            if (A.nome_di_partenza(base) or (dal and base == dal)) and base != nome:
                 i['name'] = f'{nome} ({n})' if n else nome
+                base = nome
+            if base == nome:
+                i['dal_pezzo'] = nome
 
     @_in_assieme
     def asm_rinomina(self, iid: str, nome: str) -> dict:

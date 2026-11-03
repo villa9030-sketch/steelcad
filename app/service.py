@@ -5285,6 +5285,23 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             r['message'] = f'Pezzo salvato in {Path(pezzo).name}; assieme nuovo: ' + r.get('message', '')
         return r
 
+    def rinomina_pezzo(self, nome: str) -> dict:
+        """Il nome del pezzo aperto da solo (03/11, clic sul nome in alto): va nel file, nella distinta, nel cartiglio
+        delle tavole e nel nome dei DXF. Il file su disco resta quello (si rinomina con «Salva con nome»)."""
+        if self.asm is not None:
+            return {'ok': False, 'message': 'Nell’assieme il nome di un pezzo si cambia dal suo pannello.'}
+        nome = re.sub(r'\s+', ' ', str(nome or '')).strip()
+        if not nome:
+            return {'ok': False, 'message': 'Scrivi il nome del pezzo.'}
+        if re.search(r'[\\/:*?"<>|]', nome):
+            return {'ok': False, 'message': 'Nel nome non vanno i segni \\ / : * ? " < > |'}
+        if not self.history.change_meta(f'Nome: {nome}', 'name', nome):
+            return _ok(state=self.state())
+        r = _ok(state=self.state())
+        r['message'] = (f'Il pezzo si chiama «{nome}»: in distinta, nelle tavole e nel DXF.'
+                        + (f' Il file resta {self.path.name}: salva per tenerlo.' if self.path else ''))
+        return r
+
     def save(self, path: str | None = None) -> dict:
         if self.asm is not None:
             try:

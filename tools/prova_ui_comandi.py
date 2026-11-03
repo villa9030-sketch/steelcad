@@ -192,6 +192,8 @@ def main():
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.length === 1")
             pg.evaluate("""() => { const o = window.__steelcad.objs.get('body');
                 const f = o.data.faces.find(x => x.name === 'SM1/FL1/esterno'); window.__steelcad.select('body', f.index); }""")
+            pg.wait_for_selector('#mini-barra button.piu')          # 03/11: col clic solo la barretta; «⋯» = il pannello
+            pg.click('#mini-barra button.piu')
             pg.wait_for_selector('[data-face-sketch]')
             pg.click('[data-face-sketch]')
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL1/esterno'")
@@ -245,7 +247,7 @@ def main():
             attesi = {
                 'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal',
                 'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'tavole',
-                'export_dxf': 'toast', 'export_bendtable': 'toast', 'export_step': 'toast', 'show_cut': 'cut', 'show_bom': 'bom',
+                'export_dxf': 'fatto', 'export_bendtable': 'fatto', 'export_step': 'fatto',   # 03/11: conferma col file 'show_cut': 'cut', 'show_bom': 'bom',
                 'misura': 'aiuto', 'misura_angolo': 'aiuto',
             }
             ok('progetto in lamiera: si vede solo la scheda LAMIERA',
@@ -274,6 +276,11 @@ def main():
                         risposta = True
                         pg.click('#te-chiudi')
                         pg.wait_for_selector('#tav-ed', state='detached', timeout=5000)
+                    elif tipo == 'fatto':                     # 03/11: conferma col nome del file e «Apri la cartella»
+                        pg.wait_for_selector('#fatto-apri', timeout=20000)
+                        risposta = True
+                        pg.click('#m-ok')
+                        pg.wait_for_selector('#modal[hidden]', state='attached', timeout=5000)
                     elif tipo == 'toast':
                         pg.wait_for_selector('.toast', timeout=8000)
                         risposta = pg.locator('.toast.err').count() == 0 or cmd in ('member_help',)

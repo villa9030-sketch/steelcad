@@ -429,6 +429,9 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 /* 28/10: con «Salva» scritto la barra è più piena: il percorso del file si accorcia, il pulsante non va mai a capo */
 #doctab { min-width: 0; flex-shrink: 1; }
 #doctab #docname { display: block; }
+#doctab #docname.rinomina { cursor: text; }
+#doctab #docname.rinomina:hover .nome { text-decoration: underline dotted; text-underline-offset: 3px; }
+#doctab #doc-nome { width: 100%; min-width: 200px; text-align: center; padding: 1px 6px; }
 #b-prepara { white-space: nowrap; flex-shrink: 0; }
 #top .tbtn { flex-shrink: 0; white-space: nowrap; }
 #palette-btn { background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .18); color: #CFD6DD; max-width: 220px; }
@@ -966,6 +969,7 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 .prep-voci .prep-guarda { background: none; border: 0; color: var(--hover); padding: 0; margin-top: 6px; font-size: 13px; cursor: pointer; text-decoration: underline; }
 .prep-fatti { margin: 4px 0 14px; padding-left: 20px; font-size: 14px; line-height: 1.7; }
 .prep-percorso { user-select: text; cursor: text; }
+.fatto-msg { margin: -4px 0 12px; }
 #right .panel:has(.cosa) > h2 { display: none; }
 .cosa .gr[hidden] { display: none; }
 

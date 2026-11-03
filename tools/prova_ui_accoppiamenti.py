@@ -1,6 +1,6 @@
 """Prova dell'interfaccia: gli accoppiamenti nuovi dalla barra in alto, cliccando le facce col mouse come l'utente.
 
-    python tools/prova_ui_accoppiamenti.py [cartella]        (Python con Playwright; Chromium senza finestra)
+    python tools/prova_ui_accoppiamenti.py [cartella] [porta]        (Python con Playwright; Chromium senza finestra)
 
 Due piastre nell'assieme. Distanza (parte da quella che c'è, poi la scrivi), Angolo, Blocca; il pannello a
 destra col campo giusto per ognuno.
@@ -44,19 +44,21 @@ SCHERMO = """([iid, n]) => { const S = window.__steelcad, T = S.THREE, o = S.obj
   const q = best.c.clone().project(S.camera), r = document.querySelector('#c3d').getBoundingClientRect();
   return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height, best.i]; }"""
 
-srv = subprocess.Popen([str(QUI / '.venv/Scripts/python.exe'), str(QUI / 'app/dev_server.py'), '--porta', '5143', '--cartella', str(CART)],
+PORTA = int(sys.argv[2]) if len(sys.argv) > 2 else 5143
+CHROME = 'C:/Users/Stefano/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+srv = subprocess.Popen([sys.executable, str(QUI / 'app/dev_server.py'), '--porta', str(PORTA), '--cartella', str(CART)], cwd=str(QUI),
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000,
-                       env=dict(os.environ, STEELCAD_RULES=str(CART / 'r.json'), STEELCAD_HOME=str(CART)))
+                       env=dict(os.environ, STEELCAD_RULES=str(CART / 'r.json'), STEELCAD_HOME=str(CART / '.sc'), USERPROFILE=str(CART)))
 while not srv.stdout.readline().startswith(b'http'):
     pass
 API = "async ([n, a]) => (await fetch('/api/' + n, {method: 'POST', body: JSON.stringify(a)})).json()"
 try:
     with sync_playwright() as p:
-        b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = p.chromium.launch(executable_path=CHROME if Path(CHROME).exists() else None, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
         pg = b.new_page(viewport={'width': 1440, 'height': 900})
         errori = []
         pg.on('pageerror', lambda e: errori.append(str(e)))
-        pg.goto('http://127.0.0.1:5143/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
+        pg.goto(f'http://127.0.0.1:{PORTA}/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
         api = lambda n, *a: pg.evaluate(API, [n, list(a)])  # noqa: E731
         for nome, L, H, sp in (('Base', 300, 200, 10), ('Piatto', 100, 100, 5)):
             api('new_project', 'piastra', {'name': nome, 'larghezza': L, 'altezza': H, 'spessore': sp, 'foro': 5})
@@ -90,8 +92,14 @@ try:
         pg.keyboard.type('40'); pg.keyboard.press('Enter')
         pg.wait_for_function("window.__steelcad.state.tree.children.find(c => c.label === 'Accoppiamenti').children[0].label.includes('distanza 40')", timeout=15000)
         pg.keyboard.press('Escape'); time.sleep(0.6)
-        # il pezzo cliccato: nel suo pannello il cursore del movimento (come aprire un cassetto)
-        pg.evaluate("(id) => window.__steelcad.select(id)", 'I2'); pg.wait_for_selector('#mv-s0', timeout=10000); time.sleep(0.3)
+        # il pezzo cliccato: la barretta mostra la misura che lo tiene (come aprire un cassetto); clic → il pannello
+        # col campo pronto e il cursore. 03/11: col clic sul pezzo si apre solo la barretta, il pannello no
+        pg.evaluate("(id) => window.__steelcad.select(id)", 'I2'); pg.wait_for_selector('#mini-barra button.mov', timeout=10000); time.sleep(0.3)
+        t = pg.get_attribute('#mini-barra button.mov', 'aria-label')
+        ok(f'barretta del pezzo: la misura che lo tiene ({t})', 'Su / giù 40' in t)
+        pg.mouse.move(5, 895); pg.screenshot(path=str(SHOTS / '2a_barretta_misura.png'))
+        pg.click('#mini-barra button.mov'); pg.wait_for_selector('#mv-s0', timeout=10000); time.sleep(0.3)
+        ok('… clic: il pannello con il campo pronto da scrivere', pg.evaluate("document.activeElement.id") == 'mv-v0')
         z0 = pg.evaluate("window.__steelcad.objs.get('I2').data.matrix[11]")
         pg.evaluate("() => { const s = document.querySelector('#mv-s0'); s.value = 70; s.dispatchEvent(new Event('input')); s.dispatchEvent(new Event('change')); }")
         pg.wait_for_function(f"Math.abs(window.__steelcad.objs.get('I2').data.matrix[11] - {z0}) > 1", timeout=15000)
