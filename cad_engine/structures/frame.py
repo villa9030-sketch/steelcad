@@ -581,6 +581,13 @@ def _nodes(members, pts, joints, by_id, fid, angoli=None):
         # automatico
         finiscono_qui = [m for m, _ in lst]
         passanti = [o for o in _lies_on(node, members, None) if o not in finiscono_qui]
+        if tipo == 'miter' and not passanti and _sezione(lst[0][0]) == _sezione(lst[1][0]):
+            # 45° scelto a mano: vale anche per un collegamento con la sagoma (03/11: davanti in basso, tolto il lato
+            # sotto, il montante restava dritto e solo il fianco era a 45°)
+            (a, ia), (b, ib) = lst
+            out[(a.id, ia)] = ('miter', node, (b, ib))
+            out[(b.id, ib)] = ('miter', node, (a, ia))
+            continue
         if passanti:
             # il nodo sta a metà di un'altra asta: tutte le aste che arrivano qui le battono contro
             for m, i in lst:
