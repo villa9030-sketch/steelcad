@@ -482,6 +482,7 @@ function paintEdges() {
   svuota(edgeGroup);
   const s = edgeSel();
   if (s) edgeGroup.add(edgeMesh(s, EDGE_SEL));
+  for (const e of PIEGA?.bordi || []) edgeGroup.add(edgeMesh(e, EDGE_SEL));     // i bordi scelti per «Piega i bordi»
   if (hoverEdge && hoverEdge !== s) edgeGroup.add(edgeMesh(hoverEdge, EDGE_HOV));
 }
 function pickEdge(ev) {
@@ -689,7 +690,8 @@ function selectEdge(e) {
     };
     barretta(punta ? 'Punta della flangia' : `Bordo ${e.label}`, [
       ['flange', `Piega ${versi.up.toLowerCase()}`, () => piega('up'), '', prova('up')],
-      ['fold', `Piega ${versi.down.toLowerCase()}`, () => piega('down'), '', prova('down')]],
+      ['fold', `Piega ${versi.down.toLowerCase()}`, () => piega('down'), '', prova('down')],
+      ['pattern_rect', 'Piega anche altri bordi (tutti uguali)', () => { anteprimaVia(); nascondiMini(); pieghePiuBordi(e); }]],
     { chi: 'edge=' + e.id, piu: () => { nascondiMini(); MINI.dove = null; selectEdge(e); } });
     return;                                        // il pannello completo solo con «⋯»
   }
@@ -808,6 +810,7 @@ canvas.addEventListener('pointermove', ev => {
   if (DRESS && !ev.buttons) { dressMove(ev); return; }
   if (ev.buttons) { tip.style.display = 'none'; return; }
   if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroMove(ev); return; }
+  if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaMove(ev); return; }
   const he = pickEdge(ev);
   if (he !== hoverEdge) { hoverEdge = he; paint(); }
   if (he) {
@@ -849,6 +852,7 @@ canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D)
   if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroClic(ev); return; }   // finestra del foro: clic = dove va, o un'altra faccia
+  if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }   // «Piega i bordi»: clic = un bordo in più o in meno
   if (MIS) { misClick(ev); return; }
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
@@ -1389,9 +1393,11 @@ function buildDims() {
     }
     const el = document.createElement('div');
     el.className = 'dim' + (d.type === 'diameter' || d.type === 'radius' ? ' dia' : '') + (d.driven ? ' rif' : '');
-    el.innerHTML = (d.param ? `<span class="p">${esc(d.param)}</span>` : '') + esc(d.label) + (d.gruppo ? `<span class="n">×${d.gruppo.length}</span>` : '');
+    // 03/11: il passo della Serie si chiama «passo» (non «px1»); le misure con nome (W, P…) restano col loro nome
+    const sigla = !d.param ? '' : /^p[xy]\d+$/.test(d.param) ? 'passo' : /^off\d+$/.test(d.param) ? 'distanza' : d.param;
+    el.innerHTML = (d.param ? `<span class="p">${esc(sigla)}</span>` : '') + esc(d.label) + (d.gruppo ? `<span class="n">×${d.gruppo.length}</span>` : '');
     el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
-      : d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla`
+      : d.param ? `Quota legata a «${d.param_label || d.param}»: clicca per cambiarla`
       : d.gruppo ? `La stessa quota su ${d.gruppo.length} elementi uguali: cambiandola si cambiano tutti` : 'Clicca per cambiare la quota';
     el.addEventListener('click', ev => {
       ev.stopPropagation();
@@ -1488,7 +1494,7 @@ function placeDims() {
 function editDim(el, d) {
   if (el.classList.contains('edit')) return;
   el.classList.add('edit');
-  el.innerHTML = (d.param ? `<span class="p">${esc(d.param)} =</span>` : '') + '<input>';
+  el.innerHTML = (d.param ? `<span class="p">${esc(d.param_label || d.param)} =</span>` : '') + '<input>';
   const inp = el.querySelector('input');
   const mostrato = d.shown ?? d.value;
   inp.value = typeof d.expr === 'number' ? String(mostrato).replace('.', ',') : (d.param ? String(mostrato).replace('.', ',') : d.expr);
@@ -1997,6 +2003,9 @@ function renderParams() {
   const righe = S.parameters.map(p => {
     const espr = typeof p.value === 'string';
     const nome = p.label && p.label.toLowerCase() !== p.name.toLowerCase() ? `<small>${esc(p.label)}</small>` : '';
+    // 03/11: i parametri nati dai comandi (la Serie, l'offset) col loro nome da officina; la sigla resta per le formule
+    if (p.auto && p.label) return `<tr><td title="Nelle formule si scrive ${esc(p.name)}"><b>${esc(p.label)}</b><small>nelle formule: ${esc(p.name)}</small></td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
+      `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
     return `<tr><td title="${esc(p.label || p.name)}"><b>${esc(p.name)}</b>${nome}</td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
       `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
   }).join('');
@@ -3333,6 +3342,116 @@ function cambiaFori(fid) {
     clearSelection();
     await foroDialog(r.spec.tipo, r.face, r);
   });
+}
+// ------------------------------------------------------------- «Piega» su più bordi in un colpo (03/11)
+// La vaschetta: «Piega» nella barra, clic sui 4 bordi (o «Tutti i bordi»), altezza 30, Fatto. Negli angoli tra due
+// bordi piegati: aperti (scantonati, con lo scarico) o chiusi (il lato lungo copre il corto, col gioco). Anteprima
+// sul pezzo mentre scegli; un Annulla toglie tutte le pieghe.
+let PIEGA = null;
+let ultimePieghe = { length: '30', angle: '90', direction: 'up', angoli: 'aperti', gioco: '0,5' };
+function nomeBordo(e) {
+  const base = (e.label || '').replace(/ \(.*$/, ''), mm = (e.label || '').match(/\(([^)]*)\)/)?.[1] || '';
+  if (e.kind === 'tip') return `${base}${mm ? ' (' + mm + ')' : ''}`;
+  return `bordo ${LATI[base] || base}${mm ? ' (' + mm + ')' : ''}`;
+}
+function pieghePiuBordi(primo = null) {
+  if (SK) { toast('Stai disegnando: prima «Esci».', 'err'); return; }
+  if (!S?.sheet?.data) { toast('Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', 'err'); return; }
+  if (flatView) toggleFlat(false);
+  if (!bendEdges.some(e => e.kind === 'edge' || e.kind === 'tip')) { toast('Su questo pezzo non ci sono bordi da piegare così: clicca il bordo che vuoi piegare.', 'err'); return; }
+  clearSelection(); nascondiMini();
+  const v = { ...ultimePieghe };
+  PIEGA = { bordi: primo && (primo.kind === 'edge' || primo.kind === 'tip') ? [primo] : [], v };
+  const seg = (k, o) => `<div class="seg" data-pg-seg="${k}">${o.map(([id, l]) => `<button type="button" data-v="${id}" class="${String(v[k]) === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const riga = (l, id, val, unita = 'mm') => `<label class="ft-riga"><span>${l}</span><span class="ft-mm"><input class="field" id="pg-${id}" value="${esc(virgola(val))}" autocomplete="off"><i>${unita}</i></span></label>`;
+  const lati = () => PIEGA.bordi.filter(e => e.kind === 'edge').length;
+  const corpo = () => `<div class="ft-form">
+      <div class="ft-riga"><span>Bordi</span><span class="pg-bordi">${PIEGA.bordi.length ? PIEGA.bordi.map((e, i) => `<span class="pg-bordo">${esc(nomeBordo(e))}<button type="button" class="link danger" data-pvia="${i}" title="Non piegare questo bordo">×</button></span>`).join('')
+        : '<i class="hint">nessuno: clicca i bordi sul pezzo</i>'}</span></div>
+      <div class="ft-riga"><span></span><span><button type="button" class="btn" id="pg-tutti">Tutti i bordi del contorno</button></span></div>
+      ${riga('Altezza (fuori tutto)', 'length', v.length)}
+      ${riga('Angolo', 'angle', v.angle, '°')}
+      <div class="ft-riga"><span>Verso</span>${seg('direction', [['up', 'In su'], ['down', 'In giù']])}</div>
+      ${lati() > 1 ? `<div class="ft-riga"><span>Negli angoli</span>${seg('angoli', [['aperti', 'Aperti (scantonati)'], ['chiusi', 'Chiusi']])}</div>`
+        + (v.angoli === 'chiusi' ? riga('Gioco nell’angolo', 'gioco', v.gioco) + '<p class="hint" style="margin:0">Il lato lungo resta intero e copre quello corto; il gioco è lo spazio per la saldatura.</p>' : '') : ''}</div>`;
+  const args = () => [PIEGA.bordi[0]?.feature || S.sheet.feature, PIEGA.bordi.map(e => ({ kind: e.kind, ref: e.ref })),
+    { length: v.length, angle: v.angle, direction: v.direction }, lati() > 1 ? v.angoli : 'aperti', v.gioco];
+  modal(`<div id="pg-tutto"><h3>Piega i bordi</h3>
+    <p class="hint">Clicca sul pezzo i bordi da piegare: si accendono in giallo. Un altro clic lo toglie. Tutte le pieghe vengono uguali.</p>
+    <div id="pg-corpo">${corpo()}</div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    const cornice = $('#modal-box'), box = $('#pg-tutto');
+    const vai = () => {
+      paint();
+      const st = box.querySelector('.ant-stato');
+      if (!PIEGA.bordi.length) {
+        anteprimaVia();
+        if (st) { st.className = 'ant-stato'; st.textContent = 'Clicca i bordi da piegare.'; }
+        confermaAccesa(st, false);
+        return;
+      }
+      anteprima('piega_bordi', args, st);
+    };
+    const ridisegna = fuoco => {
+      $('#pg-corpo').innerHTML = corpo();
+      const i = fuoco && box.querySelector(fuoco);
+      if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { cornice.tabIndex = -1; cornice.focus(); }
+      vai();
+    };
+    PIEGA.ridisegna = ridisegna;
+    box.addEventListener('input', ev => { const t = ev.target; if (t.id?.startsWith('pg-')) { v[t.id.slice(3)] = t.value; vai(); } });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-pg-seg] button');
+      if (b) { v[b.closest('[data-pg-seg]').dataset.pgSeg] = b.dataset.v; ridisegna(b.dataset.v === 'chiusi' ? '#pg-gioco' : null); return; }
+      const x = ev.target.closest('[data-pvia]');
+      if (x) { PIEGA.bordi.splice(+x.dataset.pvia, 1); ridisegna(); return; }
+      if (ev.target.closest('#pg-tutti')) {
+        const tutti = bendEdges.filter(e => e.kind === 'edge');
+        if (!tutti.length) { toast('I bordi del contorno sono già tutti piegati: clicca le punte delle pieghe.'); return; }
+        PIEGA.bordi = [...PIEGA.bordi.filter(e => e.kind !== 'edge'), ...tutti];
+        ridisegna('#pg-length');
+      }
+    });
+    const chiudi = () => { PIEGA = null; close(); paint(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      if (!PIEGA.bordi.length) { toast('Clicca almeno un bordo da piegare.', 'err'); return; }
+      const a = args();
+      ultimePieghe = { ...v };
+      chiudi();
+      inCoda(async () => { const r = await call('piega_bordi', ...a); await apply(r, r.message); });
+    };
+    cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    $('#modal').classList.add('laterale');
+    const st = document.createElement('div'); st.className = 'ant-stato'; box.querySelector('.acts').before(st);
+    anteprimaSpazio();
+    const primoCampo = box.querySelector('#pg-length'); primoCampo?.focus(); primoCampo?.select();
+    vai();
+  });
+}
+// con la finestra «Piega i bordi» aperta: il bordo sotto il mouse si accende, il clic lo mette o lo toglie
+function piegaMove(ev) {
+  const vis = model.visible; model.visible = true;
+  const he = pickEdge(ev);
+  model.visible = vis;
+  const buono = he && (he.kind === 'edge' || he.kind === 'tip') ? he : null;
+  if (buono !== hoverEdge) { hoverEdge = buono; paint(); }
+  if (!buono) { tip.style.display = 'none'; return; }
+  const dentro = PIEGA.bordi.some(e => e.id === buono.id);
+  tip.textContent = `${nomeBordo(buono)} · clic: ${dentro ? 'non piegarlo' : 'piega anche questo'}`;
+  const r = view.getBoundingClientRect();
+  tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 14) + 'px';
+  tip.style.display = 'block';
+}
+function piegaClic(ev) {
+  const vis = model.visible; model.visible = true;
+  const he = pickEdge(ev);
+  model.visible = vis;
+  if (!he) return;
+  if (he.kind !== 'edge' && he.kind !== 'tip') { toast('Questo bordo si piega da solo: chiudi la finestra e cliccalo.'); return; }
+  const i = PIEGA.bordi.findIndex(e => e.id === he.id);
+  if (i >= 0) PIEGA.bordi.splice(i, 1); else PIEGA.bordi.push(he);
+  PIEGA.ridisegna();
 }
 // con la finestra del foro aperta: niente bordi da piegare sotto il mouse, solo cosa fa il clic
 function foroMove(ev) {
@@ -6312,11 +6431,7 @@ const CMDS = [
   { id: 'new_zero', label: 'Nuovo da zero (disegna)…', run: () => newDialog('zero') },
   { id: 'new_frame', label: 'Nuovo telaio / tavolo…', run: () => newDialog('telaio') },
   { id: 'new_free', label: 'Nuova struttura libera…', run: () => newDialog('vuoto') },
-  { id: 'flange_help', label: 'Flangia su un bordo', run: () => {
-    if (!S?.sheet?.data) { toast('Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', 'err'); return; }
-    if (flatView) toggleFlat(false);
-    toast('Passa col mouse su un bordo della lamiera: si accende in arancio. Clicca e scegli lunghezza e verso.');
-  } },
+  { id: 'flange_help', label: 'Piega i bordi', run: () => pieghePiuBordi() },
   { id: 'contour_help', label: 'Lamiera a contorno', run: () => toast(S?.sheet?.data
     ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi Altro → «Lamiera a contorno».'
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
@@ -6890,7 +7005,7 @@ function statoSketch(v) {
   else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`;
     if (v.sciolte?.length) { cls = 'todo'; testo += ' ⚠ ' + v.status; } }
   else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: Altro → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
-  else { cls = 'bad'; testo = (v.status || '').startsWith('Lo sketch') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
+  else { cls = 'bad'; testo = /^Il disegno (è tutto quotato|si può ancora muovere)/.test(v.status || '') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
   $('#sk-status').textContent = testo;
@@ -8322,15 +8437,22 @@ window.addEventListener('keydown', e => {
 }, true);
 // 29/10, «il conferma del togli materiale è fastidioso»: taglio, linguetta, flangia sul contorno e scritta si fanno
 // subito (Ctrl+Z se non andava). La barra di prova, rossa col motivo, compare solo quando non si può fare
-function subitoOProva(o, chiama, okMsg) {
+// prima: cosa è già successo (le copie doppie tolte), detto nello stesso messaggio del comando rifatto
+function subitoOProva(o, chiama, okMsg, prima = '') {
   inCoda(async () => {
     togliRossi();
     const r = await chiama();
-    if (r?.ok) { if (await apply(r, okMsg || r.message)) exitSketch(); }
+    if (r?.ok) { if (await apply(r, prima || okMsg || r.message)) exitSketch(); }
     else if (r && !r.cancelled) {
       provaSulPezzo(o);
       // 03/11: «due contorni si sovrappongono» dice anche quali (in rosso) e, se sono doppioni, «Tienine una»
-      if (SK && /si sovrappongono/.test(r.message || '')) { const sid = SK.sid; await mostraSovrapposti(sid, () => subitoOProva(o, chiama, okMsg)); }
+      if (SK && /si sovrappongono/.test(r.message || '')) {
+        const sid = SK.sid, a = o.argomenti?.() || [];
+        // «Tienine una» rifà subito il comando: lo si dice prima (nella scheda) e dopo (nel messaggio)
+        const [cosa, fatto] = o.metodo === 'sheet_tab' ? ['la linguetta', 'fatta la linguetta'] : o.metodo === 'contour_flange' ? ['la piega', 'fatta la piega']
+          : a[1] === 'mark' ? ['la scritta', 'fatta la scritta'] : ['il taglio', 'fatto il taglio'];
+        await mostraSovrapposti(sid, tolte => subitoOProva(o, chiama, okMsg, `${tolte} e ${fatto}.`), cosa);
+      }
     }
   });
 }
@@ -8345,7 +8467,7 @@ function togliRossi() {
   document.getElementById('sovr-card')?.remove();
   ridisegna();
 }
-async function mostraSovrapposti(sid, rifai) {
+async function mostraSovrapposti(sid, rifai, cosa = 'il taglio') {
   const r = await call('sketch_sovrapposti', sid);
   if (!r.ok || !SK || SK.sid !== sid || (!r.contorni?.length && !r.doppioni)) return;
   togliRossi();
@@ -8354,7 +8476,8 @@ async function mostraSovrapposti(sid, rifai) {
   const box = document.createElement('div');
   box.id = 'sovr-card';
   box.innerHTML = `<button class="ec-x" title="Chiudi">×</button><h5>${r.doppioni ? 'Disegnato due volte' : 'Due contorni si sovrappongono'}</h5>
-    <p>${esc(r.frase)}</p><div class="ec-sol">${r.doppioni ? `<button class="btn primary" data-tieni>Tienine una</button>` : ''}
+    <p>${esc(rifai ? r.frase.replace('«Tienine una» toglie le copie in più.', `«Tienine una» toglie le copie in più e rifà subito ${cosa} (Annulla rimette tutto com’era).`) : r.frase)}</p>
+    <div class="ec-sol">${r.doppioni ? `<button class="btn primary" data-tieni title="Toglie le copie in più e rifà subito ${esc(cosa)}">Tienine una</button>` : ''}
     <button class="btn" data-mostra>Mostrami dove</button></div>`;
   document.body.appendChild(box);
   box.querySelector('.ec-x').onclick = togliRossi;
@@ -8366,7 +8489,8 @@ async function mostraSovrapposti(sid, rifai) {
     togliRossi(); provaVia();
     inCoda(async () => {
       const t = await call('sketch_togli_doppioni', sid);
-      if (await apply(t, t.message) && rifai) rifai();
+      const tolte = (t.message || '').replace(/:.*$/, '');            // «Tolta 1 copia doppia»
+      if (await apply(t, rifai ? `${tolte}: rifaccio ${cosa}…` : t.message) && rifai) rifai(tolte);
     });
   });
 }

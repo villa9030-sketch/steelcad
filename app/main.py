@@ -460,6 +460,9 @@ class Api:
     def fori_dove(self, face_name, punto):
         return self._call(self._svc.fori_dove, face_name, punto)
 
+    def piega_bordi(self, fid, bordi, fields, angoli='aperti', gioco=0.5):
+        return self._call(self._svc.piega_bordi, fid, bordi, fields, angoli, gioco)
+
     def fori_da_modificare(self, fid):
         return self._call(self._svc.fori_da_modificare, fid)
 

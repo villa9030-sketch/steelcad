@@ -309,7 +309,7 @@ def _faces(loops: list, plane: bd.Plane) -> list:
                 break
             a_, b_ = min(i, j), max(i, j)
             if depth[a_] == depth[b_] and toccano(box[a_], box[b_]) and _overlap(info[a_][1], info[b_][1]):
-                err = SketchError('Due contorni dello sketch si sovrappongono: il profilo non è chiaro.',
+                err = SketchError('Due contorni del disegno si sovrappongono: non si capisce cosa tagliare.',
                                   code='profilo_sovrapposto')
                 err.contorni = [info[a_][0], info[b_][0]]     # 03/11: quali sono, per farli vedere in rosso
                 raise err

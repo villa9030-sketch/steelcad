@@ -19,9 +19,9 @@ def test_stati_e_messaggi():
     sk, r = rect()
     st = solve(sk).status
     assert (st.state, st.dof) == ('parziale', 2)
-    assert st.message == 'Lo sketch ha ancora 2 gradi di libertà: mancano quote o vincoli.'
+    assert st.message == 'Il disegno si può ancora muovere: mancano 2 misure per fissarlo del tutto (si può già usare).'
     sk.dimension('length', r['bottom'], value=300)
-    assert solve(sk).status.message == 'Lo sketch ha ancora 1 grado di libertà: mancano quote o vincoli.'
+    assert solve(sk).status.message == 'Il disegno si può ancora muovere: manca 1 misura per fissarlo del tutto (si può già usare).'
     sk.dimension('length', r['left'], value=200)
     assert solve(sk).status.state == 'completo'
 
@@ -45,7 +45,7 @@ def test_quota_superflua():
     d3 = sk.dimension('length', r['top'], value=300)
     st = solve(sk).status
     assert st.state == 'ridondante' and st.redundant == [d3]
-    assert 'non serve' in st.message
+    assert 'di troppo' in st.message
 
 
 def test_asola_vincolata_senza_falsi_ridondanti():

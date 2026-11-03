@@ -34,7 +34,7 @@ def test_gate_milestone_1(tmp):
     res = doc.rebuild()
     assert res.ok, [f.message for f in res.errors]
     assert res.features[0].sketch_status['state'] == 'completo'
-    assert res.features[0].message == 'Lo sketch è completamente vincolato.'
+    assert res.features[0].message == 'Il disegno è tutto quotato: forma e posizione sono decise.'
     _check_plate(res.body, ATTESI['300'])
 
     # il foro è al centro perché è simmetrico rispetto agli angoli

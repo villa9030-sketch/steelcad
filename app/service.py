@@ -213,23 +213,25 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             'materiale': doc.material, 'materiali': _materiali(),
         }
 
+    def _nome_parametro(self, k, nomi=None):
+        nomi = self._etichette_parametri() if nomi is None else nomi
+        if k in nomi:
+            return nomi[k]
+        # i parametri che nascono dai comandi: la fila di fori (px1, py1), l'offset (off1)
+        m = re.fullmatch(r'(px|py|off)(\d+)', k)
+        if m:
+            return {'px': 'Distanza tra i fori della fila', 'py': 'Distanza tra le file',
+                    'off': 'Distanza dal contorno'}[m.group(1)]
+        return None
+
     def _parameters(self):
         try:
             risolti = self.doc.resolved_parameters()
         except SteelCADError:
             risolti = {}
         nomi = self._etichette_parametri()
-
-        def nome(k):
-            if k in nomi:
-                return nomi[k]
-            # i parametri che nascono dai comandi: la fila di fori (px1, py1), l'offset (off1)
-            m = re.fullmatch(r'(px|py|off)(\d+)', k)
-            if m:
-                return {'px': 'Distanza tra i fori della fila', 'py': 'Distanza tra le file',
-                        'off': 'Distanza dal contorno'}[m.group(1)]
-            return None
-        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': nome(k)}
+        return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': self._nome_parametro(k, nomi),
+                 'auto': bool(re.fullmatch(r'(px|py|off)\d+', k))}
                 for k, v in self.doc.parameters.items()]
 
     # le sigle dei parametri in parole, per il pannello: prima quelle dei campi del modello, poi le solite
@@ -334,6 +336,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                             'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'], 'driven': rif,
                             'local': not isinstance(f.plane, str),
                             'param': param,
+                            # 03/11: il nome da officina del parametro (non «px1»), per la quota che si sta scrivendo
+                            'param_label': self._nome_parametro(param) if param else None,
                             # le distanze orizzontali/verticali "all'indietro" si leggono senza il meno: il verso
                             # lo dice la quota stessa
                             'value': v, 'shown': abs(v) if v is not None and c['type'] in ('hdistance', 'vdistance') else v,
@@ -1374,6 +1378,74 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             sm = self._sheet_def(fid)
             if parent and data is not None and not sm.get('tip_corners')                     and any(nuovo['flange'] in c for c in data.tip_contacts):
                 r['ask_tip_corners'] = {'feature': fid, 'modes': TIP_CORNERS}
+        return r
+
+    def piega_bordi(self, fid: str, bordi: list, fields: dict, angoli: str = 'aperti', gioco=0.5) -> dict:
+        """03/11 — «Piega» su più bordi in un colpo (la vaschetta: 4 bordi, alta 30, Fatto). bordi = [{kind, ref}]:
+        i lati del contorno (kind 'edge', ref 'L1') o le punte delle pieghe (kind 'tip', ref 'FL1'). Tutte uguali
+        (altezza, angolo, verso). Negli angoli tra due lati piegati: «aperti» (scantonati, con lo scarico) oppure
+        «chiusi» (il lato lungo copre il corto, con un gioco per la saldatura). Un Annulla le toglie tutte."""
+        if angoli not in ('aperti', 'chiusi'):
+            return {'ok': False, 'message': 'Angoli: aperti o chiusi.'}
+        bordi = [b for b in (bordi or []) if isinstance(b, dict) and b.get('ref')]
+        if not bordi:
+            return {'ok': False, 'code': 'pieghe', 'message': 'Clicca almeno un bordo da piegare.'}
+        try:
+            g = _number(gioco) if str(gioco).strip() != '' else 0.0
+            if g < 0:
+                raise SteelCADError('Il gioco nell’angolo non può essere negativo.', code='pieghe')
+            campi = _flange_fields(fields or {})
+        except SteelCADError as ex:
+            return _err(ex)
+        fatte = []
+
+        def fn(sm):
+            fls = sm.setdefault('flanges', [])
+            sk = self.doc.sketch(sm['sketch'])
+            lati = []
+            for b in bordi:
+                ref, punta = b['ref'], b.get('kind') == 'tip'
+                if punta:
+                    if not any(x['id'] == ref for x in fls + list(sm.get('folds') or [])):
+                        raise SteelCADError(f'La piega {ref} non c’è più.', code='pieghe')
+                    if any(x.get('parent') == ref for x in fls):
+                        raise SteelCADError(f'Sulla punta di {ref} c’è già una piega: toglila dalla scelta.', code='doppia')
+                elif any(x.get('edge') == ref for x in fls):
+                    raise SteelCADError(f'Sul {sk.describe(ref)} c’è già una piega: toglilo dalla scelta.', code='doppia')
+                flid = self._free_id(sm, 'FL', {x['id'] for x in fls} | {x['id'] for x in sm.get('folds') or []})
+                fl = {'id': flid, 'parent': ref} if punta else {'id': flid, 'edge': ref}
+                if punta and any(ext := self._tab_extension(fid, ref)):
+                    fl['extend'] = ext
+                fl.update(campi)
+                fl.setdefault('length', 30)
+                fl.setdefault('angle', 90)
+                fls.append(fl)
+                fatte.append(flid)
+                if not punta and ref in sk.entities and sk.entities[ref]['kind'] == 'line':
+                    lati.append((flid, ref))
+            if angoli == 'chiusi':
+                P = {k: e for k, e in sk.entities.items() if e['kind'] == 'point'}
+
+                def lung(ref):
+                    e = sk.entities[ref]
+                    return math.dist((P[e['a']]['x'], P[e['a']]['y']), (P[e['b']]['x'], P[e['b']]['y']))
+                cs = list(sm.get('corners') or [])
+                for i, (f1, l1) in enumerate(lati):
+                    for f2, l2 in lati[i + 1:]:
+                        e1, e2 = sk.entities[l1], sk.entities[l2]
+                        if not {e1['a'], e1['b']} & {e2['a'], e2['b']}:
+                            continue
+                        over, under = (f1, f2) if lung(l1) >= lung(l2) else (f2, f1)   # il lato lungo resta intero
+                        cs = [c for c in cs if {c.get('over'), c.get('under')} != {f1, f2}]
+                        cs.append({'over': over, 'under': under, 'gap': g})
+                sm['corners'] = cs
+        n = len(bordi)
+        r = self._edit_sheet(fid, f'Pieghe su {n} bordi' if n > 1 else 'Piega su un bordo', fn)
+        if r.get('ok'):
+            h = fmt_mm(round(_number(campi.get('length', 30)), 2))
+            r['message'] = (f'Fatte {n} pieghe da {h} mm' if n > 1 else f'Fatta la piega da {h} mm') + (
+                ', angoli chiusi.' if angoli == 'chiusi' and n > 1 else '.' if n == 1 else ', angoli aperti (scantonati).')
+            r['pieghe'] = fatte
         return r
 
     def set_tip_corners(self, fid: str, mode: str) -> dict:
@@ -2835,7 +2907,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return {'ok': False, 'message': 'Non ci sono cose disegnate due volte.'}
         r = self._sketch_change('Tolte le copie doppie', lambda: sketch_ops.delete(self.doc, sid, via))
         if r.get('ok'):
-            r['message'] = (f'Tolta 1 copia doppia' if len(via) == 1 else f'Tolte {len(via)} copie doppie') + ': ora si può tagliare.'
+            r['message'] = ('Tolta 1 copia doppia' if len(via) == 1 else f'Tolte {len(via)} copie doppie') + ': ora si può tagliare.'
         return r
 
     def sketch_delete(self, sid: str, eids: list) -> dict:
@@ -4778,7 +4850,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
-                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati',
+                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi',
                     'fori_modifica'}
 
     def anteprima(self, metodo: str, args: list) -> dict:

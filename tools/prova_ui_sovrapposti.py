@@ -57,12 +57,18 @@ def main():
             time.sleep(1.0)
             pg.screenshot(path=str(SHOTS / '01_sovrapposti_in_rosso.png'))
             ok('la scheda dice cosa', 'la scritta «1.2»' in pg.locator('#sovr-card').inner_text())
+            ok('la scheda dice che rifà il taglio da solo', 'rifà subito il taglio' in pg.locator('#sovr-card').inner_text())
+            # i messaggi in basso, tutti (spariscono da soli dopo qualche secondo)
+            pg.evaluate("window.__msg = []; new MutationObserver(m => m.forEach(x => x.addedNodes.forEach(n => n.classList?.contains('toast') && window.__msg.push(n.textContent)))).observe(document.body, {childList: true, subtree: true})")
             pg.locator('#sovr-card [data-tieni]').click()
             pg.wait_for_function("document.querySelector('#prova-barra') && !document.querySelector('#prova-barra.no') && !document.querySelector('#prova-barra.calcolo') || !window.__steelcad.sketch", timeout=60000)
             time.sleep(1.0)
             pg.screenshot(path=str(SHOTS / '02_dopo_tienine_una.png'))
             # tolta la copia, il taglio riparte da solo (era quello che avevi chiesto) e va
             ok('dopo «Tienine una» il taglio è fatto', not pg.evaluate('!!window.__steelcad.sketch') and 'Foro Ø10,2' in pg.locator('#tree').inner_text())
+            toast = ' | '.join(pg.evaluate('window.__msg'))
+            print('messaggi:', toast)
+            ok('il messaggio dice copia tolta e taglio fatto', 'Tolta 1 copia doppia e fatto il taglio' in toast)
             b.close()
     finally:
         srv.terminate()
