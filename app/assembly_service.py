@@ -1685,11 +1685,15 @@ class AssemblyMixin:
     def _righe_distinta(self) -> list:
         """La distinta per l'Excel: una riga per pezzo, con quello che serve a chi produce e a chi compra."""
         from cad_engine import finiture
+        from app.drawings_service import nome_pezzo
         out = []
         for k, r in enumerate(A.bom(self.asm, self.asm_parts), 1):
             acq = r.get('acquisto')
+            p = self.asm_parts.get(r['file'])
+            # 03/11: il nome come nelle tavole (dal nome del file se il pezzo si chiama ancora «Lamiera»)
+            nome = nome_pezzo(p.doc.meta, getattr(p, 'path', None), r['name']) if p is not None else r['name']
             out.append({'pos': k, 'tipo': 'Acquisto' if acq else 'Produzione',
-                        'descrizione': (acq or {}).get('descrizione') or r['name'], 'codice': (acq or {}).get('codice', ''),
+                        'descrizione': (acq or {}).get('descrizione') or nome, 'codice': (acq or {}).get('codice', ''),
                         'fornitore': (acq or {}).get('fornitore', ''), 'qty': r['qty'], 'file': Path(r['file']).name,
                         'materiale': '' if acq else r['material'], 'spessore': None if acq else r['thickness'],
                         'sviluppo': None if acq or not r['flat'] else r['flat'], 'kg': r['mass_kg'], 'kg_tot': r['mass_tot'],

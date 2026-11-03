@@ -5420,12 +5420,25 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                          'avvisi': self.avvisi_angoli() + self.avvisi_laser()}
         laser = controllo is not None and controllo['ok']
         if self.asm is not None:                       # 03/11: l'assieme prepara i DXF di tutti i pezzi in lamiera
-            n_lam = len(self._lamiere_assieme())
+            from app.drawings_service import nome_pezzo
+            lamiere = self._lamiere_assieme()
+            # pezzo per pezzo, prima di salvare: quelli il cui DXF non verrebbe (lavorazioni fuori dalla lamiera)
+            senza = [f'{nome_pezzo(p.doc.meta, getattr(p, "path", None))}: {x}' for _, _, p in lamiere
+                     for x in [self._non_nello_sviluppo(p)] if x]
+            n_lam = len(lamiere) - len(senza)
             voce_laser = {'id': 'laser', 'titolo': 'Per il laser',
                           'desc': 'Gli sviluppi di tutti i pezzi in lamiera, un DXF per pezzo (nel nome spessore e quanti '
                                   'tagliarne). Si aprono in Lantek.',
-                          'file': f'DXF laser ({n_lam} pezz{"o" if n_lam == 1 else "i"})', 'si': n_lam > 0,
-                          'scelta': n_lam > 0, 'motivo': None if n_lam else 'nell’assieme non ci sono pezzi in lamiera'}
+                          'file': f'DXF laser ({n_lam} pezz{"o" if n_lam == 1 else "i"}'
+                                  + (f', {len(senza)} senza DXF: vedi sopra)' if senza else ')'),
+                          'si': n_lam > 0, 'scelta': n_lam > 0,
+                          'motivo': None if n_lam else ('nessun pezzo in lamiera si può stendere' if senza else
+                                                        'nell’assieme non ci sono pezzi in lamiera')}
+            if senza:
+                controllo = {'ok': False, 'avvisi': senza,
+                             'testo': (f'1 pezzo in lamiera senza DXF per il laser: ha lavorazioni' if len(senza) == 1 else
+                                       f'{len(senza)} pezzi in lamiera senza DXF per il laser: hanno lavorazioni')
+                                      + ' che lo sviluppo non contiene.'}
         else:
             voce_laser = {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
                           'file': f'{nome}_sviluppo.dxf', 'si': laser, 'scelta': laser,
@@ -5500,6 +5513,26 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 out.append((k, r, part))              # una piastra? si prova: se non è piana lo dice l'export
         return out
 
+    @staticmethod
+    def _non_nello_sviluppo(part) -> str | None:
+        """03/11: perché il DXF di questo pezzo in lamiera non si può fare, in parole da officina; None se si fa.
+        Dopo la lamiera un'estrusione, una rivoluzione, un raccordo fatti sul pezzo pieno: lo sviluppo non li ha
+        (il pezzo non è più una lamiera da stendere) e il DXF uscirebbe senza, o non uscirebbe."""
+        body = part.result.body
+        if body is None or getattr(body, 'sheet', None) is not None:
+            return None
+        feats = [f for f in part.doc.features if not isinstance(f, Sketch)]
+        lam = next((i for i, f in enumerate(feats) if f.get('type') in ('sheet', 'sheet_shape', 'step_lamiera')), None)
+        if lam is None:
+            return None                                # una piastra: la stende l'export del pezzo piano
+        dopo = [f for f in feats[lam + 1:] if not f.get('disattiva')
+                and not str(f.get('type', '')).startswith('sheet') and f.get('type') not in ('structure',)]
+        if not dopo:
+            return 'lo sviluppo non si fa: guarda il pezzo (la lamiera ha un errore).'
+        nomi = ', '.join(f'«{f.get("etichetta") or f.get("name") or f.get("type")}»' for f in dopo[:3]) + (' …' if len(dopo) > 3 else '')
+        return (f'dopo la lamiera viene {nomi}, una lavorazione sul pezzo pieno che lo sviluppo non contiene: niente '
+                'DXF. Va rifatta come lavorazione della lamiera (taglio o foro sulla faccia) o come pezzo a parte.')
+
     def _dxf_assieme(self, cartella) -> dict:
         """03/11: un DXF di sviluppo per ogni pezzo in lamiera dell'assieme, in una cartella: «03 Pannello finestra
         970 - sp 1,5 - 4 pz.dxf» (posizione della distinta, nome, spessore, quanti). Ogni file si riapre e si
@@ -5511,6 +5544,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         for k, r, part in self._lamiere_assieme():
             nome = nome_pezzo(part.doc.meta, getattr(part, 'path', None))
             sheet = getattr(part.result.body, 'sheet', None)
+            perche = self._non_nello_sviluppo(part)
+            if perche:
+                saltati.append(f'{nome}: {perche}')
+                continue
             sp = sheet.thickness if sheet is not None else r.get('thickness')
             testo = f'{k:02d} {nome}' + (f' - sp {fmt_mm(round(sp, 2))}' if sp else '') + f' - {r["qty"]} pz'
             f = dest / (re.sub(r'[\\/:*?"<>|]+', '-', testo).strip() + '.dxf')
@@ -5577,9 +5614,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                    f'{rep["bend_lines"]} pieghe sul layer BEND. Controlli superati.'
                                    + (' Da guardare: ' + ' '.join(avvisi) if avvisi else ''), path=path, avvisi=avvisi)
             if stato is not None and stato['after']:
-                return {'ok': False, 'message': 'Dopo la lamiera ci sono altre lavorazioni ('
-                        + ', '.join(stato['after']) + '): lo sviluppo non le conterrebbe. I fori sulla base vanno '
-                        'nello sketch, quelli sulle flange nel pannello della flangia.'}
+                nomi = []
+                for fid in stato['after']:                  # 03/11: i nomi delle lavorazioni, non «E1»
+                    try:
+                        f = self.doc.feature(fid)
+                        nomi.append(f'«{f.get("etichetta") or f.get("name") or fid}»')
+                    except SteelCADError:
+                        nomi.append(fid)
+                return {'ok': False, 'message': 'Dopo la lamiera ci sono altre lavorazioni fatte sul pezzo pieno ('
+                        + ', '.join(nomi) + '): lo sviluppo non le conterrebbe, il DXF non si fa. Rifalle come '
+                        'lavorazioni della lamiera: fori e tagli disegnati sulla faccia, quelli sulle flange nel pannello '
+                        'della flangia.'}
             if stato is not None:
                 return {'ok': False, 'message': 'La lamiera non è costruita: guarda la scheda Lamiera.'}
             if self.result.body is None:
