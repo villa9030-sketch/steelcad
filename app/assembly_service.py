@@ -774,7 +774,7 @@ class AssemblyMixin:
                 (fa0, fa1), (fb0, fb1) = d['fermo'], d['mobile']
                 ca, cb = d.get('coppia_fermo'), d.get('coppia_mobile')
                 if d['modo'] == 'centro' and ca and cb:
-                    nuovo('centra', a=fa(ca[0]), a2=fa(ca[1]), b=fb(cb[0]), b2=fb(cb[1]))
+                    nuovo('centra', f"{d['basso']}/{d['alto']}", a=fa(ca[0]), a2=fa(ca[1]), b=fb(cb[0]), b2=fb(cb[1]))
                 elif d['modo'] == 'basso' and None not in (fa0, fb0):
                     nuovo('distanza', d['basso'], a=fa(fa0), b=fb(fb0))
                 elif d['modo'] == 'alto' and None not in (fa1, fb1):
@@ -2166,9 +2166,11 @@ class AssemblyMixin:
 
 # 03/11: l'accoppiamento nell'albero in parole, con i due pezzi: «Piastra base su Telaio» (il codice M1 resta interno).
 # Prima «M1: faccia su faccia — Piastra bas…», con il codice e tagliato a metà. «a» è il pezzo fermo, «b» quello che si muove.
+# 04/11: forme che vanno bene sia al maschile sia al femminile («Piastra in parallelo con Telaio», non «Piastra parallelo
+# a…»; «in blocco con», non «bloccato su»); i due «in mezzo» di Appoggia dicono quale coppia di lati (sinistra/destra).
 _FRASI_MATE = {'faccia': '{b} su {a}', 'asse': '{b} in asse con {a}', 'distanza': '{b} a distanza da {a}',
-               'parallelo': '{b} parallelo a {a}', 'perpendicolare': '{b} a squadra con {a}', 'angolo': '{b} ad angolo con {a}',
-               'tangente': '{b} tangente a {a}', 'centra': '{b} in mezzo a {a}', 'blocca': '{b} bloccato su {a}',
+               'parallelo': '{b} in parallelo con {a}', 'perpendicolare': '{b} a squadra con {a}', 'angolo': '{b} ad angolo con {a}',
+               'tangente': '{b} tangente a {a}', 'centra': '{b} in mezzo a {a}', 'blocca': '{b} in blocco con {a}',
                'spigolo': '{b} spigolo su spigolo con {a}', 'spigolo_faccia': '{b} con lo spigolo su {a}',
                'cono': '{b} cono su cono con {a}', 'testa': '{b} di testa con {a} (a cornice)'}
 
@@ -2179,12 +2181,16 @@ def _frase_mate(m: dict, nomi: dict) -> str:
     off = (m.get('offset') or 0) * (m.get('segno') or 1)
     if t == 'faccia' and m.get('flip'):
         frase = f'{b} a filo di {a}'
+    elif t == 'distanza' and m.get('lato'):            # da «Appoggia»: a quanto dal bordo
+        frase = f'{b} a {fmt_mm(off)} mm dal bordo di {a} ({m["lato"]})'
     elif t == 'distanza':
         frase = f'{b} a {fmt_mm(off)} mm da {a}'
     elif t == 'angolo':
         frase = f'{b} a {fmt_mm(round(m.get("angle") or 0, 2))}° con {a}'
     else:
         frase = _FRASI_MATE.get(t, '{b} con {a}').format(a=a, b=b)
+        if t == 'centra' and m.get('lato'):
+            frase += f' ({m["lato"]})'
         if t in ('faccia', 'tangente', 'centra') and off:
             frase += f', distanza {fmt_mm(off)} mm'
     return frase + (' (sospeso)' if m.get('off') else '')
