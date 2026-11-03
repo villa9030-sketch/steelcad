@@ -26,7 +26,7 @@ from cad_engine.sketch import Sketch  # noqa: E402
 from cad_engine.sketch.model import DIMENSIONS  # noqa: E402
 from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
-from cad_engine.structures.frame import JOINT_LABELS  # noqa: E402
+from cad_engine.structures.frame import JOINT_LABELS, SEP_PEZZO  # noqa: E402
 from cad_engine.sheetmetal import METODI, POSIZIONI, TIP_CORNERS, VERSI  # noqa: E402
 from app import sketch_edit, sketch_more, sketch_ops, sketch_trim  # noqa: E402
 from app.assembly_service import AssemblyMixin  # noqa: E402
@@ -741,13 +741,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             st = next(s for s in self.result.structures if s.id == st_id)
             m = next(x for x in st.members if x.id == mid)
             fdef = self.doc.feature(st_id)
-            mdef = next((x for x in fdef.get('members') or [] if x['id'] == mid), None)
+            orig = mid.split(SEP_PEZZO)[0]        # un pezzo di un tubo tagliato da un incrocio: i dati sono del tubo
+            mdef = next((x for x in fdef.get('members') or [] if x['id'] == orig), None)
             if mdef is None:            # asta dello scheletro: profilo dello scheletro + le sue eccezioni
-                k = next((x for x in fdef.get('skeletons') or [] if mid.startswith(x.get('id', '') + '.')), {})
+                k = next((x for x in fdef.get('skeletons') or [] if orig.startswith(x.get('id', '') + '.')), {})
                 base = {'profile': k.get('profile')}
-                if '-' in mid.split('.')[1] and k.get('connect'):
+                if '-' in orig.split('.')[1] and k.get('connect'):
                     base['profile'] = k['connect'].get('profile') or base['profile']
-                mdef = {**base, **(fdef.get('overrides') or {}).get(mid, {})}
+                mdef = {**base, **(fdef.get('overrides') or {}).get(orig, {})}
             tubo = self.tubo_info(st, m)
             return _ok(selection={
                 'kind': 'member', 'id': obj_id, 'title': tubo['nome'], 'tubo': tubo,
@@ -2981,12 +2982,24 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                      distance='sp', operation='new')
         return self._change('Crea lamiera' if kind == 'sheet' else 'Crea piastra', fn)
 
+    def profilo_valori(self, sid: str) -> dict:
+        """I valori del profilo in lamiera già fatto da questo sketch, per riaprire «Estrudi in lamiera» (02/11)."""
+        f = next((x for x in self.doc.features if not isinstance(x, Sketch) and x.get('sketch') == sid
+                  and x.get('type') == 'sheet_shape' and x.get('kind') == 'profilo'), None)
+        if f is None:
+            return _ok(valori=None)
+        par = self.doc.parameters
+        val = lambda x: par.get(x, x) if isinstance(x, str) else x  # noqa: E731
+        return _ok(valori={'lunghezza': val(f.get('length')), 'spessore': val(f.get('thickness')), 'colpi': f.get('hits'),
+                           'raggio': f.get('radius'), 'k': f.get('k'), 'gira': bool(f.get('flip')),
+                           'calandra': f.get('mode') == 'rolled'})
+
     def _profilo_da_sketch(self, sid: str, valori: dict) -> dict:
         """Profilo estruso in lamiera: il profilo disegnato (linee e archi, aperto) estruso di «lunghezza»; gli spigoli
         sono pieghe, gli archi colpi (bumping). Spessore dalla parte convessa (la linea è la faccia interna), «gira»
         lo mette dall'altra. Raggio e K: quelli scritti o quelli della piegatrice."""
         try:
-            n = lambda k, cosa: _numero(valori[k], cosa) if str(valori.get(k, '')).strip() else None  # noqa: E731
+            n = lambda k, cosa: _numero(valori[k], cosa) if str(valori.get(k) if valori.get(k) is not None else '').strip() else None  # noqa: E731
             L = n('lunghezza', 'la lunghezza')
             if not L or L <= 0:
                 raise SteelCADError('Scrivi di quanto estrudere il profilo (la lunghezza del pezzo).', code='profilo')
@@ -2997,23 +3010,33 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             k = n('k', 'il K') if n('k', 'il K') is not None else d.get('k')
         except SteelCADError as ex:
             return _err(ex)
-        if any(not isinstance(f, Sketch) and f.get('sketch') == sid for f in self.doc.features):
+        usi = [f for f in self.doc.features if not isinstance(f, Sketch) and f.get('sketch') == sid]
+        # 02/11: di nuovo «Estrudi in lamiera» sullo sketch di un profilo già fatto lo cambia (es. a colpi → calandrato)
+        rifai = usi[0] if len(usi) == 1 and usi[0].get('type') == 'sheet_shape' and usi[0].get('kind') == 'profilo' else None
+        if usi and rifai is None:
             return {'ok': False, 'code': 'usato', 'message': 'Questo sketch ha già un pezzo: modificalo da lì.'}
+        modo = 'rolled' if valori.get('calandra') else 'press'
 
         def fn():
             nomi = {'lunghezza': L, 'sp': sp}
             for kk, vv in nomi.items():
                 if kk not in self.doc.parameters:
                     self.doc.set_parameter(kk, vv)
-            self.doc.add_feature('sheet_shape', 'Profilo in lamiera', kind='profilo', sketch=sid,
-                                 length='lunghezza' if self.doc.parameters.get('lunghezza') == L else L,
-                                 thickness='sp' if self.doc.parameters.get('sp') == sp else sp,
-                                 radius=raggio, k=k, hits=colpi, pitch=passo, flip=bool(valori.get('gira')))
-        r = self._change('Profilo estruso in lamiera', fn)
+            campi = dict(length='lunghezza' if self.doc.parameters.get('lunghezza') == L else L,
+                         thickness='sp' if self.doc.parameters.get('sp') == sp else sp,
+                         radius=raggio, k=k, hits=colpi, pitch=passo, flip=bool(valori.get('gira')), mode=modo)
+            if rifai is not None:
+                self.doc.feature(rifai['id']).update(campi)
+            else:
+                self.doc.add_feature('sheet_shape', 'Profilo in lamiera', kind='profilo', sketch=sid, **campi)
+        r = self._change('Cambia il profilo in lamiera' if rifai is not None else 'Profilo estruso in lamiera', fn)
         if r.get('ok') and self.result.body is not None:
             info = getattr(self.result.body.sheet, 'shape_info', {}) or {}
+            cal = info.get('calandrature') or []
             r['message'] = (f'Profilo in lamiera: {info.get("pieghe", "?")} pieghe'
                             + (f' (archi a {", ".join(str(c) for c in info.get("colpi") or [])} colpi)' if info.get('colpi') else '')
+                            + ''.join(f', calandrato R{fmt_mm(round(c["r_interno"], 1))} interno '
+                                      f'(nello sviluppo {fmt_mm(round(c["a"] - c["da"], 1))} mm)' for c in cal)
                             + f', sviluppo {fmt_mm(round(info.get("sviluppo", 0), 1))} × {fmt_mm(round(L, 1))}.')
         return r
 
@@ -3030,8 +3053,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if isinstance(sk.plane, dict) and sk.plane.get('flat') in forme:
                 raise SteelCADError('Su questa forma il materiale si aggiunge disegnando sulla faccia del pezzo, non '
                                     'sullo sviluppo.', code='linguetta')
+            data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+            pannelli = getattr(data, 'pannelli', None) or {}
             if not isinstance(sk.plane, dict) or not (sk.plane.get('flat') in lamiere or (sk.plane.get('face') or '').startswith(
-                    tuple(x + '/' for x in lamiere + forme))):
+                    tuple(x + '/' for x in lamiere + forme)) or sk.plane.get('face') in pannelli):
                 raise SteelCADError('La linguetta si disegna su una faccia di una lamiera.', code='linguetta')
             ss = self.doc.solved_sketch(sid)
             P = ss.points
@@ -3918,6 +3943,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             st = next(s for s in self.result.structures if s.id == st_id)
             gruppo = next((m.group for m in st.members if m.id == mid), None)
             ids = [m.id for m in st.members if m.id == mid or (whole_group and gruppo and m.group == gruppo)]
+            # i pezzi di un tubo tagliato da un incrocio si cambiano insieme: il tubo è uno
+            ids = list(dict.fromkeys(i.split(SEP_PEZZO)[0] for i in ids))
             a_mano = {x['id']: x for x in fdef.get('members') or []}
             for i in ids:
                 # un'asta dello scheletro (nata da una linea di sketch) si cambia con un'eccezione:

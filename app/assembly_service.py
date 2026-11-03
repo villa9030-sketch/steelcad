@@ -1340,8 +1340,12 @@ class AssemblyMixin:
         if not rit:
             return {'ok': False, 'message': 'Non c’è un assieme da cui sei arrivato.'}
         nuovo = getattr(self, '_asm_nuovo', None)
-        if self.history.dirty and nuovo:
-            r = self.save()                              # il pezzo nuovo nato nell'assieme si salva da solo
+        salvato = None
+        if self.history.dirty and (nuovo or self.path):
+            # il pezzo cambiato si salva da solo, come quello nato nell'assieme (02/11: «Salva prima» era un errore
+            # rosso proprio dove uno si aspetta di tornare indietro e vedere la modifica)
+            salvato = self.path.stem if self.path else None
+            r = self.save()
             if not r.get('ok'):
                 return r
         if self.history.dirty:
@@ -1367,6 +1371,8 @@ class AssemblyMixin:
             if r.get('ok'):
                 r['message'] = f'«{nuovo["nome"]}» montato al suo posto nell’assieme.'
             return r
+        if salvato:
+            return _ok(state=self.state(), message=f'Salvato «{salvato}»: l’assieme ha la modifica.')
         return _ok(state=self.state())
 
     # ------------------------------------------------------------------ stato, scena, selezione

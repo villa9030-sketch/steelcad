@@ -493,7 +493,7 @@ def build_shape(fdef: dict, ctx) -> NamedShape:
         colpi = fdef.get('hits')
         colpi = v('hits', 'i colpi per arco') if colpi not in (None, '') else None
         solido, flat, linee, righe, info = profilo(ss, prof.plane, L, t, r_piega, k_piega, colpi, passo,
-                                                   bool(fdef.get('flip')), fid)
+                                                   bool(fdef.get('flip')), fid, calandra=fdef.get('mode') == 'rolled')
         nome = 'Profilo in lamiera'
         piano_profilo = prof.plane
     elif kind == 'sezioni':

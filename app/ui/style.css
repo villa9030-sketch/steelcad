@@ -1066,7 +1066,7 @@ body.dark .dim.rif { color: #9AA4AE; border-color: #4A5560; }
 #sk-panel.chiuso { padding-top: 5px; padding-bottom: 5px; }
 
 /* disegnando (Linea, Rettangolo…) i clic passano attraverso le quote: si prendevano il primo punto (21/10) */
-body.sketching.disegno-attivo #dims .dim:not(.edit) { pointer-events: none; }
+body.sketching.disegno-attivo.in-corso #dims .dim:not(.edit) { pointer-events: none; }
 
 /* il problema del disegno, sotto l'aiuto (al posto del riquadro «Stai disegnando…», 21/10) */
 .sk-problema { margin-top: 4px; font-size: 12px; color: #FF8A80; font-weight: 600; }

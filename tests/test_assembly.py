@@ -104,9 +104,8 @@ def test_assieme_dal_servizio(tmp_path):
     r = s2.asm_open_part('I2')
     assert r['ok'] and s2.state()['mode'] == 'part' and s2.state()['can_back']
     assert s2.add_flange('SM1', 'L1', {'length': '30'})['ok']
-    assert not s2.asm_back()['ok']                                     # prima va salvato
-    assert s2.save()['ok']
-    assert s2.asm_back()['ok'] and s2.state()['mode'] == 'assembly'
+    r = s2.asm_back()                                                 # si salva da solo (02/11)
+    assert r['ok'] and s2.state()['mode'] == 'assembly' and 'Salvato' in r.get('message', '')
     sm = next(f for f in s2.asm_parts[s2.asm.instance('I2')['file']].doc.features if isinstance(f, dict) and f.get('type') == 'sheet')
     assert len(sm['flanges']) == 2                                     # la flangia nuova c'è anche nell'assieme
     assert s2.export_step(str(tmp_path / 'assieme.step'))['ok'] and os.path.getsize(tmp_path / 'assieme.step') > 1000

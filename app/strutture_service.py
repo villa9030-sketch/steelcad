@@ -10,7 +10,7 @@ import build123d as bd
 from cad_engine import SteelCADError
 from cad_engine.profiles import parse
 from cad_engine.sketch import Sketch
-from cad_engine.structures.frame import _classe
+from cad_engine.structures.frame import SEP_PEZZO, _classe
 from cad_engine.structures.nomi import nome_punto, nomi_aste
 from cad_engine.units import fmt_mm
 
@@ -120,6 +120,8 @@ class StruttureMixin:
             info = st.nodes[key]
         except (SteelCADError, KeyError):
             return _err('Quell’angolo non c’è più: riprova.')
+        if key in (st.incroci or {}):
+            return self._incrocio_info(st, key)
         p = bd.Vector(*info['xyz'])
         aste = [m for m in st.members if m.id in info['members']]
         passanti = self._passanti(st, p)
@@ -166,6 +168,31 @@ class StruttureMixin:
         return _ok(nome=nome_punto(p, st.members), quanti=len(aste), scelte=scelte, ora=ora, simili=len(simili),
                    righe=righe)
 
+    def _nome_tubo(self, st, mid):
+        """Il nome d'officina di un tubo, anche se un incrocio l'ha tagliato in pezzi (il nome del primo pezzo)."""
+        nomi = self.nomi_tubi(st)
+        if mid in nomi:
+            return nomi[mid]
+        pezzo = next((k for k in nomi if k.split(SEP_PEZZO)[0] == mid), None)
+        return nomi[pezzo] if pezzo else mid
+
+    def _incrocio_info(self, st, key):
+        """Due tubi che si attraversano (03/11): chi passa intero e chi si taglia in due pezzi che gli battono contro."""
+        inc = st.incroci[key]
+        scelte = []
+        for mid in (inc['a'], inc['b']):
+            nome = self._nome_tubo(st, mid)
+            m = next((x for x in st.members if x.id == mid), None)
+            v = m is not None and _classe(m.w) == 'verticali' or any(
+                _classe(x.w) == 'verticali' for x in st.members if x.id.split(SEP_PEZZO)[0] == mid)
+            nome = nome.split(' (')[0] if nome.endswith(')') else nome      # «Fianco in alto (1)»: il tubo è uno
+            scelte.append({'key': f'passa:{mid}', 'label': f'Passa intero: {nome.split(",")[0].lower()}',
+                           'disegno': 'verticale' if v else 'orizzontale'})
+        righe = [[self._nome_tubo(st, x.id), f'{fmt_mm(round(x.length, 1))} dritto']
+                 for x in st.members if x.id.split(SEP_PEZZO)[0] in (inc['a'], inc['b'])]
+        return _ok(nome='Incrocio', quanti=2, scelte=scelte, ora=f'passa:{inc["passa"]}', simili=1, righe=righe,
+                   incrocio=True)
+
     def _firma_angolo(self, st, key):
         info = st.nodes[key]
         p = bd.Vector(*info['xyz'])
@@ -190,6 +217,13 @@ class StruttureMixin:
         if scelta not in [s['key'] for s in info['scelte']]:
             return _err('Questa scelta non va bene per questo angolo.')
         nome = next(s['label'] for s in info['scelte'] if s['key'] == scelta)
+        if info.get('incrocio'):
+            def scegli():
+                self.doc.feature(st_id).setdefault('incroci', {})[key] = scelta.split(':', 1)[1]
+            r = self._change(f'Incrocio: {nome}', scegli)
+            if r.get('ok'):
+                r['message'] = f'{nome}: l’altro tubo è tagliato in due pezzi che gli battono contro.'
+            return r
         if scelta == 'unico':
             return _ok(state=self.state(), message=f'{nome}: è già così.')
         if scelta.startswith('unisci:') or scelta == 'dividi':
@@ -296,6 +330,11 @@ class StruttureMixin:
             for m in (ma, mb):
                 aggancio.append(self._su_tubo(st, m, q, z0))
             pa, pb = aggancio[0][2], aggancio[1][2]
+            if abs(ma.w.Z) < 0.05 and abs(mb.w.Z) < 0.05 and abs(pa.Z - pb.Z) < 1e-6:
+                # tra due tubi sdraiati (la croce sopra un telaio) il traverso sta a filo con loro, non appoggiato
+                # sopra (03/11: il telaio da 795 veniva alto 825)
+                bz = ma.solid.bounding_box()
+                rif = 'sopra' if abs(bz.max.Z - pa.Z) < 1e-3 else ('sotto' if abs(bz.min.Z - pa.Z) < 1e-3 else 'meta')
             if (pa - pb).length < 1:
                 raise SteelCADError('I due punti coincidono: scegli due tubi distanti.', code='traverso')
             coppie = [aggancio]
@@ -364,6 +403,38 @@ class StruttureMixin:
             raise SteelCADError('Non trovo l’angolo da cui misurare: riprova.', code='traverso')
         off = p - basso
         return k, [off.X, off.Y, off.Z], p
+
+    def punto_su_tubo(self, st_id: str, mid: str, quota) -> dict:
+        """Un punto su un tubo, da cui far partire un tubo nuovo con le frecce (03/11: «dai montanti non posso nemmeno
+        creare il tubo»). Tubo in piedi: `quota` = altezza da terra; sdraiato: distanza dall'inizio (da sinistra o da
+        davanti). Il tubo nuovo che parte da qui batte contro questo (giunto a T)."""
+        try:
+            st = self._st(st_id)
+            m = next((x for x in st.members if x.id == mid), None)
+            if m is None:
+                raise SteelCADError('Quel tubo non c’è più: riprova.', code='tubo')
+            q = _num(quota, 'Distanza')
+            z0 = min(p.Z for x in st.members for p in (x.start, x.end))
+            k, off, p = self._su_tubo(st, m, q, z0)
+        except SteelCADError as ex:
+            return _err(ex.message, ex.code)
+        gia = self._punto_di(st, p)
+        if gia:                                            # c'è già un punto lì (un incrocio, un traverso): quello
+            return _ok(state=self.state(), node=f'{st_id}:{gia}', message='Su quel punto c’è già un nodo: parti da lì.')
+        nuovo = {}
+
+        def fn():
+            fdef = self.doc.feature(st_id)
+            punti = fdef.setdefault('points', {})
+            nk = self._free_id(fdef, 'P', punti)
+            punti[nk] = {'from': k, 'offset': [round(c, 3) for c in off]}
+            nuovo['node'] = f'{st_id}:{nk}'
+        verticale = abs(m.w.Z) > 0.95
+        r = self._change(f'Punto a {fmt_mm(q)} {"da terra" if verticale else "dall’inizio"}', fn)
+        if r.get('ok'):
+            r['node'] = nuovo['node']
+            r['message'] = 'Punto messo: scegli la freccia per il tubo nuovo.'
+        return r
 
     def tubo_da_angolo(self, st_id: str, key: str, freccia: str, lunghezza, profile: str | None = None,
                        nome: str = '') -> dict:

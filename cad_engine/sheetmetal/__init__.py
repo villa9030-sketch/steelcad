@@ -1723,9 +1723,10 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
     else:
         nome = piano.get('face', '') if isinstance(piano, dict) else ''
         parti = nome.split('/')
-        if not parti or parti[0] != data.feature:
-            raise FeatureError('Il taglio di lamiera va disegnato su una faccia della lamiera.', feature=fid)
         pannelli = getattr(data, 'pannelli', None) or {}
+        # anche le facce di una piega fatta su un bordo (PB…) hanno la loro mappa verso lo sviluppo (02/11)
+        if not parti or (parti[0] != data.feature and nome not in pannelli):
+            raise FeatureError('Il taglio di lamiera va disegnato su una faccia della lamiera.', feature=fid)
         if nome in pannelli:
             # profilo estruso in lamiera: il tratto ha la sua mappa pezzo → sviluppo
             lavori, ritorni = [], []
@@ -1839,10 +1840,10 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
 
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     # 3D: attraverso lo spessore
-    attrezzo = None
-    for f3, dentro, _ in lavori:
-        s = bd.extrude(f3.moved(bd.Location(-dentro * 0.01)), amount=t + 0.02, dir=tuple(dentro))
-        attrezzo = s if attrezzo is None else attrezzo + s
+    # tutti gli attrezzi in un taglio solo: unirli uno alla volta (con la pulizia dopo ognuno) erano un minuto per
+    # una scritta di lettere tagliate (02/11, porta ugelli)
+    pezzi = [bd.extrude(f3.moved(bd.Location(-dentro * 0.01)), amount=t + 0.02, dir=tuple(dentro)) for f3, dentro, _ in lavori]
+    attrezzo = pezzi[0] if len(pezzi) == 1 else bd.Compound(children=pezzi)
     from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as TopTools_IndexedMapOfShape
     gia_senza = TopTools_IndexedMapOfShape()          # le forme a facce hanno facce senza nome (pieghe, coste): non sono pareti
     for f in body.senza_nome():
@@ -1862,8 +1863,7 @@ def _taglio_semplice(fdef, body, data, lavori, t, fid):
     # sviluppo: lo stesso contorno, in piano
     flat = data.flat
     prima = data.flat.faces() if not isinstance(data.flat, bd.Face) else [data.flat]
-    for _, _, f2 in lavori:
-        flat = flat.cut(f2)
+    flat = flat.cut(*[f2 for _, _, f2 in lavori])
     flat = flat.clean() if hasattr(flat, 'clean') else flat
     facce = flat.faces() if not isinstance(flat, bd.Face) else [flat]
     # una tramoggia ha lo sviluppo in più pezzi (22/10): il taglio non ne deve aggiungere

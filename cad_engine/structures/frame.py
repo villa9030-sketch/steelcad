@@ -88,6 +88,7 @@ class StructureResult:
     members: list            # Member
     warnings: list = None    # frasi per l'utente (aste che si compenetrano, …)
     nodes: dict = None       # {punto: {'xyz', 'members', 'joint', 'auto'}} per l'interfaccia
+    incroci: dict = None     # {«A×B»: {'a', 'b', 'passa', 'xyz'}}: tubi che si attraversano, uno passa
 
     def compound(self) -> bd.Compound:
         return bd.Compound([m.solid for m in self.members])
@@ -245,6 +246,7 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         members[-1]._rif_scelto = 'rif' in m
     if not members:       # si parte da un nodo e si costruisce: nessuna asta va bene
         return StructureResult(fid, nome, [], [], _node_info(pts, [], {}, fdef))
+    members, incroci = _incroci(members, pts, fdef.get('incroci') or {}, ritocchi)
     ids = [m.id for m in members]
     if len(set(ids)) != len(ids):
         raise FeatureError(f'Nella struttura "{nome}" due aste hanno lo stesso nome.', feature=fid)
@@ -274,8 +276,82 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         for o in altri:
             legati.add(frozenset((mid, o.id)))
     chiavi = {m.id: _member_key(m, nodes) + (esterno,) for m in members}
-    return StructureResult(fid, nome, members, _interferences(members, legati, chiavi),
-                           _node_info(pts, members, nodes, fdef))
+    res = StructureResult(fid, nome, members, _interferences(members, legati, chiavi),
+                          _node_info(pts, members, nodes, fdef))
+    res.incroci = incroci
+    return res
+
+
+SEP_PEZZO = '~'           # «A3~2»: il secondo pezzo del tubo A3, tagliato dove un altro tubo lo attraversa
+
+
+def _incrocio(a: Member, b: Member):
+    """Dove gli assi di due aste si incrociano a metà di tutte e due (non agli estremi): il punto, se c'è."""
+    u, v = a.end - a.start, b.end - b.start
+    n = u.cross(v)
+    if n.length < 1e-9 * u.length * v.length:                  # parallele
+        return None
+    w0 = a.start - b.start
+    uu, uv, vv, uw, vw = u.dot(u), u.dot(v), v.dot(v), u.dot(w0), v.dot(w0)
+    den = uu * vv - uv * uv
+    s = (uv * vw - vv * uw) / den
+    t = (uu * vw - uv * uw) / den
+    pa, pb = a.start + u * s, b.start + v * t
+    if (pa - pb).length > 1e-4:                                # sghembe: non si toccano
+        return None
+    margine_a, margine_b = 0.5 / u.length, 0.5 / v.length     # a mezzo millimetro da un estremo è un angolo, non un incrocio
+    if not (margine_a < s < 1 - margine_a and margine_b < t < 1 - margine_b):
+        return None
+    return pa
+
+
+def _incroci(members, pts, scelte, ritocchi):
+    """Due tubi che si attraversano (la croce sopra un telaio, il montante in mezzo al fianco col traverso a metà,
+    03/11: «l'intersezione dei tubi non è contemplata»): come in officina uno passa intero e l'altro si taglia in
+    due pezzi che gli battono contro (giunto a T su tutti e due i lati). Passa quello scelto in «incroci»
+    ({"A×B": "A"}), se no il più lungo (a pari lunghezza quello in piedi). Ritorna le aste (coi pezzi al posto dei
+    tubi tagliati) e {chiave: {'a', 'b', 'passa', 'xyz'}} per l'interfaccia."""
+    import copy
+    tagli: dict = {}                       # id del tubo tagliato -> [(parametro lungo l'asse, punto)]
+    out_incroci = {}
+    for i, a in enumerate(members):
+        for b in members[i + 1:]:
+            p = _incrocio(a, b)
+            if p is None:
+                continue
+            chiave = '×'.join(sorted((a.id, b.id)))
+            scelto = scelte.get(chiave)
+            if scelto not in (a.id, b.id):
+                la, lb = a.axis_length, b.axis_length
+                if abs(la - lb) > 1e-6:
+                    scelto = a.id if la > lb else b.id
+                else:
+                    scelto = a.id if (_classe(a.w) == 'verticali') >= (_classe(b.w) == 'verticali') else b.id
+            tagliato = b if scelto == a.id else a
+            t = (p - tagliato.start).dot(tagliato.w) / tagliato.axis_length
+            tagli.setdefault(tagliato.id, []).append((t, p))
+            out_incroci[chiave] = {'a': a.id, 'b': b.id, 'passa': scelto, 'xyz': [p.X, p.Y, p.Z]}
+            pts.setdefault(chiave, p)          # un nodo: i pezzi ci finiscono a metà del tubo che passa (giunto a T)
+    if not tagli:
+        return members, out_incroci
+    nuove = []
+    for m in members:
+        punti = sorted(tagli.get(m.id, []), key=lambda x: x[0])
+        if not punti:
+            nuove.append(m)
+            continue
+        capi = [m.start] + [p for _, p in punti] + [m.end]
+        for k, (s, e) in enumerate(zip(capi, capi[1:]), start=1):
+            pezzo = copy.copy(m)
+            pezzo.id = f'{m.id}{SEP_PEZZO}{k}'
+            pezzo.start, pezzo.end = s, e
+            r = ritocchi.get(pezzo.id) or {}
+            if r.get('deleted'):
+                continue
+            if r.get('name'):
+                pezzo.nome = r['name']
+            nuove.append(pezzo)
+    return nuove, out_incroci
 
 
 JOINT_LABELS = {'auto': 'automatico', 'miter': 'a 45° (bisettrice)', 'butt': 'a battuta', 'extend': 'passante',
@@ -361,6 +437,15 @@ def _nodes(members, pts, joints, by_id, fid, angoli=None):
         spec = dict(joints.get(k) or angoli or {})        # angoli: come sono tutti gli angoli non scelti a mano
         tipo = spec.get('type', 'auto')
         node = pts[k]
+        if k not in joints and angoli:
+            # la regola di tutti gli angoli («passa la gamba») non vale per un punto a metà di un tubo: lì chi arriva
+            # batte contro il tubo (03/11: il montante in mezzo al fianco passava dentro il tubo sopra)
+            finiscono_qui = [m for m, _ in lst]
+            passanti = [o for o in _lies_on(node, members, None) if o not in finiscono_qui]
+            if passanti:
+                for m, i in lst:
+                    out[(m.id, i)] = ('butt', node, passanti)
+                continue
         if tipo == 'square':
             for m, i in lst:
                 out[(m.id, i)] = ('square', node, [])

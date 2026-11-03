@@ -2,7 +2,8 @@
 fatta in bumping»).
 
 Il profilo è una catena aperta di linee e archi disegnata in uno sketch. Ogni spigolo è una piega; ogni arco
-diventa N colpi (bumping): il poligono tangente all'arco, con N pieghe da angolo/N. La linea disegnata è una
+diventa N colpi (bumping): il poligono tangente all'arco, con N pieghe da angolo/N; oppure (02/11) è calandrato:
+liscio, col raggio disegnato, e nello sviluppo due linee dove la calandratura comincia e finisce. La linea disegnata è una
 faccia della lamiera (di solito quella interna: lo spessore va dalla parte convessa), lo spessore dall'altra.
 Il pezzo è la sezione estrusa della lunghezza data; lo sviluppo si calcola con raggio e K della piegatrice:
 tratti dritti tra le pieghe (meno gli arretramenti) più gli archi della fibra neutra.
@@ -83,18 +84,93 @@ def catena(ss, fid) -> list:
     return fila
 
 
-def spigoli(fila, colpi, passo, fid) -> tuple[list, list]:
+def _attacco(c, r, th0, sigma, u, rho):
+    """Dove una piega di raggio rho (sul lato della linea disegnata) attacca un arco calandrato che parte ad angolo
+    da una linea: la piega si mangia un pezzetto d'arco. La linea arriva con direzione u nel punto dell'arco a th0,
+    l'arco va col verso sigma. Ritorna (quanto arco toglie, in radianti; lo spigolo nuovo sulla linea)."""
+    def stato(d):
+        th = th0 + sigma * d
+        P = (c[0] + r * math.cos(th), c[1] + r * math.sin(th))
+        tau = (-sigma * math.sin(th), sigma * math.cos(th))
+        q0 = (c[0] + r * math.cos(th0), c[1] + r * math.sin(th0))
+        den = u[0] * tau[1] - u[1] * tau[0]
+        if abs(den) < 1e-12:
+            return None, P
+        # q0 + a·u = P − b·tau
+        a = ((P[0] - q0[0]) * tau[1] - (P[1] - q0[1]) * tau[0]) / den
+        V = (q0[0] + a * u[0], q0[1] + a * u[1])
+        phi = abs(math.atan2(den, u[0] * tau[0] + u[1] * tau[1]))
+        return math.dist(V, P) - rho * math.tan(phi / 2), V
+    lo, hi = 0.0, math.pi * 0.9
+    f_hi, _ = stato(hi)
+    if f_hi is None or f_hi < 0:
+        return None
+    for _ in range(80):
+        m = (lo + hi) / 2
+        f, _ = stato(m)
+        if f is None or f > 0:
+            hi = m
+        else:
+            lo = m
+    return hi, stato(hi)[1]
+
+
+def spigoli(fila, colpi, passo, fid, calandra: bool = False, raggio_piega=None) -> tuple[list, list, list]:
     """La linea disegnata come poligono di spigoli vivi: gli archi diventano N colpi (poligono tangente).
-    Ritorna (punti, colpi per arco)."""
-    pts = [fila[0][1]]
+    Calandrati (02/11) gli archi restano archi: il poligono tangente con pochi spigoli larghi, ognuno raccordato
+    col raggio dell'arco disegnato, rifà l'arco preciso; dove l'arco parte ad angolo da una linea c'è una piega
+    (raggio_piega(verso della piega) = il suo raggio sulla linea disegnata) che si mangia un pezzetto d'arco.
+    Ritorna (punti, colpi per arco, raggio calandrato a ogni punto: None = spigolo vero, piega o colpo)."""
+    pts, rulli = [fila[0][1]], [None]
     n_archi = []
-    for s in fila:
+
+    def unit(a, b):
+        L = math.dist(a, b)
+        return ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+
+    def verso(u, v):
+        return u[0] * v[1] - u[1] * v[0]
+
+    for i, s in enumerate(fila):
         if s[0] == 'L':
             pts.append(s[2])
+            rulli.append(None)
             continue
         _, c, r, s0, sw, _p0, p1 = s
         lung = abs(sw) * r
-        n = int(colpi) if colpi else max(2, math.ceil(lung / (passo or 20.0)))
+        fine = p1
+        if calandra and raggio_piega is not None:
+            sg = 1.0 if sw > 0 else -1.0
+            tau = lambda th: (-sg * math.sin(th), sg * math.cos(th))  # noqa: E731
+            d0 = d1 = 0.0
+            if i > 0 and fila[i - 1][0] == 'L':
+                u = unit(fila[i - 1][1], fila[i - 1][2])
+                cr = verso(u, tau(s0))
+                rho = raggio_piega(cr) if abs(cr) > 1e-9 else 0.0
+                if rho > TOL:
+                    a = _attacco(c, r, s0, sg, u, rho)
+                    if a is None:
+                        raise FeatureError('La piega tra la linea e l’arco calandrato non ci sta: arco troppo corto.',
+                                           feature=fid)
+                    d0, pts[-1] = a
+            if i + 1 < len(fila) and fila[i + 1][0] == 'L':
+                w = unit(fila[i + 1][1], fila[i + 1][2])
+                cr = verso(tau(s0 + sw), w)
+                rho = raggio_piega(cr) if abs(cr) > 1e-9 else 0.0
+                if rho > TOL:
+                    a = _attacco(c, r, s0 + sw, -sg, (-w[0], -w[1]), rho)   # come all'inizio, a rovescio
+                    if a is None:
+                        raise FeatureError('La piega tra l’arco calandrato e la linea non ci sta: arco troppo corto.',
+                                           feature=fid)
+                    d1, fine = a
+            if d0 + d1 >= abs(sw) - 1e-6:
+                raise FeatureError('Le pieghe ai capi dell’arco calandrato si mangiano tutto l’arco: raggio di '
+                                   'piega più piccolo o arco più lungo.', feature=fid)
+            s0, sw = s0 + sg * d0, sw - sg * (d0 + d1)
+        if calandra:
+            n = max(1, math.ceil(abs(sw) / math.radians(60) - 1e-9))
+        else:
+            n = int(colpi) if colpi else max(2, math.ceil(lung / (passo or 20.0)))
         if n < 1 or n > 400:
             raise FeatureError('I colpi per arco vanno da 1 a 400.', feature=fid)
         beta = sw / n
@@ -105,13 +181,19 @@ def spigoli(fila, colpi, passo, fid) -> tuple[list, list]:
         for k in range(1, n + 1):
             th = s0 + (k - 0.5) * beta
             pts.append((c[0] + rv * math.cos(th), c[1] + rv * math.sin(th)))
-        pts.append(p1)
-        n_archi.append(n)
+            rulli.append(r if calandra else None)
+        pts.append(fine)
+        rulli.append(None)
+        if not calandra:
+            n_archi.append(n)
     # via punti doppi e allineati (un arco tangente alla linea: il primo tratto del poligono continua la linea)
-    pulito = [pts[0]]
-    for q in pts[1:]:
+    pulito, rp = [pts[0]], [rulli[0]]
+    for q, rr in zip(pts[1:], rulli[1:]):
         if math.dist(q, pulito[-1]) > TOL:
             pulito.append(q)
+            rp.append(rr)
+        elif rr is not None:
+            rp[-1] = rr
     i = 1
     while i < len(pulito) - 1:
         a, b, c = pulito[i - 1], pulito[i], pulito[i + 1]
@@ -119,11 +201,12 @@ def spigoli(fila, colpi, passo, fid) -> tuple[list, list]:
         v = (c[0] - b[0], c[1] - b[1])
         if abs(u[0] * v[1] - u[1] * v[0]) < 1e-9 * math.hypot(*u) * math.hypot(*v) and u[0] * v[0] + u[1] * v[1] > 0:
             del pulito[i]
+            del rp[i]
         else:
             i += 1
     if len(pulito) < 2:
         raise FeatureError('Il profilo è troppo corto.', feature=fid)
-    return pulito, n_archi
+    return pulito, n_archi, rp
 
 
 def _giri(pts):
@@ -167,7 +250,8 @@ def _raccorda(P, giri, raggi, fid):
         a, b, c = P[i - 1], P[i], P[i + 1]
         R, phi = raggi[i - 1], abs(giri[i - 1])
         if R <= TOL or phi < 1e-9:
-            out.append(('L', cur, b))
+            if math.dist(cur, b) > TOL:                             # spigolo vivo subito dopo un arco: niente tratto nullo
+                out.append(('L', cur, b))
             cur = b
             continue
         lu, lv = math.dist(a, b), math.dist(b, c)
@@ -193,14 +277,14 @@ def _raccorda(P, giri, raggi, fid):
     return out
 
 
-def _sezione(plane, pts, altro, giri, lato, rp, t, fid):
+def _sezione(plane, pts, altro, giri, raggiA, raggiB, fid):
     """La sezione chiusa nel piano dello sketch. Con il raggio (30/10, Stefano: «gli angoli rimangono spigolo vivo»)
-    ogni piega è un arco: rp dalla parte interna della piega, rp + t da quella esterna. Senza raggio: spigoli vivi."""
-    if rp is None:
+    ogni piega è un arco: raggiA sul lato della linea disegnata, raggiB sull'altro (a ogni spigolo; 0 = spigolo
+    vivo)."""
+    if not any(raggiA) and not any(raggiB):
         return bd.Face(bd.Wire.make_polygon([plane.from_local_coords(q) for q in pts + list(reversed(altro))], close=True))
-    dentro = [(phi > 0 and lato < 0) or (phi < 0 and lato > 0) for phi in giri]   # la linea disegnata dentro la piega
-    A = _raccorda(pts, giri, [rp if d else rp + t for d in dentro], fid)
-    B = _raccorda(altro, giri, [rp + t if d else rp for d in dentro], fid)
+    A = _raccorda(pts, giri, raggiA, fid)
+    B = _raccorda(altro, giri, raggiB, fid)
     giro = A + [('L', pts[-1], altro[-1])]
     for x in reversed(B):
         giro.append(('L', x[2], x[1]) if x[0] == 'L' else ('A', x[3], x[2], x[1]))
@@ -211,18 +295,45 @@ def _sezione(plane, pts, altro, giri, lato, rp, t, fid):
     return bd.Face(bd.Wire(edges))
 
 
-def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
-    """Solido, sviluppo (rettangolo con le linee dei colpi), righe della tabella e info."""
+def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid, calandra: bool = False):
+    """Solido, sviluppo (rettangolo con le linee dei colpi), righe della tabella e info. calandra: gli archi
+    calandrati (lisci, col loro raggio) invece che a colpi."""
     fila = catena(ss, fid)
-    pts, n_archi = spigoli(fila, colpi, passo, fid)
-    giri = _giri(pts)
-    totale = sum(giri)
+    pts, n_archi, rulli = spigoli(fila, colpi, passo, fid, calandra)
+    totale = sum(_giri(pts))
     lato = -1 if totale >= 0 else 1                  # lo spessore dalla parte convessa: la linea è la faccia interna
     if gira:
         lato = -lato
+    # col calandrato le pieghe hanno sempre la loro forma vera (senza raggio scritto: raggio interno 0), se no ai capi
+    # dell'arco la sezione non si chiude (02/11: «il raggio di piega 58 non sta sul tratto 2» con raggio e K vuoti)
+    r_sezione = r_piega if r_piega is not None else (0.0 if calandra else None)
+    if calandra:
+        # le pieghe attaccate agli archi calandrati: il loro raggio sulla linea disegnata, per farle stare sull'arco
+        def raggio_piega(verso):
+            dentro_ = (verso > 0 and lato < 0) or (verso < 0 and lato > 0)
+            return r_sezione if dentro_ else r_sezione + t
+        pts, n_archi, rulli = spigoli(fila, colpi, passo, fid, calandra, raggio_piega)
+    rulli = rulli[1:-1]                              # uno per spigolo interno, come giri
+    giri = _giri(pts)
     altro = _sposta(pts, t, lato)
+    dentro = [(phi > 0 and lato < 0) or (phi < 0 and lato > 0) for phi in giri]   # la linea disegnata dentro la piega
+    rp = r_piega if r_piega is not None else 0.0
+    raggiA, raggiB, r_dentro = [], [], []
+    for j, rr in enumerate(rulli):
+        if rr is None:                               # piega o colpo della piegatrice
+            raggiA.append(0.0 if r_sezione is None else (rp if dentro[j] else rp + t))
+            raggiB.append(0.0 if r_sezione is None else (rp + t if dentro[j] else rp))
+            r_dentro.append(rp)
+            continue
+        ri = rr if dentro[j] else rr - t             # calandrato: l'arco disegnato è una delle due facce
+        if ri <= TOL:
+            raise FeatureError(f'L’arco R{fmt_mm(round(rr, 2))} con la linea all’esterno lascia dentro un raggio di '
+                               f'{fmt_mm(round(ri, 2))}: più piccolo dello spessore, non si calandra.', feature=fid)
+        raggiA.append(rr)
+        raggiB.append(rr + t if dentro[j] else rr - t)
+        r_dentro.append(ri)
     try:
-        faccia = _sezione(plane, pts, altro, giri, lato, r_piega, t, fid)
+        faccia = _sezione(plane, pts, altro, giri, raggiA, raggiB, fid)
         solido = bd.extrude(faccia, amount=L, dir=plane.z_dir)
     except FeatureError:
         raise
@@ -235,15 +346,17 @@ def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
         verso_L = -1.0
     # sviluppo: tratti dritti (dalla linea disegnata, meno gli arretramenti) + archi della fibra neutra
     con_dati = r_piega is not None and k_piega is not None
-    rp = r_piega if r_piega is not None else 0.0
     kk = k_piega if k_piega is not None else 0.5
     lati = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
     arretra, archi, righe = [], [], []
     for j, phi in enumerate(giri):
-        dentro = (phi > 0 and lato < 0) or (phi < 0 and lato > 0)      # la linea disegnata sta dentro la piega
         tg = math.tan(abs(phi) / 2)
-        arretra.append(rp * tg if dentro else (rp + t) * tg)
-        archi.append(abs(phi) * (rp + kk * t))
+        if rulli[j] is None:
+            arretra.append(rp * tg if dentro[j] else (rp + t) * tg)
+            archi.append(abs(phi) * (rp + kk * t))
+        else:                                        # calandrato: raggio grande, la fibra neutra sta a metà spessore
+            arretra.append(rulli[j] * tg)
+            archi.append(abs(phi) * (r_dentro[j] + 0.5 * t))
     dritti = []
     for i, ell in enumerate(lati):
         d = ell - (arretra[i - 1] if i > 0 else 0) - (arretra[i] if i < len(arretra) else 0)
@@ -253,16 +366,34 @@ def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
         dritti.append(max(0.0, d))
     lungo = sum(dritti) + sum(archi)
     flat = bd.Face(bd.Wire.make_polygon([(0, 0, 0), (lungo, 0, 0), (lungo, L, 0), (0, L, 0)], close=True))
-    linee, x = [], 0.0
+    linee, calandrature, x = [], [], 0.0
     for j, phi in enumerate(giri):
         x += dritti[j]
+        if rulli[j] is not None:
+            # i pezzi di un arco calandrato uno dopo l'altro (senza dritto in mezzo) sono una calandratura sola
+            if calandrature and calandrature[-1]['_j'] == j - 1 and dritti[j] < 1e-6:
+                c = calandrature[-1]
+                c['angolo'] += math.degrees(abs(phi))
+            else:
+                c = {'n': len(calandrature) + 1, 'raggio': rulli[j], 'r_interno': r_dentro[j], 'angolo': math.degrees(abs(phi)),
+                     'da': x}
+                calandrature.append(c)
+            x += archi[j]
+            c['a'], c['_j'] = x, j
+            continue
         centro = x + archi[j] / 2
         x += archi[j]
         ang = math.degrees(abs(phi))
         bd_ = 2 * (rp + t) * math.tan(abs(phi) / 2) - archi[j]         # detrazione sugli spigoli esterni
-        righe.append({'n': j + 1, 'angle': ang, 'length': L, 'correction': bd_ if con_dati else None,
+        n = len(righe) + 1
+        righe.append({'n': n, 'angle': ang, 'length': L, 'correction': bd_ if con_dati else None,
                       'position': centro, 'direction': 'up' if phi > 0 else 'down'})
-        linee.append(((centro, 0.0), (centro, L), f'P{j + 1} {fmt_mm(round(ang, 1))}° a {fmt_mm(round(centro, 1))}'))
+        linee.append(((centro, 0.0), (centro, L), f'P{n} {fmt_mm(round(ang, 1))}° a {fmt_mm(round(centro, 1))}'))
+    for c in calandrature:
+        c.pop('_j')
+        testo = (f'C{c["n"]} calandrare R{fmt_mm(round(c["r_interno"], 1))} int. {fmt_mm(round(c["angolo"], 1))}°')
+        linee.append(((c['da'], 0.0), (c['da'], L), f'{testo}: inizio a {fmt_mm(round(c["da"], 1))}'))
+        linee.append(((c['a'], 0.0), (c['a'], L), f'{testo}: fine a {fmt_mm(round(c["a"], 1))}'))
     # i tratti dritti (anche le facce tra un colpo e l'altro): da dove partono nello sviluppo. Un punto a distanza s
     # dallo spigolo di partenza, sulla linea disegnata, nello sviluppo sta a x0 + s (x0 = inizio del dritto meno
     # l'arretramento della piega prima). Servono per forare il pezzo piegato e ritrovare i fori nello sviluppo.
@@ -273,8 +404,8 @@ def costruisci(ss, plane, L, t, r_piega, k_piega, colpi, passo, gira, fid):
         nm = (-u[1] * lato, u[0] * lato)                                  # verso il materiale
         pannelli.append({'a': a, 'b': b, 'a2': altro[i], 'b2': altro[i + 1], 'u': u, 'n': nm, 'x0': x0})
         x += dritti[i] + (archi[i] if i < len(archi) else 0.0)
-    info = {'pieghe': len(giri), 'colpi': n_archi, 'sviluppo': lungo, 'lunghezza': L, 'pannelli': pannelli,
-            'verso_L': verso_L,
+    info = {'pieghe': len(righe), 'colpi': n_archi, 'sviluppo': lungo, 'lunghezza': L, 'pannelli': pannelli,
+            'verso_L': verso_L, 'calandrature': calandrature,
             'angolo_max': max((x['angle'] for x in righe), default=0.0),
             'correzione_totale': sum(x['correction'] or 0 for x in righe), 'avvisi': []}
     if not con_dati:

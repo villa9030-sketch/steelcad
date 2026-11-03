@@ -53,12 +53,54 @@ def load(path) -> Document:
     if not isinstance(d, dict) or not isinstance(d.get('features', []), list):
         raise ProjectFileError(f'Il file {path.name} non è un progetto Radius.')
     try:
-        return Document.from_dict(d)
+        doc = Document.from_dict(d)
     except SteelCADError:
         raise
     except Exception:  # noqa: BLE001 - un progetto scritto male (a mano o da un'altra versione)
         raise ProjectFileError(f'Il file {path.name} non è un progetto Radius valido (forse di una versione '
                                f'diversa). Prova la copia {path.name}.bak.') from None
+    ripara_raccordi(doc)
+    return doc
+
+
+def su_faccia_di_lamiera(doc: Document, plane) -> bool:
+    """Lo sketch sta su una faccia (o sullo sviluppo) di una lamiera: lamiera piegata, profilo in lamiera, lamiera da
+    STEP, piega su bordo libero. Lì raccordi e smussi degli spigoli sono tagli della lamiera (02/11: sul profilo
+    erano tagli di un pezzo pieno, e il pezzo smetteva di essere lamiera: niente sviluppo nelle tavole)."""
+    if not isinstance(plane, dict):
+        return False
+    faccia = plane.get('face') or ''
+    fid = plane.get('flat') or faccia.split('/')[0]
+    f = next((x for x in doc.features if not hasattr(x, 'entities') and x.get('id') == fid), None)
+    if f is None:
+        return False
+    tipo = f.get('type')
+    if tipo == 'sheet':
+        return True
+    if plane.get('flat'):
+        return False
+    if tipo in ('sheet_shape', 'step_lamiera'):
+        return not faccia.endswith('/testa')
+    return tipo == 'sheet_edge_flange' and faccia.endswith(('/interno', '/esterno'))
+
+
+def ripara_raccordi(doc: Document) -> int:
+    """I raccordi/smussi degli spigoli fatti prima del 02/11 sulle facce di un profilo in lamiera (o da STEP, o di una
+    piega su bordo): erano tagli di un pezzo pieno, diventano tagli della lamiera. Ritorna quanti ne ha cambiati."""
+    piani = {x.id: x.plane for x in doc.features if hasattr(x, 'entities')}
+    n = 0
+    for f in doc.features:
+        if hasattr(f, 'entities') or f.get('type') != 'extrude' or f.get('operation') != 'cut':
+            continue
+        if not str(f.get('name', '')).startswith(('Raccordo spigolo', 'Smusso spigolo')):
+            continue
+        if not su_faccia_di_lamiera(doc, piani.get(f.get('sketch'))):
+            continue
+        for k in ('operation', 'through_all', 'reverse', 'distance'):
+            f.pop(k, None)
+        f['type'] = 'sheet_cut'
+        n += 1
+    return n
 
 
 def autosave_path(path) -> Path:

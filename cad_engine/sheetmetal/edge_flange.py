@@ -238,9 +238,7 @@ def build_edge_flange(fdef: dict, ctx):
     dst_p = bd.Plane(origin=A2 + F2 * piega.ba, x_dir=F2, z_dir=F2.cross(E2))
     for lato_n, p, verso in (('esterno', p_est, (p_int - p_est).normalized()), ('interno', p_int, (p_est - p_int).normalized())):
         n_f = f'{fid}/{lato_n}'
-        for f in _faces_of(nuovo.shape):
-            if nuovo.names_of(f):
-                continue
+        for f in nuovo.senza_nome():        # mappa indicizzata: con le lettere tagliate erano 23 milioni di confronti (02/11)
             bf = bd.Face(f)
             c = bf.center()
             if bf.geom_type != bd.GeomType.PLANE or abs(abs(bf.normal_at(c).dot(verso)) - 1) > 1e-6 \

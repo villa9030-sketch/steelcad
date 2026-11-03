@@ -1,4 +1,5 @@
 """Piega su un bordo libero qualsiasi (21/10): il bordo inclinato del materiale aggiunto su una parete si borda."""
+import math
 import os
 import tempfile
 
@@ -71,3 +72,32 @@ def test_gioco_agli_angoli():
     assert abs(s.result.body.sheet.extra_bends[-1]['width'] - 88) < 1e-6
     assert s.edit_edge_flange(r['select'][3:], {'trim0': '', 'trim1': ''})['ok']           # di nuovo automatico
     assert abs(s.result.body.sheet.extra_bends[-1]['width'] - 100) < 1e-6
+
+
+def test_materiale_sulla_piega_di_un_profilo():
+    """02/11, porta ugelli: sulla piega fatta sul bordo di un profilo estruso «Aggiungi materiale» non c'era e il
+    taglio dava «va disegnato su una faccia della lamiera». Ora si aggiunge e si toglie anche lì."""
+    s = Service()
+    assert s.new_project('zero', {'name': 'Porta ugelli'})['ok']
+    sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
+    assert s.sketch_add_polyline(sid, [[20, 0], [0, 0], [0, 120], [20, 120]], False)['ok']
+    assert s.create_from_sketch(sid, 'profilo', {'lunghezza': 300, 'spessore': 2, 'raggio': 1, 'k': 0.4})['ok']
+    e = max((x for x in s.scene()['bend_edges'] if x['kind'] == 'libero'), key=lambda x: x['length'])
+    r = s.add_edge_flange(e['face'], e['ea'], e['eb'], {'length': '20', 'angle': '90', 'direction': 'up'})
+    assert r['ok'], r.get('message')
+    fid = r['select'][3:]
+    vol = lambda: bd.Solid(s.result.body.shape).volume  # noqa: E731
+    for lato in ('interno', 'esterno'):
+        if s.sketch_on_face(f'{fid}/{lato}')['ok']:
+            break
+    sk = s.sketch_view(s.doc.features[-1].id)['sketch']
+    assert sk['tab_ok']
+    pts = [p['xy'] for p in sk['points'] if p['id'] != 'O']
+    xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    sid2 = sk['id'] if 'id' in sk else s.doc.features[-1].id
+    v0 = vol()
+    assert s.sketch_add_circle(sid2, [cx, cy], 2)['ok']
+    r = s.create_from_sketch(sid2, 'cut', {})
+    assert r['ok'], r.get('message')
+    assert abs((v0 - vol()) - math.pi * 4 * 2) < 0.5                      # foro Ø4 nello spessore 2

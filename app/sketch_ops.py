@@ -62,7 +62,7 @@ def view(doc, sid: str, body=None) -> dict:
                 stato = ('Linee aperte: vanno bene per la piega su linea, le persiane o la lamiera a contorno. '
                          'Per tagliare o aggiungere materiale il contorno va chiuso.')
             else:
-                stato = ('Profilo aperto: «Estrudi in lamiera» lo fa diventare lamiera piegata (gli archi a colpi), '
+                stato = ('Profilo aperto: «Estrudi in lamiera» lo fa diventare lamiera piegata (gli archi a colpi o calandrati), '
                          '«Crea struttura» lo fa in tubi. Per una lamiera piana o una piastra il contorno va chiuso.')
     # dal piano dello sketch al 3D con due prodotti: from_local_coords punto per punto costava 0,3 s con 4.000 punti
     _o, _x, _y = pl.origin, pl.x_dir, pl.y_dir
@@ -138,6 +138,9 @@ def view(doc, sid: str, body=None) -> dict:
             out['on_sheet'] = not hasattr(f0, 'entities') and f0.get('type') == 'sheet'
         except SteelCADError:
             out['on_sheet'] = False
+        # «Aggiungi materiale» va anche sulle facce delle forme, dei profili e delle pieghe su un bordo (02/11)
+        data = getattr(body, 'sheet', None) if body is not None else None
+        out['tab_ok'] = bool(out['on_sheet'] or out['on_face'] in (getattr(data, 'pannelli', None) or {}))
     for k, e in sk.entities.items():
         if e['kind'] == 'line':
             out['lines'].append({'id': k, 'a': e['a'], 'b': e['b'], 'label': sk.describe(k),
@@ -418,7 +421,9 @@ def add_polyline(doc, sid: str, pts: list, closed: bool, construction: bool = Fa
         if math.dist(refs[i][1], refs[i + 1][1]) < 1e-6:
             raise SketchError('Due punti consecutivi coincidono: un tratto lungo zero non si può fare.')
     ids = [r[0] for r in refs]
-    xy = [r[1] for r in refs]
+    # i punti che c'erano: dove stanno davvero (risolti), non dove erano stati creati. Dopo aver cambiato una quota
+    # (l'arco da R56 a R55) la linea scritta 28 dalla sua fine veniva quotata 25,982 (02/11, il collare)
+    xy = [r[1] if r[2] else tuple(risolti.get(r[0], r[1])) for r in refs]
     if closed:
         if len(ids) < 3:
             raise SketchError('Per chiudere un contorno servono almeno tre punti.')

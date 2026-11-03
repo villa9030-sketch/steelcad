@@ -292,6 +292,7 @@ def _dentro(sk, q) -> bool:
     return dentro
 
 
+
 def part_corner(doc, sid: str, pid: str, size, tool: str) -> dict:
     """Raccordo (o smusso) di uno spigolo del pezzo mentre si disegna sulla sua faccia. I bordi arancio non
     sono linee dello sketch: lo spigolo si arrotonda togliendo la punta (spigolo vivo verso fuori) o
@@ -334,9 +335,8 @@ def part_corner(doc, sid: str, pid: str, size, tool: str) -> dict:
     else:
         piccolo.line(p2, p1)
     nome = f'{"Raccordo" if tool == "fillet" else "Smusso"} spigolo {"R" if tool == "fillet" else ""}{_r(size)}'
-    su_lamiera = isinstance(sk.plane, dict) and any(
-        not isinstance(f, type(sk)) and f.get('type') == 'sheet'
-        and f['id'] == (sk.plane.get('flat') or (sk.plane.get('face') or '').split('/')[0]) for f in doc.features)
+    from cad_engine.project_io import su_faccia_di_lamiera
+    su_lamiera = su_faccia_di_lamiera(doc, sk.plane)
     if aggiungi:
         if not su_lamiera or sk.plane.get('flat'):
             raise SketchError('Questo spigolo va verso dentro: per arrotondarlo bisogna aggiungere materiale, e si '

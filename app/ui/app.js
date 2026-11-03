@@ -1277,7 +1277,12 @@ function buildDims() {
     el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
       : d.param ? `Quota legata al parametro ${d.param}: clicca per cambiarla`
       : d.gruppo ? `La stessa quota su ${d.gruppo.length} elementi uguali: cambiandola si cambiano tutti` : 'Clicca per cambiare la quota';
-    el.addEventListener('click', ev => { ev.stopPropagation(); if (d.driven) toast(el.title); else editDim(el, d); });
+    el.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (d.driven) { toast(el.title); return; }
+      if (SK && !['select', 'dim'].includes(SK.tool)) setTool('select');    // cambi la quota: il comando si chiude
+      editDim(el, d);
+    });
     // tasto destro: la quota si toglie (la misura torna libera, il disegno resta dov'è)
     el.title += ' · tasto destro: togli la quota';
     el.addEventListener('contextmenu', ev => {
@@ -2526,7 +2531,7 @@ async function renderProps(s) {
     const c = s.cosa;
     h = `<h3>${esc(s.title)}</h3>${tab([['Fuori tutto', c.fuori_tutto.join(' × ') + ' mm'], ['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]])}
       <div class="sub">Cosa puoi fare adesso</div><div class="cosa">
-      <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi: lo metto in mezzo</span></button>
+      <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi, poi scrivi a che altezza</span></button>
       <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
       <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
       <button class="cosa-b" data-azione="fori"><b>Fori sui tubi</b><span>Clicca la faccia del tubo e disegna</span></button>
@@ -2568,6 +2573,9 @@ async function renderProps(s) {
       <div class="row-btns"><button class="btn primary" id="p-apply">Cambia tubo</button></div>
       <div class="cosa">
         <button class="cosa-b" id="p-trav"><b>Traverso da qui</b><span>Parte da questo tubo, poi clicchi dove arriva</span></button>
+        <button class="cosa-b" id="p-punto"><b>Tubo nuovo da un punto di questo tubo</b><span>${s.tubo?.verticale ? 'A che altezza da terra' : 'A che distanza dall’inizio'}, poi la freccia</span></button>
+        <div class="group-row" id="p-punto-riga" hidden><label class="lbl" for="p-punto-q">${s.tubo?.verticale ? 'Altezza da terra (mm)' : 'Distanza dall’inizio (mm)'}</label>
+          <input class="field" id="p-punto-q" value="" placeholder="es. 265"><div class="row-btns"><button class="btn primary" id="p-punto-ok">Metti il punto</button></div></div>
         ${s.tubo?.verticale ? '' : '<button class="cosa-b" id="p-rot"><b>Giralo di 90°</b><span>Per i tubi rettangolari: in piedi o sdraiato</span></button>'}
       </div>
       ${pannelloLavorazioni(s)}
@@ -2652,6 +2660,16 @@ async function renderProps(s) {
   if ($('#p-anc')) $('#p-anc').onchange = () => edit({ anchor: $('#p-anc').value });
   $('#p-del').onclick = deleteSelected;
   $('#p-trav').onclick = () => iniziaTraverso(s.id);
+  // 03/11: un punto qualsiasi sul tubo (il montante a 265 da terra), poi le frecce come da un angolo
+  $('#p-punto').onclick = () => { $('#p-punto-riga').hidden = false; $('#p-punto-q').focus(); };
+  const metti = () => {
+    const q = $('#p-punto-q').value.trim();
+    if (!q) { toast('Scrivi la misura.', 'err'); return; }
+    const [st, mid] = s.id.split('/');
+    inCoda(async () => { const r = await call('punto_su_tubo', st, mid, q); if (await apply(r) && r.node) await select(r.node); });
+  };
+  $('#p-punto-ok').onclick = metti;
+  $('#p-punto-q').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); metti(); } };
   wireLavorazioni(s);
 }
 
@@ -5087,7 +5105,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
     piastra: { titolo: 'Piastra piana', nota: 'Piastra con un foro; gli altri fori li aggiungi dopo.', nome: 'Piastra',
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
         { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
-    zero: { titolo: 'Una forma disegnata', nota: 'Disegni il contorno con le linee; poi diventa lamiera o piastra.', nome: 'Pezzo', campi: [] },
+    zero: { titolo: 'Una forma disegnata', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera o piastra; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
     telaio: { titolo: 'Banco', nota: 'Misure fuori tutto: il banco finito è grande così, i tubi stanno dentro.', nome: 'Banco',
       campi: [{ k: 'L', l: 'Lunghezza', v: 1600, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 700, lettera: 'B' },
         { k: 'H', l: 'Altezza (piano di lavoro)', v: 850, lettera: 'C' },
@@ -5440,7 +5458,7 @@ async function showHome(info) {
   renderModelli();
   $('#home').querySelectorAll('[data-new]').forEach(b => {
     b.onclick = () => (b.dataset.new === 'assieme' ? newAssemblyDialog() : b.dataset.new === 'step' ? stepDialog()
-      : b.dataset.new === 'lamiera' ? nuovaLamiera() : newDialog(b.dataset.new, true));
+      : b.dataset.new === 'lamiera' ? nuovaLamiera() : b.dataset.new === 'zero' ? nuovoDaZero() : newDialog(b.dataset.new, true));
   });
   $('#home').querySelectorAll('[data-altro="importa"]').forEach(b => { b.onclick = () => inCoda(importDialog); });
   $('#home-open').onclick = () => inCoda(() => openProject());
@@ -5519,6 +5537,17 @@ function nuovaLamiera() {
     if (!(await apply(await call('new_project', 'lamiera', { name: 'Lamiera', larghezza: 500, profondita: 300, spessore: 2 })))) return;
     hideHome();
     toast('Lamiera 500 × 300 sp. 2: cambia le misure a sinistra, poi clicca un bordo per piegarlo.');
+  });
+}
+// 02/11 («crea una sezione da dove posso partire da 0»): dalla pagina iniziale dritti nello sketch vuoto
+function nuovoDaZero() {
+  primaVolta = true; sel = null; clearSelection();
+  if (SK) exitSketch();
+  inCoda(async () => {
+    if (!(await apply(await call('new_project', 'zero', { name: 'Pezzo' })))) return;
+    hideHome();
+    await enterSketch('S1');
+    toast('Disegna la sagoma. Chiusa: in alto a destra «Crea lamiera» o «Crea piastra». Aperta (un collare, un omega): «Estrudi in lamiera».');
   });
 }
 // il menu File → Apri recenti: gli ultimi lavori, letti quando il menu si apre
@@ -6257,7 +6286,7 @@ function statoSketch(v) {
   $('#sk-face [data-make="cut"]').classList.toggle('primary', !v.on_flat);
   $('#sk-fold').disabled = !v.drawn;
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
-  $('#sk-tab').hidden = !((v.on_sheet && v.on_face) || v.on_flat);
+  $('#sk-tab').hidden = !((v.tab_ok && v.on_face) || v.on_flat);
   $('#sk-tab').disabled = !v.drawn;
   $('#sk-mark').hidden = !!v.on_tube; $('#sk-boss').hidden = $('#sk-boss').hidden || !!v.on_tube;   // sul tubo: si buca e basta
   // una sagoma di tubi: un solo pulsante grande, «Fai i tubi»; i comandi della lamiera non servono (22/10)
@@ -6447,6 +6476,9 @@ function drawRubber() {
   skRubber.traverse(x => x.geometry?.dispose());
   skRubber.clear();
   if (SK) updateCmd();
+  // le quote si cliccano anche con un comando in mano, finché non hai cominciato a disegnare (02/11: con «Arco»
+  // acceso il clic su R56 faceva partire un altro arco); a disegno cominciato i clic ci passano attraverso
+  document.body.classList.toggle('in-corso', !!(SK && SK.pts && SK.pts.length));
   // la scritta in prova: al punto cliccato (finestra aperta) o sotto il mouse col comando Testo (le ultime misure)
   const pt = SK?.provaTesto;
   if (pt?.tratti?.length && (pt.at || (SK.tool === 'text' && SK.cursor && $('#modal').hidden))) {
@@ -6838,14 +6870,19 @@ function finestraTesto({ valori, at, nuova, ok }) {
     for (const id of ['#tx-t', '#tx-h', '#tx-a']) $(id).addEventListener('input', aggiorna);
     for (const id of ['#tx-c', '#tx-p']) $(id)?.addEventListener('change', aggiorna);
     aggiorna();
+    // una volta sola: Invio nella casella e l'Invio della finestra (= «Metti il testo») mettevano la scritta due
+    // volte, una sopra l'altra (02/11, porta ugelli: poi «Togli materiale» si rifiutava)
+    let fatto = false;
     const vai = () => {
+      if (fatto) return;
       const v = leggi();
       if (!v.text.trim()) { toast('Scrivi il testo.', 'err'); return; }
+      fatto = true;
       ok(v, chiudi);
       if (SK) { SK.provaTesto = null; if (SK.tool === 'text') provaTesto(v); }
     };
     $('#m-ok').onclick = vai;
-    $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
+    $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); vai(); } };
     $('#tx-t').focus();
   });
 }
@@ -7538,23 +7575,42 @@ function makeDialog(kind) {
     // profilo estruso in lamiera: gli archi diventano colpi (bumping)
     const sid = SK.sid, BD = S?.bend_default || {};
     const archi = SK.v.arcs.filter(a => !a.construction && !a.ref).length;
-    modal(`<h3>Estrudi in lamiera</h3>
-      <p class="hint">Il profilo disegnato (aperto) diventa lamiera piegata: ogni spigolo è una piega${archi ? `, ogni arco (qui ${archi}) si fa a colpi (bumping)` : ''}, col raggio del punzone.</p>
+    // 02/11: sullo sketch di un profilo già fatto la finestra riparte dai suoi valori (e lo cambia)
+    call('profilo_valori', sid).then(rv => { const prima = rv?.valori || null;
+    modal(`<h3>${prima ? 'Cambia il profilo in lamiera' : 'Estrudi in lamiera'}</h3>
+      <p class="hint">Il profilo disegnato (aperto) diventa lamiera piegata: ogni spigolo è una piega${archi ? `, ogni arco (qui ${archi}) si fa a colpi (bumping) o calandrato` : ''}, col raggio del punzone.</p>
+      ${archi ? `<div class="sub">Gli archi si fanno…</div>
+      <div class="choice" id="pf-archi"><button type="button" data-c="0" class="${prima?.calandra ? '' : 'on'}"><b>a colpi</b><small>con la piegatrice (bumping)</small></button>
+        <button type="button" data-c="1" class="${prima?.calandra ? 'on' : ''}"><b>calandrati</b><small>lisci, col raggio disegnato</small></button></div>` : ''}
       <div class="sub">La linea che hai disegnato è…</div>
       <div class="choice" id="pf-lato"><button type="button" data-gira="0"><b>l’interno</b> della lamiera<small>lo spessore va verso fuori</small></button>
         <button type="button" data-gira="1"><b>l’esterno</b> della lamiera<small>lo spessore va verso dentro</small></button></div>
       <div class="ff"><label>Lunghezza (di quanto estrudere)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
         <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
-      ${archi ? `<div class="ff"><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm"></span></label><span></span></div>` : ''}
+      ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
       <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>
         <label>K-factor<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
       <p class="hint">Il 3D si gira trascinando col mouse e si ingrandisce con la rotella, anche con questa finestra aperta.</p>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok" disabled title="Prima scegli: interno o esterno">Estrudi in lamiera</button></div>`, close => {
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok" disabled title="Prima scegli: interno o esterno">${prima ? 'Cambia' : 'Estrudi in lamiera'}</button></div>`, close => {
       // 30/10, Stefano: «non mi chiede se il profilo è l'interno o l'esterno»: si sceglie per forza, e l'anteprima lo fa vedere
       let gira = null, avviata = false;
-      const valori = () => ({ lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(), colpi: $('#pf-colpi')?.value.trim() || '',
-        raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: !!gira });
+      const calandra = () => !!$('#pf-archi .on[data-c="1"]');
+      const valori = () => ({ lunghezza: $('#pf-L').value.trim(), spessore: $('#pf-sp').value.trim(), colpi: calandra() ? '' : ($('#pf-colpi')?.value.trim() || ''),
+        raggio: $('#pf-r').value.trim(), k: $('#pf-k').value.trim(), gira: !!gira, calandra: calandra() });
       $('#m-no').onclick = close;
+      document.querySelectorAll('#pf-archi button').forEach(b => {
+        b.onclick = () => {
+          document.querySelectorAll('#pf-archi button').forEach(x => x.classList.toggle('on', x === b));
+          $('#pf-colpi-riga').style.display = calandra() ? 'none' : '';
+          if (avviata) $('#pf-L').dispatchEvent(new Event('input'));
+        };
+      });
+      if (prima) {
+        if (prima.lunghezza != null) $('#pf-L').value = virgola(prima.lunghezza);
+        if (prima.spessore != null) $('#pf-sp').value = virgola(prima.spessore);
+        if (prima.raggio != null) $('#pf-r').value = virgola(prima.raggio);
+        if (prima.k != null) $('#pf-k').value = virgola(prima.k);
+      }
       document.querySelectorAll('#pf-lato button').forEach(b => {
         b.onclick = () => {
           gira = b.dataset.gira === '1';
@@ -7572,6 +7628,8 @@ function makeDialog(kind) {
       };
       $('#modal').classList.add('laterale');                // il 3D resta libero già prima della scelta
       if (SK) controls.enableRotate = true;
+      if (prima) $(`#pf-lato button[data-gira="${prima.gira ? 1 : 0}"]`).click();   // già scelto: anteprima subito
+    });
     });
     return;
   }

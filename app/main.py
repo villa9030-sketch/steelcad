@@ -246,6 +246,9 @@ class Api:
     def tubo_da_angolo(self, st_id, key, freccia, lunghezza, profile=None, nome=''):
         return self._call(self._svc.tubo_da_angolo, st_id, key, freccia, lunghezza, profile, nome)
 
+    def punto_su_tubo(self, st_id, mid, quota):
+        return self._call(self._svc.punto_su_tubo, st_id, mid, quota)
+
     def sagoma_nuova(self, piano='XZ'):
         return self._call(self._svc.sagoma_nuova, piano)
 
@@ -290,6 +293,9 @@ class Api:
 
     def sketch_edit_text(self, sid, tid, testo, h, angolo=0, stencil=None):
         return self._call(self._svc.sketch_edit_text, sid, tid, testo, h, angolo, stencil)
+
+    def profilo_valori(self, sid):
+        return self._call(self._svc.profilo_valori, sid)
 
     def testo_anteprima(self, testo, h, angolo=0, stencil=None, centrato=False):
         return self._call(self._svc.testo_anteprima, testo, h, angolo, stencil, centrato)

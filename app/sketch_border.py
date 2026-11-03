@@ -34,9 +34,15 @@ def e_lettera(pts: list) -> bool:
 
 def _e_lettera_wire(w) -> bool:
     ed = w.order_edges() if hasattr(w, 'order_edges') else w.edges()
-    if len(ed) < 16 or any(e.geom_type != bd.GeomType.LINE for e in ed):
+    if len(ed) < 8 or any(e.geom_type not in (bd.GeomType.LINE, bd.GeomType.CIRCLE) for e in ed):
         return False
-    return e_lettera([tuple(e.start_point()) for e in ed])
+    # dal 02/11 le curve delle lettere sono archi: di un arco conta anche il punto a metà
+    pts = []
+    for e in ed:
+        pts.append(tuple(e.start_point()))
+        if e.geom_type == bd.GeomType.CIRCLE:
+            pts.append(tuple(e.position_at(0.5)))
+    return e_lettera(pts)
 
 
 def spigoli_senza_lettere(face) -> list:

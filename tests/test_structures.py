@@ -202,7 +202,13 @@ def test_errori_chiari():
 
 
 def test_aste_che_si_compenetrano_segnalate():
+    # due tubi che si incrociano: dal 03/11 uno passa e l'altro si taglia in due pezzi, niente da segnalare
     r = _struttura({'A': [0, 0, 0], 'B': [1000, 0, 0], 'C': [500, -300, 0], 'D': [500, 300, 0]},
+                   [{'id': 'M1', 'from': 'A', 'to': 'B', 'profile': '40x40x3', 'anchor': 'bottom'},
+                    {'id': 'M2', 'from': 'C', 'to': 'D', 'profile': '40x40x3', 'anchor': 'bottom'}])
+    assert not r.warnings and sorted(m.id for m in r.members) == ['M1', 'M2~1', 'M2~2']
+    # uno dentro l'altro per sbaglio (paralleli, accostati): si segnala
+    r = _struttura({'A': [0, 0, 0], 'B': [1000, 0, 0], 'C': [200, 10, 0], 'D': [800, 10, 0]},
                    [{'id': 'M1', 'from': 'A', 'to': 'B', 'profile': '40x40x3', 'anchor': 'bottom'},
                     {'id': 'M2', 'from': 'C', 'to': 'D', 'profile': '40x40x3', 'anchor': 'bottom'}])
     assert any('si compenetrano' in w for w in r.warnings)

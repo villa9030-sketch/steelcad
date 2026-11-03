@@ -139,9 +139,14 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
             continue
         from . import testo as testo_mod
         x, y = testo_mod.origine(e, *ss.points[e['center']])
-        for giro in testo_mod.contorni(e['text'], e['h'], x, y, e.get('angle', 0), e['stencil']):
-            if len(giro) >= 3 and abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(giro, giro[1:] + giro[:1]))) > 1e-4:
-                loops.append(bd.Wire.make_polygon([plane.from_local_coords(q) for q in giro], close=True))
+        for giro in testo_mod.contorni_curve(e['text'], float(e['h']), x, y, float(e.get('angle', 0)), e['stencil']):
+            pts = [q for pz in giro for q in pz[1:-1]]
+            if abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1]))) <= 1e-4:
+                continue
+            # linee e archi veri (02/11): prima centinaia di trattini, ognuno una faccia del pezzo
+            loops.append(_ricorda(_LATI, (chiave_piano, 'T', giro), lambda giro=giro: bd.Wire([
+                bd.Edge.make_line(*(plane.from_local_coords(q) for q in pz[1:])) if pz[0] == 'L'
+                else bd.Edge.make_three_point_arc(*(plane.from_local_coords(q) for q in pz[1:])) for pz in giro])))
     if sciolte and not loops:
         # niente di chiuso: è davvero un contorno aperto (o lo scheletro di una struttura)
         x, y = sciolte[0][1]
