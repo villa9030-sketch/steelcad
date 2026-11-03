@@ -97,8 +97,8 @@ def test_sviluppo_numeri_e_quote_delle_pieghe():
 
 
 def test_stessa_tavola_scalata_nei_formati():
-    """22/10: le tavole sono sempre le stesse (impaginate in A2) scalate tali e quali sul foglio scelto; nel cartiglio
-    la scala vera del foglio stampato e quella dell'A2; anteprima e salvataggio non rifanno le tavole."""
+    """22/10: le tavole sono sempre le stesse (impaginate in A2) scalate sul foglio scelto; nel cartiglio solo la
+    scala vera del foglio stampato, normale (03/11); anteprima e salvataggio non rifanno le tavole."""
     s = _pezzo()
     campi = s.drawing_fields()['fields']
     fogli = {}
@@ -109,13 +109,13 @@ def test_stessa_tavola_scalata_nei_formati():
         for f2, f in zip(fogli['A2'], fogli[formato]):
             assert f.size == D.FORMATI[formato]
             assert len(f.linee) == len(f2.linee) and len(f.testi) == len(f2.testi)
-            p2, p = f2.linee[-1][1][0], f.linee[-1][1][0]
-            # stessa posizione relativa sul foglio (l'impaginazione non cambia)
+            # il cartiglio sta nello stesso posto del foglio; le viste possono cambiare un poco di grandezza
+            # (03/11: la scala è quella normale sul foglio stampato, quindi nell'A2 di lavoro non è sempre la stessa)
+            p2, p = f2.testi[f2.i_scala][1], f.testi[f.i_scala][1]
             assert abs(p[0] / f.size[0] - p2[0] / f2.size[0]) < 1e-9 and abs(p[1] / f.size[1] - p2[1] / f2.size[1]) < 1e-3
-            sc = f.testi[f.i_scala][2]                             # «1:14,14 (A2 1:10)»: vera e quella dell'A2
-            vera, a2 = sc.split(' (A2 ')
-            atteso = D._scala_da_testo(a2.rstrip(')')) * k
-            assert abs(D._scala_da_testo(vera) - atteso) < 0.01 * atteso, sc
+            # 03/11: nel cartiglio solo la scala vera del foglio stampato, ed è una scala normale (non «1:14,14 (A2 1:10)»)
+            sc = f.testi[f.i_scala][2]
+            assert '(' not in sc and any(abs(D._scala_da_testo(sc) - n) < 1e-9 for n in D.SCALE_NORMALI), sc
     s._tavole_base = None
     a = s._fogli(campi)
     assert all(x is y for x, y in zip(s._fogli(campi), a))         # la seconda volta: le stesse, non rifatte
