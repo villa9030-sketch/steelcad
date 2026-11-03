@@ -5,6 +5,7 @@ si mettono con drawings.palloncini_colonne.
 """
 from __future__ import annotations
 
+import math
 import re
 
 from .drawings import Foglio, _tabella, _taglia, _cornice, fmt, proietta_punto, quota, TESTO
@@ -81,7 +82,8 @@ def scatole_tubi(structures) -> list:
 
 
 def luci_vista(scatole: list, vista: str, max_luci: int = 8, bordi=None) -> dict:
-    """{0: [(a, b), ...] luci in orizzontale, 1: [...] in verticale} nelle coordinate della vista: gli spazi vuoti
+    """{0: [(a, b), ...] in orizzontale, 1: [...] in verticale} nelle coordinate della vista. Con i bordi: la catena
+    completa dal bordo al bordo, tubi e luci, che somma esattamente il fuori tutto; senza: solo le luci, gli spazi vuoti
     tra i tubi messi di traverso a quella direzione (i tubi lungo la direzione la coprono tutta e non contano, quelli
     inclinati nemmeno), e dal bordo della struttura al primo tubo (il traverso «a 368 da terra»). Troppe luci (le
     sbarre di un cancello) le dicono già le catene a passo costante. bordi: l'ingombro della vista (x0, y0, x1, y1)."""
@@ -108,18 +110,37 @@ def luci_vista(scatole: list, vista: str, max_luci: int = 8, bordi=None) -> dict
             lo, hi = bordi[c], bordi[c + 2]
             uniti = [[lo, lo]] + uniti + [[hi, hi]]
         luci = [(p[1], q[0]) for p, q in zip(uniti, uniti[1:]) if q[0] - p[1] > 0.5]
-        if luci and len(luci) <= max_luci:
+        if not luci or len(luci) > max_luci:
+            continue
+        if bordi is None:
             out[c] = luci
+            continue
+        # 03/11: la catena intera, tubo e luce uno dopo l'altro dal bordo al bordo (30 | 343,5 | 30 | 373,5 | 30):
+        # prima c'erano solo le luci e la somma non tornava col fuori tutto (mancavano i tubi)
+        tappe = [lo]
+        for x in sorted(min(max(x, lo), hi) for u in uniti for x in u):
+            if x - tappe[-1] > 0.05:                   # le tappe vicinissime (tolleranze) sono una
+                tappe.append(x)
+        tappe[-1] = hi                                 # l'ultima è il bordo: la somma è il fuori tutto, esatta
+        out[c] = list(zip(tappe, tappe[1:]))
     return out
 
 
 def quote_luci(f: Foglio, v: dict, T, luci: dict, distanza: float):
     """Le luci tra i tubi, sotto la vista (orizzontali) e a sinistra (verticali), vicino alla vista: il fuori tutto va una fila più in là."""
     x0, y0, x1, y1 = v['bbox']
-    for a, b in luci.get(0, []):
-        quota(f, T((a, y0)), T((b, y0)), -distanza, b - a)
-    for a, b in luci.get(1, []):
-        quota(f, T((x0, a)), T((x0, b)), distanza, b - a)
+    h = 2.8 * f.u
+    for c, lista in ((0, luci.get(0, [])), (1, luci.get(1, []))):
+        for i, (a, b) in enumerate(lista):
+            pa, pb = (T((a, y0)), T((b, y0))) if c == 0 else (T((x0, a)), T((x0, b)))
+            # 03/11: il numero di un tratto corto (lo spessore del tubo) non ci sta tra le frecce: il primo va prima
+            # della catena, l'ultimo dopo, quelli in mezzo di fianco dalla parte della vista (non sopra la luce dopo).
+            # In verticale il primo (in basso) sta come quelli in mezzo: sotto c'è l'angolo con la catena orizzontale
+            corto = math.hypot(pb[0] - pa[0], pb[1] - pa[1]) < len(fmt(b - a)) * h * 0.55 + 2 * f.u
+            primo = i == 0 and c == 0
+            fianco = 0 if not corto else (-1 if primo else 1)
+            dentro = corto and not primo and i < len(lista) - 1
+            quota(f, pa, pb, -distanza if c == 0 else distanza, b - a, dentro=dentro, di_fianco=fianco)
 
 
 def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -> Foglio:

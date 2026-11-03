@@ -131,7 +131,9 @@ class DrawingsMixin:
                 b.Add(forma, a.solid.wrapped)
         cl = cut_list(result.structures)
         tot = tot or 2
-        base = {**campi, 'titolo': nome_pezzo(doc.meta, self._percorso_di(doc), 'Struttura'), 'materiale': doc.material,
+        # 03/11: una struttura di tubi saldati è un assieme, non un particolare (il cartiglio lo dice)
+        base = {**campi, 'tipo_doc': 'DISEGNO DI ASSIEME',
+                'titolo': nome_pezzo(doc.meta, self._percorso_di(doc), 'Struttura'), 'materiale': doc.material,
                 'spessore_massa': f'{D.fmt(round(cl["kg"], 2))} kg', 'data': D.oggi()}
         # le file di aste uguali a passo costante (sbarre, ripiani): per gruppo, parallele
         file = []
@@ -229,7 +231,9 @@ class DrawingsMixin:
         if gia is None or gia[0] != chiave:
             # impaginate sempre in A2 e poi scalate tali e quali sul foglio scelto
             formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
-            base = [D.in_formato(f, formato) for f in self._fogli_nuovi({**campi, 'formato': 'A2'}, tutte)]
+            # 03/11: la scala si sceglie tra quelle normali sul foglio stampato (1:10 sull'A3, non 1:14,14)
+            with D.uscita_su(formato):
+                base = [D.in_formato(f, formato) for f in self._fogli_nuovi({**campi, 'formato': 'A2'}, tutte)]
             for i, f in enumerate(base):
                 f.chiave = f.chiave or f'foglio{i + 1}'
             gia = self._tavole_base = (chiave, base, {})

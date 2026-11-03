@@ -21,7 +21,8 @@ import build123d as bd
 # 3,5 mm sull'A3 e 2,5 mm sull'A4 (le altezze della norma ISO), la scritta resta proporzionata in ogni formato.
 TESTO = 1.8
 FORMATI = {'A4': (297.0, 210.0), 'A3': (420.0, 297.0), 'A2': (594.0, 420.0)}
-SCALE = [10, 5, 2, 1, 1 / 2, 1 / 2.5, 1 / 5, 1 / 10, 1 / 20, 1 / 25, 1 / 50, 1 / 100]
+SCALE = [10, 5, 2, 1, 1 / 2, 1 / 2.5, 1 / 5, 1 / 10, 1 / 15, 1 / 20, 1 / 25, 1 / 50, 1 / 100]
+SCALE_NORMALI = SCALE + [1 / 3, 1 / 4, 1 / 7.5, 1 / 15, 1 / 30, 1 / 40, 1 / 75, 1 / 200, 1 / 250, 1 / 500]
 LAYER = {'contorno': (7, 0.5), 'nascoste': (8, 0.25), 'tangenti': (8, 0.18), 'piega': (1, 0.25), 'quote': (5, 0.18),
          'testo': (7, 0.25), 'cornice': (7, 0.5), 'cartiglio': (7, 0.25), 'tabella': (7, 0.25),
          'marca': (3, 0.18), 'calandra': (6, 0.3)}
@@ -108,6 +109,10 @@ def fmt(v: float) -> str:
 
 
 def scala_testo(s: float) -> str:
+    for n in SCALE_NORMALI:                    # 1:9,9999 dei conti è 1:10
+        if abs(s / n - 1) < 0.005:
+            s = n
+            break
     if s >= 1:
         return f'{fmt(s)}:1'
     return f'1:{fmt(1 / s)}'
@@ -293,9 +298,9 @@ def catene_di_passo(f: Foglio, v: dict, s: float, T, file: list, vista: str = 'f
                 tappe = [x0] + lista + [x1]
                 pezzi = [(tappe[0], tappe[1], None), (lista[0], lista[-1], f'{n} × {fmt(round(passo, 1))} = {fmt(round(passo * n, 1))}'),
                          (lista[-1], tappe[-1], None)]
-                for a, b, t in pezzi:
+                for i, (a, b, t) in enumerate(pezzi):   # il primo, se il numero non ci sta, prima della catena
                     if b - a > 1e-6:
-                        quota(f, T((a, y)), T((b, y)), d, b - a, testo=t)
+                        quota(f, T((a, y)), T((b, y)), d, b - a, testo=t, di_fianco=-1 if i == 0 else 0)
                 if isinstance(fila, dict):              # la nota per l'officina: quanti, che profilo, passo e luce
                     luce = passo - fila.get('larghezza', 0)
                     A = T((lista[0], y))
@@ -494,7 +499,8 @@ def _freccia(f: Foglio, p, verso, layer='quote', L=2.5):
     f.pieni.append((layer, [p, a, b]))
 
 
-def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', testo=None, nome=None, dentro=False):
+def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', testo=None, nome=None, dentro=False,
+          di_fianco=0):
     """Quota lineare tra a e b (foglio), spostata di "distanza" a sinistra di a→b; scrive il valore vero. Ha un nome
     (quello dato, se no l'oggetto in cui sta + un numero) e si ricorda i suoi dati: la si può ritoccare dopo."""
     if nome is None:
@@ -506,12 +512,14 @@ def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', 
                         'valore': float(valore), 'h': float(h), 'prefisso': prefisso, 'testo': testo, 'padre': f.gruppo}
     if dentro:
         f.elementi[nome]['dentro'] = True
+    if di_fianco:
+        f.elementi[nome]['di_fianco'] = di_fianco
     with f.oggetto(nome):
-        _disegna_quota(f, a, b, distanza, valore, h, prefisso, testo, dentro=dentro)
+        _disegna_quota(f, a, b, distanza, valore, h, prefisso, testo, dentro=dentro, di_fianco=di_fianco)
 
 
 def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None, freccia=None,
-                   dentro=False):
+                   dentro=False, di_fianco=0):
     """Tutto in proporzione al testo (h 2,8 → frecce 2,5): ingrandendo il testo crescono anche frecce e staccate;
     «freccia» = la lunghezza delle frecce, se la vuoi diversa (24/10). Quota corta: frecce fuori che puntano dentro
     e, se il numero non ci sta, il numero di fianco, come in ogni CAD."""
@@ -544,8 +552,10 @@ def _disegna_quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefi
         lato = 1.2 * u * (-2.2 if distanza > 0 else 1)
     c = 0.0
     w = len(scritta) * h * 0.55
-    if L < w + 2 * u and not dentro:                   # il numero non ci sta tra le linee: di fianco, dopo B
-        c = L / 2 + (Lf + 2 * u if fuori else 0) + u + w / 2
+    # il numero non ci sta tra le linee: di fianco, dopo B (di_fianco -1: prima di A; 03/11, catene dei tubi)
+    # 03/11: tra le frecce ci vuole il posto per il numero più un margine (il «174» del cancello le toccava)
+    if L < w + (0 if fuori else 2 * Lf) + 2 * u and (not dentro or di_fianco):
+        c = (-1 if di_fianco < 0 else 1) * (L / 2 + (Lf + 2 * u if fuori else 0) + u + w / 2)
     m = ((A[0] + B[0]) / 2 + ux * c + nx * lato, (A[1] + B[1]) / 2 + uy * c + ny * lato)
     f.text('quote', m, scritta, h, 'c')
     if abs(uy) > 0.5:                                      # quota verticale: testo ruotato nei formati che lo sanno fare
@@ -811,8 +821,21 @@ def etichette_fori(doc) -> dict:
 
 
 # le tavole si impaginano in A2 e si stampano scalate sul foglio scelto: le scale provate sono quelle che sul
-# foglio stampato diventano scale normali (1:10 su un A3 è 1:7,07 nell'A2 di lavoro)
+# foglio stampato diventano scale normali (1:10 su un A3 è 1:7,07 nell'A2 di lavoro). Lo mette uscita_su().
 FATTORE_USCITA = 1.0
+
+
+@contextlib.contextmanager
+def uscita_su(formato: str):
+    """Mentre si impaginano in A2 le tavole che si stampano su «formato»: le scale scelte sono quelle normali
+    (1:5, 1:10, 1:20…) sul foglio stampato, quello che legge l'officina (03/11: prima «1:14,14 (A2 1:10)»)."""
+    global FATTORE_USCITA
+    prima = FATTORE_USCITA
+    FATTORE_USCITA = FORMATI[formato][0] / FORMATI['A2'][0] if formato in FORMATI else 1.0
+    try:
+        yield
+    finally:
+        FATTORE_USCITA = prima
 
 
 # 03/11: per lo sviluppo anche le scale di mezzo (1:7,5 tra 1:5 e 1:10): un pannello da un metro usciva a 1:10 con
@@ -2261,9 +2284,9 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
         g.elementi[nome] = e
     if 0 <= f.i_scala < len(g.testi):
         l, p, t, h, al = g.testi[f.i_scala]
-        sc = _scala_da_testo(t)
-        if sc:          # la scala vera sul foglio stampato, e quella dell'impaginazione in A2 (come si legge sui disegni)
-            g.testi[f.i_scala] = (l, p, f'{scala_testo(sc * k)} ({f.formato} {scala_testo(sc)})', h, al)
+        sc = f.scala if f.scala > 0 else _scala_da_testo(t)
+        if sc:          # 03/11: solo la scala vera sul foglio stampato (quella dell'A2 di lavoro confondeva)
+            g.testi[f.i_scala] = (l, p, scala_testo(sc * k), h, al)
     return g
 
 
