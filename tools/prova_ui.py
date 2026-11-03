@@ -212,7 +212,7 @@ def da_zero(pg, ok):
     # riapro lo sketch dall'albero e allungo il pezzo con la quota
     pg.click('#tree .node:has-text("Contorno")')
     pg.wait_for_function("window.__steelcad.sketch")
-    pg.click('.rbody:not([hidden]) >> text=Seleziona')         # con la Linea attiva i clic passano attraverso le quote
+    comando(pg, '.rbody:not([hidden]) >> text=Seleziona')         # con la Linea attiva i clic passano attraverso le quote
     pg.locator('.dim', has_text='400').first.click()
     pg.keyboard.press('Control+A'); pg.keyboard.type('500'); pg.keyboard.press('Enter')
     pg.wait_for_function("window.__steelcad.state.sheet.data && Math.round(Math.max(...window.__steelcad.state.sheet.data.flat_size)) >= 500")

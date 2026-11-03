@@ -5,6 +5,7 @@
 import os, subprocess, tempfile, time, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(r'C:\Users\Stefano\Documents\Vs code\steelcad'); OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp()); OUT.mkdir(exist_ok=True)
 cart = Path(tempfile.mkdtemp())
 srv = subprocess.Popen([str(ROOT / '.venv/Scripts/python.exe'), str(ROOT / 'app/dev_server.py'), '--porta', '5177', '--cartella', str(cart)],
@@ -25,8 +26,8 @@ try:
         sid = api('sketch_on_face', 'SM1/sopra')['sketch']; api('sketch_add_circle', sid, [150, 100], 10); api('create_from_sketch', sid, 'cut', {})
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
-        chk('pulsante Quota nella barra', pg.is_visible('.rbody:not([hidden]) [data-cmd="misura"]'))
-        pg.click('.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
+        chk('pulsante Quota nella barra', comando_visibile(pg, '.rbody:not([hidden]) [data-cmd="misura"]'))
+        comando(pg, '.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
         def clic(p3):
             x, y = pg.evaluate(SCR, p3); pg.mouse.move(x, y, steps=3); time.sleep(0.3); pg.mouse.click(x, y); time.sleep(0.4)
         clic([0, 200, 2]); clic([300, 200, 2])
@@ -37,7 +38,7 @@ try:
         et = pg.evaluate("[...document.querySelectorAll('#mis-box .dim')].map(e => e.textContent)")
         chk(f'diametro del foro: {et}', any(e.startswith('Ø20') for e in et))
         # l'angolo: tre clic sugli spigoli del piano (lato, vertice, lato) = 90°
-        pg.click('.rbody:not([hidden]) [data-cmd="misura_angolo"]'); time.sleep(0.3)
+        comando(pg, '.rbody:not([hidden]) [data-cmd="misura_angolo"]'); time.sleep(0.3)
         chk('Angolo acceso', pg.evaluate("document.querySelector('.rbody:not([hidden]) [data-cmd=\"misura_angolo\"]').classList.contains('on')"))
         clic([300, 200, 2]); clic([0, 200, 2]); clic([0, 0, 2])
         et = pg.evaluate("[...document.querySelectorAll('#mis-box .dim')].map(e => e.textContent)")
@@ -46,14 +47,14 @@ try:
         pg.keyboard.press('Escape'); time.sleep(0.2)
         if pg.evaluate("!!window.__steelcad.mis"): pg.keyboard.press('Escape'); time.sleep(0.2)
         # saldatura: clic sullo spigolo, Invio, tipo e misura → cordone sul pezzo e metri in distinta
-        pg.click('.rbody:not([hidden]) [data-azione="saldatura3d"]'); time.sleep(0.3)
+        comando(pg, '.rbody:not([hidden]) [data-azione="saldatura3d"]'); time.sleep(0.3)
         clic([70, 200, 2]); pg.keyboard.press('Enter'); time.sleep(0.4)
         pg.fill('#sw-a', '4'); pg.click('#m-ok'); time.sleep(2)
         st = api('state')
         chk(f"saldatura segnata: {[(w['tipo'], w['a'], round(w['m'], 3)) for w in st['saldature']]}", len(st['saldature']) == 1 and abs(st['saldature'][0]['m'] - 0.3) < 1e-6)
         chk('saldature nella distinta', 'Saldature' in pg.inner_html('#tab-bom') and 'a4' in pg.inner_html('#tab-bom'))
         pg.screenshot(path=str(OUT / 'saldatura.png'))
-        pg.click('.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
+        comando(pg, '.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
         time.sleep(0.8)
         q = api('state').get('quote') or []
         chk(f'quote salvate nel progetto: {len(q)}', len(q) == 3 and sum(1 for x in q if x.get('v')) == 1)
@@ -63,7 +64,7 @@ try:
         pg.screenshot(path=str(OUT / 'tavole.png'))
         pg.keyboard.press('Escape'); time.sleep(0.3)
         if pg.is_visible('#tav-ed'): pg.click('#te-chiudi')
-        pg.click('.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
+        comando(pg, '.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
         # nello sviluppo
         pg.keyboard.press('Escape'); pg.evaluate("window.__steelcad.runCmd('unfold')"); time.sleep(1.5)
         pg.keyboard.press('m'); time.sleep(0.3)
@@ -73,8 +74,8 @@ try:
         f = cart / 'L.steelcad'; api('save', str(f)); api('new_assembly', 'A'); api('asm_insert', str(f)); api('asm_insert', str(f))
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(2)
         if pg.is_visible('#home-close'): pg.click('#home-close'); time.sleep(0.4)
-        chk('pulsante Quota nell’assieme', pg.is_visible('.rbody:not([hidden]) [data-cmd="misura"]'))
-        pg.click('.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
+        chk('pulsante Quota nell’assieme', comando_visibile(pg, '.rbody:not([hidden]) [data-cmd="misura"]'))
+        comando(pg, '.rbody:not([hidden]) [data-cmd="misura"]'); time.sleep(0.3)
         T2 = pg.evaluate("[...window.__steelcad.objs.values()].filter(o => o.data.kind === 'instance').map(o => o.data.matrix)")
         dx = T2[1][3] - T2[0][3]
         clic([0, 200, 2]); clic([dx, 200, 2])
