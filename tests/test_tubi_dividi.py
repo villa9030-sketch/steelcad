@@ -160,3 +160,26 @@ def test_scaffale_grande_incroci_tutti_uguali_e_maglie_tenute():
     prima = len(sv._MAGLIE_TUBI)
     s.scene()
     assert len(sv._MAGLIE_TUBI) == prima
+
+
+def test_cambiando_le_misure_le_divisioni_si_rifanno():
+    s = _telaio()
+    assert s.dividi('ST1', _tubo(s, 'Traverso davanti'), 'sopra', 2, 2)['ok']
+    assert s.dividi('ST1', _tubo(s, 'Fianco a sinistra'), 'sinistra', 2, 2, True, None, True)['ok']
+    assert s.add_traverso('ST1', _tubo(s, 'Gamba davanti a sinistra'), _tubo(s, 'Gamba davanti a destra'), 150,
+                          'sotto', '30x30x2')['ok']
+    prima = _righe(s)
+    r = s.structure_template_apply('ST1', {'L': 1007, 'H': 895})
+    assert r['ok'], r.get('message')
+    st = s.result.structures[0]
+    assert st.warnings == []
+    nomi = s.nomi_tubi(st)
+    # la croce sopra di nuovo in mezzo alla larghezza nuova, i montanti dei fianchi lunghi quanto serve
+    croce = next(k for k, v in nomi.items() if v.startswith('Traverso in mezzo, da davanti'))
+    b = _scatola(s, croce)
+    assert (b[0] + b[3]) / 2 == pytest.approx(503.5)
+    assert ('Montante a sinistra' in nomi.values()) and _scatola(s, next(k for k, v in nomi.items()
+                                                                       if v == 'Montante a sinistra'))[5] == 865
+    # il traverso messo a mano resta
+    assert any(v.startswith('Traverso davanti, a 150 da terra') for v in nomi.values())
+    assert s.undo()['ok'] and _righe(s) == prima

@@ -3440,7 +3440,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             self.doc.features = resto[:pos] + new_sk + [new_st] + resto[pos:]
             for k, v in nuovo.parameters.items():
                 self.doc.parameters[k] = v
-        return self._change(f'{self.MODELLI_ST[t["kind"]][0]}: nuove misure', fn)
+            if old.get('type') == 'structure':          # i tubi aggiunti e le divisioni restano (03/11)
+                persi.extend(self._riporta_aggiunte(old, new_st))
+        persi = []
+        r = self._change(f'{self.MODELLI_ST[t["kind"]][0]}: nuove misure', fn)
+        if r.get('ok') and persi:
+            r['message'] = 'Misure cambiate. Non rifatto: ' + '; '.join(persi)
+        return r
 
     def _structure_from_sketch(self, sid, sk, v) -> dict:
         """Le linee dello sketch diventano tubolari. Con "ripetizioni" lo scheletro si ripete a distanza

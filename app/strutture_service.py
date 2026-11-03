@@ -708,86 +708,22 @@ class StruttureMixin:
             if faccia not in self.FACCE or faccia not in self._facce_di(st, m):
                 raise SteelCADError('Scegli il lato da dividere.', code='dividi')
             prof = parse(str(profile or m.profile.name.replace('×', 'x')))
-            su, sv = spec(larghezza), spec(altezza)
+            su, sv = self._spec_dividi(larghezza), self._spec_dividi(altezza)
             if not su and not sv and not chiudi:
                 raise SteelCADError('Scegli in quante parti dividere.', code='dividi')
-            facce = [faccia] + ([self.OPPOSTA[faccia]] if opposta else [])
-            linee = []                                     # (p0, p1, verso dentro o None = come i vicini, gruppo)
-            quadri = None
-            for nome in facce:
-                f = self._faccia(st, nome)
-                if f is None:
-                    raise SteelCADError(f'{self.NOMI_FACCE[nome]} non ha tubi: togli «anche l’altro».', code='dividi')
-                iu, iv, asse = f['iu'], f['iv'], f['asse']
-                eu, ev, ea = (bd.Vector(*[1 if i == k else 0 for i in range(3)]) for k in (iu, iv, asse))
-                dentro = ea * -f['verso']
-                base = [0.0, 0.0, 0.0]
-                base[asse] = f['val']
-                base = bd.Vector(*base)
-                bu, bv = list(f['bu']), list(f['bv'])
-                if chiudi:                                 # i bordi senza tubo: si chiudono, il tubo sta dentro
-                    for bordi, (c0, c1), e_lungo, e_div, (x0, x1) in ((bu, f['v'], ev, eu, f['u']),
-                                                                      (bv, f['u'], eu, ev, f['v'])):
-                        for k, x in enumerate((x0, x1)):
-                            if bordi[k]:
-                                continue
-                            bordi[k] = self._spessore_lungo(prof, e_lungo, e_div)
-                            linee.append((base + e_div * x + e_lungo * c0, base + e_div * x + e_lungo * c1, None,
-                                          'Montanti' if abs(e_lungo.Z) > 0.9 else 'Traversi'))
-                luci = []
-                for sp, (a, b), (ba, bb), (c0, c1), e_lungo, e_div, idx in (
-                        (su, f['u'], bu, f['v'], ev, eu, iu), (sv, f['v'], bv, f['u'], eu, ev, iv)):
-                    t = self._spessore_lungo(prof, e_lungo, e_div)
-                    centri = self._centri(a, b, ba, bb, t, sp)
-                    # i quadri che vengono: tra i bordi, i tubi che ci sono già in mezzo (i ripiani di uno scaffale)
-                    # e quelli nuovi
-                    pezzi = {(round(c - t / 2, 3), round(c + t / 2, 3)) for c in centri}
-                    for x in f['tubi']:
-                        if abs(x.w.dot(e_lungo)) > 0.999:
-                            bx = x.solid.bounding_box()
-                            lo, hi = _t(bx.min)[idx], _t(bx.max)[idx]
-                            if lo > a + ba - 1e-3 and hi < b - bb + 1e-3:
-                                pezzi.add((round(lo, 3), round(hi, 3)))
-                    bordi = [a + ba] + [x for pz in sorted(pezzi) for x in pz] + [b - bb]
-                    luci.append([bordi[k + 1] - bordi[k] for k in range(0, len(bordi), 2)])
-                    for c in centri:
-                        p0 = base + e_div * c + e_lungo * c0
-                        p1 = base + e_div * c + e_lungo * c1
-                        gia = any(abs(x.w.dot(e_lungo)) > 0.999 and (x.start - p0).cross(e_lungo).length < 1e-3
-                                  for x in f['tubi'])
-                        if not gia:
-                            linee.append((p0, p1, dentro, 'Montanti' if abs(e_lungo.Z) > 0.9 else 'Traversi'))
-                if quadri is None:
-                    quadri = luci
-            if not linee:
-                raise SteelCADError('Lì i tubi ci sono già.', code='dividi')
+            linee, quadri = self._linee_dividi(st, faccia, su, sv, opposta, prof, chiudi)
         except SteelCADError as ex:
             return _err(ex.message, ex.code)
         nuovi = []
 
         def fn():
             fdef = self.doc.feature(st_id)
-            punti = fdef.setdefault('points', {})
-            aste = fdef.setdefault('members', [])
-            usati = {x.id for x in st.members} | {x['id'] for x in aste}
-            for p0, p1, dentro, gruppo in linee:
-                chiavi = []
-                for p in (p0, p1):
-                    gia = self._punto_di(st, p) if dentro is None else None     # i bordi: dagli angoli che ci sono
-                    if gia and '×' not in gia:
-                        chiavi.append(gia)
-                        continue
-                    nk = self._free_id(fdef, 'P', punti)
-                    punti[nk] = self._punto_relativo(st, p)
-                    chiavi.append(nk)
-                nid = self._free_id(fdef, 'D', usati)
-                usati.add(nid)
-                d = {'id': nid, 'from': chiavi[0], 'to': chiavi[1], 'profile': prof.name.replace('×', 'x'),
-                     'group': gruppo}
-                if dentro is not None:
-                    d.update(anchor='center', offset=self._a_filo(prof, p1 - p0, dentro))
-                aste.append(d)
-                nuovi.append(f'{st_id}/{nid}')
+            tubi, punti = self._metti_linee(fdef, st, linee, prof)
+            nuovi.extend(f'{st_id}/{x}' for x in tubi)
+            # ricordata: cambiando le misure del modello la divisione si rifà uguale (quadri uguali sulle misure nuove)
+            fdef.setdefault('divisioni', []).append({
+                'faccia': faccia, 'larghezza': su, 'altezza': sv, 'opposta': bool(opposta),
+                'profile': prof.name.replace('×', 'x'), 'chiudi': bool(chiudi), 'tubi': tubi, 'punti': punti})
         quanti = len(linee)
         r = self._change(f'{self.NOMI_FACCE[faccia]}: diviso' + (' (anche l’altro lato)' if opposta else ''), fn)
         if r.get('ok'):
@@ -801,6 +737,131 @@ class StruttureMixin:
                             + (' per lato.' if opposta else '.'))
             r['quadri'] = [[round(x, 1) for x in lu], [round(x, 1) for x in lv]]
         return r
+
+    @staticmethod
+    def _spec_dividi(x):
+        if x in (None, '', 0, 1, '1'):
+            return None
+        if isinstance(x, (int, float, str)):
+            return {'parti': int(_num(x, 'Parti'))}
+        return dict(x)
+
+    def _linee_dividi(self, st, faccia, su, sv, opposta, prof, chiudi):
+        """Le linee dei tubi nuovi (p0, p1, verso dentro o None = come i vicini, gruppo) e i quadri che vengono."""
+        facce = [faccia] + ([self.OPPOSTA[faccia]] if opposta else [])
+        linee = []
+        quadri = None
+        for nome in facce:
+            f = self._faccia(st, nome)
+            if f is None:
+                raise SteelCADError(f'{self.NOMI_FACCE[nome]} non ha tubi: togli «anche l’altro».', code='dividi')
+            iu, iv, asse = f['iu'], f['iv'], f['asse']
+            eu, ev, ea = (bd.Vector(*[1 if i == k else 0 for i in range(3)]) for k in (iu, iv, asse))
+            dentro = ea * -f['verso']
+            base = [0.0, 0.0, 0.0]
+            base[asse] = f['val']
+            base = bd.Vector(*base)
+            bu, bv = list(f['bu']), list(f['bv'])
+            if chiudi:                                 # i bordi senza tubo: si chiudono, il tubo sta dentro
+                for bordi, (c0, c1), e_lungo, e_div, (x0, x1) in ((bu, f['v'], ev, eu, f['u']),
+                                                                  (bv, f['u'], eu, ev, f['v'])):
+                    for k, x in enumerate((x0, x1)):
+                        if bordi[k]:
+                            continue
+                        bordi[k] = self._spessore_lungo(prof, e_lungo, e_div)
+                        linee.append((base + e_div * x + e_lungo * c0, base + e_div * x + e_lungo * c1, None,
+                                      'Montanti' if abs(e_lungo.Z) > 0.9 else 'Traversi'))
+            luci = []
+            for sp, (a, b), (ba, bb), (c0, c1), e_lungo, e_div, idx in (
+                    (su, f['u'], bu, f['v'], ev, eu, iu), (sv, f['v'], bv, f['u'], eu, ev, iv)):
+                t = self._spessore_lungo(prof, e_lungo, e_div)
+                centri = self._centri(a, b, ba, bb, t, sp)
+                # i quadri che vengono: tra i bordi, i tubi che ci sono già in mezzo (i ripiani di uno scaffale)
+                # e quelli nuovi
+                pezzi = {(round(c - t / 2, 3), round(c + t / 2, 3)) for c in centri}
+                for x in f['tubi']:
+                    if abs(x.w.dot(e_lungo)) > 0.999:
+                        bx = x.solid.bounding_box()
+                        lo, hi = _t(bx.min)[idx], _t(bx.max)[idx]
+                        if lo > a + ba - 1e-3 and hi < b - bb + 1e-3:
+                            pezzi.add((round(lo, 3), round(hi, 3)))
+                bordi = [a + ba] + [x for pz in sorted(pezzi) for x in pz] + [b - bb]
+                luci.append([bordi[k + 1] - bordi[k] for k in range(0, len(bordi), 2)])
+                for c in centri:
+                    p0 = base + e_div * c + e_lungo * c0
+                    p1 = base + e_div * c + e_lungo * c1
+                    gia = any(abs(x.w.dot(e_lungo)) > 0.999 and (x.start - p0).cross(e_lungo).length < 1e-3
+                              for x in f['tubi'])
+                    if not gia:
+                        linee.append((p0, p1, dentro, 'Montanti' if abs(e_lungo.Z) > 0.9 else 'Traversi'))
+            if quadri is None:
+                quadri = luci
+        if not linee:
+            raise SteelCADError('Lì i tubi ci sono già.', code='dividi')
+        return linee, quadri
+
+    def _metti_linee(self, fdef, st, linee, prof):
+        """Le linee diventano punti e tubi della struttura: ritorna (id dei tubi, chiavi dei punti nuovi)."""
+        punti = fdef.setdefault('points', {})
+        aste = fdef.setdefault('members', [])
+        usati = {x.id.split(SEP_PEZZO)[0] for x in st.members} | {x['id'] for x in aste}
+        tubi, chiavi_nuove = [], []
+        for p0, p1, dentro, gruppo in linee:
+            chiavi = []
+            for p in (p0, p1):
+                gia = self._punto_di(st, p) if dentro is None else None     # i bordi: dagli angoli che ci sono
+                if gia and '×' not in gia:
+                    chiavi.append(gia)
+                    continue
+                nk = self._free_id(fdef, 'P', punti)
+                punti[nk] = self._punto_relativo(st, p)
+                chiavi.append(nk)
+                chiavi_nuove.append(nk)
+            nid = self._free_id(fdef, 'D', usati)
+            usati.add(nid)
+            d = {'id': nid, 'from': chiavi[0], 'to': chiavi[1], 'profile': prof.name.replace('×', 'x'),
+                 'group': gruppo}
+            if dentro is not None:
+                d.update(anchor='center', offset=self._a_filo(prof, p1 - p0, dentro))
+            aste.append(d)
+            tubi.append(nid)
+        return tubi, chiavi_nuove
+
+    def _riporta_aggiunte(self, old: dict, new_st: dict) -> list:
+        """Cambiando le misure di un modello (structure_template_apply): i tubi aggiunti a mano (traversi, tubi dalle
+        frecce, punti) restano, e le divisioni («Dividi il lato») si rifanno sulle misure nuove, coi quadri uguali
+        (03/11: prima cambiando l'altezza si perdeva tutto). Va chiamata dentro la modifica, con new_st già al suo
+        posto nel progetto. Ritorna le divisioni che non si possono rifare (frasi)."""
+        divisioni = old.get('divisioni') or []
+        fatti = {x for d in divisioni for x in d.get('tubi', [])}
+        punti_div = {k for d in divisioni for k in d.get('punti', [])}
+        punti = new_st.setdefault('points', {})
+        for k, v in (old.get('points') or {}).items():
+            if k not in punti and k not in punti_div:
+                punti[k] = v
+        del_modello = {m['id'] for m in new_st.get('members') or []}
+        for m in old.get('members') or []:
+            if m['id'] not in del_modello and m['id'] not in fatti:
+                new_st.setdefault('members', []).append(m)
+        if old.get('incroci'):
+            new_st['incroci'] = dict(old['incroci'])
+        persi = []
+        if not divisioni:
+            return persi
+        self._rebuild()
+        for d in divisioni:
+            try:
+                st = self._st(new_st['id'])
+                prof = parse(d['profile'])
+                linee, _ = self._linee_dividi(st, d['faccia'], d.get('larghezza'), d.get('altezza'), d.get('opposta'),
+                                              prof, d.get('chiudi'))
+            except SteelCADError as ex:
+                persi.append(f'{self.NOMI_FACCE.get(d["faccia"], d["faccia"])}: {ex.message}')
+                continue
+            tubi, chiavi = self._metti_linee(new_st, st, linee, prof)
+            new_st.setdefault('divisioni', []).append({**d, 'tubi': tubi, 'punti': chiavi})
+            self._rebuild()
+        return persi
 
     @staticmethod
     def _a_filo(prof, w: bd.Vector, dentro: bd.Vector) -> list:

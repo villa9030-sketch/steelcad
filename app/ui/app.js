@@ -856,6 +856,8 @@ canvas.addEventListener('pointerup', ev => {
   ultimoClic = h;
   if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
   if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) { puntoPreso(h.point); return; }
+  if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
+  DIVSCEGLI = false;
   MINI.dove = { p: h?.point ?? null, t: performance.now() };      // la barretta compare qui
   // secondo clic sulla stessa flangia: la sua faccia (disegna, fora, taglia lì)
   if (h && sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia && document.getElementById('mini-barra')) {
@@ -938,7 +940,7 @@ function pannelloTraverso() {
 // DIVIDI (03/11, il telaio 807 × 725 × 795 di Stefano: «complicatissimo, il contrario di intuitivo»): clic su un tubo
 // del fianco o del telaio sopra → in quante parti → montanti e traversi a filo del lato, quadri uguali. Dove si
 // incrociano uno passa intero e l'altro si taglia in due (come in officina)
-let DIV = null;
+let DIV = null, DIVSCEGLI = false;
 async function iniziaDividi(s) {
   const [st, mid] = s.id.split('/');
   const r = await chiamaMuto('dividi_info', st, mid);
@@ -950,7 +952,8 @@ async function iniziaDividi(s) {
   const dot = k => k === 'sopra' ? 2 : n ? N[k].reduce((t, c, i) => t + c * n[i], 0) : 0;
   r.facce.sort((a, b) => dot(b.key) - dot(a.key));
   const f = r.facce[0];
-  DIV = { st, mid, info: r, faccia: f.key, u: '2', v: '2', mu: '', mv: '', rif: 'centro', opposta: !!f.opposta, chiudi: false, prof: r.profilo };
+  // «uguale anche dall'altra parte» già spuntato per i fianchi (di solito sono uguali); davanti e dietro no
+  DIV = { st, mid, info: r, faccia: f.key, u: '2', v: '2', mu: '', mv: '', rif: 'centro', opposta: !!f.opposta && /sinistra|destra/.test(f.key), chiudi: false, prof: r.profilo };
   pannelloDividi();
 }
 function dividiArgomenti() {
@@ -993,7 +996,7 @@ function pannelloDividi() {
     if ($('#dv-mv')) DIV.mv = $('#dv-mv').value;
   };
   const rifai = fn => b => { b.onclick = () => { tieni(); fn(b); pannelloDividi(); }; };
-  document.querySelectorAll('[data-dvf]').forEach(rifai(b => { DIV.faccia = b.dataset.dvf; DIV.opposta = !!DIV.info.facce.find(x => x.key === DIV.faccia)?.opposta; }));
+  document.querySelectorAll('[data-dvf]').forEach(rifai(b => { DIV.faccia = b.dataset.dvf; DIV.opposta = !!DIV.info.facce.find(x => x.key === DIV.faccia)?.opposta && /sinistra|destra/.test(DIV.faccia); }));
   document.querySelectorAll('[data-dvu]').forEach(rifai(b => { DIV.u = b.dataset.dvu; }));
   document.querySelectorAll('[data-dvv]').forEach(rifai(b => { DIV.v = b.dataset.dvv; }));
   document.querySelectorAll('[data-dvr]').forEach(rifai(b => { DIV.rif = b.dataset.dvr; }));
@@ -2078,6 +2081,10 @@ function azione(id) {
   const sel1 = async q => { await select(q); };
   switch (id) {
     case 'piega': runCmd('flange_help'); return;
+    case 'dividi':                                  // DIVIDI dalla barra: col tubo già scelto, o il prossimo cliccato
+      // il tubo che hai appena cliccato tu (non quello scelto dall'ultimo comando): subito il pannello
+      if (sel?.id && ultimoClic?.id === sel.id && objs.get(sel.id)?.data?.kind === 'member') { inCoda(() => iniziaDividi({ id: sel.id })); return; }
+      DIVSCEGLI = true; t('Clicca un tubo del lato da dividere (il fianco, il telaio sopra…).'); return;
     case 'tipo_foro': t('Clicca un foro sul pezzo: a destra scegli svasato o filettato. I fori nuovi: «Su una faccia», Cerchio, poi «Togli materiale».'); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
@@ -2643,6 +2650,7 @@ async function renderProps(s) {
     const c = s.cosa;
     h = `<h3>${esc(s.title)}</h3>${tab([['Fuori tutto', c.fuori_tutto.join(' × ') + ' mm'], ['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]])}
       <div class="sub">Cosa puoi fare adesso</div><div class="cosa">
+      <button class="cosa-b" data-azione="dividi"><b>Dividi un lato</b><span>Montanti e traversi in mezzo, quadri uguali: clicca un tubo del lato</span></button>
       <button class="cosa-b" data-azione="traverso"><b>Aggiungi un traverso</b><span>Clicca due tubi, poi scrivi a che altezza</span></button>
       <button class="cosa-b" data-azione="giunti"><b>Come sono saldati gli angoli</b><span>Clicca un angolo: scegli col disegnino</span></button>
       <button class="cosa-b" data-azione="tubonuovo"><b>Tubo nuovo da un angolo</b><span>Le frecce Su, Giù, Avanti… (mensole, rinforzi)</span></button>
