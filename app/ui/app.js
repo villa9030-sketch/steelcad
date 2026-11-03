@@ -3119,11 +3119,16 @@ async function renderProps(s) {
     wireInstance(s);
     return;
   } else if (s.kind === 'assembly') {
-    $('#props').innerHTML = `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">tutto l’assieme</div></div></div>
-      <table class="grid">${s.rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>
-      <div class="sub">Ruota tutto l’assieme di 90°</div>
-      <div class="row-btns"><button class="btn" data-rotall="x">attorno a X</button><button class="btn" data-rotall="y">attorno a Y</button><button class="btn" data-rotall="z">attorno a Z</button></div>
-      <p class="hint">Gira tutti i pezzi insieme: gli accoppiamenti restano come sono. Per guardarlo da un altro lato invece trascina col tasto sinistro.</p>`;
+    // 04/11 (regola 2): l'assieme intero, come il pannello del pezzo: cos'è, cosa puoi fare, ruota tutto, dettagli
+    const riga = k => s.rows.find(r => r[0] === k)?.[1] || '0';
+    const cmd = [['asm_insert', 'box', 'Inserisci pezzo'], ['asm_interf', 'section', 'Interferenze'], ['asm_esploso', 'explode', 'Vista esplosa'], ['drawings', 'export', 'Tavole PDF']];
+    $('#props').innerHTML = `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">L’assieme intero: ${esc(riga('Pezzi'))} pezzi, ${esc(riga('Accoppiamenti'))} accoppiamenti</div></div></div>
+      <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">${cmd.map(([c, ic, t]) => `<button class="btn" data-asm-cmd="${c}"><img src="icons/${ic}.svg" alt=""><span>${t}</span></button>`).join('')}</div></section>
+      <section class="sezione"><h4>Ruota tutto di 90°</h4>
+      <div class="seg asm-ruota"><button data-rotall="x">attorno a X</button><button data-rotall="y">attorno a Y</button><button data-rotall="z">attorno a Z</button></div>
+      <p class="hint">Gira tutti i pezzi insieme: gli accoppiamenti restano come sono. Per guardarlo da un altro lato invece trascina col tasto sinistro.</p></section>
+      <details class="fsec"><summary>Dettagli</summary><table class="grid">${s.rows.map(r => `<tr><td>${esc(r[0])}</td><td class="num">${esc(r[1])}</td></tr>`).join('')}</table></details></div>`;
+    document.querySelectorAll('[data-asm-cmd]').forEach(b => { b.onclick = () => runCmd(b.dataset.asmCmd); });
     document.querySelectorAll('[data-rotall]').forEach(b => {
       b.onclick = () => inCoda(async () => { if (await apply(await call('asm_rotate_all', b.dataset.rotall, 90))) await refreshSel(); });
     });
@@ -5920,7 +5925,7 @@ async function newAssemblyDialog() {
     <div class="na-testa"><div class="sub">Pezzi da mettere dentro</div><button class="btn" id="na-sfoglia">Sfoglia…</button></div>
     <div class="na-lista"><table class="grid" id="na-tab">${righe()}</table></div>
     <p class="hint">Il primo pezzo che scegli è la base e resta fermo; le copie si mettono a fianco e poi le accoppi. Nella distinta compaiono con la quantità.</p>
-    <div class="acts"><span class="hint" id="na-tot" style="margin-right:auto"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea assieme</button></div>`, close => {
+    <div class="acts"><span class="hint spingi" id="na-tot"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea assieme</button></div>`, close => {
     const tot = () => {
       const sc = scelti();
       $('#na-tab').querySelectorAll('[data-base]').forEach(s => { s.textContent = pezzi[+s.dataset.base] === sc[0] ? 'base, resta fermo' : ''; });

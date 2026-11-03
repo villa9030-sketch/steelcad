@@ -2028,3 +2028,4 @@ body:has(.pannello-cmd) #viewcube { right: 326px; }
 #tree .node .st.fisso img { width: 12px; height: 12px; opacity: .7; }
 #tree .node .n-conta { margin-left: var(--s-1); padding: 0 6px; border-radius: 9px; background: var(--c-incavo); color: var(--c-testo-2); font-size: var(--fs-piccolo);
   line-height: 18px; font-variant-numeric: tabular-nums; }
+.acts .spingi { margin-right: auto; }
