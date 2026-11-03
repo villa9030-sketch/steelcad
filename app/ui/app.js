@@ -4840,19 +4840,35 @@ const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco'
 // 03/11: «Allinea invece di affacciare» erano parole da CAD: a filo (le facce dalla stessa parte) o contro (una sull'altra)
 const MATE_GIRA = { faccia: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'], distanza: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'],
   asse: ['Gira dall’altra parte'], parallelo: ['Gira dall’altra parte'], angolo: ['Angolo dall’altra parte'], tangente: ['Dall’altra parte'] };
+// 04/11 (regola 2): l'accoppiamento scelto: cos'è in parole → cosa puoi fare (gira, sospendi) → la misura col cursore →
+// i due pezzi (clic = scegli il pezzo) → «Dettagli» (tipo, scarto) → in fondo «Fatto» in blu
+const MATE_COSA = { faccia: 'Una faccia contro l’altra', asse: 'I due fori sulla stessa linea', distanza: 'Due facce a una distanza',
+  angolo: 'Due facce a un angolo', tangente: 'Il tubo appoggiato sulla faccia', parallelo: 'Due facce (o tubi) paralleli',
+  perpendicolare: 'Due facce (o tubi) a squadra', centra: 'Il pezzo al centro, tra due lati', blocca: 'I due pezzi fermi uno rispetto all’altro',
+  spigolo: 'Due spigoli sulla stessa linea', spigolo_faccia: 'Lo spigolo appoggiato sulla faccia', cono: 'La testa della vite nella svasatura',
+  testa: 'Due tagli a 45° uno contro l’altro' };
 function matePanel(s) {
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
   const gira = d.da === 'appoggia' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
-  return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.rows[0][1])}</div></div>
+  const riga = k => s.rows.find(r => r[0] === k)?.[1] || '';
+  const tipo = riga('Tipo').replace(/^./, c => c.toUpperCase()), scarto = riga('Scarto');
+  const cos = `${tipo}${d.da === 'appoggia' ? ', messo da «Appoggia»' : ''}${d.off ? ': sospeso, adesso non tiene' : ''}`;
+  const campo = MATE_CAMPO[d.type] ? `<div class="ff"><label>${d.da === 'appoggia' && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field num" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
+      ${d.type === 'distanza' ? `<input type="range" class="cursore" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" title="Trascina: il pezzo si muove">` : ''}` : '';
+  const angolo = d.type === 'angolo' ? `<div class="ff"><label>Angolo<span class="inp"><input class="field num" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
+      <input type="range" class="cursore" id="m-slide" min="0" max="180" step="1" value="${d.angle}" title="Trascina: il pezzo gira">
+      <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : '';
+  const pezzo = (k, id) => `<button class="asm-mate" data-vai-pezzo="${esc(id || '')}" title="Scegli il pezzo"><img src="icons/${k === 'Fermo' ? 'c_fix' : 'move'}.svg" alt=""><span><span class="testo-2">${k === 'Fermo' ? 'Sta fermo' : 'Si muove'}:</span> ${esc(riga(k))}</span></button>`;
+  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cos)}</div></div>
       <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
-    <table class="grid">${s.rows.slice(1).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${d.da === 'appoggia' && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
-      ${d.type === 'distanza' ? `<input type="range" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" style="width:100%" title="Trascina: il pezzo si muove">` : ''}` : ''}
-    ${d.type === 'angolo' ? `<div class="ff" style="margin-top:10px"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
-      <input type="range" id="m-slide" min="0" max="180" step="1" value="${d.angle}" style="width:100%" title="Trascina: il pezzo gira">
-      <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : ''}
-    <div class="row-btns">${gira ? `<button class="btn" id="m-flip">${gira[d.flip && gira[1] ? 1 : 0]}</button>` : ''}
-      <button class="btn" id="m-sosp">${d.off ? 'Riattiva' : 'Sospendi'}</button></div>`;
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni una">${gira ? `<button class="btn" id="m-flip" title="${esc(gira[d.flip && gira[1] ? 1 : 0])}"><img src="icons/mirror.svg" alt=""><span>${esc(gira[d.flip && gira[1] ? 1 : 0].replace(/ \(.*$/, ''))}</span></button>` : ''}
+      <button class="btn" id="m-sosp" title="${d.off ? 'Torna a tenere i due pezzi' : 'Per un momento non tiene: il pezzo resta dov’è e lo puoi spostare'}"><img src="icons/${d.off ? 'joint' : 'eye'}.svg" alt=""><span>${d.off ? 'Riattiva' : 'Sospendi'}</span></button></div>
+      <p class="hint">${MATE_COSA[d.type] ? esc(MATE_COSA[d.type]) + '.' : ''}</p></section>
+    ${campo || angolo ? `<section class="sezione"><h4>Misura</h4>${campo}${angolo}</section>` : ''}
+    <section class="sezione"><h4>I due pezzi</h4>${pezzo('Fermo', d.a)}${pezzo('Si muove', d.b)}</section>
+    <details class="fsec"><summary>Dettagli</summary><table class="grid"><tr><td>Tipo</td><td>${esc(tipo)}</td></tr><tr><td>Scarto</td><td class="num">${esc(scarto)}</td></tr></table>
+      <p class="hint">Lo scarto è quanto il risolutore non riesce a rispettare: vicino a zero va bene.</p></details>
+    <div class="asm-fondo"><button class="btn primary big" id="m-fatto">Fatto</button></div></div>`;
 }
 function wireMate(s) {
   const fai = f => inCoda(async () => { if (await apply(await call('asm_edit_mate', s.id, f))) await refreshSel(); });
@@ -4862,6 +4878,8 @@ function wireMate(s) {
   if ($('#m-slide')) cursoreMovimento($('#m-slide'), $('#m-off') || $('#m-ang'), s.id, s.def.type === 'angolo' ? 'angle' : 'offset');
   $('#m-sosp').onclick = () => fai({ off: !s.def.off });
   $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
+  document.querySelectorAll('[data-vai-pezzo]').forEach(b => { if (b.dataset.vaiPezzo) b.onclick = () => inCoda(() => select(b.dataset.vaiPezzo)); });
+  $('#m-fatto').onclick = () => { document.activeElement?.blur?.(); setTimeout(clearSelection, 30); };
 }
 // il cursore che muove un pezzo: mentre lo trascini si spostano i pezzi già disegnati (una chiamata alla volta);
 // lasciato, la modifica si registra una volta (annulla torna a prima)

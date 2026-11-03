@@ -2128,7 +2128,7 @@ class AssemblyMixin:
             return _ok(selection={'kind': 'mate', 'id': mid, 'title': _frase_mate(m, nomi), 'rows': rows,
                                   'def': {'type': m['type'], 'offset': (m.get('offset') or 0) * (m.get('segno') or 1),
                                           'flip': bool(m.get('flip')), 'da': m.get('da'),
-                                          'angle': m.get('angle') or 0,
+                                          'angle': m.get('angle') or 0, 'a': m['a']['inst'], 'b': m['b']['inst'],
                                           'off': bool(m.get('off'))}})
         i = self.asm.instance(obj_id)
         part = self.asm_parts.get(i['file'])

@@ -2036,3 +2036,4 @@ body { --alt-rib: 132px; }
 .asm-fondo { position: sticky; bottom: calc(-1 * var(--s-3)); z-index: 1; margin: var(--s-2) calc(-1 * var(--s-3)) calc(-1 * var(--s-3)); padding: var(--s-3);
   background: var(--c-pannello); border-top: 1px solid var(--c-linea); display: flex; gap: var(--s-2); }
 .asm-fondo .btn.primary { flex: 1; }
+.asm-azioni.una { grid-template-columns: 1fr; }
