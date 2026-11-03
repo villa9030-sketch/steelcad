@@ -2704,3 +2704,9 @@ body.bottom-closed #toasts { bottom: 104px; }
 .imp-bt .field { min-height: 28px; padding: 0 6px; }
 .imp-bt select.field { padding-right: 20px; background-position: right 6px center; }
 .tav.imp .tav-side h3 { margin-bottom: var(--s-3); }
+/* assieme con pezzi che non si trovano: la scheda ambra come quella dell'errore (rossa), non un riquadro tutto colorato */
+#mancanti { padding: var(--s-3) var(--s-4); border: 1px solid var(--c-linea); border-left: 4px solid var(--c-warn); border-radius: var(--r-galleggia);
+  background: var(--c-pannello); color: var(--c-testo); box-shadow: var(--ombra-galleggia); }
+#mancanti > b { color: var(--c-warn-testo); }
+#mancanti > span:first-of-type { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+.imp-info { margin-bottom: var(--s-3); }

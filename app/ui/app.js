@@ -7269,8 +7269,8 @@ async function importDialog(percorso) {
         ${regole.length ? `<label class="tutta-riga">Regola di piega<select class="field" id="imp-rule"><option value="">— scrivi i dati qui sotto —</option>
           ${regole.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}
         <label>Raggio interno<input class="field" id="imp-r" placeholder="mm" value="${virg(S?.bend_default?.radius)}"></label>
-        <label>Metodo<select class="field" id="imp-met"><option value="k">K-factor</option><option value="din6935">DIN 6935</option><option value="bd90">Deduzione 90°</option></select></label>
-        <label id="imp-k-l">K-factor<input class="field" id="imp-k" placeholder="es. 0,4" value="${virg(S?.bend_default?.k)}"></label>
+        <label>Metodo<select class="field" id="imp-met"><option value="k">Fattore K</option><option value="din6935">DIN 6935</option><option value="bd90">Deduzione 90°</option></select></label>
+        <label id="imp-k-l">Fattore K<input class="field" id="imp-k" placeholder="es. 0,4" value="${virg(S?.bend_default?.k)}"></label>
         <label id="imp-bd-l" hidden>Deduzione 90°<input class="field" id="imp-bd" placeholder="mm"></label>
         <label>Angolo pieghe<input class="field" id="imp-ang" value="90"></label>
         <label>Verso<select class="field" id="imp-dir"><option value="up">su</option><option value="down">giù</option></select></label>
@@ -9681,7 +9681,7 @@ function skDimClick(ev) {
     <div class="acts"><button class="btn" id="m-no">Annulla</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); quota(b.dataset.k, [a, punto]); }; });
-  });
+  }, { stretta: true });
 }
 
 async function structureDialog() {
@@ -9976,7 +9976,7 @@ function makeDialog(kind) {
         <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
       ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
       <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>
-        <label>K-factor<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
+        <label>Fattore K<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
       <p class="hint">Il 3D si gira trascinando col mouse e si ingrandisce con la rotella, anche con questa finestra aperta.</p>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok" disabled title="Prima scegli: interno o esterno">${prima ? 'Cambia' : 'Estrudi in lamiera'}</button></div>`, close => {
       // 30/10, Stefano: «non mi chiede se il profilo è l'interno o l'esterno»: si sceglie per forza, e l'anteprima lo fa vedere
