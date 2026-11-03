@@ -5606,6 +5606,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             xlsx.scrivi(path, [('Lista di taglio', tab, [6, 50, 14, 10, 13, 14, 6, 9, 9, 8], [0]),
                                ('Barre da comprare', tot, [14, 10, 8, 9, 9], [0])])
             return {'ok': True, 'path': str(path), 'message': f'Lista di taglio salvata: {len(righe)} righe ({Path(path).name}).'}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
 
     def export_taglio_tubi(self, path: str) -> dict:
         """La distinta di taglio dei tubi in CSV (punto e virgola, virgola decimale: si apre in Excel), per la
