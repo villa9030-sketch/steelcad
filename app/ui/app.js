@@ -1586,7 +1586,9 @@ function buildDims() {
 function quoteIngombro() {
   const box = new THREE.Box3();
   model.updateMatrixWorld(true);
-  model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
+  // 04/11 notte (attriti, D 15): un pezzo aperto dall'assieme ha attorno gli altri pezzi, trasparenti: l'ingombro è
+  // quello del pezzo (la staffa 100 × 80), non dell'assieme (88 × 300 × 200)
+  model.traverse(o => { if (o.isMesh && o.visible && o.geometry && o.material !== CTX_MAT) box.expandByObject(o); });
   if (box.isEmpty()) return;
   const mn = box.min, mx = box.max, sz = box.getSize(new THREE.Vector3());
   const off = Math.max(30, box.getBoundingSphere(new THREE.Sphere()).radius * 0.16);
@@ -1876,6 +1878,26 @@ function renderPanels() {
   renderTop(); renderTree(); renderParams(); renderBottom(); renderSheet(); aggiornaComandi(); renderStoria();
   aggiornaLayout();
   if (!sel && !SK) $('#props').innerHTML = '';
+  passoAssieme();
+}
+// 04/11 notte (attriti, D 12): appena creato l'assieme i pezzi sono a fianco e non si sa cosa fare: una riga «prossimo
+// passo» in basso, finché non c'è un accoppiamento (o la chiudi). Durante Appoggia & c. parla la loro barra
+const ASM_PASSO_CHIUSO = new Set();
+function passoAssieme() {
+  let b = document.getElementById('asm-passo');
+  const chi = S?.path || S?.name || '', ist = S?.instances || [];
+  const mostra = S?.mode === 'assembly' && ist.length >= 2 && ist.some(i => !i.fixed) && !SK && !ASM.tool && !APP.el
+    && !JSON.stringify(S.tree || {}).includes('"kind":"mate"') && !ASM_PASSO_CHIUSO.has(chi);
+  if (!mostra) { if (b) b.hidden = true; return; }
+  if (!b) {
+    b = document.createElement('div'); b.id = 'asm-passo';
+    b.innerHTML = `<span class="t-passo">Metti i pezzi al loro posto:</span><button type="button" class="btn piccolo" id="asm-passo-ok"><img src="icons/appoggia.svg" alt="">Appoggia</button>`
+      + `<span class="t-poi">poi clic sul pezzo e sulla faccia dove va</span><button type="button" class="asm-passo-x" title="Chiudi" aria-label="Chiudi">×</button>`;
+    $('#trav-hint').after(b);
+    b.querySelector('#asm-passo-ok').onclick = () => asmTool('appoggia');
+    b.querySelector('.asm-passo-x').onclick = () => { ASM_PASSO_CHIUSO.add(S?.path || S?.name || ''); b.hidden = true; };
+  }
+  b.hidden = false;
 }
 // il pannello a destra si apre solo quando c'è qualcosa di selezionato (le proprietà); i comandi stanno nella barra in alto
 function aggiornaLayout() {
@@ -4392,6 +4414,7 @@ function asmTool(t) {
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
   if (t) asmHelp(); else setHelp('');
   if (!SK) $('#sk-foot').hidden = !t;                // il suggerimento in basso, anche fuori dal disegno
+  if (typeof passoAssieme === 'function' && S) passoAssieme();   // la riga «metti i pezzi al loro posto» lascia il posto
 }
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-asm-tool]');
