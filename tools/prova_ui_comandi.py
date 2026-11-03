@@ -273,8 +273,9 @@ def main():
             for tab in ('lamiera',):
                 # nella schermata del pezzo la barra non si vede (c'è "Cosa puoi fare adesso"): i suoi comandi si
                 # lanciano per nome, come da Ctrl+K e dai pannelli
-                for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].filter(b => !(b.closest('.drop') && b.hidden)).map(b => (b.closest('.drop') ? 'menu:' : '') + b.dataset.cmd)", tab):
-                    # (le voci di Esporta nascoste qui non servono: la distinta Excel c'è solo negli assiemi)
+                for cmd in pg.evaluate("(t) => [...document.querySelectorAll('.rbody[data-rbody=' + t + '] [data-cmd]')].filter(b => !(b.closest('.drop') && b.hidden)).map(b => (b.closest('.rmenu:not(.ralt) .drop') ? 'menu:' : '') + b.dataset.cmd)", tab):
+                    # (le voci di Esporta nascoste qui non servono: la distinta Excel c'è solo negli assiemi;
+                    # i comandi dentro «Altro ▾» del gruppo sono pulsanti della barra come gli altri)
                     if cmd == 'unfold' or cmd == 'flat_sketch':
                         continue                               # provati a parte
                     pg.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
