@@ -2508,6 +2508,8 @@ function puntiScelta() {
   const chi = `${sel.id}|${facce.join(',')}|${S?.scene_version ?? ''}`;
   if (SCELTA.chi === chi) return SCELTA.punti;
   SCELTA.chi = chi; SCELTA.punti = null;
+  const e = edgeSel();                               // un bordo: la barretta va accanto alla sua linea
+  if (e) { SCELTA.punti = [v3(e.a), v3(e.b)]; return SCELTA.punti; }
   const o = objs.get(sel.id) || (facce.length ? objs.get('body') : null);
   if (!o?.mesh) return null;
   const M = o.pos || o.mesh.matrixWorld, pts = [];
