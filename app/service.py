@@ -241,7 +241,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     # le sigle dei parametri in parole, per il pannello: prima quelle dei campi del modello, poi le solite
     ETICHETTE_PARAMETRI = {'W': 'Larghezza', 'P': 'Profondità', 'L': 'Lunghezza', 'H': 'Altezza', 'sp': 'Spessore',
                            'ps': 'Passo sbarre', 'pr': 'Passo ripiani', 'D1': 'Ø grande', 'D2': 'Ø piccolo',
-                           'D': 'Distanza', 'A': 'Lato A', 'B': 'Lato B', 'ex': 'Spostamento X', 'ey': 'Spostamento Y'}
+                           'D': 'Distanza', 'A': 'Lato A', 'B': 'Lato B', 'ex': 'Spostamento X', 'ey': 'Spostamento Y',
+                           'lunghezza': 'Larghezza della fascia'}   # 04/11: il profilo estruso (collare)
 
     def _etichette_parametri(self) -> dict:
         nomi = dict(self.ETICHETTE_PARAMETRI)
