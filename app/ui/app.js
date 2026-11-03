@@ -55,7 +55,7 @@ function attesaFine() {
 }
 let ultimaChiamata = null;                          // per ripetere la stessa chiamata con la soluzione di un errore
 async function call(name, ...args) {
-  if (!/^(state|scene|select|autosave|update_check|anteprima|.*_preview|libreria_catalogo|asm_fori_uguali|tree_menu|drawing_fields)$/.test(name)) ultimaChiamata = [name, args];
+  if (!/^(state|scene|select|autosave|update_check|anteprima|anteprima_maglia|save_thumbnail|.*_preview|libreria_catalogo|asm_fori_uguali|tree_menu|drawing_fields)$/.test(name)) ultimaChiamata = [name, args];
   const attende = !/^live_/.test(name);             // la diretta aspetta il passo dopo: non è «Sto lavorando»
   if (attende) attesaInizio(name);
   try {
@@ -5814,16 +5814,16 @@ async function impostazioniDialog(sezione = 'piegatrice') {
   const metodo = x => (x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : n(x.k));
   const regole = r.rules.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.material || '')}</td><td class="destra">${n(x.thickness)}</td>
       <td class="destra">${n(x.radius)}</td><td class="destra">${metodo(x)}</td>
-      <td class="destra"><button class="btn" data-rule-del="${esc(x.name)}" title="Elimina la regola">×</button></td></tr>`).join('')
-    || '<tr><td colspan="6" class="hint">Ancora nessuna regola. Con una lamiera aperta: «Regole piega» → «Salva regola».</td></tr>';
+      <td class="destra"><button class="btn piccolo danger" data-rule-del="${esc(x.name)}" title="Elimina la regola">Elimina</button></td></tr>`).join('')
+    || '<tr><td colspan="6" class="hint">Ancora nessuna regola. Con una lamiera aperta: «Regole piega», poi «Salva regola».</td></tr>';
   const scuro = r.tema === 'scuro';
   const corpi = {
     piegatrice: `<h4>Piegatrice</h4>
       <p class="hint">Raggio e K per ogni lamiera nuova, quando non scrivi niente.</p>
-      <div class="imp-riga"><span>Raggio interno</span><span class="imp-campo"><input class="field corto" id="i-r" value="${n(r.bend_default?.radius)}"><i>mm</i></span><span></span></div>
-      <div class="imp-riga"><span>Fattore K</span><span class="imp-campo"><input class="field corto" id="i-k" value="${n(r.bend_default?.k)}"></span><span></span></div>
-      <h4 style="margin-top:10px">Regole salvate</h4>
-      <table class="grid imp-regole"><tr class="hint"><th style="text-align:left">Nome</th><th style="text-align:left">Materiale</th><th class="destra">Spessore</th><th class="destra">Raggio</th><th class="destra">K</th><th></th></tr>${regole}</table>`,
+      <div class="imp-riga"><span>Raggio interno</span><span class="campo-unita imp-corto"><input class="field" id="i-r" value="${n(r.bend_default?.radius)}" placeholder="dalla piegatrice"><i>mm</i></span><span></span></div>
+      <div class="imp-riga"><span>Fattore K</span><span class="campo-unita imp-corto"><input class="field" id="i-k" value="${n(r.bend_default?.k)}" placeholder="es. 0,33"></span><span></span></div>
+      <h4 class="imp-sotto">Regole salvate</h4>
+      <table class="grid imp-regole"><tr><th>Nome</th><th>Materiale</th><th class="destra">Spessore</th><th class="destra">Raggio</th><th class="destra">K</th><th></th></tr>${regole}</table>`,
     materiali: `<h4>Materiali</h4>
       <p class="hint">Il materiale dei pezzi nuovi. Ogni pezzo lo cambi poi a sinistra, sotto «Misure».</p>
       <div class="imp-riga"><span>Materiale predefinito</span><select class="field medio" id="i-mat">${r.materiali.map(m =>
@@ -5839,14 +5839,15 @@ async function impostazioniDialog(sezione = 'piegatrice') {
       <div class="imp-riga"><span>Lavori</span><span class="imp-percorso" title="${esc(r.cartelle.lavori)}">${esc(r.cartelle.lavori)}</span><button class="btn" data-apri="${esc(r.cartelle.lavori)}">Apri cartella</button></div>
       <div class="imp-riga"><span>Viti e bulloni</span><span class="imp-percorso" title="${esc(r.cartelle.libreria)}">${esc(r.cartelle.libreria)}</span><button class="btn" data-apri="${esc(r.cartelle.libreria)}">Apri cartella</button></div>`,
     aspetto: `<h4>Aspetto</h4>
-      <div class="imp-riga"><span>Tema</span><div class="seg" id="i-tema">${[['scuro', 'Scuro'], ['chiaro', 'Chiaro']].map(([k, t]) =>
-        `<button type="button" data-v="${k}" class="${scuro === (k === 'scuro') ? 'on' : ''}">${t}</button>`).join('')}</div><span></span></div>`,
+      <div class="imp-riga"><span>Tema</span><div class="seg imp-tema" id="i-tema">${[['chiaro', 'Chiaro'], ['scuro', 'Scuro']].map(([k, t]) =>
+        `<button type="button" data-v="${k}" class="${scuro === (k === 'scuro') ? 'on' : ''}">${t}</button>`).join('')}</div><span></span></div>
+      <p class="hint">Il chiaro è quello di partenza. Lo cambi anche col pulsante «Tema» in basso nella vista.</p>`,
   };
   const voci = [['piegatrice', 'Piegatrice'], ['materiali', 'Materiali'], ['tavole', 'Tavole e cartiglio'], ['cartelle', 'Cartelle'], ['aspetto', 'Aspetto']];
   modal(`<div class="imp-box"><nav class="imp-nav"><h3>Impostazioni</h3>${voci.map(([k, t]) => `<button data-sez="${k}" class="${k === sezione ? 'on' : ''}">${t}</button>`).join('')}</nav>
     <div class="imp-corpo">${voci.map(([k]) => `<section data-corpo="${k}"${k === sezione ? '' : ' hidden'}>${corpi[k]}</section>`).join('')}
-      <div class="imp-spazio" style="flex:1"></div>
-      <div class="imp-acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="i-ok">Applica</button></div></div></div>`, close => {
+      <div class="imp-spazio"></div>
+      <div class="imp-acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="i-ok">Salva le impostazioni</button></div></div></div>`, close => {
     $('#m-no').onclick = close;
     // le sezioni sono tutte nella finestra: cambiando sezione quello che hai scritto resta, e Applica salva tutto
     $('#modal-box').querySelectorAll('[data-sez]').forEach(b => { b.onclick = () => {
@@ -6509,6 +6510,22 @@ const DISEGNI = (() => {
       <path d="M70 300L200 90M240 350L270 112M450 270L340 90M280 230L240 70"/></g>
       <path class="q" d="M62 330l170 50"/>${b(140, 358, 'A')}<path class="q" d="M248 380l210-80"/>${b(370, 352, 'B')}
       <path class="q" d="M200 52h140"/>${b(270, 40, 'C')}${qv(490, 90, 270)}${b(490, 180, 'D')}`),
+    // 04/11: anche le partenze senza misure hanno il loro disegno: si capisce cosa succede dopo il clic
+    zero: svg(`<path class="gr" d="M40 60H480M40 120H480M40 180H480M40 240H480M40 300H480M80 30V340M160 30V340M240 30V340M320 30V340M400 30V340"/>
+      <g class="ln"><path class="pz" d="M100 290V130h110l50 50h150v110z"/></g>
+      <g class="pt"><circle cx="100" cy="290" r="6"/><circle cx="100" cy="130" r="6"/><circle cx="210" cy="130" r="6"/><circle cx="260" cy="180" r="6"/><circle cx="410" cy="180" r="6"/><circle cx="410" cy="290" r="6"/></g>
+      ${qo(100, 410, 330)}<text class="nota" x="190" y="322">la misura la scrivi tu</text>`),
+    disegno: svg(`<path class="gr" d="M40 60H480M40 120H480M40 180H480M40 240H480M40 300H480M80 30V340M160 30V340M240 30V340M320 30V340M400 30V340"/>
+      <g class="ln tubo"><path d="M120 310V90h280v220M120 200h280"/></g>
+      <g class="pt"><circle cx="120" cy="310" r="7"/><circle cx="120" cy="90" r="7"/><circle cx="400" cy="90" r="7"/><circle cx="400" cy="310" r="7"/><circle cx="120" cy="200" r="7"/><circle cx="400" cy="200" r="7"/></g>
+      <text class="nota" x="150" y="160">ogni linea è un tubo</text>`),
+    vuoto: svg(`<g class="ln"><path d="M150 300l220 0M150 300l-70 40M150 300V110"/></g>
+      <g class="pt"><circle cx="150" cy="300" r="9"/></g>
+      <path class="q" d="M380 300h40M410 290l12 10-12 10M150 100V60M140 72l10-14 10 14M74 344l-30 18M50 350l-8 14 16 0"/>
+      <text class="nota" x="180" y="270">parti da un angolo e tiri i tubi</text>`),
+    tramoggia_cassone: svg(`<g class="ln"><path class="pz" d="M110 60h300v120H110z"/><path d="M110 180l120 120h60l120-120M230 300v40h60v-40"/></g>
+      ${qo(110, 410, 32)}${b(260, 32, 'A')}${qv(450, 60, 180)}<text class="nota" x="462" y="126">Hc</text>
+      ${qo(230, 290, 360)}<text class="nota" x="300" y="366">a</text>${qv(70, 180, 300)}<text class="nota" x="40" y="246">Ht</text>`),
   };
 })();
 
@@ -6522,48 +6539,48 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
     { k: 'k', l: 'K-factor', v: virgola(BD.k), altro: conPiegatrice }];
   const RIF = { esterno: 'fuori tutto (finite)', interno: 'dentro', asse: 'in asse lamiera' };
   const MODELLI = {
-    lamiera: { titolo: 'Lamiera', nota: 'Un rettangolo dello spessore che vuoi: se serve lo pieghi dopo, cliccando i bordi.', nome: 'Lamiera',
+    lamiera: { titolo: 'Lamiera', bottone: 'Crea la lamiera', nota: 'Un rettangolo dello spessore che vuoi: se serve lo pieghi dopo, cliccando i bordi.', nome: 'Lamiera',
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 500, lettera: 'A' }, { k: 'profondita', l: 'Profondità', v: 300, lettera: 'B' },
         { k: 'spessore', l: 'Spessore', v: 2, lettera: 'C' }, ...piega] },
-    piastra: { titolo: 'Piastra piana', nota: 'Piastra con un foro; gli altri fori li aggiungi dopo.', nome: 'Piastra',
+    piastra: { titolo: 'Piastra piana', bottone: 'Crea la piastra', nota: 'Piastra con un foro; gli altri fori li aggiungi dopo.', nome: 'Piastra',
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
         { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
-    zero: { titolo: 'Una forma disegnata', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera o piastra; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
-    telaio: { titolo: 'Banco', nota: 'Misure fuori tutto: il banco finito è grande così, i tubi stanno dentro.', nome: 'Banco',
+    zero: { titolo: 'Da zero', bottone: 'Inizia a disegnare', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera o piastra; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
+    telaio: { titolo: 'Banco', bottone: 'Crea il banco', nota: 'Misure fuori tutto: il banco finito è grande così, i tubi stanno dentro.', nome: 'Banco',
       campi: [{ k: 'L', l: 'Lunghezza', v: 1600, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 700, lettera: 'B' },
         { k: 'H', l: 'Altezza (piano di lavoro)', v: 850, lettera: 'C' },
         { k: 'ripiano', l: 'Ripiano sotto, da terra (0 = senza)', v: 150 },
         { k: 'profilo', l: 'Tubo del telaio', v: '40x40x3', prof: true },
         { k: 'gambe', l: 'Tubo delle gambe', v: '40x40x3', prof: true }, { k: 'tubo_ripiano', l: 'Tubo del ripiano', v: '30x30x2', prof: true }] },
-    scaffale: { titolo: 'Scaffale o telaio', nota: 'Scaffali e telai per armadi. Misure fuori tutto; i piani hanno la stessa luce tra un tubo e l’altro. Tubi uguali? Scrivi lo stesso nei due campi.', nome: 'Scaffale',
+    scaffale: { titolo: 'Scaffale o telaio', bottone: 'Crea lo scaffale', nota: 'Scaffali e telai per armadi. Misure fuori tutto; i piani hanno la stessa luce tra un tubo e l’altro. Tubi uguali? Scrivi lo stesso nei due campi.', nome: 'Scaffale',
       campi: [{ k: 'L', l: 'Larghezza', v: 1000, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 400, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 1800, lettera: 'C' }, { k: 'ripiani', l: 'Quanti piani (a terra e in cima compresi)', v: 4, lettera: 'D' },
         { k: 'montanti', l: 'Tubo dei montanti', v: '30x30x2', prof: true }, { k: 'traversi', l: 'Tubo dei traversi', v: '40x20x2', prof: true }] },
-    armadio: { titolo: 'Telaio per armadio', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Telaio armadio',
+    armadio: { titolo: 'Telaio per armadio', bottone: 'Crea il telaio', nota: 'Misure in asse dei tubi: sotto vedi il fuori tutto.', nome: 'Telaio armadio',
       campi: [{ k: 'L', l: 'Larghezza', v: 800, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 600, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 2000, lettera: 'C' }, { k: 'ripiani', l: 'Quanti livelli (sotto e sopra compresi)', v: 3, lettera: 'D' },
         { k: 'profilo', l: 'Tubo', v: '40x40x2', prof: true }] },
-    cancello: { titolo: 'Cancello', nota: 'Misure fuori tutto. La luce tra le sbarre è a filo interno, anche contro il telaio.', nome: 'Cancello',
+    cancello: { titolo: 'Cancello', bottone: 'Crea il cancello', nota: 'Misure fuori tutto. La luce tra le sbarre è a filo interno, anche contro il telaio.', nome: 'Cancello',
       campi: [{ k: 'L', l: 'Larghezza', v: 1500, lettera: 'A' }, { k: 'H', l: 'Altezza', v: 1200, lettera: 'B' },
         { k: 'passo', l: 'Luce tra le sbarre, circa', v: 120, lettera: 'C' },
         { k: 'telaio', l: 'Tubo del telaio', v: '60x60x3', prof: true }, { k: 'sbarre', l: 'Tubo delle sbarre', v: '20x20x2', prof: true }] },
-    disegno: { titolo: 'Disegna la sagoma', nota: 'Disegni la sagoma (un fianco, un portale): ogni linea diventa un tubo, poi la ripeti dietro. Misure fuori tutto.', nome: 'Struttura',
+    disegno: { titolo: 'Disegna la sagoma', bottone: 'Inizia a disegnare', nota: 'Disegni la sagoma (un fianco, un portale): ogni linea diventa un tubo, poi la ripeti dietro. Misure fuori tutto.', nome: 'Struttura',
       campi: [{ k: 'piano', l: 'Da dove la guardi mentre la disegni', v: 'XZ',
         scelte: { XZ: 'Di fronte: cancelli, spalle, portali', XY: 'Dall’alto: basamenti, telai a terra', YZ: 'Di fianco' } }] },
-    cono: { titolo: 'Cono o tronco di cono', nota: 'Misure finite del pezzo.', nome: 'Tronco di cono',
+    cono: { titolo: 'Cono o tronco di cono', bottone: 'Crea il cono', nota: 'Misure finite del pezzo.', nome: 'Tronco di cono',
       campi: [{ k: 'D1', l: 'Diametro grande', v: 400, lettera: 'A' }, { k: 'D2', l: 'Diametro piccolo (0 = a punta)', v: 200, lettera: 'B' },
         { k: 'H', l: 'Altezza', v: 300, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 2 },
         { k: 'modo', l: 'Come lo fai', v: 'press', scelte: { press: 'a pieghe, con la piegatrice', rolled: 'calandrato' } },
         { k: 'riferimento', l: 'Le misure sono', v: 'esterno', scelte: RIF },
         { k: 'passo', l: 'Distanza tra le pieghe sul bordo (vuoto = dal raggio)', v: '', altro: true, unit: 'mm' }, ...piega] },
-    tramoggia: { titolo: 'Raccordo quadro-tondo', nota: 'Misure finite del pezzo.', nome: 'Raccordo quadro-tondo',
+    tramoggia: { titolo: 'Raccordo quadro-tondo', bottone: 'Crea il raccordo', nota: 'Misure finite del pezzo.', nome: 'Raccordo quadro-tondo',
       campi: [{ k: 'A', l: 'Lato lungo della base', v: 600, lettera: 'A' }, { k: 'B', l: 'Lato corto della base', v: 400, lettera: 'B' },
         { k: 'D', l: 'Diametro del tondo', v: 250, lettera: 'C' }, { k: 'H', l: 'Altezza', v: 300, lettera: 'D' },
         { k: 'spessore', l: 'Spessore', v: 2 },
         { k: 'ex', l: 'Tondo spostato di lato (X)', v: 0, altro: true, unit: 'mm' }, { k: 'ey', l: 'Tondo spostato avanti/dietro (Y)', v: 0, altro: true, unit: 'mm' },
         { k: 'rif_base', l: 'Misure della base', v: 'esterno', scelte: RIF, altro: true }, { k: 'rif_tondo', l: 'Misure del tondo', v: 'esterno', scelte: RIF, altro: true },
         { k: 'passo', l: 'Distanza tra le pieghe sul tondo (vuoto = dal raggio)', v: '', altro: true, unit: 'mm' }, ...piega] },
-    tramoggia_cassone: { titolo: 'Tramoggia con cassone', nota: 'Cassone e tramoggia a falde, divisa in pezzi da piegare (più pieghe possibile nel foglio).', nome: 'Tramoggia',
+    tramoggia_cassone: { titolo: 'Tramoggia con cassone', bottone: 'Crea la tramoggia', nota: 'Cassone e tramoggia a falde, divisa in pezzi da piegare (più pieghe possibile nel foglio).', nome: 'Tramoggia',
       campi: [{ k: 'A', l: 'Bocca: lato A', v: 1000, lettera: 'A' }, { k: 'B', l: 'Bocca: lato B', v: 1000, lettera: 'B' },
         { k: 'Hc', l: 'Altezza del cassone (0 = solo tramoggia)', v: 700 }, { k: 'a', l: 'Scarico: lato a', v: 250 }, { k: 'b', l: 'Scarico: lato b', v: 250 },
         { k: 'Ht', l: 'Altezza della tramoggia', v: 700 }, { k: 'spessore', l: 'Spessore', v: 3 },
@@ -6576,7 +6593,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
         { k: 'riferimento', l: 'Le misure sono', v: 'esterno', scelte: RIF },
         { k: 'divisione', l: 'Divisione in pezzi', v: 'auto', scelte: { auto: 'automatica (meno saldature)', verticali: 'pieghe sugli spigoli verticali', tramoggia: 'pieghe sugli spigoli della tramoggia', lati: 'un pezzo per lato' }, altro: true },
         { k: 'foglio', l: 'Foglio', v: '1500x3000', altro: true }, ...piega] },
-    vuoto: { titolo: 'Telaio da zero', nota: 'Parti da un angolo sul pavimento e tiri i tubi con le frecce (Su, Giù, Avanti, Dietro, Destra, Sinistra). Misure fuori tutto.', nome: 'Telaio', campi: [] },
+    vuoto: { titolo: 'Telaio da zero', bottone: 'Parti dal primo angolo', nota: 'Parti da un angolo sul pavimento e tiri i tubi con le frecce (Su, Giù, Avanti, Dietro, Destra, Sinistra). Misure fuori tutto.', nome: 'Telaio', campi: [] },
   };
   const GRUPPI = [['Lamiera', ['lamiera', 'zero']], ['Forme', ['cono', 'tramoggia', 'tramoggia_cassone']],
     ['Strutture', ['telaio', 'scaffale', 'cancello', 'disegno', 'vuoto']]];
@@ -6592,11 +6609,11 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
   const disegna = () => {
     const m = MODELLI[kind];
     const visibili = m.campi.filter(c => !c.altro), altri = m.campi.filter(c => c.altro);
-    const scelta = daHome ? '' : `<div class="n-kinds choice">${GRUPPI.map(([g, ks]) => `<span>${g}</span>${ks.map(k =>
-      `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${esc(MODELLI[k].titolo)}</button>`).join('')}`).join('')}</div>`;
+    const scelta = daHome ? '' : `<div class="n-kinds">${GRUPPI.map(([g, ks]) => `<div class="n-gruppo"><span>${g}</span><div class="n-scelte">${ks.map(k =>
+      `<button data-k="${k}" class="btn${k === kind ? ' on' : ''}">${esc(MODELLI[k].titolo)}</button>`).join('')}</div></div>`).join('')}</div>`;
     const pic = DISEGNI[kind];
-    const riassuntoPiega = altri.some(c => c.k === 'raggio') && conPiegatrice ? `Piegatrice: R ${esc(virgola(BD.radius) || '?')} · K ${esc(virgola(BD.k) || '?')}` : 'Altre misure';
-    return `<h3>${daHome ? 'Nuovo: ' + esc(m.titolo) : 'Nuovo pezzo'}</h3>${scelta}
+    const riassuntoPiega = altri.some(c => c.k === 'raggio') && conPiegatrice ? `Piegatrice: raggio ${esc(virgola(BD.radius) || '?')}, K ${esc(virgola(BD.k) || '?')}` : 'Altre misure';
+    return `<h3>${daHome ? esc(m.titolo) : 'Nuovo pezzo'}</h3>${scelta}
       <div class="n-main${pic ? '' : ' senza'}">
         ${pic ? `<div class="n-pic">${pic}</div>` : ''}
         <div class="n-campi">
@@ -6609,7 +6626,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
       </div>
       <datalist id="n-profili"></datalist>
       ${S?.dirty ? '<div class="msg warn">Il lavoro aperto ha modifiche non salvate: restano nel salvataggio automatico.</div>' : ''}
-      <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary big" id="n-ok">Crea ${esc(m.titolo.toLowerCase())}</button></div>`;
+      <div class="acts"><button class="btn" id="n-no">Annulla</button><button class="btn primary big" id="n-ok">${esc(m.bottone || 'Crea ' + m.titolo.toLowerCase())}</button></div>`;
   };
   const valori = () => {
     const v = { name: $('#n-name').value.trim() || MODELLI[kind].nome };
@@ -6839,20 +6856,27 @@ async function showHome(info) {
   // i lavori recenti con l'anteprima vera (scattata dall'app quando il lavoro è stato aperto o salvato); filtro e ricerca
   const tutti = info.recent;
   const conta = { tutti: tutti.length, pezzi: tutti.filter(x => !x.assembly).length, assiemi: tutti.filter(x => x.assembly).length };
+  const foto = x => (x.thumb ? `<img src="${x.thumb}" alt="">`
+    : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">${anteprimeProvate.has(x.path) ? '' : '<i class="in-arrivo">Preparo l’anteprima…</i>'}`);
   const disegnaRecenti = () => {
     const q = norm($('#home-cerca').value.trim());
     const lst = tutti.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
     $('#home-recent').innerHTML = lst.map(x => x.manca ? `<div class="home-rec manca" title="${esc(x.path)}">
         <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
-        <div class="testo"><b>${esc(x.name)}</b><small>Spostato o cancellato: non è più in ${esc(x.folder)}</small>
-          <span class="rec-azioni"><button class="btn" data-ritrova="${esc(x.path)}">Cerca…</button><button class="btn" data-forget="${esc(x.path)}">Togli</button></span></div></div>`
-      : `<div class="home-rec" data-path="${esc(x.path)}" title="${esc(x.path)}">
-        <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
-        ${x.assembly ? '<span class="tipo">ASSIEME</span>' : ''}
+        <div class="testo"><b>${esc(x.name)}</b><small class="testo-err">Spostato o cancellato: non è più in ${esc(x.folder)}</small>
+          <span class="rec-azioni"><button class="btn piccolo" data-ritrova="${esc(x.path)}">Cerca…</button><button class="btn piccolo" data-forget="${esc(x.path)}">Togli</button></span></div></div>`
+      : `<div class="home-rec${x.assembly ? ' asm' : ''}" data-path="${esc(x.path)}" title="${esc(x.path)}" tabindex="0">
+        <span class="pic">${foto(x)}</span>
+        ${x.assembly ? '<span class="tipo">Assieme</span>' : ''}
         <div class="testo"><b>${esc(x.name)}</b><small>${esc(x.when)}</small></div>
-        <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti" aria-label="Togli dai recenti">×</button></div>`).join('')
-      || `<p class="home-vuoto">${tutti.length ? 'Nessun lavoro con questo nome.' : 'Ancora nessun lavoro. Quelli che apri o salvi compaiono qui, con l’anteprima.'}</p>`;
-    $('#home').querySelectorAll('.home-rec:not(.manca)').forEach(d => { d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); }; });
+        <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti (il file resta)" aria-label="Togli dai recenti">×</button></div>`).join('')
+      || `<p class="home-vuoto">${tutti.length ? `Nessun lavoro si chiama così. <button class="link" id="home-cerca-via">Mostra tutti</button>`
+        : 'Qui compaiono i lavori che apri o salvi, con la loro anteprima. Comincia da una scelta qui sopra.'}</p>`;
+    $('#home').querySelectorAll('.home-rec:not(.manca)').forEach(d => {
+      d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); };
+      d.onkeydown = ev => { if (ev.key === 'Enter' && ev.target === d) d.click(); };
+    });
+    if ($('#home-cerca-via')) $('#home-cerca-via').onclick = () => { $('#home-cerca').value = ''; homeFiltro = 'tutti'; showHome(info); };
     $('#home').querySelectorAll('[data-ritrova]').forEach(b => { b.onclick = () => inCoda(async () => {
       const r = await call('recent_ritrova', b.dataset.ritrova);
       if (r.ok) showHome(r); else if (!r.cancelled) toast(r.message, 'err');
@@ -6868,8 +6892,15 @@ async function showHome(info) {
       <span>lasciato ${esc(info.unsaved.when)}: riprendilo e salvalo con un nome.</span></div>
       <button class="btn primary" id="home-recover">Riprendilo</button></div>` : '';
   $('#home-close').hidden = !!info.show;              // all'avvio non c'è un lavoro a cui tornare
+  $('#home-close').classList.toggle('primary', !info.unsaved);   // un solo pulsante blu: «Riprendilo» se c'è
   $('#home').hidden = false;
   document.body.classList.add('at-home');
+  // le anteprime che mancano arrivano una alla volta, al loro posto
+  setTimeout(() => anteprimeMancanti(tutti, x => {
+    const d = [...document.querySelectorAll('#home-recent .home-rec[data-path]')].find(e => e.dataset.path === x.path);
+    const pic = d?.querySelector('.pic');
+    if (pic) pic.innerHTML = `<img src="${x.thumb}" alt="">`;
+  }), 300);
   // Cono e Tubi: sopra i recenti si apre la scelta del tipo, con le foto; la lamiera si apre subito
   const scegli = cat => {
     $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
@@ -6934,11 +6965,11 @@ function modelloDialog(m) {
     <div class="mod-corpo"><div class="mod-ant" id="mod-ant">${disegnoModello(m.k, c)}</div>
       <div class="mod-campi">${Object.keys(c).map(k => `<label class="campo-mod">${esc((m.et || {})[k] || ETICHETTE_MOD[k])}<span class="inp"><input class="field" data-k="${k}" value="${String(c[k]).replace('.', ',')}"><i>mm</i></span></label>`).join('')}
       <div class="mod-piega"><b>Piegatrice</b>
-        <label class="campo-mod">Raggio interno<span class="inp"><input class="field" id="mod-r" value="${esc(virgola(S?.bend_default?.radius ?? ''))}" placeholder="dalla tua piegatrice"><i>mm</i></span></label>
+        <label class="campo-mod">Raggio interno<span class="inp"><input class="field" id="mod-r" value="${esc(virgola(S?.bend_default?.radius ?? ''))}" placeholder="es. 2"><i>mm</i></span></label>
         <label class="campo-mod">K-factor<span class="inp"><input class="field" id="mod-k" value="${esc(virgola(S?.bend_default?.k ?? ''))}" placeholder="es. 0,33"><i></i></span></label>
         ${S?.bend_default?.radius != null ? '<p class="hint">Dalle tue regole di piega.</p>' : '<p class="hint attenzione">Scrivili tu: sono dati della tua piegatrice, Radius non li inventa. Li ricorda in «Regole piega».</p>'}</div>
       <p class="hint">Le misure sono esterne (fuori tutto). Dopo si cambiano a sinistra, e le pieghe cliccandole.</p></div></div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea il pezzo</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Crea il pezzo</button></div>`, close => {
     const leggi = () => { document.querySelectorAll('.mod-campi input').forEach(x => { const v = parseFloat(x.value.replace(',', '.')); if (v > 0) c[x.dataset.k] = v; }); };
     document.querySelectorAll('.mod-campi input').forEach(x => { x.oninput = () => { leggi(); $('#mod-ant').innerHTML = disegnoModello(m.k, c); }; });
     $('#m-no').onclick = close;
@@ -6978,7 +7009,7 @@ async function menuRecenti() {
   const r = await call('home_info');
   const box = $('#m-recenti');
   if (!r.ok || !box) return;
-  box.innerHTML = r.recent.slice(0, 10).map(x => `<button data-recente="${esc(x.path)}">${esc(x.name)}<small>${x.assembly ? 'assieme · ' : ''}${esc(x.when)}</small></button>`).join('')
+  box.innerHTML = r.recent.slice(0, 10).map(x => `<button data-recente="${esc(x.path)}">${esc(x.name)}<small>${x.assembly ? 'Assieme, ' : ''}${esc(x.when)}</small></button>`).join('')
     || '<div class="vuoto">Nessun lavoro recente</div>';
   box.querySelectorAll('[data-recente]').forEach(b => { b.onclick = () => { b.closest('.menu-item')?.classList.remove('open'); inCoda(() => openProject(b.dataset.recente)); }; });
 }
@@ -6990,52 +7021,112 @@ function hideHome() {
 // l'anteprima del lavoro per la pagina iniziale (23/10, polish): una foto da catalogo, sempre uguale qualunque cosa
 // ci sia a video — isometrica inquadrata sul pezzo, luce da studio e ombra, sfondo trasparente, senza quote,
 // selezioni né disegno — poi la vista torna com'era
+function scattaFoto() {
+  const box = new THREE.Box3();
+  model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
+  if (box.isEmpty()) return null;
+  const c = box.getCenter(new THREE.Vector3()), r = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
+  const cam = camera.clone();
+  cam.clearViewOffset();
+  const dir = new THREE.Vector3(1, -1.25, 0.95).normalize();
+  cam.position.copy(c).addScaledVector(dir, r / Math.sin(THREE.MathUtils.degToRad(cam.fov) / 2) * 1.05);
+  cam.up.set(0, 0, 1); cam.lookAt(c); cam.near = r * 0.05; cam.far = r * 40; cam.updateProjectionMatrix();
+  const nascosti = [dimLines, overlay, flatGroup, workGroup].filter(g => g && g.visible);
+  nascosti.forEach(g => { g.visible = false; });
+  const modelPrima = model.visible, suoloPrima = suolo.visible;
+  model.visible = true;
+  aggiornaSuolo();
+  suolo.visible = true;
+  renderer.render(scene, cam);
+  const W = canvas.width, H = canvas.height;
+  let x0 = W, y0 = H, x1 = 0, y1 = 0;
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const v = new THREE.Vector3(x, y, z).project(cam);
+    const px = (v.x + 1) / 2 * W, py = (1 - v.y) / 2 * H;
+    x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+  }
+  const m = 0.06 * Math.max(x1 - x0, y1 - y0);
+  x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
+  let url = null;
+  if (x1 - x0 >= 4 && y1 - y0 >= 4) {
+    const out = document.createElement('canvas');
+    out.width = 480; out.height = 360;
+    const k = Math.min(out.width / (x1 - x0), out.height / (y1 - y0));
+    const w = (x1 - x0) * k, h = (y1 - y0) * k;
+    const g2 = out.getContext('2d');
+    g2.imageSmoothingQuality = 'high';
+    g2.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, (out.width - w) / 2, (out.height - h) / 2, w, h);
+    url = out.toDataURL('image/png');
+  }
+  nascosti.forEach(g => { g.visible = true; });
+  model.visible = modelPrima;
+  suolo.visible = suoloPrima;
+  return url;
+}
 async function fotoAnteprima(percorso) {
   try {
     if (!percorso || !objs.size || SK) return;
-    const box = new THREE.Box3();
-    model.traverse(o => { if (o.isMesh && o.visible && o.geometry) box.expandByObject(o); });
-    if (box.isEmpty()) return;
-    const c = box.getCenter(new THREE.Vector3()), r = box.getBoundingSphere(new THREE.Sphere()).radius || 100;
-    const cam = camera.clone();
-    cam.clearViewOffset();
-    const dir = new THREE.Vector3(1, -1.25, 0.95).normalize();
-    cam.position.copy(c).addScaledVector(dir, r / Math.sin(THREE.MathUtils.degToRad(cam.fov) / 2) * 1.05);
-    cam.up.set(0, 0, 1); cam.lookAt(c); cam.near = r * 0.05; cam.far = r * 40; cam.updateProjectionMatrix();
-    const nascosti = [dimLines, overlay, flatGroup, workGroup].filter(g => g && g.visible);
     const selPrima = sel;
-    nascosti.forEach(g => { g.visible = false; });
-    const modelPrima = model.visible;
-    model.visible = true;
     sel = null; hover = null; paint();
-    aggiornaSuolo();
-    suolo.visible = true;
-    renderer.render(scene, cam);
-    const W = canvas.width, H = canvas.height;
-    let x0 = W, y0 = H, x1 = 0, y1 = 0;
-    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
-      const v = new THREE.Vector3(x, y, z).project(cam);
-      const px = (v.x + 1) / 2 * W, py = (1 - v.y) / 2 * H;
-      x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
-    }
-    const m = 0.06 * Math.max(x1 - x0, y1 - y0);
-    x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
-    const out = document.createElement('canvas');
-    out.width = 480; out.height = 360;
-    if (x1 - x0 >= 4 && y1 - y0 >= 4) {
-      const k = Math.min(out.width / (x1 - x0), out.height / (y1 - y0));
-      const w = (x1 - x0) * k, h = (y1 - y0) * k;
-      const g2 = out.getContext('2d');
-      g2.imageSmoothingQuality = 'high';
-      g2.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, (out.width - w) / 2, (out.height - h) / 2, w, h);
-    }
-    // la vista torna com'era
-    nascosti.forEach(g => { g.visible = true; });
-    model.visible = modelPrima;
+    const url = scattaFoto();
     sel = selPrima; paint();
+    aggiornaSuolo();
     ridisegna();
-    if (x1 - x0 >= 4) await call('save_thumbnail', percorso, out.toDataURL('image/png'));
+    if (url) await call('save_thumbnail', percorso, url);
   } catch (e) { /* l'anteprima è una comodità: se non riesce, pazienza */ }
+}
+// 04/11: i lavori recenti senza anteprima (salvati da un'altra versione, o mai aperti da qui) se la fanno fare adesso,
+// uno alla volta mentre la pagina iniziale è aperta: il motore dà i triangoli, qui lo stesso scatto da catalogo.
+// Il lavoro aperto non si tocca: si nasconde per un attimo dietro la pagina iniziale e torna com'era.
+const anteprimeProvate = new Set();
+let anteprimeInCorso = false;
+async function anteprimeMancanti(lista, fatta) {
+  if (anteprimeInCorso) return;
+  anteprimeInCorso = true;
+  try {
+    for (const x of lista) {
+      if (x.thumb || x.manca || anteprimeProvate.has(x.path)) continue;
+      if ($('#home').hidden || SK) break;
+      anteprimeProvate.add(x.path);
+      let r;
+      try { r = await chiamaMuto('anteprima_maglia', x.path); } catch { continue; }
+      if (!r?.ok || $('#home').hidden || SK) continue;
+      const gruppo = new THREE.Group(), geo = [], mat = [];
+      for (const d of r.objects) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3)); g.setIndex(d.indices); g.computeVertexNormals();
+        const ma = new THREE.MeshStandardMaterial({ color: new THREE.Color(d.look?.color || 0xCBD1D8), metalness: d.look?.metal ?? 0.15,
+          roughness: d.look?.rough ?? 0.55, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+        ma.envMapIntensity = 0.45 + 0.8 * ma.metalness;
+        const seg = [];
+        for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
+        const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+        const mesh = new THREE.Mesh(g, ma), linee = new THREE.LineSegments(lg, EDGE);
+        mesh.castShadow = true;
+        if (d.matrix) for (const o of [mesh, linee]) { o.matrixAutoUpdate = false; o.matrix.set(...d.matrix); }
+        gruppo.add(mesh, linee); geo.push(g, lg); mat.push(ma);
+      }
+      // il lavoro aperto si spegne, al suo posto il recente; scatto; tutto torna com'era (niente attese in mezzo)
+      const spenti = [];
+      model.traverse(o => { if (o !== model && o.visible) { spenti.push(o); o.visible = false; } });
+      model.add(gruppo);
+      gruppo.updateMatrixWorld(true);
+      let url = null;
+      try { url = scattaFoto(); } finally {
+        model.remove(gruppo);
+        spenti.forEach(o => { o.visible = true; });
+        geo.forEach(g => g.dispose()); mat.forEach(m => m.dispose());
+        aggiornaSuolo(); ridisegna();
+      }
+      if (!url) continue;
+      x.thumb = url;
+      fatta?.(x);
+      try { await chiamaMuto('save_thumbnail', x.path, url); } catch { /* resta per questa volta */ }
+    }
+  } finally {
+    anteprimeInCorso = false;
+    document.querySelectorAll('#home-recent .in-arrivo').forEach(e => e.remove());    // quelle che non sono venute
+  }
 }
 
 const CMDS = [

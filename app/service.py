@@ -5201,6 +5201,37 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except Exception:  # noqa: BLE001 - il fantasma è un aiuto: se non viene, resta il messaggio
             return None
 
+    def anteprima_maglia(self, path: str) -> dict:
+        """04/11: i triangoli di un lavoro recente che non ha ancora l'anteprima (salvato da un'altra versione, o mai
+        aperto da qui), per scattargliela dalla pagina iniziale. Il lavoro aperto non si tocca."""
+        from cad_engine import assembly as A
+        from cad_engine import finiture
+        try:
+            q = Path(path)
+            pezzi = []
+            if q.suffix == '.steelcad-asm':
+                for i in A.load(q).instances:
+                    try:
+                        pezzi.append((A.load_part(i['file']), i['R'], i['T']))
+                    except Exception:  # noqa: BLE001 - un pezzo che manca: l'anteprima si fa con gli altri
+                        continue
+            else:
+                pezzi.append((A.load_part(q), None, None))
+            oggetti = []
+            for part, R, T in pezzi:
+                m = A.part_mesh(part)
+                o = {'positions': m['positions'], 'indices': m['indices'], 'edges': m['edges'],
+                     'look': finiture.colore(part.doc.meta.get('finitura'))}
+                if R is not None:
+                    o['matrix'] = [float(v) for v in (R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1],
+                                                      R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1)]
+                oggetti.append(o)
+            if not oggetti:
+                return {'ok': False, 'message': 'Niente da far vedere.'}
+            return _ok(objects=oggetti)
+        except Exception as ex:  # noqa: BLE001 - l'anteprima è una comodità
+            return _err(ex)
+
     def save_thumbnail(self, path: str, data_url: str) -> dict:
         """L'anteprima del lavoro (la vista 3D, presa dall'interfaccia quando apri o salvi) per la pagina iniziale.
         Sta accanto alla lista dei recenti, non nel file del progetto."""

@@ -505,6 +505,9 @@ class Api:
     def new_project_preview(self, kind, values=None):
         return self._call(self._svc.new_project_preview, kind, values)
 
+    def anteprima_maglia(self, path):
+        return self._call(self._svc.anteprima_maglia, path)
+
     def save_thumbnail(self, path, data_url):
         return self._call(self._svc.save_thumbnail, path, data_url)
 

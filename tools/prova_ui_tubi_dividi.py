@@ -36,7 +36,7 @@ try:
             pg.fill(f'[data-f="{k}"]', v)
             passo(f'scrive {k} = {v}', foto=False)
         pg.screenshot(path=str(SP / 'dialogo.png'))
-        pg.click('text=Crea banco'); time.sleep(4); passo('Crea banco')
+        pg.click('#n-ok'); time.sleep(4); passo('Crea banco')
 
         def clic_punto(xyz):
             xy = pg.evaluate("p => window.__steelcad.toScreen(p)", xyz)
