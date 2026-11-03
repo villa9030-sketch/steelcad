@@ -43,7 +43,8 @@ try:
         except Exception:
             pass
         ok('pagina iniziale → nuovo assieme', pg.evaluate("document.querySelector('#home').hidden"))
-        ok('scheda ASSIEME e niente Parametri', pg.is_visible('.rtabs [data-rtab="assieme"]') and not pg.is_visible('#params'))
+        # 03/11: con una sola scheda le linguette in alto non si vedono: si guardano i comandi dell'assieme
+        ok('comandi dell’ASSIEME in alto e niente Parametri', pg.is_visible('#ribbon [data-asm-tool="faccia"]') and not pg.is_visible('#params'))
         for f in ('piastra', 'staffa'):
             pg.evaluate("async (p) => { const r = await (await fetch('/api/asm_insert', {method: 'POST', body: JSON.stringify([p])})).json(); await window.__steelcad.apply(r); }", str(cart / (f + '.steelcad')))
         pg.wait_for_function("window.__steelcad.objs.size === 2", timeout=15000); time.sleep(0.8)
@@ -84,6 +85,8 @@ try:
         pg.keyboard.press('Control+z'); pg.wait_for_timeout(1000)
         # pannello istanza: ruota, apri pezzo e torna
         pg.click('#tree .node:has-text("staffa")')
+        pg.wait_for_selector('#mini-barra button.piu')          # 03/11: il clic apre la barretta; «Altro» il pannello
+        pg.click('#mini-barra button.piu')
         pg.wait_for_selector('#a-open')
         ok('pannello istanza con Sposta/Ruota/Apri', pg.is_visible('[data-rot="z"]'))
         pg.click('#a-open'); pg.wait_for_function("window.__steelcad.state.mode === 'part' && window.__steelcad.state.can_back", timeout=15000)

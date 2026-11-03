@@ -64,11 +64,24 @@ def main():
             def v():
                 return pg.evaluate('window.__steelcad.sketch.v')
 
+            def fermo():
+                # aspetta che la vista smetta di muoversi (entrando nello schizzo la camera si gira): sotto carico
+                # 0,6 s non bastano e il primo clic finiva nel punto sbagliato
+                # (si muove a scatti: due letture uguali non bastano, ne servono 5 di fila)
+                prima, uguali = None, 0
+                for _ in range(80):
+                    ora = scr([0, 0])
+                    uguali = uguali + 1 if ora == prima else 0
+                    if uguali >= 5:
+                        return
+                    prima = ora
+                    time.sleep(0.2)
+
             # ------------------------------------------------ Raccordo: i casi che non andavano
             progetto('zero', {'name': 'Raccordi'})
             pg.evaluate("window.__steelcad.enterSketch('S1')")
             pg.wait_for_function('window.__steelcad.sketch')
-            time.sleep(0.5)
+            time.sleep(0.3); fermo()
             pg.keyboard.press('r')
             clic([0, 0])                                        # si aggancia all'origine
             box = pg.locator('#c3d').bounding_box(); x, y = scr([60, 30]); pg.mouse.move(box['x'] + x, box['y'] + y)
@@ -115,7 +128,7 @@ def main():
             sid = pg.evaluate(api, ['sketch_on_face', ['SM1/FL1/esterno']])['sketch']
             pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(0.4)
             pg.evaluate(f"window.__steelcad.enterSketch('{sid}')")
-            pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.5)
+            pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.3); fermo()
             pts = [p['xy'] for p in v()['points'] if p['id'] != 'O']
             angolo = [max(q[0] for q in pts), max(q[1] for q in pts)]
             pg.click('#ribbon [data-tool="fillet"]')
@@ -140,7 +153,7 @@ def main():
             s2 = pg.evaluate(api, ['sketch_on_face', ['SM1/FL2/interno']])['sketch']
             pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(0.4)
             pg.evaluate(f"window.__steelcad.enterSketch('{s2}')")
-            pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.5)
+            pg.wait_for_function('window.__steelcad.sketch'); time.sleep(0.3); fermo()
             ok('scheda SKETCH: c’è "Vedi attraverso"', pg.is_visible('#rb-xray'))
             pg.keyboard.press('v')
             pg.wait_for_function('window.__steelcad.sketch.v.xray', timeout=15000)
@@ -167,7 +180,7 @@ def main():
             pg.wait_for_selector('[data-face-sketch]')
             pg.click('[data-face-sketch]')
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/lato/L4'")
-            time.sleep(0.6)
+            time.sleep(0.3); fermo()
             ok('sulla testata c’è il pulsante «Lamiera a contorno»', pg.locator('#sk-contour:not([hidden])').count() == 1)
             pg.keyboard.press('l')
             for xy in ([100, 0], [100, 30], [120, 30], [120, 10], [108, 0]):
@@ -197,7 +210,7 @@ def main():
             pg.wait_for_selector('[data-face-sketch]')
             pg.click('[data-face-sketch]')
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL1/esterno'")
-            time.sleep(0.6)
+            time.sleep(0.3); fermo()
             bordo = max(p['xy'][0] for p in v()['points'] if p['id'] != 'O')
             v0 = pg.evaluate('window.__steelcad.state.info.part.volume_mm3')
             pg.keyboard.press('l')
@@ -221,6 +234,8 @@ def main():
             pg.reload()
             pg.wait_for_function("window.__steelcad && window.__steelcad.ready && window.__steelcad.state.sheet.data && window.__steelcad.state.sheet.data.bends.length === 4")
             pg.evaluate("window.__steelcad.select('flange=SM1/FL4')")
+            pg.wait_for_selector('#mini-barra button.piu')          # 03/11: col clic solo la barretta; «⋯» = il pannello
+            pg.click('#mini-barra button.piu')
             pg.wait_for_selector('#props .fhead')
             testo = pg.inner_text('#props').lower()
             ok('pannello flangia pulito: niente "Chiudi la testata" né "Fori"', 'testata' not in testo and 'fori' not in testo)
@@ -246,7 +261,7 @@ def main():
             time.sleep(0.4)
             attesi = {
                 'new_sheet': 'modal', 'new_zero': 'modal', 'new_frame': 'modal', 'new_free': 'modal',
-                'flange_help': 'toast', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'tavole',
+                'flange_help': 'modal', 'face_help': 'toast', 'contour_help': 'toast', 'member_help': 'toast', 'sheet_rules': 'modal', 'drawings': 'tavole',
                 'export_dxf': 'fatto', 'export_bendtable': 'fatto', 'export_step': 'fatto',   # 03/11: conferma col file 'show_cut': 'cut', 'show_bom': 'bom',
                 'misura': 'aiuto', 'misura_angolo': 'aiuto',
             }

@@ -54,9 +54,11 @@ try:
               const ok = [...Array(f.count).keys()].every(k => Math.abs(P.getZ(g.index.getX(f.start + k)) - z) < 1e-6);
               if (ok && (!best || z > best[0])) best = [z, f.index]; } return [o.data.id, best[1]]; }""")
         pg.evaluate("([id, f]) => window.__steelcad.select(id, f)", idx)
-        pg.wait_for_selector('#a-nuovo', timeout=10000)
-        ok('clic su una faccia piana: c’è «Nuovo pezzo su questa faccia»', pg.is_visible('#a-nuovo'))
-        pg.click('#a-nuovo'); pg.wait_for_selector('#np-nome')
+        # 03/11: col clic sul pezzo si apre la barretta, con «Pezzo nuovo qui» (il pannello solo con «Altro»)
+        nuovo = '#mini-barra button[aria-label^="Pezzo nuovo qui"]'
+        pg.wait_for_selector(nuovo, timeout=10000)
+        ok('clic su una faccia piana: c’è «Pezzo nuovo qui» nella barretta', pg.is_visible(nuovo))
+        pg.click(nuovo); pg.wait_for_selector('#np-nome')
         pg.fill('#np-nome', 'Lamiera di collegamento'); pg.click('#m-ok')
         pg.wait_for_function('window.__steelcad.sketch', timeout=20000); time.sleep(1.2)
         v = pg.evaluate('window.__steelcad.sketch.v')

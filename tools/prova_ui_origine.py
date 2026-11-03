@@ -13,10 +13,18 @@ srv = subprocess.Popen([str(ROOT / '.venv/Scripts/python.exe'), str(ROOT / 'app/
 while not srv.stdout.readline().startswith(b'http'): pass
 ok = []
 def chk(c, e): ok.append(bool(e)); print(('OK  ' if e else 'NO  ') + c, flush=True)
+def barra_dice(t, pg=None):
+    """La frase della barra di conferma in basso (si riempie appena pronta l'anteprima)."""
+    try:
+        PG[0].wait_for_function("(t) => (document.getElementById('prova-barra')?.innerText || '').includes(t)", arg=t, timeout=10000)
+        return True
+    except Exception:
+        return False
+PG = [None]
 try:
     with sync_playwright() as p:
         b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
-        pg = b.new_page(viewport={'width': 1500, 'height': 900}); err = []; pg.on('pageerror', lambda e: err.append(str(e)))
+        pg = PG[0] = b.new_page(viewport={'width': 1500, 'height': 900}); err = []; pg.on('pageerror', lambda e: err.append(str(e)))
         pg.goto('http://127.0.0.1:5202/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
         api = lambda n, *a: pg.evaluate("async ([n, a]) => (await (await fetch('/api/' + n, {method: 'POST', body: JSON.stringify(a)})).json())", [n, list(a)])
         api('new_project', 'lamiera', {'name': 'P', 'larghezza': 300, 'profondita': 200, 'spessore': 2, 'raggio': 2, 'k': 0.4})
@@ -36,7 +44,11 @@ try:
         chk('barra: da quale taglio vengono', pg.is_visible('#sk-origine') and 'TG' in pg.inner_text('#sk-origine'))
         chk('niente più «non si cancellano»', 'non si cancellano' not in pg.inner_text('#toasts'))
         pg.screenshot(path=str(OUT / '1_barra.png'))
-        pg.click('#or-togli'); time.sleep(3)
+        pg.click('#or-togli')
+        # 03/11: prima di chiudere i fori lo propone in basso («Chiude 2 fori…»), si conferma con Invio
+        pg.wait_for_selector('#pr-ok', timeout=10000)
+        chk('chiede conferma prima di chiudere i fori', barra_dice('Chiude 2 fori'))
+        pg.click('#pr-ok'); time.sleep(3)
         st = api('state')
         rimasti = pg.evaluate("window.__steelcad.sketch.v.circles.filter(c => c.ref).length")
         chk(f'due fori tolti dal taglio, bordi rifatti: {rimasti} cerchi arancio', rimasti == 1)
@@ -56,8 +68,12 @@ try:
         pg.evaluate("sid => window.__steelcad.enterSketch(sid)", nuovo); pg.wait_for_function('window.__steelcad.sketch'); time.sleep(1)
         cerchi = pg.evaluate("window.__steelcad.sketch.v.circles.filter(c => c.ref).map(c => c.id)")
         scegli(cerchi); pg.click('#or-tutto'); time.sleep(0.8)
-        chk('chiede conferma per tutto il taglio', pg.is_visible('#modal-box') and 'Elimina' in pg.inner_text('#modal-box'))
-        pg.click('#m-ok'); time.sleep(2.5)
+        if pg.is_visible('#pr-ok'):                        # la conferma in basso (03/11)
+            chk('chiede conferma per tutto il taglio', barra_dice('Toglie'))
+            pg.click('#pr-ok'); time.sleep(2.5)
+        else:
+            chk('chiede conferma per tutto il taglio', pg.is_visible('#modal-box') and 'Elimina' in pg.inner_text('#modal-box'))
+            pg.click('#m-ok'); time.sleep(2.5)
         st = api('state')
         chk('taglio tolto: niente più fori', "'sheet_cut'" not in str(st['tree']))
         chk('nessun errore ' + str(err), not err)

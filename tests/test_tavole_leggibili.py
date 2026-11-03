@@ -143,6 +143,8 @@ def test_avviso_angoli_quasi_tondi():
     assert _collare().avvisi_angoli() == []                      # disegnato giusto: niente
     s = _collare(storto=True)
     a = s.avvisi_angoli()
-    assert len(a) == 2 and all('88,98°, non 90°' in x for x in a)
+    assert len(a) == 1 and all('88,98°, non 90°' in x for x in a) and 'succede 2 volte' in a[0]   # le due gambe uguali: una riga
+    # parole da officina: il tratto con la sua misura, non il codice della linea, e «disegno» invece di «sketch»
+    assert all('il tratto da ' in x and 'sketch' not in x and ' L1 ' not in x for x in a), a
     c = s.prepara_info()['controllo']
     assert c['ok'] and c['avvisi'] == a                         # avvisa, non blocca
