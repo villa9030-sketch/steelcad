@@ -17,6 +17,8 @@ cambia. Si salvano nel progetto (meta['tavole'][chiave del foglio]) come:
      'tolte':  ['vista:iso'],                                    viste tolte dal foglio
      'dettagli': [{'vista': 'vista:fronte', 'c': [x, y], 'r': 12, 'k': 2, 'p': [x, y], 'lettera': 'A'}]}
                                                                 centro e raggio nella vista, ingrandimento, centro sul foglio
+     'tabelle': {'tabella:taglio': {'k': 1.2, 'd': [dx, dy]}}   (03/11) distinta di taglio e distinta dell'assieme
+                                                                più grandi o più piccole (k) e spostate (mm sul foglio)
      'distinta': {'celle': {'2:1': 'Fondo zincato'}, 'via': [5], 'nuove': [['8', 'Vernice', '1', '', '', '']]}
                                                                 (28/10) celle cambiate (riga:colonna delle righe della
                                                                 distinta, 0 = la prima), righe tolte, righe in più in fondo
@@ -61,6 +63,8 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
     f.persi = persi(f, r)
     _distinta(f, r.get('distinta'))
     _cartiglio_grande(f, r.get('cartiglio'))
+    for nome, t in (r.get('tabelle') or {}).items():
+        _tabella_grande(f, nome, t or {})
     # 0. viste tolte e dettagli ingranditi (28/10): prima degli spostamenti, così il cerchio del dettaglio segue la
     # sua vista e il dettaglio si sposta per conto suo
     for vista in r.get('tolte') or []:
@@ -330,6 +334,33 @@ def _cartiglio_grande(f: Foglio, k):
     f.immagini[:] = [(im, *S((x, y)), w * k, h * k) for im, x, y, w, h in f.immagini]
 
 
+TABELLE = ('tabella:taglio', 'distinta')
+
+
+def _tabella_grande(f: Foglio, nome: str, t: dict):
+    """Una tabella (distinta di taglio, distinta dell'assieme) più grande o più piccola e spostata (03/11: «la
+    distinta di taglio non posso ingrandirla come le viste»). t: {'k': 1.2, 'd': [dx, dy]}. La distinta di taglio
+    cresce dal suo angolo in alto a sinistra, quella dell'assieme dal basso (sta sopra il cartiglio)."""
+    if nome not in TABELLE:
+        return
+    try:
+        k = float(t.get('k') or 1)
+        dx, dy = (float(v) for v in (t.get('d') or [0, 0]))
+    except (TypeError, ValueError):
+        return
+    pts = [p for (l, ps), tg in zip(f.linee, f.linee.tag) if tg == nome for p in ps]
+    if not pts or k <= 0:
+        return
+    cx = min(p[0] for p in pts)
+    cy = min(p[1] for p in pts) if nome == 'distinta' else max(p[1] for p in pts)
+    S = lambda p: (cx + (p[0] - cx) * k + dx, cy + (p[1] - cy) * k + dy)  # noqa: E731
+    ok = lambda tg: tg == nome  # noqa: E731
+    f.linee[:] = [(l, [S(p) for p in ps]) if ok(tg) else (l, ps) for (l, ps), tg in zip(f.linee, f.linee.tag)]
+    f.cerchi[:] = [(l, S(c), r * k) if ok(tg) else (l, c, r) for (l, c, r), tg in zip(f.cerchi, f.cerchi.tag)]
+    f.pieni[:] = [(l, [S(p) for p in ps]) if ok(tg) else (l, ps) for (l, ps), tg in zip(f.pieni, f.pieni.tag)]
+    f.testi[:] = [(l, S(p), tx, h * k, al) if ok(tg) else (l, p, tx, h, al) for (l, p, tx, h, al), tg in zip(f.testi, f.testi.tag)]
+
+
 def persi(f: Foglio, r: dict) -> list:
     """I ritocchi che non trovano più il loro oggetto (28/10): il pezzo è cambiato e la quota ritoccata non c'è più
     (un foro tolto), la vista è sparita… La tavola esce lo stesso; questi si dicono, per toglierli o rifarli.
@@ -531,6 +562,9 @@ def oggetti(f: Foglio) -> list:
     if e and bb:
         out.append({'id': 'distinta', 'kind': 'distinta', 'label': 'Distinta', 'bbox': bb, 'intest': e['intest'],
                     'righe': e['righe']})
+    bb = _ingombro(per_tag.get('tabella:taglio', []))
+    if bb:
+        out.append({'id': 'tabella:taglio', 'kind': 'tabella', 'label': 'Distinta di taglio', 'bbox': bb})
     bb = _ingombro(per_tag.get('cartiglio', []) + [(x, y) for _, x, y, w, h in f.immagini] +
                    [(x + w, y + h) for _, x, y, w, h in f.immagini])
     if bb:

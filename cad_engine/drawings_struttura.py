@@ -168,12 +168,19 @@ def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -
     f = Foglio(formato, campi.get('titolo', ''))
     f.u = k = TESTO
     area, cart = _cornice(f, {**campi, 'scala': '—'})
-    col = [c * k for c in (0, 12, 100, 128, 154, 176, 190, 210, 230)]
     intest = ['Pos.', 'Nome', 'Profilo', 'Lunghezza mm', 'Tagli', 'Q.tà', 'kg cad.', 'kg tot.']
-    h = 7.0 * k
-    th = 2.4 * k
     x = area[0] + 10
     y = area[3] - 12 - 4 * k
+    # 03/11: un oggetto solo per l'editor (titolo, tabella, totali e nota): si ingrandisce e si sposta tutto insieme
+    with f.oggetto('tabella:taglio'):
+        _tabelle_taglio(f, x, y, k, intest, righe, totali)
+    return f
+
+
+def _tabelle_taglio(f, x, y, k, intest, righe, totali):
+    col = [c * k for c in (0, 12, 100, 128, 154, 176, 190, 210, 230)]
+    h = 7.0 * k
+    th = 2.4 * k
     f.text('testo', (x, y + 2 * k), 'DISTINTA DI TAGLIO', 2.8 * k)
     tabella = [intest] + [[str(r['pos']), r['nome'], r['profilo'], fmt(r['lunghezza']), r['tagli'], str(r['qty']),
                            fmt(round(r['kg'], 2)), fmt(round(r['kg_tot'], 2))] for r in righe]
@@ -201,7 +208,6 @@ def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -
              'TOTALI PER PROFILO (barre da comprare)', h=h, k=k)
     y3 = y2 - h * (len(totali) + 1) - 8 * k
     f.text('testo', (x, y3), 'Il numero di posizione è quello nei cerchi della vista isometrica.', 2.2 * k)
-    return f
 
 
 def _a_capo(t: str, n: int) -> list:

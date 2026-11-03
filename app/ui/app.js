@@ -5350,11 +5350,19 @@ async function drawingsDialog() {
       const d = R_.distinta || {}, nc = Object.keys(d.celle || {}).length, nv = (d.via || []).length, nn = (d.nuove || []).length;
       const cosa = [nc && `${nc} ${nc === 1 ? 'cella cambiata' : 'celle cambiate'}`, nv && `${nv} ${nv === 1 ? 'riga tolta' : 'righe tolte'}`,
         nn && `${nn} ${nn === 1 ? 'riga in più' : 'righe in più'}`].filter(Boolean).join(', ');
-      sez.innerHTML = `<h4>Distinta</h4><p class="hint">${cosa ? 'Ritoccata: ' + esc(cosa) + '.' : 'Quella automatica, dai pezzi dell’assieme.'}</p>
+      sez.innerHTML = `<h4>Distinta</h4><p class="hint">${cosa ? 'Ritoccata: ' + esc(cosa) + '.' : 'Quella automatica, dai pezzi dell’assieme.'}
+        Trascinala per spostarla.</p>
+        ${grandezzaHtml(o.id)}
         <div class="te-bott"><button class="btn primary" id="ts-dist">Modifica la distinta…</button>
           ${cosa ? '<button class="btn" id="ts-dist-auto">Torna automatica</button>' : ''}</div>`;
+      grandezzaTabella(o.id);
       $('#ts-dist').onclick = () => distintaDialog(o, d, nuova => { const n = rit(); if (nuova) n.distinta = nuova; else delete n.distinta; salva(n); });
       if ($('#ts-dist-auto')) $('#ts-dist-auto').onclick = () => { const n = rit(); delete n.distinta; salva(n); };
+    } else if (o.kind === 'tabella') {
+      // 03/11: «la distinta di taglio non posso ingrandirla come le viste»: grandezza e posto (titolo e totali con lei)
+      sez.innerHTML = `<h4>${esc(o.label)}</h4><p class="hint">Trascinala per spostarla: i totali per profilo vengono con lei.</p>
+        ${grandezzaHtml(o.id)}`;
+      grandezzaTabella(o.id);
     } else if (o.kind === 'cartiglio') {
       // 29/10: il cartiglio si ingrandisce e si rimpicciolisce (resta nell'angolo in basso a destra)
       const k = +(R_.cartiglio || 1), pc = Math.round(k * 100);
@@ -5370,6 +5378,27 @@ async function drawingsDialog() {
       if ($('#ts-c100')) $('#ts-c100').onclick = () => metti(100);
       const d = box.querySelectorAll('.te-sez')[2]; if (d) d.open = true;
     }
+  }
+  // 03/11: grandezza (in %) e spostamento delle tabelle: ritocchi.tabelle[id] = {k, d: [dx, dy]}
+  function grandezzaHtml(id) {
+    const t = ((foglio().ritocchi || {}).tabelle || {})[id] || {}, pc = Math.round((t.k || 1) * 100);
+    return `<div class="te-riga te-pila">Grandezza<div class="fp-len"><button type="button" class="pm" id="ts-tmeno" aria-label="Più piccola">−</button>
+        <span class="inp"><input class="field" id="ts-tk" value="${pc}"><i>%</i></span>
+        <button type="button" class="pm" id="ts-tpiu" aria-label="Più grande">+</button></div></div>
+      ${pc !== 100 || t.d ? '<div class="te-bott"><button class="btn" id="ts-t100">Grandezza e posto normali</button></div>' : ''}`;
+  }
+  function grandezzaTabella(id) {
+    const pc = Math.round((((foglio().ritocchi || {}).tabelle || {})[id]?.k || 1) * 100);
+    const metti = v => { const n = rit(); n.tabelle = n.tabelle || {}; const t = n.tabelle[id] || {};
+      v = Math.max(40, Math.min(250, Math.round(v)));
+      if (v === 100) delete t.k; else t.k = v / 100;
+      if (Object.keys(t).length) n.tabelle[id] = t; else delete n.tabelle[id];
+      if (!Object.keys(n.tabelle).length) delete n.tabelle;
+      salva(n); };
+    $('#ts-tmeno').onclick = () => metti(pc - 10);
+    $('#ts-tpiu').onclick = () => metti(pc + 10);
+    $('#ts-tk').onchange = () => { const v = parseFloat($('#ts-tk').value.replace(',', '.')); if (v > 0) metti(v); };
+    if ($('#ts-t100')) $('#ts-t100').onclick = () => { const n = rit(); if (n.tabelle) { delete n.tabelle[id]; if (!Object.keys(n.tabelle).length) delete n.tabelle; } salva(n); };
   }
   // ---- l'elenco dei ritocchi, ognuno con ×
   const ETICHETTE_TAV = { 'vista:fronte': 'Vista di fronte', 'vista:alto': 'Vista dall’alto', 'vista:sinistra': 'Vista da sinistra',
@@ -5393,6 +5422,10 @@ async function drawingsDialog() {
     (R_.libere || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} non allineata`, n => { n.libere.splice(i, 1); }]));
     if (R_.cartiglio) righe.push([`Cartiglio al ${Math.round(R_.cartiglio * 100)}%`, n => { delete n.cartiglio; }]);
     if (R_.distinta) righe.push(['Distinta ritoccata', n => { delete n.distinta; }]);
+    for (const [id, t] of Object.entries(R_.tabelle || {})) {
+      const cosa = [t.k && t.k !== 1 ? `al ${Math.round(t.k * 100)}%` : '', t.d ? 'spostata' : ''].filter(Boolean).join(', ');
+      righe.push([`${nomi[id] || 'Tabella'} ${cosa}`, n => { delete n.tabelle[id]; if (!Object.keys(n.tabelle).length) delete n.tabelle; }]);
+    }
     const NOMI_T = { quote: 'Testi delle quote', frecce: 'Frecce delle quote', note: 'Testi delle note', titoli: 'Titoli delle viste' };
     for (const [k, v] of Object.entries(R_.testi || {})) righe.push([`${NOMI_T[k] || k}: ${mm(v)} mm`, n => { delete n.testi[k]; }]);
     const el = box.querySelector('#te-rit');
@@ -5564,7 +5597,7 @@ async function drawingsDialog() {
     }
     ED.sel = o?.id || null;
     evidenzia(); pannelloSel();
-    if (o && ['vista', 'quota', 'nota', 'diametro', 'angolo', 'saldatura'].includes(o.kind)) {
+    if (o && ['vista', 'quota', 'nota', 'diametro', 'angolo', 'saldatura', 'tabella', 'distinta'].includes(o.kind)) {
       // 29/10: gli elementi da muovere si trovano adesso, non a ogni movimento del mouse
       const ids = o.kind === 'vista' ? Object.keys(mosseViste(o.id, 0, 0)) : [o.id];
       const els = [];
@@ -5635,6 +5668,10 @@ async function drawingsDialog() {
     const n = rit();
     if (o.kind === 'vista') { n.viste = n.viste || {}; const v = n.viste[o.id] || [0, 0], m = mosseViste(o.id, dx, dy)[o.id]; n.viste[o.id] = [v[0] + m[0], v[1] + m[1]]; }
     else if (o.kind === 'nota') { const m = n.note[o.indice]; m.x += dx; m.y += dy; }
+    else if (o.kind === 'tabella' || o.kind === 'distinta') {
+      n.tabelle = n.tabelle || {}; const t = n.tabelle[o.id] || {}, d = t.d || [0, 0];
+      t.d = [d[0] + dx, d[1] + dy]; n.tabelle[o.id] = t;
+    }
     else if (o.kind === 'saldatura') { const m = n.saldature[o.indice]; m.dx += dx; m.dy += dy; }   // si sposta il simbolo, la punta resta
     else if (o.kind === 'diametro') {                // la scritta va dove lasci il mouse
       const m = n.diametri[o.indice], [cx, cy] = o.C;
