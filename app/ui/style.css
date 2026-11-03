@@ -2414,7 +2414,7 @@ body:has(.pannello-cmd) #viewcube { right: 326px; }
 /* un problema del disegno (contorno aperto…) è «da guardare», non un errore: ambra, sotto la riga */
 .sk-problema { margin-top: var(--s-1); font: 500 var(--fs-etichetta)/1.35 var(--font); color: var(--c-warn-testo); white-space: normal; }
 /* la casella del comando (lunghezza, diametro…) sta SOPRA la barra «prossimo passo», non la copre */
-#sk-cmd { bottom: 56px; gap: var(--s-2); }   /* subito sopra la barra (una riga, alta 44) */
+#sk-cmd { bottom: calc(var(--sk-foot-h, 38px) + 18px); gap: var(--s-2); }   /* subito sopra la barra, anche quando va su due righe (04/11: copriva l'aiuto) */
 #sk-cmd-label { font-size: var(--fs-fitto); color: var(--c-testo-2); }
 #sk-cmd .u { color: var(--c-spento); font-size: var(--fs-piccolo); }
 /* gli agganci del disegno nel colore di modalità (verde acqua); il suggerimento vicino al mouse scuro e quieto */

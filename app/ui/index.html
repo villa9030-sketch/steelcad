@@ -100,11 +100,6 @@
     <h2>Progetto<button class="sx-chiudi" id="sx-chiudi" title="Riduci il pannello (trascina il bordo per allargarlo)">«</button></h2>
     <div id="tree"></div>
   </section>
-  <section class="panel" id="storia-panel" hidden>
-    <details id="storia-box"><summary><h2>Storia</h2><span class="storia-n" id="storia-n"></span></summary>
-      <div class="storia" id="storia"></div>
-      <p class="hint">Clic su un passo: il pezzo torna com’era lì. Ctrl+Z / Ctrl+Y un passo alla volta.</p></details>
-  </section>
   <section class="panel" id="params-panel">
     <h2>Misure</h2>
     <div id="mat-riga" hidden></div>
@@ -115,6 +110,12 @@
         <input class="field" id="new-param" placeholder="nome = valore" spellcheck="false">
         <p class="hint">Un parametro nuovo da usare nelle quote, per esempio <code>sbalzo = 30</code>, poi Invio.</p></details>
     </details>
+  </section>
+  <!-- 04/11: la Storia sotto le Misure: quando compare (primo cambio) non spinge più giù i campi -->
+  <section class="panel" id="storia-panel" hidden>
+    <details id="storia-box"><summary><h2>Storia</h2><span class="storia-n" id="storia-n"></span></summary>
+      <div class="storia" id="storia"></div>
+      <p class="hint">Clic su un passo: il pezzo torna com’era lì. Ctrl+Z / Ctrl+Y un passo alla volta.</p></details>
   </section>
 </aside>
 

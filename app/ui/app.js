@@ -1848,7 +1848,7 @@ function renderStoria() {
   if (!box) return;
   box.hidden = !st || !st.passi.length;
   if (box.hidden) return;
-  document.getElementById('storia-n').textContent = st.qui < st.passi.length ? `passo ${st.qui} di ${st.passi.length}` : `${st.passi.length} passi`;
+  document.getElementById('storia-n').textContent = st.qui < st.passi.length ? `passo ${st.qui} di ${st.passi.length}` : `${st.passi.length} ${st.passi.length === 1 ? 'passo' : 'passi'}`;
   const voci = [['Com’era all’apertura', 0], ...st.passi.map((t, i) => [t, i + 1])];
   const el = document.getElementById('storia');
   el.innerHTML = voci.map(([t, pos]) => `<button data-pos="${pos}" class="${pos === st.qui ? 'qui' : pos > st.qui ? 'dopo' : ''}" title="${esc(t)}"><span>${esc(t)}</span></button>`).join('');
@@ -1899,7 +1899,7 @@ function renderTop() {
   for (const [b, k, t] of [['#b-undo', 'undo', 'Annulla'], ['#b-redo', 'redo', 'Ripeti']]) {
     const l = S[k][0];
     $(b).disabled = !l;
-    $(b).title = l ? `${t}: ${l} (Ctrl+${k === 'undo' ? 'Z' : 'Y'})` : `Niente da ${t.toLowerCase()}`;
+    $(b).title = l ? `${t}: ${l} (Ctrl+${k === 'undo' ? 'Z' : 'Y'})` : (k === 'undo' ? 'Niente da annullare' : 'Niente da ripetere');
   }
 }
 // il nome del pezzo in alto: clic = campo, Invio salva il nome (vale per file, distinta, tavole e DXF), Esc lascia stare
@@ -7931,7 +7931,7 @@ const AIUTI = {
   rect: 'Rettangolo: clic su un angolo e sull’angolo opposto, o scrivi 100x50 · Invio conferma · Esc annulla',
   circle: 'Cerchio: clic sul centro e sul bordo, o scrivi il diametro · Invio conferma · Esc annulla',
   slot: 'Asola: clic sui due centri, poi la larghezza · Invio conferma · Esc annulla',
-  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · Esc annulla',
+  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · raggio a misura: «Arco col raggio» in Forme · Esc annulla',
   arcr: 'Arco col raggio: parte dalla fine della linea, scrivi il raggio · Invio conferma · Esc finisce',
   polygon: 'Poligono: scrivi quanti lati, poi clic sul centro e su un vertice · Esc annulla',
   fillet: 'Raccordo: clic sullo spigolo (o sulle due linee), poi scrivi il raggio · Invio conferma · Esc finisce',
@@ -8121,6 +8121,12 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
   Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Vite nei fori': 'fastener' };
+// 04/11: la casella di comando (#sk-cmd) sta sopra la barra d'aiuto anche quando la barra va su due righe (avviso del
+// profilo aperto): l'altezza della barra in una variabile CSS
+{
+  const f = document.getElementById('sk-foot');      // il modulo parte a pagina già letta: #sk-foot c'è
+  if (f && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--sk-foot-h', (f.offsetHeight || 38) + 'px')).observe(f);
+}
 function setHelp(t) {
   const el = $('#sk-help');
   t = String(t || '');
@@ -8669,6 +8675,8 @@ function drawRubber() {
     for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push([last.xy[0] + r * Math.cos(a), last.xy[1] + r * Math.sin(a)]); }
     add(pts); testo = `Ø ${num(2 * r, 2)}`;
   }
+  // 04/11: dopo Esc il punto scritto non è più sotto il mouse: niente «28 ; 0 · scritto» lasciato lì (percorso A)
+  if (SK.cursor.how === 'scritto' && !SK.pts.length) { tip.style.display = 'none'; ridisegna(); return; }
   const s = skScreen(c);
   const aggancio = SK.cursor.how && SK.cursor.how !== 'griglia' ? ` · ${SK.cursor.how}` : '';
   const scritto = SK.buf ? `<b>${esc(SK.buf)}</b>_ ` : '';
