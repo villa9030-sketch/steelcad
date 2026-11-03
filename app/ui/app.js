@@ -2462,6 +2462,10 @@ function miniBarra(s) {
       ['joint', piana ? 'Appoggia (da questa faccia)' : 'Appoggia', () => appoggiaDa(id, piana ? faccia : null)],
       ['move', 'Sposta', () => spostaDa()],
       ['pattern_rect', 'In fila', () => ripetiApri(id)],
+      // 03/11: il pezzo tenuto da una distanza o da un angolo (il cassetto): la misura sulla barretta, un clic e la
+      // scrivi o tiri il cursore. Prima stava solo nel pannello, che col clic sul pezzo non si apre più
+      ...(s.movimenti || []).map((mv, k) => ['dimension', `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
+        () => { tutteLeOpzioni(); const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 'mov']),
       ...(piana ? [['sketch', 'Pezzo nuovo qui (su questa faccia)', () => nuovoPezzoDialog(s)]] : []),
       ['fastener', faccia != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
       ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
