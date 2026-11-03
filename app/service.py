@@ -1278,16 +1278,25 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 raise SteelCADError('La tabella pieghe si fa da una lamiera costruita.', code='lamiera')
             n = lambda v, d=3: f'{v:.{d}f}'.replace('.', ',')  # noqa: E731
             if getattr(data, 'bend_rows', None) is not None:
-                righe = ['Piega;Angolo °;Lunghezza linea mm;Correzione mm (già nello sviluppo)']
+                righe = ['Piega;Angolo °;Lunghezza linea mm;Correzione mm (già nello sviluppo);Quota dal bordo mm']
                 for r_ in data.bend_rows:
                     righe.append(';'.join([str(r_['n']), n(r_['angle'], 2), n(r_['length'], 1),
-                                           n(r_['correction']) if r_['correction'] is not None else '']))
+                                           n(r_['correction']) if r_['correction'] is not None else '',
+                                           n(r_['position'], 2) if r_.get('position') is not None else '']))
                 info = data.shape_info or {}
+                # 03/11: la zona da calandrare (prima il file non ne parlava): raggio, angolo, dove comincia e finisce
+                cal = info.get('calandrature') or []
+                if cal:
+                    righe += ['', 'Calandrare;Raggio interno mm;Angolo °;Inizio a mm;Fine a mm;Lunghezza mm (fibra media)']
+                    for c in cal:
+                        righe.append(';'.join([f'C{c["n"]}', n(c['r_interno'], 2), n(c['angolo'], 2), n(c['da'], 2),
+                                               n(c['a'], 2), n(c['a'] - c['da'], 2)]))
                 righe += ['', f'{info.get("nome", "Forma")};Spessore mm;{n(data.thickness, 2)};Raggio interno mm;'
                               f'{n(data.tech.get("radius") or 0, 2)};K;{n(data.tech.get("k") or 0)};Sviluppo mm;'
                               f'{n(data.flat_size[0], 2)} x {n(data.flat_size[1], 2)}']
                 Path(path).write_text('\n'.join(righe) + '\n', encoding='utf-8-sig')
-                return _ok(message=f'Tabella pieghe salvata: {len(data.bend_rows)} pieghe.', path=path)
+                return _ok(message=f'Tabella pieghe salvata: {len(data.bend_rows)} pieghe'
+                                   + (f' e {len(cal)} calandratur{"a" if len(cal) == 1 else "e"}.' if cal else '.'), path=path)
             righe = ['Piega;Flangia;Su;Lunghezza esterna mm;Angolo °;Verso;Raggio interno mm;K;BA mm;BD mm;Larghezza mm']
             for i, g in enumerate(data.in_ordine(), 1):
                 b = g.bend
@@ -4675,9 +4684,59 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
 
     # ================================================================ prepara per il laser / l'officina
     def _nome_file(self) -> str:
-        nome = (self.asm.name if self.asm is not None else self.doc.meta.get('name')) or (self.path.stem if self.path else 'pezzo')
+        from app.drawings_service import nome_pezzo
+        nome = self.asm.name if self.asm is not None else nome_pezzo(self.doc.meta, self.path, 'pezzo')
         nome = str(nome).replace('×', 'x')             # il segno × nei nomi dei file non piace a tutti i programmi
         return re.sub(r'[\\/:*?"<>|]+', '-', nome).strip() or 'pezzo'
+
+    def avvisi_angoli(self) -> list:
+        """03/11 (collare: «le pieghe vengono 85,14° e non 90°, il controllo verde non se ne accorge»): negli sketch dei
+        profili in lamiera, gli angoli tra un tratto e l'altro che sono QUASI tondi (89,04° invece di 90°, un arco
+        quasi tangente): di solito è un punto preso col mouse un po' storto. Avvisi da leggere, non errori."""
+        from cad_engine.sketch import Sketch
+        avvisi = []
+        usati = {x.get('sketch') for x in self.doc.features if not isinstance(x, Sketch) and x.get('type') == 'sheet_shape'
+                 and x.get('kind') == 'profilo'}
+        for sid in sorted(s for s in usati if s):
+            try:
+                v = self.sketch_view(sid)['sketch']
+            except Exception:  # noqa: BLE001 - uno sketch che non si legge non deve fermare il controllo
+                continue
+            capi = []                                   # (punto, direzione che si allontana, nome)
+            for l in v.get('lines') or []:
+                if l.get('construction'):
+                    continue
+                a, b = l['xa'], l['xb']
+                L = math.dist(a, b)
+                if L < 1e-6:
+                    continue
+                d = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+                nome = str(l.get('label') or l['id']).replace('lato ', 'il tratto ')
+                capi += [(a, d, nome), (b, (-d[0], -d[1]), nome)]
+            for c in v.get('arcs') or []:
+                if c.get('construction'):
+                    continue
+                (cx, cy), r, a0, a1 = c['xc'], c['r'], c['a0'], c['a1']
+                nome = f'l’arco R{fmt_mm(round(r, 2))}'
+                capi += [((cx + r * math.cos(a0), cy + r * math.sin(a0)), (-math.sin(a0), math.cos(a0)), nome),
+                         ((cx + r * math.cos(a1), cy + r * math.sin(a1)), (math.sin(a1), -math.cos(a1)), nome)]
+            for i, (p, d1, n1) in enumerate(capi):
+                for q, d2, n2 in capi[i + 1:]:
+                    if math.dist(p, q) > 1e-3 or n1 == n2:
+                        continue
+                    cosv = max(-1.0, min(1.0, d1[0] * d2[0] + d1[1] * d2[1]))
+                    piega = 180 - math.degrees(math.acos(cosv))      # 0 = si prosegue dritti
+                    tondo = round(piega / 15) * 15
+                    scarto = abs(piega - tondo)
+                    if 0.1 < scarto < 5:
+                        if tondo == 0:
+                            avvisi.append(f'Tra {n1} e {n2} c’è uno spigolo di {fmt_mm(round(piega, 2))}°: sembrano '
+                                          'attaccati dritti ma non lo sono (l’arco non è tangente). Controlla lo sketch.')
+                        else:
+                            avvisi.append(f'Tra {n1} e {n2} la piega è di {fmt_mm(round(piega, 2))}°, non {tondo}°: se '
+                                          f'la volevi a {tondo}°, correggi l’angolo nello sketch (nel pezzo le pieghe '
+                                          'vengono diverse da come sembrano).')
+        return avvisi
 
     def prepara_info(self) -> dict:
         """Cosa si può preparare per questo pezzo, a chi serve, in che cartella, e se i controlli sono passati."""
@@ -4693,7 +4752,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if corpo is not None:
             with tempfile.TemporaryDirectory() as d:
                 r = self.export_dxf(str(Path(d) / 'prova.dxf'))
-            controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', '')}
+            controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', ''), 'avvisi': self.avvisi_angoli()}
         laser = controllo is not None and controllo['ok']
         voci = [
             {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
@@ -4758,9 +4817,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             stato = self._sheet_state()
             if sheet is not None:
                 rep = dxf.export_flat_pattern(sheet, path)
+                avvisi = self.avvisi_angoli()           # 03/11: angoli quasi tondi nel profilo: si dice, non si blocca
                 return _ok(message=f'Sviluppo salvato: {fmt_mm(round(rep["size_mm"][0], 2))} × '
                                    f'{fmt_mm(round(rep["size_mm"][1], 2))} mm, {rep["contours"]} contorni, '
-                                   f'{rep["bend_lines"]} pieghe sul layer BEND. Controlli superati.', path=path)
+                                   f'{rep["bend_lines"]} pieghe sul layer BEND. Controlli superati.'
+                                   + (' Da guardare: ' + ' '.join(avvisi) if avvisi else ''), path=path, avvisi=avvisi)
             if stato is not None and stato['after']:
                 return {'ok': False, 'message': 'Dopo la lamiera ci sono altre lavorazioni ('
                         + ', '.join(stato['after']) + '): lo sviluppo non le conterrebbe. I fori sulla base vanno '

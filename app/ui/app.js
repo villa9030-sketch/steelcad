@@ -2014,9 +2014,11 @@ async function preparaDialog() {
   const c = info.controllo;
   const voci = info.voci.map(v => `<label class="${v.si ? '' : 'no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
       <input type="checkbox" data-voce="${v.id}" ${v.scelta ? 'checked' : ''} ${v.si ? '' : 'disabled'}>
-      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small></span></label>`).join('');
+      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small>${
+        v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span></label>`).join('');
   modal(`<h3>Cosa ti serve?</h3>
     ${c ? `<div class="prep-ok${c.ok ? '' : ' no'}">${c.ok ? '<b>Il pezzo è a posto per il laser.</b> ' : '<b>Attenzione:</b> '}${esc(c.ok ? 'Contorno chiuso, fori e pieghe controllati.' : c.testo)}</div>` : ''}
+    ${c && c.avvisi && c.avvisi.length ? `<div class="prep-ok no prep-avvisi"><b>Da guardare:</b><span>${c.avvisi.map(esc).join('<br>')}</span></div>` : ''}
     <div class="prep-voci">${voci}</div>
     <div class="prep-dove">Si salvano in <b id="prep-dir">${esc(cartella)}</b> <button class="link" id="prep-cambia">Cambia cartella</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
@@ -2030,16 +2032,37 @@ async function preparaDialog() {
     conta();
     $('#m-no').onclick = close;
     $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; } });
+    // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
+    const tav = $('#prep-tavole');
+    if (tav) tav.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); close(); runCmd('drawings'); };
     $('#m-ok').onclick = () => {
       const scelte = [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
       close();
       inCoda(async () => {
         const r = await call('prepara', cartella, scelte);
         if (!r.ok) { toast(r.message || 'Non riuscito.', 'err'); return; }
-        toast(r.message);
-        await call('apri_cartella', r.cartella);
+        preparaFatto(r);
       });
     };
+  });
+}
+
+// 03/11: dopo «Salva i file» una conferma che resta (prima un messaggio di pochi secondi): quali file, dove, e i
+// pulsanti per aprire la cartella o guardare le tavole. Si chiude solo con «Chiudi».
+function preparaFatto(r) {
+  modal(`<h3>File pronti</h3>
+    <div class="prep-ok"><b>Salvat${r.files.length === 1 ? 'o 1 file' : `i ${r.files.length} file`}.</b></div>
+    <ul class="prep-fatti">${r.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+    <div class="prep-dove">Nella cartella <b class="prep-percorso" id="prep-dir">${esc(r.cartella)}</b></div>
+    <div class="acts"><button class="btn" id="prep-tav">Guarda le tavole</button><button class="btn" id="prep-apri">Apri la cartella</button>
+      <button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
+    $('#modal-box').classList.add('prepara');
+    $('#m-ok').onclick = close;
+    $('#prep-apri').onclick = () => inCoda(async () => {
+      const x = await call('apri_cartella', r.cartella);
+      if (x && x.ok === false) toast('Non riesco ad aprire la cartella: ' + (x.message || '') + '. Il percorso è scritto qui sopra.', 'err');
+    });
+    $('#prep-tav').onclick = () => { close(); runCmd('drawings'); };
   });
 }
 

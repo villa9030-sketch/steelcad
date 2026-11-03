@@ -594,7 +594,7 @@ class Api:
             self._lock.release()
 
     def export_drawings_dialog(self, fmt, campi, tutte=False):
-        nome = ((self._svc.asm.name if self._svc.asm is not None else self._svc.doc.meta.get('name')) or 'tavole') + '_tavole'
+        nome = self._svc._nome_file() + '_tavole'              # 03/11: lo stesso nome di «Prepara» (niente «Lamiera_»)
         filtro = ('PDF (*.pdf)',) if fmt == 'pdf' else ('DXF (*.dxf)',)
         p = self._dialog(webview.SAVE_DIALOG, filtro, nome + ('.pdf' if fmt == 'pdf' else '.dxf'))
         if not p:
@@ -714,7 +714,7 @@ class Api:
             return {'ok': False, 'message': 'La distinta materiali si fa da un assieme.'}
         if self._svc.asm is not None and kind not in ('step', 'bom'):
             return {'ok': False, 'message': 'Il DXF e la tabella pieghe si fanno per ogni pezzo: apri il pezzo dall’assieme.'}
-        nome = ((self._svc.asm.name if self._svc.asm is not None else self._svc.doc.meta.get('name')) or 'pezzo') + ext[1]
+        nome = self._svc._nome_file() + ext[1]
         p = self._dialog(webview.SAVE_DIALOG, (ext[0],), nome)
         if not p:
             return {'ok': False, 'cancelled': True}

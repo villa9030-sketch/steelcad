@@ -960,6 +960,9 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 .prep-dove { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); flex-wrap: wrap; }
 .prep-dove b { color: var(--ink); word-break: break-all; }
 .prep-dove .link { background: none; border: 0; color: var(--hover); padding: 0; }
+.prep-voci .prep-guarda { background: none; border: 0; color: var(--hover); padding: 0; margin-top: 6px; font-size: 13px; cursor: pointer; text-decoration: underline; }
+.prep-fatti { margin: 4px 0 14px; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+.prep-percorso { user-select: text; cursor: text; }
 #right .panel:has(.cosa) > h2 { display: none; }
 .cosa .gr[hidden] { display: none; }
 

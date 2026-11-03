@@ -16,10 +16,19 @@ from dataclasses import dataclass, field
 
 import build123d as bd
 
+# 03/11 (Stefano: «quote minuscole e illeggibili»): nelle tavole del pezzo e dello sviluppo quote, titoli e tabelle
+# 1,8 volte più grandi, con il loro posto attorno alle viste. Impaginate in A2 e rimpicciolite: la quota diventa
+# 3,5 mm sull'A3 e 2,5 mm sull'A4 (le altezze della norma ISO), la scritta resta proporzionata in ogni formato.
+TESTO = 1.8
 FORMATI = {'A4': (297.0, 210.0), 'A3': (420.0, 297.0), 'A2': (594.0, 420.0)}
 SCALE = [10, 5, 2, 1, 1 / 2, 1 / 2.5, 1 / 5, 1 / 10, 1 / 20, 1 / 25, 1 / 50, 1 / 100]
 LAYER = {'contorno': (7, 0.5), 'nascoste': (8, 0.25), 'tangenti': (8, 0.18), 'piega': (1, 0.25), 'quote': (5, 0.18),
-         'testo': (7, 0.25), 'cornice': (7, 0.5), 'cartiglio': (7, 0.25), 'tabella': (7, 0.25)}
+         'testo': (7, 0.25), 'cornice': (7, 0.5), 'cartiglio': (7, 0.25), 'tabella': (7, 0.25),
+         'marca': (3, 0.18), 'calandra': (6, 0.3)}
+# 03/11: sul foglio si distingue cosa si taglia (nero), cosa si piega (rosso), cosa si calandra (viola) e cosa si
+# marca col laser (verde, sottile): stessi colori in SVG e PDF, layer a parte nel DXF
+RGB = {'piega': (0.75, 0.1, 0.1), 'quote': (0.15, 0.3, 0.6), 'marca': (0.1, 0.5, 0.25), 'calandra': (0.5, 0.2, 0.62)}
+TRATTO_PDF = {'nascoste': '[3 1.5] 0 d', 'piega': '[6 1.5 1 1.5] 0 d', 'calandra': '[8 1.5 1 1.5 1 1.5] 0 d'}
 
 
 class _Strato(list):
@@ -65,6 +74,7 @@ class Foglio:
     chiave: str = ''                                # quale tavola è (pezzo, sviluppo…): i ritocchi stanno lì
     scala: float = 0.0                              # mm sul foglio per mm veri delle viste (0 = nessuna): per il DXF 1:1
     fattore: float = 1.0                            # quanto è stata rimpicciolita dal foglio dove è impaginata (A2)
+    u: float = 1.0                                  # quanto sono grandi quote e scritte (TESTO nelle tavole dei pezzi)
 
     def __setattr__(self, nome, valore):
         if nome in STRATI and not isinstance(valore, _Strato):
@@ -200,21 +210,25 @@ def _proietta(shape, vista: str, veloce: bool = False) -> dict:
             if lung < 1e-6:
                 return None, None
             n = max(8, min(96, int(lung / 1.5)))
+            q = ci.Location()
             if abs(abs(u1 - u0) - 2 * math.pi) < 1e-6:
-                q = ci.Location()
                 cerchio = ((q.X(), q.Y()), r)
+            else:                                       # 03/11: anche gli archi (raggi e asole nelle tavole)
+                cerchio = ('arco', (q.X(), q.Y()), r, abs(u1 - u0), (m.X(), m.Y()), (a.X(), a.Y()), (b.X(), b.Y()))
         else:
             n = max(8, min(96, int(corda / 1.5)))
         return [(q.X(), q.Y()) for q in (c.Value(u0 + (u1 - u0) * k / n) for k in range(n + 1))], cerchio
 
-    res = {'visti': [], 'tangenti': [], 'nascosti': [], 'cerchi': []}
+    res = {'visti': [], 'tangenti': [], 'nascosti': [], 'cerchi': [], 'archi': []}
     for comp in (h.VCompound(), h.OutLineVCompound()):
         for e in spigoli(comp):
             pl, cerchio = poly(e)
             if pl is None:
                 continue
             res['visti'].append(pl)
-            if cerchio:
+            if cerchio and cerchio[0] == 'arco':
+                res['archi'].append(cerchio[1:])
+            elif cerchio:
                 res['cerchi'].append(cerchio)
     for e in spigoli(h.Rg1LineVCompound()):
         pl, _ = poly(e)
@@ -452,13 +466,14 @@ def _freccia(f: Foglio, p, verso, layer='quote', L=2.5):
     f.pieni.append((layer, [p, a, b]))
 
 
-def quota(f: Foglio, a, b, distanza: float, valore: float, h=2.8, prefisso='', testo=None, nome=None):
+def quota(f: Foglio, a, b, distanza: float, valore: float, h=None, prefisso='', testo=None, nome=None):
     """Quota lineare tra a e b (foglio), spostata di "distanza" a sinistra di a→b; scrive il valore vero. Ha un nome
     (quello dato, se no l'oggetto in cui sta + un numero) e si ricorda i suoi dati: la si può ritoccare dopo."""
     if nome is None:
         conta = f.__dict__.setdefault('_nq', {})
         conta[f.gruppo] = conta.get(f.gruppo, 0) + 1
         nome = f'{f.gruppo or "foglio"}/q{conta[f.gruppo]}'
+    h = h or 2.8 * f.u
     f.elementi[nome] = {'kind': 'quota', 'a': list(map(float, a)), 'b': list(map(float, b)), 'distanza': float(distanza),
                         'valore': float(valore), 'h': float(h), 'prefisso': prefisso, 'testo': testo, 'padre': f.gruppo}
     with f.oggetto(nome):
@@ -592,8 +607,8 @@ def _metti_vista(f: Foglio, v: dict, s: float, ox: float, oy: float, quote_su=Tr
     w, h = (x1 - x0) * s, (y1 - y0) * s
     if quote_su:
         vw, vh = valori if valori else (x1 - x0, y1 - y0)
-        quota(f, (ox, oy), (ox + w, oy), -7, vw)                 # larghezza sotto
-        quota(f, (ox, oy), (ox, oy + h), 7, vh)                  # altezza a sinistra
+        quota(f, (ox, oy), (ox + w, oy), -7 * f.u, vw)           # larghezza sotto
+        quota(f, (ox, oy), (ox, oy + h), 7 * f.u, vh)            # altezza a sinistra
     return T, w, h
 
 
@@ -643,25 +658,27 @@ def _fori_a_lettere(f: Foglio, gruppi: list, s: float, etichette: dict, prima: i
                 rn = nom / 2 * s
                 f.line('quote', *[(pu[0] + rn * math.cos(math.radians(a)), pu[1] + rn * math.sin(math.radians(a)))
                                   for a in range(100, 371, 10)])
-            f.text('quote', (pu[0] + r * 0.75 + 0.4, pu[1] + r * 0.75 + 0.4), L, 2.2)
+            f.text('quote', (pu[0] + r * 0.75 + 0.4 * f.u, pu[1] + r * 0.75 + 0.4 * f.u), L, 2.2 * f.u)
         righe.append([L, str(len(uniq)), base])
     return righe
 
 
-def _tabella_fori(f: Foglio, righe: list, x0: float, y0: float, x1: float) -> float:
-    """La tabella fori sopra (x0, y0), in una o due colonne entro x1. Ritorna la y della cima."""
-    h = 5.0
-    larga = 84.0
+def _tabella_fori(f: Foglio, righe: list, x0: float, y0: float, x1: float, u: float | None = None) -> float:
+    """La tabella fori sopra (x0, y0), in una o due colonne entro x1. Ritorna la y della cima. u: quanto grande
+    (di solito quello della tavola; più piccola se no non ci sta)."""
+    u = u or f.u
+    h = 5.0 * u
+    larga = 84.0 * u
     due = len(righe) > 14 and (x1 - x0) >= 2 * larga + 4
     meta = (len(righe) + 1) // 2 if due else len(righe)
     pezzi = [righe[:meta], righe[meta:]] if due else [righe]
     alto = (meta + 1) * h
-    col = [0, 10, 20, larga]
+    col = [0, 10 * u, 20 * u, larga]
     for i, pz in enumerate(pezzi):
         if pz:
             _tabella(f, x0 + i * (larga + 4), y0 + alto, col, [['Rif.', 'Q.tà', 'Foro']] + pz,
-                     'TABELLA FORI' if i == 0 else None, h)
-    return y0 + alto + 6
+                     'TABELLA FORI' if i == 0 else None, h, k=u)
+    return y0 + alto + 6 * u
 
 
 def _fori(f: Foglio, v: dict, T, s, etichette: dict, gia: set):
@@ -693,11 +710,12 @@ def _fori(f: Foglio, v: dict, T, s, etichette: dict, gia: set):
                 pu = T(u)
                 f.line('quote', *[(pu[0] + rn * math.cos(math.radians(a)), pu[1] + rn * math.sin(math.radians(a)))
                                   for a in range(100, 371, 10)])
+        u = f.u
         q = (p[0] + r * 0.7, p[1] + r * 0.7)
-        e = (q[0] + 8, q[1] + 8)
-        f.line('quote', q, e, (e[0] + 2 + len(testo) * 1.6, e[1]))
-        _freccia(f, q, (q[0] - e[0], q[1] - e[1]))
-        f.text('quote', (e[0] + 1, e[1] + 0.8), testo, 2.6)
+        e = (q[0] + 8 * u, q[1] + 8 * u)
+        f.line('quote', q, e, (e[0] + 2 * u + len(testo) * 1.6 * u, e[1]))
+        _freccia(f, q, (q[0] - e[0], q[1] - e[1]), L=2.5 * u)
+        f.text('quote', (e[0] + 1 * u, e[1] + 0.8 * u), testo, 2.8 * u)
 
 
 def _centri_fori(v: dict) -> tuple:
@@ -718,10 +736,10 @@ def _catene_fori(f: Foglio, v: dict, T, xs, ys):
     x0, y0, x1, y1 = v['bbox']
     tappe = [x0] + [x for x in xs if x0 + 1e-6 < x < x1 - 1e-6]
     for a, b in zip(tappe, tappe[1:]):
-        quota(f, T((a, y0)), T((b, y0)), -18, b - a)
+        quota(f, T((a, y0)), T((b, y0)), -16 * f.u, b - a)
     tappe = [y0] + [y for y in ys if y0 + 1e-6 < y < y1 - 1e-6]
     for a, b in zip(tappe, tappe[1:]):
-        quota(f, T((x0, a)), T((x0, b)), 18, b - a)
+        quota(f, T((x0, a)), T((x0, b)), 16 * f.u, b - a)
 
 
 def _scala_scelta(v) -> float | None:
@@ -800,8 +818,9 @@ def _posto_libero(f: Foglio, pa, pb, verso: int) -> float:
     lu = math.hypot(ux, uy) or 1
     ux, uy = ux / lu, uy / lu
     nx, ny = -uy, ux
+    passo = 7 * f.u
     for j in range(1, 12):
-        d = verso * 7 * j
+        d = verso * passo * j
         ax, ay = pa[0] + nx * d, pa[1] + ny * d
         libero = True
         for layer, pts in f.linee:
@@ -812,15 +831,15 @@ def _posto_libero(f: Foglio, pa, pb, verso: int) -> float:
             lv = math.hypot(vx, vy)
             if lv < 1e-6 or abs(vx * uy - vy * ux) / lv > 0.05:
                 continue                                    # non parallela
-            if abs((x0 - ax) * nx + (y0 - ay) * ny) > 3.5:
+            if abs((x0 - ax) * nx + (y0 - ay) * ny) > passo / 2:
                 continue                                    # parallela ma lontana
             t0, t1 = sorted(((x0 - ax) * ux + (y0 - ay) * uy, (x1 - ax) * ux + (y1 - ay) * uy))
             if t1 > -2 and t0 < lu + 2:                      # si sovrappongono
                 libero = False
                 break
         if libero:
-            return 7 * j
-    return 7 * 12
+            return passo * j
+    return passo * 12
 
 
 def _quote_a_mano(f: Foglio, quote: list, viste: dict):
@@ -879,7 +898,7 @@ def _angolo_a_mano(f: Foglio, q: dict, viste: dict):
             continue                                        # il piano dell'angolo è di sbieco in questa vista
         T, _ = viste[nome]
         A, V, B = (T(proietta_punto(nome, p)) for p in (a, v, b))
-        k = f.fattore
+        k = f.fattore * f.u
         R = max(8 * k, min(25 * k, 0.6 * min(math.dist(A, V), math.dist(B, V))))
         cos_ = sum(u[i] * w[i] for i in range(3)) / (math.sqrt(sum(x * x for x in u)) * math.sqrt(sum(x * x for x in w)))
         gradi = math.degrees(math.acos(max(-1.0, min(1.0, cos_))))
@@ -915,7 +934,7 @@ def _saldature_3d(f: Foglio, saldature: list, viste: dict):
     """Le saldature segnate sul pezzo (28/10): il simbolo ISO 2553 con la freccia sullo spigolo, nella prima vista
     dove lo spigolo non si vede di punta; il gomito verso fuori dalla vista."""
     from .tavole_ritocchi import _saldatura
-    k = f.fattore
+    k = f.fattore * f.u
     hq, frq = 2.8 * k, 2.5 * k
     usati: list = []
     for w in saldature or []:
@@ -943,11 +962,171 @@ def _saldature_3d(f: Foglio, saldature: list, viste: dict):
             break
 
 
+def proiettore(vista: str):
+    """Una funzione punto 3D → punto della vista (come proietta_punto, ma il proiettore si fa una volta sola)."""
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Pnt2d
+    from OCP.HLRAlgo import HLRAlgo_Projector
+    d, up = VISTE[vista]
+    ax = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(*d))
+    ax.SetYDirection(gp_Dir(*up) if vista != 'iso' else _up_iso(d))
+    pr = HLRAlgo_Projector(ax)
+
+    def P(p):
+        q = gp_Pnt2d()
+        pr.Project(gp_Pnt(*p), q)
+        return (q.X(), q.Y())
+    return P
+
+
+def _marcature_viste(f: Foglio, shape, marche: list, viste: dict):
+    """03/11: le scritte marcate col laser anche nelle viste del pezzo (prima c'erano solo nello sviluppo), in verde
+    sottile: in ogni vista dove la faccia marcata è di fronte e sta davanti (non dietro il pezzo)."""
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    sc = Bnd_Box()
+    BRepBndLib.Add_s(shape, sc)
+    lo, hi = sc.CornerMin(), sc.CornerMax()
+    xa, ya, za, xb, yb, zb = lo.X(), lo.Y(), lo.Z(), hi.X(), hi.Y(), hi.Z()
+    angoli = [(x, y, z) for x in (xa, xb) for y in (ya, yb) for z in (za, zb)]
+    for nome, T in viste.items():
+        d = VISTE[nome][0]
+        dot = lambda p: p[0] * d[0] + p[1] * d[1] + p[2] * d[2]  # noqa: E731
+        davanti = max(dot(p) for p in angoli)
+        P = proiettore(nome)
+        fondo = min(dot(p) for p in angoli)
+        gruppi: dict = {}                               # i tratti alla stessa profondità: la scritta su una faccia
+        for pl in marche:
+            prof = [dot(p) for p in pl]
+            if len(pl) < 2 or max(prof) - min(prof) > 0.05 or davanti - max(prof) > 0.6 * (davanti - fondo):
+                continue                                # di sbieco, o sulla faccia dietro
+            gruppi.setdefault(round(prof[0] / 0.05), []).append([P(p) for p in pl])
+        with f.oggetto(f'vista:{nome}/marcatura'):
+            for tratti in gruppi.values():
+                xs = [q[0] for pl in tratti for q in pl]
+                ys = [q[1] for pl in tratti for q in pl]
+                if max(xs) - min(xs) < 0.2 or max(ys) - min(ys) < 0.2:
+                    continue                            # solo i tratti dritti di una scritta vista di taglio
+                for pl in tratti:
+                    f.line('marca', *[T(q) for q in pl])
+
+
+# ------------------------------------------------------------------------------------------ asole, raggi, gambe
+def asole_vista(v: dict) -> list:
+    """03/11: le asole viste di fronte in una vista: due mezzi archi dello stesso raggio che si guardano le spalle.
+    [{'c': centro, 'L': fuori tutto, 'W': larghezza, 'orizzontale': bool, 'teste': (c1, c2)}]"""
+    mezzi = [a for a in v.get('archi', []) if abs(a[2] - math.pi) < 0.03]
+    out, usati = [], set()
+    for i, (c1, r1, _, m1, *_r) in enumerate(mezzi):
+        if i in usati:
+            continue
+        for j in range(i + 1, len(mezzi)):
+            c2, r2, _, m2, *_r2 = mezzi[j]
+            d = math.dist(c1, c2)
+            if j in usati or abs(r1 - r2) > 1e-3 or d < 1e-3:
+                continue
+            ux, uy = (c1[0] - c2[0]) / d, (c1[1] - c2[1]) / d
+            if (m1[0] - c1[0]) * ux + (m1[1] - c1[1]) * uy > 0.9 * r1 and (m2[0] - c2[0]) * -ux + (m2[1] - c2[1]) * -uy > 0.9 * r1:
+                c = ((c1[0] + c2[0]) / 2, (c1[1] + c2[1]) / 2)
+                if not any(math.dist(c, o['c']) < 1e-3 for o in out):
+                    out.append({'c': c, 'L': d + 2 * r1, 'W': 2 * r1, 'orizzontale': abs(ux) > abs(uy), 'teste': (c1, c2)})
+                usati |= {i, j}
+                break
+    return out
+
+
+def _archi_grandi(v: dict, minimo: float = 5.0) -> list:
+    """Gli archi (non le asole, non i fori) raggruppati per centro: [(centro, raggio più piccolo, raggi, arco)].
+    Il più piccolo dei concentrici è l'interno della lamiera curvata."""
+    teste = {(round(t[0], 2), round(t[1], 2)) for a in asole_vista(v) for t in a['teste']}
+    gruppi: dict = {}
+    for a in v.get('archi', []):
+        c, r, ang = a[0], a[1], a[2]
+        if r < minimo or ang < 0.5 or (round(c[0], 2), round(c[1], 2)) in teste:
+            continue
+        k = next((g for g in gruppi if math.dist(g, c) < 0.05), (c[0], c[1]))
+        gruppi.setdefault(k, []).append(a)
+    out = []
+    for c, archi in gruppi.items():
+        raggi = sorted({round(a[1], 3) for a in archi})
+        piccolo = min(archi, key=lambda a: a[1])
+        out.append((c, raggi[0], raggi, piccolo))
+    return out
+
+
+def gambe_vista(v: dict) -> list:
+    """Un arco grande quasi a mezzo giro con la corda in orizzontale (il collare visto di lato): le gambe dritte ai
+    lati e la luce interna, come le misura l'officina: [(x sinistra dell'arco, x destra, y della corda)]."""
+    out = []
+    for c, r, raggi, a in _archi_grandi(v, 10.0):
+        if a[2] < math.radians(150):
+            continue
+        p0, p1 = a[4], a[5]
+        if abs(p0[1] - p1[1]) > 0.02 * r:
+            continue
+        out.append((c[0] - r, c[0] + r, r))
+    return out
+
+
+def _quote_gambe(f: Foglio, v: dict, T, g):
+    """Sotto la vista: dal bordo all'inizio dell'arco (la gamba), la luce interna, dall'arco all'altro bordo."""
+    x0, y0, x1, _ = v['bbox']
+    tappe = [x0, g[0], g[1], x1]
+    for a, b in zip(tappe, tappe[1:]):
+        if b - a > 0.5:
+            quota(f, T((a, y0)), T((b, y0)), -16 * f.u, b - a)
+
+
+def _raggi(f: Foglio, v: dict, T, s: float, gia: set):
+    """03/11: «nel collare manca R55»: il raggio degli archi grandi, una volta per tavola. Linea dal centro all'arco
+    con la freccia sull'arco; «int.» se è l'interno di una lamiera curvata (c'è l'arco concentrico di fuori)."""
+    u = f.u
+    for c, r, raggi, a in _archi_grandi(v):
+        chiave = round(r, 2)
+        if chiave in gia:
+            continue
+        gia.add(chiave)
+        testo = f'R{fmt(r)}' + (' int.' if len(raggi) > 1 else '')
+        C, M = T(c), T(a[3])
+        dx, dy = M[0] - C[0], M[1] - C[1]
+        L = math.hypot(dx, dy) or 1
+        ux, uy = dx / L, dy / L
+        if L > 14 * u:                                  # arco grande: dal centro all'arco, il testo a metà
+            f.line('quote', C, M)
+            _freccia(f, M, (ux, uy), L=2.5 * u)
+            p = (C[0] + ux * L * 0.45 - uy * 1.5 * u, C[1] + uy * L * 0.45 + ux * 1.5 * u)
+            f.text('quote', p, testo, 2.8 * u, 'c')
+        else:                                           # arco piccolo: richiamo da fuori
+            E = (M[0] + ux * 8 * u, M[1] + uy * 8 * u)
+            f.line('quote', M, E, (E[0] + (1 if ux >= 0 else -1) * (2 + len(testo) * 1.6) * u, E[1]))
+            _freccia(f, M, (-ux, -uy), L=2.5 * u)
+            f.text('quote', (E[0] + (1 if ux >= 0 else -1) * u, E[1] + 0.8 * u), testo, 2.8 * u, 'l' if ux >= 0 else 'r')
+
+
+def _note_asole(f: Foglio, asole: list, T, s: float):
+    """La nota delle asole: «2× Asola 30 × 10», con la freccia su una testa."""
+    u = f.u
+    gruppi: dict = {}
+    for a in asole:
+        gruppi.setdefault((round(a['L'], 2), round(a['W'], 2)), []).append(a)
+    for (L, W), lista in gruppi.items():
+        a = max(lista, key=lambda q: (q['c'][1], q['c'][0]))
+        testa = max(a['teste'], key=lambda t: (t[0], t[1]))
+        P = T(testa)
+        r = W / 2 * s
+        q = (P[0] + r * 0.7, P[1] + r * 0.7)
+        e = (q[0] + 8 * u, q[1] + 8 * u)
+        t = (f'{len(lista)}× ' if len(lista) > 1 else '') + f'Asola {fmt(L)} × {fmt(W)}'
+        f.line('quote', q, e, (e[0] + 2 * u + len(t) * 1.6 * u, e[1]))
+        _freccia(f, q, (q[0] - e[0], q[1] - e[1]), L=2.5 * u)
+        f.text('quote', (e[0] + 1 * u, e[1] + 0.8 * u), t, 2.8 * u)
+
+
 def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str = 'A3', file_passo=None,
-                 quote_mano: list | None = None, saldature: list | None = None) -> Foglio:
+                 quote_mano: list | None = None, saldature: list | None = None, marche: list | None = None) -> Foglio:
     """Fronte, alto, sinistra (europea) + isometrica, con ingombri e note dei fori. Le viste vanno nella zona
     libera più grande (sopra o a sinistra del cartiglio), con il posto per le quote e le catene di passo."""
     f = Foglio(formato, campi.get('titolo', ''))
+    f.u = u = TESTO
     area, cart = _cornice(f, campi)
     # 28/10: il fianco si sceglie (da sinistra o da destra) e l'isometrica si può togliere
     fianco = 'destra' if str(campi.get('fianco') or '') == 'destra' else 'sinistra'
@@ -961,17 +1140,32 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     piano = piano_catene(file_passo) if file_passo else []
     n_or = sum(1 for _, c, _, _ in piano if c == 0)
     n_ve = sum(1 for _, c, _, _ in piano if c == 1)
-    gL = 16 + 9 * n_ve                     # a sinistra: quota d'altezza (+ catene verticali)
-    gS = 26                                # tra fronte e fianco: la quota d'altezza del fianco
-    gF = 22 + 18 * n_or                    # sotto la fronte: quota di larghezza, catene di passo e note, titolo dell'alto
-    gT = 14                                # sotto l'alto: la sua quota
-    gTop = 10                              # sopra la fronte: il titolo
-    # quote dei fori nella vista dall'alto: catene dall'angolo del pezzo (se i fori non sono troppi)
-    fx, fy = _centri_fori(v['alto'])
-    quote_fori = str(campi.get('quote_fori', 'sì')).lower() not in ('no', 'false', '0') and 0 < max(len(fx), len(fy)) <= 15
-    if quote_fori:
-        gT += 10
-        gL += 10
+    gL = (16 + 9 * n_ve) * u               # a sinistra: quota d'altezza (+ catene verticali)
+    gS = 26 * u                            # tra fronte e fianco: la quota d'altezza del fianco
+    gF = (22 + 18 * n_or) * u              # sotto la fronte: quota di larghezza, catene di passo e note, titolo dell'alto
+    gT = 14 * u                            # sotto l'alto: la sua quota
+    gTop = 10 * u                          # sopra la fronte: il titolo
+    # quote dei fori (e delle asole, 03/11) nella vista dall'alto e di fronte: catene dall'angolo del pezzo (se i fori
+    # non sono troppi); nelle viste dove c'è un arco grande (collare) le gambe dritte e la luce interna
+    con_quote = str(campi.get('quote_fori', 'sì')).lower() not in ('no', 'false', '0')
+    asole = {k: asole_vista(v[k]) for k in ('fronte', 'alto')}
+    catene: dict = {}
+    for k in ('alto', 'fronte'):
+        xs, ys = _centri_fori(v[k])
+        for a in asole[k]:
+            if not any(abs(a['c'][0] - x) < 0.05 for x in xs):
+                xs.append(a['c'][0])
+            if not any(abs(a['c'][1] - y) < 0.05 for y in ys):
+                ys.append(a['c'][1])
+        if con_quote and 0 < max(len(xs), len(ys)) <= 15:
+            catene[k] = (sorted(xs), sorted(ys))
+    gambe = {k: gambe_vista(v[k]) for k in ('fronte', 'alto', 'sinistra') if k not in catene}
+    if 'alto' in catene or gambe.get('alto'):
+        gT += 9 * u
+    if 'fronte' in catene or gambe.get('fronte') or gambe.get('sinistra'):
+        gF += 9 * u
+    if catene:
+        gL += 9 * u
 
     def scala_zona(r):
         aw = (r[2] - r[0]) - gL - gS - 6
@@ -1009,16 +1203,30 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
             catene_di_passo(f, v['fronte'], s, TF, file_passo)
     with f.oggetto('vista:alto'):
         TT, _, _ = _metti_vista(f, v['alto'], s, ox, oyT)
-        if quote_fori:
-            _catene_fori(f, v['alto'], TT, fx, fy)
     with f.oggetto(f'vista:{fianco}'):
         TL, _, _ = _metti_vista(f, v['sinistra'], s, xL, oyF)
-    for vista, nome, (x, y) in (('fronte', 'VISTA DI FRONTE', (ox, oyF + hF * s + 4)), ('alto', 'VISTA DALL’ALTO', (ox, oyT + hT * s + 4)),
-                                (fianco, f'VISTA DA {fianco.upper()}', (xL, oyF + hL * s + 4))):
+    trasf = {'fronte': TF, 'alto': TT, 'sinistra': TL}
+    for k, (xs, ys) in catene.items():
+        with f.oggetto(f'vista:{k}/fori'):
+            _catene_fori(f, v[k], trasf[k], xs, ys)
+    for k, lista in gambe.items():
+        with f.oggetto(f'vista:{fianco if k == "sinistra" else k}/gambe'):
+            for g in lista[:1]:
+                _quote_gambe(f, v[k], trasf[k], g)
+    gia_r: set = set()
+    for k in ('alto', 'fronte', 'sinistra'):
+        with f.oggetto(f'vista:{fianco if k == "sinistra" else k}/raggi'):
+            _raggi(f, v[k], trasf[k], s, gia_r)
+            if k in asole:
+                _note_asole(f, asole[k], trasf[k], s)
+    for vista, nome, (x, y) in (('fronte', 'VISTA DI FRONTE', (ox, oyF + hF * s + 4 * u)), ('alto', 'VISTA DALL’ALTO', (ox, oyT + hT * s + 4 * u)),
+                                (fianco, f'VISTA DA {fianco.upper()}', (xL, oyF + hL * s + 4 * u))):
         with f.oggetto(f'vista:{vista}/titolo'):
-            f.text('testo', (x, y), nome, 2.5)
+            f.text('testo', (x, y), nome, 2.5 * u)
     viste_3d = {'fronte': (TF, (ox + wF * s / 2, oyF + hF * s / 2)), 'alto': (TT, (ox + wF * s / 2, oyT + hT * s / 2)),
                 fianco: (TL, (xL + wL * s / 2, oyF + hL * s / 2))}
+    if marche:
+        _marcature_viste(f, shape, marche, {'fronte': TF, 'alto': TT, fianco: TL})
     if quote_mano:
         with f.oggetto('quote3d'):
             _quote_a_mano(f, quote_mano, viste_3d)
@@ -1036,14 +1244,18 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     sotto_viste = (oyF - 22) if viste_dx > cart[0] - 4 else area[3]
     if oyT - gT < cart[3] + 8 and ox - gL < area[2] and viste_dx > cart[0] - 4:
         sotto_viste = cart[3]                              # le viste scendono fino al cartiglio: niente posto
-    n_col = 2 if len(tutti) > 14 and area[2] - cart[0] >= 2 * 84 + 4 else 1
-    alto_tab = ((len(tutti) + n_col - 1) // n_col + 1) * 5.0 + 6
-    tabella_ok = len(tutti) > MAX_RICHIAMI and cart[3] + 8 + alto_tab <= sotto_viste
+    # la tabella grande come le quote; se non ci sta sopra il cartiglio, più piccola (come prima del 03/11)
+    for u_tab in (u, 1.4, 1.0):
+        n_col = 2 if len(tutti) > 14 and area[2] - cart[0] >= 2 * 84 * u_tab + 4 else 1
+        alto_tab = ((len(tutti) + n_col - 1) // n_col + 1) * 5.0 * u_tab + 6 * u_tab
+        tabella_ok = len(tutti) > MAX_RICHIAMI and cart[3] + 8 + alto_tab <= sotto_viste
+        if tabella_ok:
+            break
     if tabella_ok:
         with f.oggetto('fori'):
             righe = _fori_a_lettere(f, tutti, s, et, 0)
         with f.oggetto('tabella_fori'):
-            cima = _tabella_fori(f, righe, cart[0], cart[3] + 8, area[2])
+            cima = _tabella_fori(f, righe, cart[0], cart[3] + 8, area[2], u_tab)
         cart = (cart[0], cart[1], cart[2], cima)         # l'isometrica non ci va sopra
     else:
         for vista, T in (('alto', TT), ('fronte', TF), (fianco, TL)):
@@ -1055,7 +1267,7 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     vi = v['iso']
     wi, hi = vi['bbox'][2] - vi['bbox'][0], vi['bbox'][3] - vi['bbox'][1]
     destra_viste = viste_dx + 10
-    cima = oyF + max(hF, hL) * s + 12
+    cima = oyF + max(hF, hL) * s + 12 * u
     candidati = [_taglia_cartiglio((destra_viste, area[1], area[2], area[3]), cart),
                  _taglia_cartiglio((area[0], cima, area[2], area[3]), cart)]
 
@@ -1065,14 +1277,16 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     si = scala_in((xi0, yi0, xi1, yi1))
     if si > 0 and min(wi, hi) * si > 15:              # un'isometrica minuscola non serve: meglio niente
         with f.oggetto('vista:iso'):
-            TI, _, _ = _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 - hi * si) / 2,
+            TI, _, _ = _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 * u - hi * si) / 2,
                                     quote_su=False)
             try:
                 _metti_ombre(f, ombre_iso(shape), TI)
             except Exception:  # noqa: BLE001 - l'ombra è un abbellimento: senza, la tavola resta giusta
                 pass
         with f.oggetto('vista:iso/titolo'):
-            f.text('testo', (xi0, yi1 - 3), 'ISOMETRICA (fuori scala)', 2.5)
+            # 03/11: il titolo appena sopra l'isometrica (prima in cima alla zona, lontano dal disegno)
+            f.text('testo', (xi0 + (xi1 - xi0 - wi * si) / 2, min(yi1 - 3 * u, yi0 + (yi1 - yi0 - 12 * u - hi * si) / 2 + hi * si + 4 * u)),
+                   'ISOMETRICA (fuori scala)', 2.5 * u)
     return f
 
 
@@ -1154,6 +1368,7 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     """Lo sviluppo quotato, con le linee di piega e la tabella pieghe (sopra il cartiglio, righe più basse se sono
     tante); lo sviluppo nella zona libera più grande, senza toccare tabella e cartiglio."""
     f = Foglio(formato, campi.get('titolo', ''))
+    f.u = u = TESTO
     poly = []
     for pl in data.outline():
         pts = [(pl[i], pl[i + 1]) for i in range(0, len(pl) - 1, 2)]
@@ -1168,22 +1383,28 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     righe_tab = len(piegature)
     # coni e raccordi (non dal nome della piega: anche le pieghe su linea si chiamano PL1, PL2…)
     forma = bool(piegature) and bool(getattr(data, 'shape_info', None))
+    calandrature = list((getattr(data, 'shape_info', None) or {}).get('calandrature') or []) if forma else []
     if forma:                                          # P, angolo, verso (le forme a pezzi piegano su e giù), linea, correzione
-        col = [0, 10, 30, 42, 62, 82]
+        col = [c * u for c in ((0, 10, 30, 42, 62, 82) if not calandrature else (0, 10, 30, 60, 80, 100))]
         intest = ['P', 'Angolo', 'Verso', 'Linea', 'Correz.']
         piegature = [[r[0], r[3], r[4] if r[4] != '—' else '', r[2], r[7]] for r in piegature]
+        # 03/11: la calandratura nella tabella, sotto le pieghe (prima non c'era: «non dice niente dell'arco»)
+        for c in calandrature:
+            piegature.append([f'C{c["n"]}', f'{fmt(round(c["angolo"], 1))}°', f'calandrare R{fmt(c["r_interno"])} int.',
+                              f'{fmt(round(c["a"] - c["da"], 1))}', ''])
+        righe_tab = len(piegature)
     else:
-        col = [0, 14, 34, 64, 84, 104, 124, 144, 180]
+        col = [c * u for c in (0, 14, 34, 64, 84, 104, 124, 144, 180)]
         intest = ['P', 'Flangia', 'Lungh. est.', 'Angolo', 'Verso', 'R int.', 'K', 'Largh.']
     spazio = (area[3] - 12) - (cart[3] + 10) - 6
-    h_riga = 7.0
+    h_riga = 7.0 * u
     n_col = 1
     while righe_tab and h_riga * (-(-righe_tab // n_col) + 1) > spazio:
         if h_riga > 3.6:
             h_riga = max(3.6, spazio / (-(-righe_tab // n_col) + 1))
         elif (n_col + 1) * (col[-1] + 4) <= (area[2] - area[0]) * 0.75:
             n_col += 1
-            h_riga = 7.0
+            h_riga = 7.0 * u
         else:
             h_riga = spazio / (-(-righe_tab // n_col) + 1)
             break
@@ -1193,10 +1414,14 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     tab_x0 = min(cart[0], area[2] - larg_tab)
     tab_top = cart[3] + 10 + alto_tab
     zone = [(area[0], area[1], min(cart[0], tab_x0) - 10, area[3]), (area[0], tab_top + 8, area[2], area[3])]
-    gq = 22                                          # posto per le quote (sotto e a sinistra) e il titolo sopra
+    gq = 22 * u                                      # posto per le quote (sotto e a sinistra) e il titolo sopra
+    # 03/11: le linee di piega e di calandratura (verticali, non troppe) quotate dal bordo sinistro, una sotto l'altra
+    in_fila = [a[0] for a, b, _ in data.bend_lines if abs(a[0] - b[0]) < 1e-6]
+    progressive = sorted(in_fila) if forma and in_fila and len(in_fila) == len(data.bend_lines) <= 8 else []
+    gq_sotto = gq + 7 * u * len(progressive)
 
     def scala_zona(r):
-        aw, ah = (r[2] - r[0]) - gq - 8, (r[3] - r[1]) - gq - 12
+        aw, ah = (r[2] - r[0]) - gq - 8, (r[3] - r[1]) - gq_sotto - 12 * u
         if aw <= 0 or ah <= 0:
             return 0
         sc = _scegli_scala((x1 - x0, y1 - y0), aw, ah)
@@ -1206,7 +1431,7 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     campi = {**campi, 'scala': scala_testo(s), '_s': s}
     area, cart = _cornice(f, campi)
-    ox, oy = zona[0] + gq, zona[1] + gq
+    ox, oy = zona[0] + gq, zona[1] + gq_sotto
     T = lambda p: (ox + (p[0] - x0) * s, oy + (p[1] - y0) * s)  # noqa: E731
     forma = bool(getattr(data, 'bend_rows', None))
     for pl in poly:
@@ -1215,7 +1440,8 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     fitte = len(punti_et) > 1 and min(math.dist(p, q) for p, q in zip(punti_et, punti_et[1:])) < 3.0
     for i, (a, b, testo) in enumerate(data.bend_lines, 1):
         A, B = T(a), T(b)
-        f.line('piega', A, B)
+        cal = _calandra(testo)
+        f.line('calandra' if cal else 'piega', A, B)
         if forma:                       # coni e raccordi: solo il numero, verso il bordo tondo (le linee lì sono larghe)
             if fitte and not (i == 1 or i % 5 == 0 or i == len(data.bend_lines)):
                 continue                # linee troppo vicine a questa scala: un numero ogni 5 (tutti nel DXF)
@@ -1223,36 +1449,51 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
             # le forme divise in pezzi numerano per pezzo (A1, A2… B1): lo stesso nome della tabella
             righe_p = data.bend_rows or []
             nome = str(righe_p[i - 1].get('label') or i) if i - 1 < len(righe_p) else str(i)
-            f.text('piega', (q[0] + 0.6, q[1] + 0.6), nome, 1.8)
+            if cal:                     # il nome della calandratura in fondo alla linea: non sopra quello della piega vicina
+                nome = str(testo).split(' ')[0]
+                q = (A[0] + (B[0] - A[0]) * 0.1, A[1] + (B[1] - A[1]) * 0.1)
+            f.text('calandra' if cal else 'piega', (q[0] + 0.6 * u, q[1] + 0.6 * u), nome, 1.8 * u)
         else:
             m = ((A[0] + B[0]) / 2, (A[1] + B[1]) / 2)
-            f.text('piega', (m[0] + 1, m[1] + 1), testo, 2.2 if len(data.bend_lines) < 20 else 1.6)
+            f.text('piega', (m[0] + 1 * u, m[1] + 1 * u), testo, (2.2 if len(data.bend_lines) < 20 else 1.6) * u)
     for m in getattr(data, 'marks', None) or []:      # marcature laser: i tratti delle lettere
         pts = [tuple(data.plane.to_local_coords(bd.Vector(*q)))[:2] for q in m['flat']]
         if len(pts) > 1:
-            f.line('testo', *[T(q) for q in pts])
-    quota(f, T((x0, y0)), T((x1, y0)), -8, x1 - x0)
-    quota(f, T((x0, y0)), T((x0, y1)), 8, y1 - y0)
+            f.line('marca', *[T(q) for q in pts])
+    quota(f, T((x0, y0)), T((x1, y0)), -8 * u, x1 - x0)
+    quota(f, T((x0, y0)), T((x0, y1)), 8 * u, y1 - y0)
+    for j, x in enumerate(progressive, 1):
+        quota(f, T((x0, y0)), T((x, y0)), -(8 + 7 * j) * u, x - x0)
+    # la zona da calandrare: tra le sue due linee, la scritta col raggio (viola, come le linee)
+    for c in calandrature:
+        xm = T(((c['da'] + c['a']) / 2, (y0 + y1) / 2))
+        lati = [a[0] for a, b, t in data.bend_lines if _calandra(t) and str(t).split(' ')[0] == f'C{c["n"]}']
+        if len(lati) == 2:
+            xm = T(((lati[0] + lati[1]) / 2, (y0 + y1) / 2))
+        with f.oggetto('calandratura'):
+            f.text('calandra', (xm[0], xm[1] + 0.8 * u), f'CALANDRARE R{fmt(c["r_interno"])} int.', 2.8 * u, 'c')
+            f.text('calandra', (xm[0], xm[1] - 3.6 * u), f'{fmt(round(c["angolo"], 1))}° · tra le linee C{c["n"]}', 2.2 * u, 'c')
     didascalia = ('SVILUPPO visto dal lato dello sketch · pieghe in rosso, numerate: angoli in tabella' if forma else
                   'SVILUPPO visto dal lato dello sketch · linee di piega in rosso: numero, angolo, verso, raggio')
     larg_zona = zona[2] - ox - 4
     riga, righe_d = '', []
     for parola in didascalia.split(' '):              # a capo dentro la zona del disegno (non sopra la tabella)
         prova = (riga + ' ' + parola).strip()
-        if len(prova) * 2.5 * 0.55 > larg_zona and riga:
+        if len(prova) * 2.5 * u * 0.55 > larg_zona and riga:
             righe_d.append(riga)
             riga = parola
         else:
             riga = prova
     righe_d.append(riga)
     for k, testo_d in enumerate(righe_d):
-        f.text('testo', (ox, oy + (y1 - y0) * s + 6 + 4 * (len(righe_d) - 1 - k)), testo_d, 2.5)
+        f.text('testo', (ox, oy + (y1 - y0) * s + (6 + 4 * (len(righe_d) - 1 - k)) * u), testo_d, 2.5 * u)
+    legenda(f, ox, oy + (y1 - y0) * s + (6 + 4 * len(righe_d)) * u, voci_legenda(data), u)
     if righe_tab:
         for c in range(n_col):
             pezzo = piegature[c * per_col:(c + 1) * per_col]
             if pezzo:
                 _tabella(f, tab_x0 + c * (col[-1] + 4), tab_top, col, [intest] + pezzo,
-                         'TABELLA PIEGHE' if c == 0 else None, h=h_riga)
+                         'TABELLA PIEGHE' if c == 0 else None, h=h_riga, k=min(u, h_riga / 7.0 * u))
     return f
 
 
@@ -1269,6 +1510,121 @@ def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -
     _tabella(f, area[0] + 10, y2, [0, 40, 60, 85, 110], [['Profilo', 'Pezzi', 'Metri', 'kg']] + totali,
              'TOTALI PER PROFILO (barre da comprare)')
     return f
+
+
+def fori_e_asole(poly: list) -> list:
+    """03/11: i fori tondi e le asole tra i contorni interni dello sviluppo (polilinee chiuse [(x, y)]): per le quote
+    sullo sviluppo. [{'kind': 'foro', 'd', 'c'}] e [{'kind': 'asola', 'L', 'W', 'c'}] (asole dritte, in orizzontale
+    o in verticale). Le lettere tagliate e le altre forme non sono né l'uno né l'altro."""
+    if len(poly) < 2:
+        return []
+    def ingombro(pl):
+        xs, ys = [p[0] for p in pl], [p[1] for p in pl]
+        return min(xs), min(ys), max(xs), max(ys)
+    esterno = max(poly, key=lambda pl: (ingombro(pl)[2] - ingombro(pl)[0]) * (ingombro(pl)[3] - ingombro(pl)[1]))
+    out = []
+    for pl in poly:
+        if pl is esterno or len(pl) < 8:
+            continue
+        pts = pl[:-1] if pl[0] == pl[-1] else pl
+        x0, y0, x1, y1 = ingombro(pts)
+        c = ((x0 + x1) / 2, (y0 + y1) / 2)
+        w, h = x1 - x0, y1 - y0
+        rs = [math.dist(p, c) for p in pts]
+        if min(rs) > 0.3 and max(rs) - min(rs) < 0.01 * max(rs) + 0.02:
+            out.append({'kind': 'foro', 'd': round(2 * max(rs), 2), 'c': c})
+            continue
+        L, W = max(w, h), min(w, h)
+        if W < 0.5 or L < W * 1.05:
+            continue
+        area = abs(sum(pts[i][0] * pts[i - 1][1] - pts[i - 1][0] * pts[i][1] for i in range(len(pts)))) / 2
+        attesa = (L - W) * W + math.pi * W * W / 4
+        # tutti i punti sul bordo dell'asola: sui due lati dritti o sulle due teste tonde
+        lungo = w >= h
+        def sul_bordo(p):
+            a, b = (p[0] - c[0], p[1] - c[1]) if lungo else (p[1] - c[1], p[0] - c[0])
+            m = (L - W) / 2
+            if abs(a) <= m + 1e-6:
+                return abs(abs(b) - W / 2) < 0.02 * W + 0.02
+            return abs(math.hypot(abs(a) - m, b) - W / 2) < 0.02 * W + 0.02
+        if abs(area - attesa) < 0.03 * attesa and all(sul_bordo(p) for p in pts):
+            tondo = lambda v: round(v, 1) if abs(v - round(v, 1)) < 0.05 else round(v, 2)  # noqa: E731 - punta poligonale
+            out.append({'kind': 'asola', 'L': tondo(L), 'W': tondo(W), 'c': c, 'orizzontale': lungo})
+    return out
+
+
+def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: float, u: float = 1.0):
+    """Le catene di quote dei centri di fori e asole (sotto dal bordo sinistro, a sinistra dal bordo di sotto) e una
+    nota per tipo: «4× Ø10,5», «Asola 30 × 10». Distanze in mm sul foglio dalla linea del pezzo (negative = sotto)."""
+    if not fori:
+        return
+    x0, y0, x1, y1 = bbox
+    xs, ys = [], []
+    for o in fori:
+        cx, cy = o['c']
+        if not any(abs(cx - x) < 0.05 for x in xs):
+            xs.append(cx)
+        if not any(abs(cy - y) < 0.05 for y in ys):
+            ys.append(cy)
+    with f.oggetto('fori_sviluppo'):
+        if max(len(xs), len(ys)) <= 15:
+            tappe = [x0] + sorted(x for x in xs if x0 + 1e-6 < x < x1 - 1e-6)
+            for a, b in zip(tappe, tappe[1:]):
+                quota(f, T((a, y0)), T((b, y0)), d_sotto, b - a)
+            tappe = [y0] + sorted(y for y in ys if y0 + 1e-6 < y < y1 - 1e-6)
+            for a, b in zip(tappe, tappe[1:]):
+                quota(f, T((x0, a)), T((x0, b)), d_sx, b - a)
+        gruppi: dict = {}
+        for o in fori:
+            chiave = (f'Ø{fmt(o["d"])}' if o['kind'] == 'foro' else f'Asola {fmt(o["L"])} × {fmt(o["W"])}')
+            gruppi.setdefault(chiave, []).append(o)
+        for testo, lista in gruppi.items():
+            o = max(lista, key=lambda q: (q['c'][1], q['c'][0]))
+            r = (o['d'] / 2 if o['kind'] == 'foro' else o['W'] / 2)
+            if o['kind'] == 'asola' and o['orizzontale']:
+                p0 = (o['c'][0] + (o['L'] - o['W']) / 2, o['c'][1])
+            elif o['kind'] == 'asola':
+                p0 = (o['c'][0], o['c'][1] + (o['L'] - o['W']) / 2)
+            else:
+                p0 = o['c']
+            P = T(p0)
+            sc = T((1, 0))[0] - T((0, 0))[0]
+            q = (P[0] + r * sc * 0.7, P[1] + r * sc * 0.7)
+            e = (q[0] + 7 * u, q[1] + 7 * u)
+            t = (f'{len(lista)}× ' if len(lista) > 1 else '') + testo
+            f.line('quote', q, e, (e[0] + 2 * u + len(t) * 1.6 * u, e[1]))
+            _freccia(f, q, (q[0] - e[0], q[1] - e[1]), L=2.5 * u)
+            f.text('quote', (e[0] + 1 * u, e[1] + 0.8 * u), t, 2.8 * u)
+
+
+def legenda(f: Foglio, x: float, y: float, voci: list, u: float = 1.0) -> float:
+    """03/11: la legenda delle linee (taglio, piega, calandra, marcatura) in una riga: un pezzetto di linea del suo
+    tipo e il nome. Ritorna la x dove finisce."""
+    with f.oggetto('legenda'):
+        for layer, nome in voci:
+            f.line(layer, (x, y + 0.9 * u), (x + 9 * u, y + 0.9 * u))
+            f.text(layer if layer in RGB else 'testo', (x + 10.5 * u, y), nome, 2.5 * u)
+            x += 10.5 * u + len(nome) * 2.5 * u * 0.55 + 6 * u
+    return x
+
+
+def voci_legenda(data) -> list:
+    """Le voci della legenda che servono per questo sviluppo."""
+    voci = [('contorno', 'taglio')]
+    linee = list(getattr(data, 'bend_lines', None) or [])
+    cal = [t for *_, t in linee if _calandra(t)]
+    if len(cal) < len(linee):
+        voci.append(('piega', 'piega'))
+    if cal:
+        voci.append(('calandra', 'calandrare'))
+    if getattr(data, 'marks', None):
+        voci.append(('marca', 'marcatura laser'))
+    return voci
+
+
+def _calandra(testo) -> bool:
+    """La linea di inizio o fine di una calandratura (nelle bend_lines: «C1 calandrare R55 int. …»)."""
+    return str(testo or '').split(' ')[0][:1] == 'C' and 'calandr' in str(testo)
 
 
 def _tabella(f: Foglio, x, ytop, col, righe, titolo=None, h=7.0, k=1.0):
@@ -1572,7 +1928,7 @@ def in_formato(f: Foglio, formato: str) -> Foglio:
     g.testi = _Strato(g, [(l, S(p), t, h * k, al) for l, p, t, h, al in f.testi], f.testi.tag)
     g.i_scala = f.i_scala
     g.chiave = f.chiave
-    g.scala, g.fattore = f.scala * k, f.fattore * k
+    g.scala, g.fattore, g.u = f.scala * k, f.fattore * k, f.u
     g.immagini = [(p, x * k, y * k, w * k, h * k) for p, x, y, w, h in f.immagini]
     for nome, e in f.elementi.items():
         e = dict(e)
@@ -1605,6 +1961,7 @@ def to_dxf(fogli: list, path):
             doc.layers.add(nome, color=col, lineweight=int(lw * 100))
     doc.layers.get('nascoste').dxf.linetype = 'DASHED'
     doc.layers.get('piega').dxf.linetype = 'DASHDOT'
+    doc.layers.get('calandra').dxf.linetype = 'DIVIDE'
     msp = doc.modelspace()
     from ezdxf.enums import TextEntityAlignment
     dx = 0.0
@@ -1746,8 +2103,8 @@ def to_pdf(fogli: list, path):
         for layer, pts in f.linee:
             if layer != attuale:
                 col, lw = LAYER.get(layer, (7, 0.25))
-                tr = '[3 1.5] 0 d' if layer == 'nascoste' else '[6 1.5 1 1.5] 0 d' if layer == 'piega' else '[] 0 d'
-                rgb = '0.75 0.1 0.1 RG' if layer == 'piega' else '0.15 0.3 0.6 RG' if layer == 'quote' else '0 0 0 RG'
+                tr = TRATTO_PDF.get(layer, '[] 0 d')
+                rgb = '%.2f %.2f %.2f RG' % RGB.get(layer, (0, 0, 0))
                 c.append(f'{lw * k:.3f} w {tr} {rgb}')
                 attuale = layer
             c.append(' '.join(f'{p[0] * k:.2f} {p[1] * k:.2f} {"m" if i == 0 else "l"}' for i, p in enumerate(pts)) + ' S')
@@ -1761,7 +2118,7 @@ def to_pdf(fogli: list, path):
         for layer, pts in f.pieni:
             c.append('0.15 0.3 0.6 rg ' + ' '.join(f'{p[0] * k:.2f} {p[1] * k:.2f} {"m" if i == 0 else "l"}' for i, p in enumerate(pts)) + ' f')
         for layer, (x, y), t, h, al in f.testi:
-            rgb = '0.15 0.3 0.6 rg' if layer == 'quote' else '0.75 0.1 0.1 rg' if layer == 'piega' else '0 0 0 rg'
+            rgb = '%.2f %.2f %.2f rg' % RGB.get(layer, (0, 0, 0))
             lw_t = len(t) * h * 0.5
             if al == 'cv':
                 c.append(f'BT {rgb} /F1 {h * k:.2f} Tf 0 1 -1 0 {x * k:.2f} {(y - lw_t / 2) * k:.2f} Tm ({_pdf_testo(t)}) Tj ET')
@@ -1802,7 +2159,7 @@ def copia_foglio(f: Foglio) -> Foglio:
     for nome in STRATI:
         st = getattr(f, nome)
         setattr(g, nome, _Strato(g, list(st), st.tag if isinstance(st, _Strato) else None))
-    g.i_scala, g.chiave, g.scala, g.fattore = f.i_scala, f.chiave, f.scala, f.fattore
+    g.i_scala, g.chiave, g.scala, g.fattore, g.u = f.i_scala, f.chiave, f.scala, f.fattore, f.u
     g.immagini = list(f.immagini)
     g.elementi = {k: dict(v) for k, v in f.elementi.items()}
     return g
@@ -1811,7 +2168,8 @@ def copia_foglio(f: Foglio) -> Foglio:
 _STILI_SVG = {'contorno': 'stroke:#111;stroke-width:.45', 'nascoste': 'stroke:#666;stroke-width:.22;stroke-dasharray:2.5 1.2',
               'tangenti': 'stroke:#777;stroke-width:.16', 'piega': 'stroke:#C0392B;stroke-width:.25;stroke-dasharray:5 1.2 1 1.2',
               'quote': 'stroke:#2B5BA0;stroke-width:.16', 'cornice': 'stroke:#111;stroke-width:.5',
-              'cartiglio': 'stroke:#111;stroke-width:.25', 'tabella': 'stroke:#111;stroke-width:.2', 'testo': 'stroke:#111'}
+              'cartiglio': 'stroke:#111;stroke-width:.25', 'tabella': 'stroke:#111;stroke-width:.2', 'testo': 'stroke:#111',
+              'marca': 'stroke:#1A8040;stroke-width:.2', 'calandra': 'stroke:#80339E;stroke-width:.3;stroke-dasharray:6 1.2 1 1.2 1 1.2'}
 
 
 def to_svg(f: Foglio) -> str:
@@ -1824,7 +2182,7 @@ def to_svg(f: Foglio) -> str:
     stile = ''.join(f'.{classe[k]}{{{v}}}' for k, v in _STILI_SVG.items())
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}mm" height="{H}mm" '
            'font-family="Helvetica,Arial,sans-serif">',
-           f'<style>{stile}.tq{{fill:#2B5BA0}}.tp{{fill:#C0392B}}.tn{{fill:#111}}</style>',
+           f'<style>{stile}.tq{{fill:#2B5BA0}}.tp{{fill:#C0392B}}.tn{{fill:#111}}.tm{{fill:#1A8040}}.tc{{fill:#80339E}}</style>',
            f'<rect width="{W}" height="{H}" fill="#fff"/>']
     pts_ = lambda pts: ' '.join(f'{p[0]:.2f},{Y(p[1]):.2f}' for p in pts)  # noqa: E731
 
@@ -1911,7 +2269,7 @@ def to_svg(f: Foglio) -> str:
 
     def testo(x):
         layer, (tx, ty), t, h, al = x
-        col = 'tq' if layer == 'quote' else 'tp' if layer == 'piega' else 'tn'
+        col = {'quote': 'tq', 'piega': 'tp', 'marca': 'tm', 'calandra': 'tc'}.get(layer, 'tn')
         anchor = {'l': 'start', 'c': 'middle', 'r': 'end', 'cv': 'middle'}[al]
         rot = f' transform="rotate(-90 {tx:.2f} {Y(ty):.2f})"' if al == 'cv' else ''
         return (f'<text class="{col}" x="{tx:.2f}" y="{Y(ty):.2f}" font-size="{h:.2f}" text-anchor="{anchor}"{rot}>'

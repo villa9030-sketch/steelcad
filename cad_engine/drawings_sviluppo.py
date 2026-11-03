@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import math
 
-from .drawings import Foglio, _cornice, _scegli_scala, _tabella, fmt, quota, scala_testo, SCALE
+from .drawings import Foglio, TESTO, _cornice, _scegli_scala, _tabella, fmt, quota, scala_testo, SCALE
 
 R_CERCHIO = 2.6          # mm sul foglio
-PASSO_TESTO = 3.4        # distanza minima tra due scritte impilate
+PASSO_TESTO = 3.6        # distanza minima tra due scritte impilate
 
 
 def _allarga(pos: list, minimo: float, lo: float, hi: float) -> list:
@@ -46,6 +46,8 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     if piegature and getattr(data, 'shape_info', None):
         return D._sviluppo_forme(data, campi, piegature, formato)          # coni e tramogge: la tavola delle forme
     f = Foglio(formato, campi.get('titolo', ''))
+    f.u = u = TESTO
+    RC, PT = R_CERCHIO * u, PASSO_TESTO * u
     poly = []
     for pl in data.outline():
         pts = [(pl[i], pl[i + 1]) for i in range(0, len(pl) - 1, 2)]
@@ -71,20 +73,23 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     for num, a, b, kind, q in linee:
         if q is not None:
             quote_di.setdefault(num, f'{"↑" if kind == "h" else "→"} {fmt(q)}')
-    col = [0, 9, 25, 43, 57, 69, 80, 91, 110, 130]
+    col = [c * u for c in (0, 9, 25, 43, 57, 69, 80, 91, 110, 130)]
     intest = ['P', 'Flangia', 'Quota', 'Angolo', 'Verso', 'R int.', 'K', 'Lungh. est.', 'Largh.']
     righe = [[r[0], r[1], quote_di.get(r[0], '—'), r[3], r[4], r[5], r[6], r[2], r[7]] for r in piegature]
 
     area, cart = _cornice(f, {**campi, 'scala': ''})
     n = len(righe)
-    h_riga = 6.0 if n <= 14 else max(3.6, min(6.0, 120 / (n + 1)))
-    larg_tab, alto_tab = col[-1], (h_riga * (n + 1) + 6 if n else 0)
+    h_riga = (6.0 if n <= 14 else max(3.6, min(6.0, 120 / (n + 1)))) * u
+    larg_tab, alto_tab = col[-1], (h_riga * (n + 1) + 6 * u if n else 0)
     # margini attorno allo sviluppo: a sinistra quota totale e cerchi, a destra le quote delle pieghe, sotto la
     # quota totale (e i cerchi delle pieghe in verticale), sopra la didascalia e le quote delle pieghe in verticale
     ci_h = any(k == 'h' for _, _, _, k, _ in linee)
     ci_v = any(k == 'v' for _, _, _, k, _ in linee)
-    m_sx, m_dx = 14 + (10 if ci_h else 0), 6 + (20 if ci_h else 0)
-    m_sotto, m_sopra = 14 + (10 if ci_v else 0), 10 + (12 if ci_v else 0)
+    from .drawings import fori_e_asole, quote_fori_sviluppo
+    fori = fori_e_asole(poly)                         # 03/11: fori e asole quotati anche nello sviluppo
+    cf = 9 if fori else 0
+    m_sx, m_dx = (14 + cf + (10 if ci_h else 0)) * u, (6 + (20 if ci_h else 0)) * u
+    m_sotto, m_sopra = (14 + cf + (10 if ci_v else 0)) * u, (16 + (12 if ci_v else 0)) * u     # + la riga della legenda
     sistemazioni = []
     if n:
         # A) tabella sopra il cartiglio
@@ -125,65 +130,69 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
         import build123d as bd
         pts = [tuple(data.plane.to_local_coords(bd.Vector(*q)))[:2] for q in m['flat']]
         if len(pts) > 1:
-            f.line('testo', *[T(q) for q in pts])
+            f.line('marca', *[T(q) for q in pts])
     X0, Y0 = T((x0, y0))
     X1, Y1 = T((x1, y1))
-    quota(f, (X0, Y0), (X1, Y0), -8 - (10 if ci_v else 0), x1 - x0)
-    quota(f, (X0, Y0), (X0, Y1), 8 + (10 if ci_h else 0), y1 - y0)
+    quota(f, (X0, Y0), (X1, Y0), (-8 - cf - (10 if ci_v else 0)) * u, x1 - x0)
+    quota(f, (X0, Y0), (X0, Y1), (8 + cf + (10 if ci_h else 0)) * u, y1 - y0)
+    quote_fori_sviluppo(f, T, (x0, y0, x1, y1), fori, (-8 - (10 if ci_v else 0)) * u, (8 + (10 if ci_h else 0)) * u, u)
 
     # pieghe orizzontali: cerchi a sinistra, quote progressive a destra (dal bordo in basso)
     oriz = sorted(((num, a, b, q) for num, a, b, k, q in linee if k == 'h'), key=lambda x: x[3])
     if oriz:
         yl = [T((0, a[1]))[1] for _, a, _, _ in oriz]
-        yc = _allarga(yl, 2 * R_CERCHIO + 0.6, area[1] + R_CERCHIO, area[3] - R_CERCHIO)
-        xc = X0 - 4 - R_CERCHIO
+        yc = _allarga(yl, 2 * RC + 0.6 * u, area[1] + RC, area[3] - RC)
+        xc = X0 - 4 * u - RC
         for (num, a, b, q), y, c in zip(oriz, yl, yc):
             xa = T((min(a[0], b[0]), 0))[0]
-            f.line('quote', (xa, y), (X0 - 1.5, y), (xc + R_CERCHIO, c))
-            f.cerchi.append(('piega', (xc, c), R_CERCHIO))
-            f.text('piega', (xc, c - 1.0), num, 2.2, 'c')
+            f.line('quote', (xa, y), (X0 - 1.5 * u, y), (xc + RC, c))
+            f.cerchi.append(('piega', (xc, c), RC))
+            f.text('piega', (xc, c - 1.0 * u), num, 2.2 * u, 'c')
         # quote progressive: lo zero sul bordo in basso, poi ogni linea
-        yt = _allarga([Y0] + yl, PASSO_TESTO, area[1] + 2, area[3] - 2)
-        xq = X1 + 3
+        yt = _allarga([Y0] + yl, PT, area[1] + 2, area[3] - 2)
+        xq = X1 + 3 * u
         for k, (y, t) in enumerate(zip([Y0] + yl, yt)):
             testo = '0' if k == 0 else fmt(oriz[k - 1][3])
             xb = T((max(oriz[k - 1][1][0], oriz[k - 1][2][0]), 0))[0] if k else X1
-            f.line('quote', (xb + 0.8, y), (xq, y), (xq + 3, t), (xq + 4.5, t))
-            f.text('quote', (xq + 5, t - 1.0), testo, 2.2)
+            f.line('quote', (xb + 0.8 * u, y), (xq, y), (xq + 3 * u, t), (xq + 4.5 * u, t))
+            f.text('quote', (xq + 5 * u, t - 1.0 * u), testo, 2.5 * u)
     # pieghe verticali: cerchi sotto, quote progressive sopra (dal bordo a sinistra)
     vert = sorted(((num, a, b, q) for num, a, b, k, q in linee if k == 'v'), key=lambda x: x[3])
     if vert:
         xl = [T((a[0], 0))[0] for _, a, _, _ in vert]
-        xc_ = _allarga(xl, 2 * R_CERCHIO + 0.6, area[0] + R_CERCHIO, area[2] - R_CERCHIO)
-        yc = Y0 - 4 - R_CERCHIO
+        xc_ = _allarga(xl, 2 * RC + 0.6 * u, area[0] + RC, area[2] - RC)
+        yc = Y0 - 4 * u - RC
         for (num, a, b, q), x, c in zip(vert, xl, xc_):
             ya = T((0, min(a[1], b[1])))[1]
-            f.line('quote', (x, ya), (x, Y0 - 1.5), (c, yc + R_CERCHIO))
-            f.cerchi.append(('piega', (c, yc), R_CERCHIO))
-            f.text('piega', (c, yc - 1.0), num, 2.2, 'c')
-        larghezze = [len(fmt(q)) * 2.2 * 0.6 + 1.5 for _, _, _, q in vert]
-        xt = _allarga([X0] + xl, max([PASSO_TESTO] + larghezze), area[0] + 2, area[2] - 8)
-        yq = Y1 + 3
+            f.line('quote', (x, ya), (x, Y0 - 1.5 * u), (c, yc + RC))
+            f.cerchi.append(('piega', (c, yc), RC))
+            f.text('piega', (c, yc - 1.0 * u), num, 2.2 * u, 'c')
+        larghezze = [(len(fmt(q)) * 2.2 * 0.6 + 1.5) * u for _, _, _, q in vert]
+        xt = _allarga([X0] + xl, max([PT] + larghezze), area[0] + 2, area[2] - 8)
+        yq = Y1 + 3 * u
         for k, (x, t) in enumerate(zip([X0] + xl, xt)):
             testo = '0' if k == 0 else fmt(vert[k - 1][3])
             yb = T((0, max(vert[k - 1][1][1], vert[k - 1][2][1])))[1] if k else Y1
-            f.line('quote', (x, yb + 0.8), (x, yq), (t, yq + 3), (t, yq + 4.5))
-            f.text('quote', (t, yq + 5), testo, 2.2, 'c')
+            f.line('quote', (x, yb + 0.8 * u), (x, yq), (t, yq + 3 * u), (t, yq + 4.5 * u))
+            f.text('quote', (t, yq + 5 * u), testo, 2.5 * u, 'c')
     # pieghe oblique: solo il numero, in fondo alla linea
     for num, a, b, k, q in linee:
         if k != 'o':
             continue
         A, B = T(a), T(b)
         L = math.dist(A, B) or 1
-        c = (A[0] - (B[0] - A[0]) / L * (R_CERCHIO + 2), A[1] - (B[1] - A[1]) / L * (R_CERCHIO + 2))
-        f.cerchi.append(('piega', c, R_CERCHIO))
-        f.text('piega', (c[0], c[1] - 1.0), num, 2.2, 'c')
+        c = (A[0] - (B[0] - A[0]) / L * (RC + 2 * u), A[1] - (B[1] - A[1]) / L * (RC + 2 * u))
+        f.cerchi.append(('piega', c, RC))
+        f.text('piega', (c[0], c[1] - 1.0 * u), num, 2.2 * u, 'c')
 
     didascalia = ('SVILUPPO visto dal lato dello sketch · linee di piega in rosso col numero della tabella · quote '
                   'progressive dal bordo ' + ' e '.join(x for x, ok in (('in basso (↑)', bool(oriz)), ('a sinistra (→)', bool(vert))) if ok))
     if not oriz and not vert:
         didascalia = 'SVILUPPO visto dal lato dello sketch'
-    f.text('testo', (zona[0] + 2, zona[3] - 4), didascalia if len(didascalia) * 1.4 < zona[2] - zona[0] else didascalia[:int((zona[2] - zona[0]) / 1.4)], 2.5)
+    cw = 1.4 * u
+    f.text('testo', (zona[0] + 2, zona[3] - 4 * u), didascalia if len(didascalia) * cw < zona[2] - zona[0] else didascalia[:int((zona[2] - zona[0]) / cw)], 2.5 * u)
+    from .drawings import legenda, voci_legenda
+    legenda(f, zona[0] + 2, zona[3] - 9.5 * u, voci_legenda(data), u)
     if n and tab is not None:
-        _tabella(f, tab[0], tab[1], col, [intest] + righe, 'TABELLA PIEGHE', h=h_riga)
+        _tabella(f, tab[0], tab[1], col, [intest] + righe, 'TABELLA PIEGHE', h=h_riga, k=u)
     return f
