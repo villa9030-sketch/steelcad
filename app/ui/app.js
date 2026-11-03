@@ -937,6 +937,11 @@ function pannelloTraverso() {
   const pronto = TRAV.primo && TRAV.secondo;
   passoTubi(!TRAV.primo ? 'Clicca il primo tubo, per esempio una gamba' : !TRAV.secondo ? `Ora clicca il secondo tubo (il primo è «${nome(TRAV.primo)}»)`
     : 'Scrivi a che misura va il traverso, a destra', pronto ? [['Invio', 'aggiungi'], ['Esc', 'annulla']] : [['Esc', 'annulla']]);
+  // 04/11 notte (attriti, E 7): il primo tubo è del telaio sopra: la croce si fa prima con «Dividi»
+  if (TRAV.primo && !TRAV.secondo && tuboDaDividere(TRAV.primo)) {
+    passoTubi('Ora clicca il secondo tubo');          // corta: accanto c'è il consiglio (il primo è già giallo)
+    consiglioDividi(TRAV.primo, true);
+  }
   const inPiedi = pronto && (TRAV.info ? TRAV.info.in_piedi : [TRAV.primo, TRAV.secondo].every(id => /^(Gamba|Montante|Sbarra)/.test(nome(id))));
   const rif = TRAV.rif || (inPiedi ? 'sotto' : 'centro');
   const scelte = inPiedi ? [['sotto', 'Sotto il tubo'], ['meta', 'A metà tubo'], ['sopra', 'Sopra il tubo']]
@@ -2970,15 +2975,20 @@ function miniTubo(s, daClic) {
   const tb = s.tubo || {}, mis = (s.rows.find(r => r[0] === 'Da tagliare')?.[1] || '').replace(/, dritto$/, '');
   const poi = (fn, campo) => () => { apriPannelloTubi(); fn?.(); if (campo) { const c = $(campo); if (c) { c.focus(); c.select?.(); } } };
   const id = s.id;
+  // 04/11 notte (attriti): sul telaio sopra o su un tubo lungo «Dividi» viene prima (la croce in 3 clic)
+  const dividere = !!tb.facce?.length && !tb.verticale && tuboDaDividere(id);
+  const dividi = tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : [];
   barretta(`${s.title}${mis ? ', ' + mis : ''}`, [
+    ...(dividere ? dividi : []),
     ['box', 'Cambia tubo', poi(null, '#p-prof')],
     ['traverso', 'Traverso da qui', poi(() => iniziaTraverso(id))],
-    ...(tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : []),
+    ...(dividere ? [] : dividi),
     ['tubo', 'Tubo nuovo da qui', poi(() => $('#p-punto')?.click())],
     ...(s.lavorabile ? [['hole', 'Fori qui', poi(() => $('#p-lav')?.click())]] : []),
   ].slice(0, 5), { chi: 'tubo:' + id, scritte: true, piu: apriPannelloTubi });   // «⋯»: il pannello intero, la barretta va via (direbbe le stesse cose)
   const m = document.getElementById('mini-barra');
   if (m) { if (tb.verticale) m.classList.add('lato'); else m.dataset.giu = '72'; placeBarra(); }
+  if (dividere && !TRAV && !DIVSCEGLI && !PUNTO) consiglioDividi(id);
 }
 // la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
 function miniFlangia(s, lavora) {
@@ -6599,6 +6609,27 @@ function passoTubi(testo, tasti = [['Esc', 'annulla']]) {
   if (!testo) { b.hidden = true; b.textContent = ''; return; }
   b.innerHTML = `<span class="t-passo">${esc(testo)}</span>${tasti.map(([k, t]) => `<span class="g-tasto"><kbd>${esc(k)}</kbd> ${esc(t)}</span>`).join('')}`;
   b.hidden = false;
+}
+// 04/11 notte (attriti, E 7): la croce sopra il telaio si faceva con due «Traverso» (9 clic), «Dividi» la fa in 3.
+// Un tubo del telaio sopra (o un tubo lungo) sdraiato: la barra in basso lo dice, col pulsante che parte da quel tubo
+function tuboDaDividere(id) {
+  const o = objs.get(id);
+  if (!o?.mesh || o.data?.kind !== 'member') return false;
+  const b = new THREE.Box3().setFromObject(o.mesh), tutto = new THREE.Box3();
+  for (const x of objs.values()) if (x.mesh && x.data?.kind === 'member') tutto.expandByObject(x.mesh);
+  const d = b.getSize(new THREE.Vector3()), lungo = Math.max(d.x, d.y);
+  const sdraiato = d.z < 0.3 * lungo, sopra = b.max.z >= tutto.max.z - 1 && tutto.max.z - tutto.min.z > 3 * d.z;
+  return sdraiato && (sopra || lungo >= 1000);
+}
+function consiglioDividi(id, conPasso = false) {
+  if (!conPasso) passoTubi('Una croce o una griglia di traversi uguali?', []);
+  const b = $('#trav-hint');
+  b.insertAdjacentHTML('beforeend', (conPasso ? '<span class="g-sep"></span><span class="t-poi">Una croce?</span>' : '')
+    + `<button type="button" class="btn piccolo" id="trav-dividi"><img src="icons/pattern_rect.svg" alt="">Dividi</button><span class="t-poi">${conPasso ? 'fa tutto in 3 clic' : 'li fa tutti in un colpo'}</span>`);
+  $('#trav-dividi').onclick = () => {
+    TRAV = null; passoTubi(null); nascondiMini();
+    inCoda(async () => { await select(id); apriPannelloTubi(); await iniziaDividi({ id }); });
+  };
 }
 // i disegnini dell'angolo: due tubi visti di fronte, come si saldano. I colori dal foglio di stile (chiaro e scuro):
 // .gt-p il tubo che passa intero (chiaro), .gt-t quello tagliato (scuro), .gt-l il taglio

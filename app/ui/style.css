@@ -2746,3 +2746,10 @@ body.bottom-closed:not(.sketching) #toasts { bottom: 104px; }
 #asm-passo .asm-passo-x:hover { background: var(--c-sopra); color: var(--c-testo); }
 /* con la riga in basso i messaggi stanno più su (non la coprono) */
 body:has(#asm-passo:not([hidden])) #toasts { bottom: 168px; }
+/* la barra dei tubi col consiglio «Dividi» (telaio sopra, tubo lungo): un pulsante da cliccare dentro la riga */
+#trav-hint .btn { flex: none; }
+#trav-hint .btn :is(img, .ico) { width: 16px; height: 16px; }
+#trav-hint .t-poi { color: var(--c-testo-2); }
+#trav-hint .g-sep { width: 1px; align-self: stretch; margin: 10px 0; background: var(--c-linea); }
+/* col pannello a destra aperto (310 px, sopra la vista) le righe «prossimo passo» stanno al centro di quello che si vede */
+body:not(.senza-destra) :is(#trav-hint, #asm-passo) { left: calc(50% - 155px); max-width: calc(100% - 342px); }
