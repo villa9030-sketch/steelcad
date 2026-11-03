@@ -214,7 +214,9 @@ class AssemblyMixin:
                 self.asm.instances[0]['fixed'] = True
         self.asm_undo.clear()                       # Annulla non torna all'assieme vuoto: è il punto di partenza
         r = _ok(state=self.state())
-        r['message'] = f'Assieme con {len(lista)} {"pezzo" if len(lista) == 1 else "pezzi"}: il primo è fermo, gli altri sono a fianco da accoppiare.'
+        r['message'] = (f'Assieme con {len(lista)} {"pezzo" if len(lista) == 1 else "pezzi"}: «{self.asm.instances[0]["name"]}» è fermo, '
+                        'gli altri sono a fianco.' + (' Per metterli al loro posto: «Appoggia», clic sul pezzo e poi sulla faccia dove va '
+                                                      '(parte al centro); per i fori: «Foro su foro».' if len(lista) > 1 else ''))
         return r
 
     def _asm_change(self, label: str, fn):
@@ -303,6 +305,63 @@ class AssemblyMixin:
                                        'R': np.eye(3).tolist(), 'T': [dx, 0, 0]})
             return {'select': iid}
         return self._asm_change(f'Inserisci {p.stem}', fn)
+
+    _VERSI = {'destra': (1, 0, 0), 'sinistra': (-1, 0, 0), 'dietro': (0, 1, 0), 'davanti': (0, -1, 0),
+              'su': (0, 0, 1), 'giu': (0, 0, -1)}
+
+    @_in_assieme
+    def asm_ripeti(self, iid: str, quante, passo, verso: str = 'destra', su_lunghezza=None) -> dict:
+        """Lo stesso pezzo ripetuto in fila (03/11: la stessa staffa × 4): quante in tutto (originale compreso), a
+        passo «passo» mm verso «verso» (destra, sinistra, dietro, davanti, su, giu); con su_lunghezza (mm) il passo
+        lo calcola Radius: la prima e l'ultima a quella distanza. Le copie restano bloccate all'originale: si muovono
+        con lui (se lo rimetti con Appoggia, la fila viene dietro). Un solo Annulla."""
+        from app.service import _numero
+        try:
+            n = int(float(str(quante).replace(',', '.')))
+        except ValueError:
+            return {'ok': False, 'message': 'Quante: scrivi un numero.'}
+        if not 2 <= n <= 100:
+            return {'ok': False, 'message': 'Quante in tutto: da 2 a 100 (compresa quella che c’è).'}
+        if verso not in self._VERSI:
+            return {'ok': False, 'message': f'Verso «{verso}» sconosciuto.'}
+        try:
+            if su_lunghezza not in (None, ''):
+                p = _numero(su_lunghezza, 'la lunghezza') / (n - 1)
+            else:
+                p = _numero(passo, 'il passo')
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message}
+        if p <= 0:
+            return {'ok': False, 'message': 'Il passo deve essere più di zero.'}
+        d = np.array(self._VERSI[verso], dtype=float)
+        nuovi = []
+
+        def fn():
+            i = self.asm.instance(iid)
+            base = re.sub(r' \(\d+\)$', '', i['name'])
+            gia = sum(1 for j in self.asm.instances if j['file'] == i['file'])
+            usati = {j['id'] for j in self.asm.instances}
+            mate_usati = {m['id'] for m in self.asm.mates}
+            R0, T0 = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+            for k in range(1, n):
+                nid = self.asm.new_id('I', usati)
+                usati.add(nid)
+                gia += 1
+                self.asm.instances.append({'id': nid, 'file': i['file'], 'name': f'{base} ({gia})',
+                                           'R': R0.tolist(), 'T': (T0 + d * p * k).tolist()})
+                mid = self.asm.new_id('M', mate_usati)
+                mate_usati.add(mid)
+                self.asm.mates.append({'id': mid, 'type': 'blocca', 'a': {'inst': iid}, 'b': {'inst': nid}, 'offset': 0.0,
+                                       'flip': False, 'rel_R': np.eye(3).tolist(), 'rel_T': (R0.T @ (d * p * k)).tolist(),
+                                       'da': 'ripeti'})
+                nuovi.append(nid)
+            return {'select': iid}
+        r = self._asm_change(f'{n} × {self.asm.instance(iid)["name"]}', fn)
+        if r.get('ok'):
+            r['message'] = (f'{n} × «{re.sub(r" [(][0-9]+[)]$", "", self.asm.instance(iid)["name"])}» in fila verso {verso.replace("giu", "giù")}, '
+                            f'passo {fmt_mm(round(p, 2))} mm. Le copie seguono l’originale: spostalo e vengono dietro.')
+            r['copie'] = nuovi
+        return r
 
     @_in_assieme
     def asm_remove(self, iid: str) -> dict:
@@ -682,8 +741,15 @@ class AssemblyMixin:
                     m['lato'] = lato
                 if tipo == 'distanza':
                     m['offset'] = round(self._misura_mate(m), 4)
-                    if m['offset'] < 0 and lato:        # «a 20 dal bordo» si legge e si scrive 20, non −20
-                        m['segno'] = -1
+                    if lato:
+                        # «a 20 dal bordo» si legge e si scrive 20, non −20: verso dentro la faccia è positivo (anche
+                        # a filo del bordo, dove la distanza è zero e il segno non si vede)
+                        Ra_ = np.array(ia['R'], dtype=float)
+                        nA_ = Ra_ @ np.array(m['a']['n'], dtype=float)
+                        pA_ = Ra_ @ np.array(m['a']['p'], dtype=float) + np.array(ia['T'], dtype=float)
+                        cK = Ra_ @ np.array(fa(ka)['p'], dtype=float) + np.array(ia['T'], dtype=float)
+                        if float(np.dot(nA_, cK - pA_)) < 0:
+                            m['segno'] = -1
                 elif tipo == 'centra':
                     # le facce di riferimento possono non essere proprio sui bordi (un pannello piegato): quanto il
                     # centro è spostato adesso resta (per una coppia messa simmetrica è zero)
@@ -795,10 +861,23 @@ class AssemblyMixin:
 
     @_in_assieme
     def asm_interferences(self) -> dict:
-        trovate = A.interferences(self.asm, self.asm_parts)
+        """Le interferenze, ognuna col pezzo in comune (03/11: si vede in rosso sul 3D, col nome dei due pezzi)."""
+        from cad_engine.mesh import tessellate
+        trovate = A.interferences(self.asm, self.asm_parts, forme=True)
         nomi = {i['id']: i['name'] for i in self.asm.instances}
-        righe = [{**x, 'label': f'{nomi.get(x["a"], x["a"])} e {nomi.get(x["b"], x["b"])}: {fmt_mm(round(x["volume"], 1))} mm³'}
-                 for x in trovate]
+        righe = []
+        for x in trovate:
+            forma = x.pop('forma', None)
+            r = {**x, 'label': f'{nomi.get(x["a"], x["a"])} e {nomi.get(x["b"], x["b"])}: {fmt_mm(round(x["volume"], 1))} mm³',
+                 'nomi': [nomi.get(x['a'], x['a']), nomi.get(x['b'], x['b'])]}
+            try:
+                m = tessellate(forma.wrapped if hasattr(forma, 'wrapped') else forma)
+                bb = forma.bounding_box()
+                r['mesh'] = {'positions': m['positions'], 'indices': m['indices']}
+                r['centro'] = [(bb.min.X + bb.max.X) / 2, (bb.min.Y + bb.max.Y) / 2, (bb.min.Z + bb.max.Z) / 2]
+            except Exception:  # noqa: BLE001 - senza la forma resta il nome
+                pass
+            righe.append(r)
         return _ok(interferences=righe, message='Nessuna interferenza: i pezzi non si compenetrano.' if not righe else
                    f'{len(righe)} interferenz{"a" if len(righe) == 1 else "e"}.')
 

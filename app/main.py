@@ -654,6 +654,9 @@ class Api:
     def asm_vite_proposta(self, foro, verso=None):
         return self._call(self._svc.asm_vite_proposta, foro, verso)
 
+    def asm_ripeti(self, iid, quante, passo, verso='destra', su_lunghezza=None):
+        return self._call(self._svc.asm_ripeti, iid, quante, passo, verso, su_lunghezza)
+
     def asm_fori_uguali(self, inst, face):
         return self._call(self._svc.asm_fori_uguali, inst, face)
 

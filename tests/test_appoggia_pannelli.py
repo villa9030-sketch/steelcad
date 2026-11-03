@@ -136,3 +136,49 @@ def test_faccia_su_faccia_sotto_contro_sotto_non_entra(pezzi):
     assert s.asm.mates[0]['b']['name'] == 'SM1/FL1/punta'           # appesa sotto con la punta dell'ala, fuori
     assert _ingombro(s, 'I2')[5] == 0
     assert 'Nessuna' in s.asm_interferences()['message']
+
+
+# ------------------------------------------------------------------ interferenze in rosso sul 3D
+def test_interferenze_col_pezzo_in_comune_e_i_nomi(pezzi):
+    import json
+    s = _assieme(pezzi['piastra'], pezzi['staffa'])
+    assert s.asm_appoggia(_faccia(s, 'I2', 'SM1/sopra'), _faccia(s, 'I1', 'SM1/sopra'))['ok']
+    m = next(m for m in s.asm.mates if m['type'] == 'faccia')
+    assert s.asm_edit_mate(m['id'], {'offset': -2})['ok']           # la staffa dentro la piastra di 2 mm
+    r = s.asm_interferences()
+    assert r['ok'] and len(r['interferences']) == 1
+    x = r['interferences'][0]
+    assert x['nomi'] == ['Piastra', 'Staffa'] and 14000 < x['volume'] <= 100 * 80 * 2      # la base (meno la piega) × 2 mm
+    assert len(x['mesh']['positions']) >= 24 and len(x['mesh']['indices']) >= 36
+    assert abs(x['centro'][0] - 150) < 1 and abs(x['centro'][1] - 100) < 3 and abs(x['centro'][2] - 7) < 0.01
+    json.dumps(r['interferences'])
+
+
+# ------------------------------------------------------------------ la stessa staffa × 4 (Ripeti in fila)
+def test_ripeti_in_fila_a_passo_e_segue_l_originale(pezzi):
+    s = _assieme(pezzi['piastra'], pezzi['staffa'])
+    assert s.asm_appoggia(_faccia(s, 'I2', 'SM1/sopra'), _faccia(s, 'I1', 'SM1/sopra'),
+                          {'u': {'modo': 'basso', 'mm': 0}, 'v': {'modo': 'centro'}})['ok']
+    r = s.asm_ripeti('I2', 3, '100', 'destra')
+    assert r['ok'], r.get('message')
+    assert [i['name'] for i in s.asm.instances] == ['Piastra', 'Staffa', 'Staffa (2)', 'Staffa (3)']
+    assert [_ingombro(s, i)[0] for i in ('I2', 'I3', 'I4')] == [0, 100, 200]
+    assert next(b for b in s.state()['bom'] if b['description'].startswith('Staffa'))['qty'] == 3
+    assert not s.asm.warnings
+    # la piastra più grande: l'originale resta contro il bordo, le copie vengono dietro
+    m = next(m for m in s.asm.mates if m.get('lato'))
+    assert s.asm_edit_mate(m['id'], {'offset': '20'})['ok']
+    assert [_ingombro(s, i)[0] for i in ('I2', 'I3', 'I4')] == [20, 120, 220]
+    # un solo Annulla le toglie
+    s.undo()
+    s.undo()
+    assert len(s.asm.instances) == 2
+
+
+def test_ripeti_distribuite_su_una_lunghezza(pezzi):
+    s = _assieme(pezzi['piastra'], pezzi['staffa'])
+    r = s.asm_ripeti('I2', 4, None, 'dietro', '300')
+    assert r['ok'] and 'passo 100' in r['message']
+    assert [_ingombro(s, i)[1] for i in ('I2', 'I3', 'I4', 'I5')] == [0, 100, 200, 300]
+    assert not s.asm_ripeti('I2', 1, 50, 'destra')['ok']
+    assert not s.asm_ripeti('I2', 3, 0, 'destra')['ok']

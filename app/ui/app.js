@@ -312,6 +312,7 @@ function buildScene(sc) {
   for (const g of ctxGeo) g.dispose();
   ctxGeo = [];
   model.clear(); objs.clear();
+  interfPulisci();                                 // le interferenze di prima non valgono più
   if (saldGroup) model.add(saldGroup);             // le saldature restano sul pezzo
   for (const d of sc.objects) {
     if (d.kind === 'context') {
@@ -1346,7 +1347,7 @@ function placeDims() {
   // i contenitori presi così: placeDims può girare prima che il resto del file abbia dichiarato nodesBox e misBox
   for (const box of [dimsBox, $('#nodes'), $('#mis-box')]) if (box) box.style.visibility = via ? 'hidden' : '';
   if (via) return;
-  for (const o of [...dimEls, ...nodeEls, ...(misEls || [])]) {
+  for (const o of [...dimEls, ...nodeEls, ...(misEls || []), ...(interfEls || [])]) {
     const p = _pv.copy(o.at).project(camera), el = o.el;
     const fuori = p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1;
     if (o.fuori !== fuori) { el.style.display = fuori ? 'none' : ''; o.fuori = fuori; }
@@ -1482,6 +1483,7 @@ async function apply(res, okMsg) {
     S = res.state;
     renderPanels();
     if (S.scene_version !== sceneVersion && S.mode === 'assembly' && S.geo && S.geo === geoCaricata && S.poses) {
+      interfPulisci();                              // le interferenze in rosso erano di prima che si muovesse
       spostaPezzi(S.poses);                         // si è mosso solo qualcosa: niente scena intera
       sceneVersion = S.scene_version;
       camera.up.copy(altoVista());
@@ -2325,6 +2327,7 @@ function miniBarra(s) {
     barretta(s.title, [['open', 'Apri il pezzo', () => apriPezzoAssieme(id)],
       ['joint', piana ? 'Appoggia (da questa faccia)' : 'Appoggia', () => appoggiaDa(id, piana ? faccia : null)],
       ['move', 'Sposta', () => spostaDa()],
+      ['pattern_rect', 'In fila', () => ripetiApri(id)],
       ...(piana ? [['sketch', 'Pezzo nuovo qui (su questa faccia)', () => nuovoPezzoDialog(s)]] : []),
       ['fastener', faccia != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
       ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
@@ -3406,6 +3409,107 @@ function asmClick(ev) {
     }
   });
 }
+// ===================================================================== In fila: lo stesso pezzo più volte (03/11)
+// «la stessa staffa × 4»: quante in tutto, a che passo (o distribuite tra la prima e l'ultima) e da che parte; le
+// copie si vedono subito, trasparenti; Invio le mette (bloccate all'originale: la fila lo segue).
+const RIP = { el: null, id: null, ghost: new THREE.Group(), t: null };
+scene.add(RIP.ghost);
+const RIP_MAT = new THREE.MeshBasicMaterial({ color: 0x5B9BFF, transparent: true, opacity: 0.35, depthWrite: false });
+function ripetiChiudi() { RIP.el?.remove(); RIP.el = null; RIP.ghost.clear(); ridisegna(); }
+function ripetiOpz() {
+  const v = id => RIP.el.querySelector(id).value.trim();
+  const sul = RIP.el.querySelector('#rp-modo .on')?.dataset.m === 'lung';
+  return { quante: v('#rp-n'), passo: sul ? null : v('#rp-p'), lung: sul ? v('#rp-p') : null, verso: RIP.el.querySelector('#rp-verso .on')?.dataset.v || 'destra' };
+}
+const RIP_VERSI = { destra: [1, 0, 0], sinistra: [-1, 0, 0], dietro: [0, 1, 0], davanti: [0, -1, 0], su: [0, 0, 1], giu: [0, 0, -1] };
+function ripetiAnteprima() {
+  RIP.ghost.clear();
+  const o = objs.get(RIP.id); if (!o || !RIP.el) return;
+  const op = ripetiOpz(), n = parseInt(op.quante, 10), num = x => parseFloat(String(x || '').replace(',', '.'));
+  const passo = op.lung != null ? num(op.lung) / Math.max(1, n - 1) : num(op.passo);
+  const info = RIP.el.querySelector('#rp-info');
+  if (!(n >= 2 && n <= 100) || !(passo > 0)) { info.textContent = 'Scrivi quante (da 2) e il passo in mm.'; ridisegna(); return; }
+  const d = RIP_VERSI[op.verso];
+  for (let k = 1; k < n; k++) {
+    const m = new THREE.Mesh(o.mesh.geometry, RIP_MAT);
+    m.matrixAutoUpdate = false;
+    m.matrix.copy(o.mesh.matrixWorld).premultiply(new THREE.Matrix4().makeTranslation(d[0] * passo * k, d[1] * passo * k, d[2] * passo * k));
+    RIP.ghost.add(m);
+  }
+  info.textContent = `${n} in tutto (questo + ${n - 1}), passo ${mmTesto(passo)} mm: la fila va ${mmTesto(passo * (n - 1))} mm verso ${op.verso === 'giu' ? 'giù' : op.verso}.`;
+  ridisegna();
+}
+function ripetiApri(id) {
+  ripetiChiudi();
+  const o = objs.get(id); if (!o) return;
+  const el = document.createElement('div');
+  el.id = 'ripeti';
+  const versi = Object.keys(RIP_VERSI).map(v => `<button data-v="${v}" class="${v === 'destra' ? 'on' : ''}">${v === 'giu' ? 'giù' : v}</button>`).join('');
+  el.innerHTML = `<div class="ap-testa"><b>In fila</b><small>«${esc(o.data.name)}» più volte</small></div>
+    <div class="ap-riga"><span class="ap-lab">Quante in tutto</span><span class="inp"><input class="field" id="rp-n" value="4"></span></div>
+    <div class="ap-riga"><span class="ap-lab">Verso</span><span class="seg" id="rp-verso">${versi}</span></div>
+    <div class="ap-riga"><span class="seg" id="rp-modo"><button data-m="passo" class="on">Passo</button><button data-m="lung">Dalla prima all’ultima</button></span>
+      <span class="inp"><input class="field" id="rp-p" value="100"><i>mm</i></span></div>
+    <p class="ap-dist" id="rp-info"></p>
+    <div class="acts"><button class="btn" id="rp-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="rp-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  document.body.appendChild(el);
+  RIP.el = el; RIP.id = id;
+  el.querySelectorAll('#rp-verso button, #rp-modo button').forEach(b => { b.onclick = () => {
+    b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); ripetiAnteprima(); }; });
+  el.querySelectorAll('input').forEach(i => { i.oninput = () => { clearTimeout(RIP.t); RIP.t = setTimeout(ripetiAnteprima, 60); }; });
+  $('#rp-no').onclick = ripetiChiudi;
+  $('#rp-ok').onclick = ripetiFatto;
+  ripetiAnteprima();
+  setTimeout(() => { const i = $('#rp-n'); i?.focus(); i?.select(); }, 0);
+}
+function ripetiFatto() {
+  if (!RIP.el) return;
+  const op = ripetiOpz(), id = RIP.id;
+  ripetiChiudi();
+  inCoda(async () => { const r = await call('asm_ripeti', id, op.quante, op.passo, op.verso, op.lung); await apply(r, r.message); });
+}
+window.addEventListener('keydown', e => {
+  if (!RIP.el) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); ripetiChiudi(); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); ripetiFatto(); }
+}, true);
+window.__ripeti = { apri: ripetiApri, get copie() { return RIP.ghost.children.length; } };
+// ===================================================================== Interferenze in rosso (03/11)
+// Il pezzo in comune tra due pezzi che entrano uno nell'altro, rosso sopra tutto, con un cartellino coi due nomi e
+// quanto entra. Resta finché non cambia l'assieme (o si rifà il controllo); clic sul cartellino = sceglie i due pezzi.
+const interfGroup = new THREE.Group();
+scene.add(interfGroup);
+var interfEls = [];                                 // var: placeDims la legge
+const interfBox = document.createElement('div');
+interfBox.id = 'interf-box';
+document.getElementById('dims').after(interfBox);
+const INTERF_MAT = new THREE.MeshBasicMaterial({ color: 0xE5484D, transparent: true, opacity: 0.75, depthTest: false, side: THREE.DoubleSide });
+function interfPulisci() {
+  interfGroup.traverse(x => x.geometry?.dispose()); interfGroup.clear();
+  interfBox.innerHTML = ''; interfEls = [];
+}
+function interfMostra(lista) {
+  interfPulisci();
+  for (const x of lista) {
+    if (x.mesh?.positions?.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(x.mesh.positions, 3));
+      g.setIndex(x.mesh.indices);
+      const m = new THREE.Mesh(g, INTERF_MAT); m.renderOrder = 40; interfGroup.add(m);
+    }
+    if (!x.centro) continue;
+    const el = document.createElement('div');
+    el.className = 'dim interf';
+    const cm3 = x.volume / 1000;
+    el.textContent = `${x.nomi[0]} ↔ ${x.nomi[1]}: ${cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(x.volume) + ' mm³'}`;
+    el.title = 'Questi due pezzi entrano uno nell’altro: clic per sceglierli';
+    el.onclick = ev => { ev.stopPropagation(); sel = { id: x.a, ids: [x.a, x.b] }; paint(); renderTree(); };
+    interfBox.appendChild(el);
+    interfEls.push({ el, at: new THREE.Vector3(...x.centro) });
+  }
+  placeDims(); ridisegna();
+}
+window.__interf = { mostra: interfMostra, pulisci: interfPulisci, get n() { return interfGroup.children.length; } };
 // ===================================================================== Vite nei fori (03/11, secondo giro)
 // Foro su foro: clic nel foro di un pezzo, poi in quello dell'altro → un pannello piccolo con la vite giusta per il
 // foro (Ø13 → M12) e lunga quanto il pacco più il dado: Invio la mette (e allinea i pezzi), «Solo allinea» come prima.
@@ -5969,9 +6073,11 @@ const CMDS = [
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
     if (!r.ok) { toast(r.message, 'err'); return; }
+    interfPulisci();
     if (!r.interferences.length) { toast(r.message); return; }
-    sel = { id: r.interferences[0].a, ids: [...new Set(r.interferences.flatMap(x => [x.a, x.b]))] }; paint(); renderTree();
-    toast('Interferenze: ' + r.interferences.map(x => x.label).join(' · '), 'err');
+    clearSelection();                               // il rosso si vede meglio senza i pezzi scelti (e la barretta) sopra
+    interfMostra(r.interferences);
+    toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, col nome dei due pezzi (clic sul nome per sceglierli).`, 'err');
   }) },
   { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
