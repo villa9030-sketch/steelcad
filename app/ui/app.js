@@ -807,6 +807,7 @@ canvas.addEventListener('pointermove', ev => {
   if (MIS && !ev.buttons) { misMove(ev); return; }
   if (DRESS && !ev.buttons) { dressMove(ev); return; }
   if (ev.buttons) { tip.style.display = 'none'; return; }
+  if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroMove(ev); return; }
   const he = pickEdge(ev);
   if (he !== hoverEdge) { hoverEdge = he; paint(); }
   if (he) {
@@ -837,6 +838,7 @@ canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; 
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D)
+  if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroClic(ev); return; }   // finestra del foro: clic = dove va, o un'altra faccia
   if (MIS) { misClick(ev); return; }
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
@@ -1884,7 +1886,18 @@ function renderParams() {
     return `<tr><td title="${esc(p.label || p.name)}"><b>${esc(p.name)}</b>${nome}</td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
       `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
   }).join('');
-  $('#params').innerHTML = righe || '<tr><td class="hint">Nessuna misura con nome.</td></tr>';
+  // 03/11: raggio e K della piegatrice accanto alle misure della lamiera (prima solo nella scheda in basso, da trovare)
+  const sh = S.sheet, d = sh?.def || {}, manca = new Set(sh?.missing || []);
+  const riga = (k, sig, nome, miss) => `<tr><td title="${esc(nome)} (dato della piegatrice; vale per tutte le pieghe)"><b>${sig}</b><small>${esc(nome)}</small></td>
+    <td><input class="field${miss ? ' missing' : ''}" data-tech-sx="${k}" value="${esc(d[k] == null ? '' : String(d[k]).replace('.', ','))}" placeholder="${miss ? 'manca' : ''}"></td><td class="res"></td></tr>`;
+  const piega = sh ? riga('radius', 'R', 'Raggio interno di piega', manca.has('raggio interno'))
+    + (d.method === 'bd90' ? riga('bd90', 'BD', 'Deduzione a 90°', manca.has('deduzione a 90°')) : d.method === 'din6935' ? '' : riga('k', 'K', 'K-factor', manca.has('K-factor'))) : '';
+  $('#params').innerHTML = (righe + piega) || '<tr><td class="hint">Nessuna misura con nome.</td></tr>';
+  document.querySelectorAll('[data-tech-sx]').forEach(i => {
+    const ora = i.value, salva = () => inCoda(async () => apply(await call('set_sheet_tech', sh.feature, { [i.dataset.techSx]: i.value })));
+    i.onkeydown = ev => { if (ev.key === 'Enter') { ev.stopPropagation(); salva(); } };
+    i.onblur = () => { if (i.value.trim() !== ora) salva(); };
+  });
   const modello = !!S.from_template;
   $('#params-panel').classList.toggle('tpl', modello);
   $('#params-tpl').hidden = !modello;
@@ -2004,7 +2017,9 @@ function azione(id) {
   const sel1 = async q => { await select(q); };
   switch (id) {
     case 'piega': runCmd('flange_help'); return;
-    case 'tipo_foro': t('Clicca un foro sul pezzo: a destra scegli svasato o filettato. I fori nuovi: «Su una faccia», Cerchio, poi «Togli materiale».'); return;
+    case 'tipo_foro': t('Clicca un foro già fatto sul pezzo: a destra scegli svasato o filettato. Per un foro nuovo c’è «Foro».'); return;
+    case 'foro': inCoda(() => foroDialog('tondo')); return;
+    case 'asola': inCoda(() => foroDialog('asola')); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
     case 'contorno': inCoda(() => disegnaSopra()); return;
@@ -2193,7 +2208,7 @@ function barretta(nome, voci, opz = {}) {
   if (opz.nomi) m.classList.add('con-nomi');        // 03/11: le icone con il nome scritto sotto (assieme)
   const scritta = t => opz.nomi ? `<span class="lab">${esc(t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span>` : '';
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
-    : `<button data-i="${i}" data-t="${esc(t)}" aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}"><img src="icons/${ic}.svg" alt="">${scritta(t)}</button>`).join('')
+    : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t)}</span>` : scritta(t)}</button>`).join('')
     + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
@@ -2335,13 +2350,15 @@ function miniBarra(s) {
   if (s.foro) { miniForo(s); return; }
   if (s.contorno) { miniTaglio(s); return; }
   const suFaccia = s.face?.planar && s.face?.name;
-  const foro = ['hole', 'Foro', () => inCoda(async () => { await disegnaSopra('Foro: clic sul centro, poi sul bordo (o scrivi il diametro); poi «Togli materiale».'); if (SK) setTool('circle'); })];
+  const foro = ['hole', 'Foro', () => inCoda(() => foroDialog('tondo', s.face?.name))];
+  const asola = ['slot', 'Asola', () => inCoda(() => foroDialog('asola', s.face?.name))];
   const taglio = ['cut', 'Taglio', () => azione('taglia')];
   const faccia = s.face?.label ? s.face.label.replace(/ di "[^"]*"$/, '') : '';
-  if (s.kind === 'flange' && s.def && !MINI.faccia) { miniFlangia(s, suFaccia ? [foro, taglio] : []); return; }
-  const lavora = suFaccia ? [['project', 'Disegna qui', () => inCoda(() => disegnaSopra())], foro, taglio] : [];
+  if (s.kind === 'flange' && s.def && !MINI.faccia) { miniFlangia(s, suFaccia ? [foro, asola, taglio] : []); return; }
+  const lavora = suFaccia ? [foro, asola, ['project', 'Disegna qui', () => inCoda(() => disegnaSopra())], taglio] : [];
   const nome = MINI.faccia ? `Faccia di ${s.title.toLowerCase()}` : s.kind === 'body' ? (faccia || 'Faccia') : s.title;
-  barretta(nome, [...lavora, ['dimension', 'Misura', () => runCmd('misura')]], { chi: `${sel.id}:${sel.face}:${MINI.faccia}` });
+  // 03/11: sulla faccia i pulsanti con il nome scritto (Foro, Asola, Disegna qui…): con le sole icone non si trovavano
+  barretta(nome, [...lavora, ['dimension', 'Misura', () => runCmd('misura')]], { chi: `${sel.id}:${sel.face}:${MINI.faccia}`, scritte: !!lavora.length });
 }
 // la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
 function miniFlangia(s, lavora) {
@@ -2354,7 +2371,7 @@ function miniFlangia(s, lavora) {
     ...(e ? [['flange', 'Piega sulla punta', () => { MINI.dove = { p: v3(e.a).lerp(v3(e.b), 0.5), t: performance.now() }; selectEdge(e); }]] : []),
     ...lavora, '|',
     ['delete', 'Togli la piega', () => { clearSelection(); inCoda(async () => apply(await call('delete_flange', s.feature, s.flange))); }]].map(v => (v === '|' ? ['|'] : v)),
-  { chi: `fl:${s.feature}/${s.flange}` });
+  { chi: `fl:${s.feature}/${s.flange}`, scritte: lavora.length > 0 });
   const nuova = MINI.nuova;
   MINI.nuova = false;
   if (!e) return;
@@ -3010,6 +3027,164 @@ function wireForo(fo) {
   $('#h-d').onkeydown = ev => { if (ev.key === 'Enter') vai(); };
 }
 
+// ------------------------------------------------------------- comando «Foro» e «Asola» diretti sul pezzo (03/11)
+// Clic su una faccia → «Foro» (o «Foro» nella barra in alto): una finestra piccola di lato con il diametro (o
+// larghezza × altezza dell'asola) e dove vanno: uno al centro, 4 agli angoli a tot dai bordi, in fila, o dove clicchi.
+// Le distanze sono dal fuori tutto del pezzo (anche sulla faccia piegata: dal bordo esterno). Anteprima sul pezzo
+// mentre scrivi; «Fatto» fa il taglio vero (sketch su faccia + taglio), così sviluppo, DXF e tavole restano giusti.
+let FORO = null;
+let ultimoForo = { tipo: 'tondo', d: '10', larg: '30', alt: '10', disposizione: 'centro', bordo: '20', bordo_y: '', diversa: false,
+  n: '4', passo: '40', verso: 'x', lato: 'mezzo', dal: '30', punti: [] };
+function facciaPerForo() {
+  const facce = objs.get('body')?.data?.faces || [];
+  const scelta = sel?.id === 'body' && sel.face != null ? facce.find(x => x.index === sel.face && x.name && x.planar !== false) : null;
+  return scelta?.name || null;
+}
+async function foroDialog(tipo = 'tondo', face = null) {
+  if (SK) { toast('Stai disegnando: nel disegno il foro è il Cerchio. Per il comando Foro sul pezzo, prima «Esci».', 'err'); return; }
+  if (!objs.get('body')) { toast('I fori si fanno su una lamiera o su una piastra: prima crea il pezzo.', 'err'); return; }
+  const info = await call('fori_info', face || facciaPerForo());
+  if (!info.ok) { toast(info.message || 'Qui non si possono fare fori: clicca una faccia piana del pezzo.', 'err'); return; }
+  nascondiMini();
+  const v = { ...ultimoForo, tipo, punti: [] };
+  FORO = { face: info.face, info, v };
+  const nomeFaccia = s => (s || '').replace(/ di "[^"]*"$/, '');
+  const num = x => String(x ?? '').trim();
+  const seg = (k, o) => `<div class="seg" data-fo-seg="${k}">${o.map(([id, l]) => `<button type="button" data-v="${id}" class="${String(v[k]) === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const riga = (l, id, val, unita = 'mm', extra = '') => `<label class="ft-riga"><span>${l}</span><span class="ft-mm"><input class="field" id="fo-${id}" value="${esc(virgola(val))}" autocomplete="off"><i>${unita}</i>${extra}</span></label>`;
+  const dove = () => {
+    const d = v.disposizione;
+    if (d === 'angoli') return riga(v.diversa ? 'Dai bordi destro e sinistro' : 'Dai bordi', 'bordo', v.bordo)
+      + (v.diversa ? riga('Dai bordi davanti e dietro', 'bordo_y', v.bordo_y || v.bordo) : '')
+      + `<label class="ft-check"><input type="checkbox" id="fo-diversa"${v.diversa ? ' checked' : ''}> Misura diversa davanti e dietro</label>`;
+    if (d === 'fila') return riga('Quanti', 'n', v.n, '') + riga('Uno ogni (passo)', 'passo', v.passo)
+      + `<div class="ft-riga"><span>La fila va</span>${seg('verso', [['x', '↔ in orizzontale'], ['y', '↕ in verticale']])}</div>`
+      + `<div class="ft-riga"><span>Messa</span>${seg('lato', v.verso === 'x' ? [['mezzo', 'in mezzo'], ['davanti', 'dal bordo davanti'], ['dietro', 'dal bordo dietro']]
+        : [['mezzo', 'in mezzo'], ['sinistra', 'dal bordo sinistro'], ['destra', 'dal bordo destro']])}</div>`
+      + (v.lato !== 'mezzo' ? riga('A', 'dal', v.dal) : '');
+    if (d === 'punti') return `<p class="hint" style="margin:0">Clicca sul pezzo dove va ${v.tipo === 'asola' ? 'l’asola' : 'il foro'} (anche più volte). Le misure si correggono qui sotto.</p>`
+      + (v.punti.length ? v.punti.map((p, i) => `<div class="ft-riga fo-punto"><span>${v.punti.length > 1 ? `n. ${i + 1}: ` : ''}dal bordo sinistro / davanti</span><span class="ft-mm">
+        <input class="field" data-px="${i}" value="${esc(virgola(p[0]))}"><i>/</i><input class="field" data-py="${i}" value="${esc(virgola(p[1]))}"><i>mm</i>
+        <button type="button" class="link danger" data-pvia="${i}" title="Togli questo">×</button></span></div>`).join('') : '');
+    return '';
+  };
+  const misure = () => (v.tipo === 'asola'
+    ? riga('Larghezza', 'larg', v.larg) + riga('Altezza', 'alt', v.alt)
+    : riga('Diametro', 'd', v.d));
+  const corpo = () => `<div class="ft-form">
+      <div class="ft-riga"><span>Cosa</span>${seg('tipo', [['tondo', 'Foro tondo'], ['asola', 'Asola']])}</div>
+      ${misure()}
+      <div class="ft-riga"><span>Dove</span>${seg('disposizione', [['centro', 'Uno al centro'], ['angoli', '4 agli angoli'], ['fila', 'In fila'], ['punti', 'Dove clicco']])}</div>
+      ${dove()}</div>`;
+  const spec = () => {
+    const s = { tipo: v.tipo, disposizione: v.disposizione };
+    if (v.tipo === 'asola') { s.larg = num(v.larg); s.alt = num(v.alt); } else s.d = num(v.d);
+    if (v.disposizione === 'angoli') { s.bordo = num(v.bordo); if (v.diversa) s.bordo_y = num(v.bordo_y || v.bordo); }
+    if (v.disposizione === 'fila') { s.n = num(v.n); s.passo = num(v.passo); s.verso = v.verso; s.lato = v.lato; if (v.lato !== 'mezzo') s.dal = num(v.dal); }
+    if (v.disposizione === 'punti') s.punti = v.punti.map(p => [num(p[0]), num(p[1])]);
+    return s;
+  };
+  modal(`<div id="fo-tutto"><h3 id="fo-tit"></h3>
+    <p class="hint" id="fo-sotto"></p>
+    <div id="fo-corpo">${corpo()}</div>
+    <p class="fo-frase" id="fo-frase"></p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    const cornice = $('#modal-box'), box = $('#fo-tutto');      // gli ascoltatori sul contenuto: la cornice resta per le altre finestre
+    const titolo = () => {
+      $('#fo-tit').textContent = `${v.tipo === 'asola' ? 'Asola' : 'Foro'} su: ${nomeFaccia(FORO.info.label)}`;
+      $('#fo-sotto').textContent = `Misure dal fuori tutto del pezzo (${virgola(Math.round(FORO.info.outer[0] * 10) / 10)} × ${virgola(Math.round(FORO.info.outer[1] * 10) / 10)}), anche dal lato della piega. Clic su un’altra faccia per cambiarla.`;
+    };
+    const vai = () => anteprima('fori_guidati', () => [FORO.face, spec()], box.querySelector('.ant-stato'), {
+      frase: true, dopo: r => { $('#fo-frase').textContent = r.ok ? (r.frase || '') : ''; },
+    });
+    const ridisegna = (fuoco) => {
+      $('#fo-corpo').innerHTML = corpo();
+      titolo();
+      const i = fuoco && box.querySelector(fuoco);
+      if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { cornice.tabIndex = -1; cornice.focus(); }   // Invio = Fatto anche dopo un clic
+      vai();
+    };
+    FORO.ridisegna = ridisegna;
+    FORO.vai = vai;
+    titolo();
+    box.addEventListener('input', ev => {
+      const t = ev.target;
+      if (t.dataset.px != null) v.punti[+t.dataset.px][0] = t.value;
+      else if (t.dataset.py != null) v.punti[+t.dataset.py][1] = t.value;
+      else if (t.id?.startsWith('fo-') && t.type !== 'checkbox') v[t.id.slice(3)] = t.value;
+      vai();
+    });
+    box.addEventListener('change', ev => {
+      if (ev.target.id === 'fo-diversa') { v.diversa = ev.target.checked; ridisegna(v.diversa ? '#fo-bordo_y' : '#fo-bordo'); }
+    });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-fo-seg] button');
+      if (b) {
+        const k = b.closest('[data-fo-seg]').dataset.foSeg;
+        v[k] = b.dataset.v;
+        if (k === 'verso') v.lato = 'mezzo';
+        const fuoco = { tipo: v.tipo === 'asola' ? '#fo-larg' : '#fo-d', disposizione: { angoli: '#fo-bordo', fila: '#fo-n' }[v.disposizione], lato: '#fo-dal' }[k];
+        ridisegna(fuoco);
+        return;
+      }
+      const x = ev.target.closest('[data-pvia]');
+      if (x) { v.punti.splice(+x.dataset.pvia, 1); ridisegna(); }
+    });
+    const chiudi = () => { FORO = null; close(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const s = spec(), face = FORO.face;
+      if (v.disposizione === 'punti' && !v.punti.length) { toast('Clicca sul pezzo dove va il foro.', 'err'); return; }
+      ultimoForo = { ...v, punti: [] };
+      chiudi();
+      inCoda(async () => { const r = await call('fori_guidati', face, s); await apply(r, r.message); });
+    };
+    cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    $('#modal').classList.add('laterale');
+    let st = document.createElement('div'); st.className = 'ant-stato'; box.querySelector('.acts').before(st);
+    anteprimaSpazio();
+    const primo = box.querySelector(v.tipo === 'asola' ? '#fo-larg' : '#fo-d');
+    primo?.focus(); primo?.select();
+    vai();
+  });
+}
+// con la finestra del foro aperta: niente bordi da piegare sotto il mouse, solo cosa fa il clic
+function foroMove(ev) {
+  if (hoverEdge) { hoverEdge = null; paint(); }
+  const vis = model.visible;
+  model.visible = true;
+  const h = pick(ev);
+  model.visible = vis;
+  const f = h?.id === 'body' && h.face != null ? objs.get('body').data.faces.find(x => x.index === h.face) : null;
+  if (!f?.name) { tip.style.display = 'none'; return; }
+  tip.textContent = f.name === FORO.face ? (FORO.v.disposizione === 'punti' ? `Clic: ${FORO.v.tipo === 'asola' ? 'l’asola' : 'il foro'} va qui` : 'La faccia dei fori')
+    : `Clic: ${FORO.v.tipo === 'asola' ? 'l’asola' : 'il foro'} su ${(f.label || 'questa faccia').replace(/ di "[^"]*"$/, '')}`;
+  const r = view.getBoundingClientRect();
+  tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 14) + 'px';
+  tip.style.display = 'block';
+}
+// con la finestra del foro aperta, il clic sul pezzo: «Dove clicco» mette un foro lì; se no cambia la faccia
+async function foroClic(ev) {
+  const vis = model.visible;
+  model.visible = true;                     // durante l'anteprima il pezzo vero è nascosto, ma si clicca lui
+  const h = pick(ev);
+  model.visible = vis;
+  if (!h || h.id !== 'body' || h.face == null) return;
+  const f = objs.get('body').data.faces.find(x => x.index === h.face);
+  if (!f?.name) return;
+  if (FORO.v.disposizione === 'punti' && f.name === FORO.face) {
+    const r = await call('fori_dove', f.name, h.point.toArray());
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    FORO.v.punti.push([String(r.x), String(r.y)]);
+    FORO.ridisegna();
+    return;
+  }
+  if (f.name === FORO.face) return;
+  const info = await call('fori_info', f.name);
+  if (!info.ok) { toast('Su questa faccia non si fanno fori: scegline una piana.', 'err'); return; }
+  FORO.face = info.face; FORO.info = info; FORO.v.punti = [];
+  FORO.ridisegna();
+}
 // ------------------------------------------------------------- fori e asole, senza sketch
 // Come si segnano sul pezzo: misura, centro dal bordo sinistro e dal bordo davanti (fuori tutto), e se serve una
 // fila. A sinistra la faccia vista da sopra con l'anteprima; un clic nel disegno sposta il foro lì.
@@ -6153,6 +6328,7 @@ const AIUTI = {
   circle: 'Clic sul centro, poi sul bordo (o scrivi il diametro + Invio)',
   slot: 'Asola: clic sul primo centro, clic sul secondo, poi muovi il mouse per la larghezza e clicca (o scrivi la larghezza + Invio)',
   arc3: 'Arco: clic sul punto di partenza, su un punto dove passa, poi sul punto di arrivo',
+  arcr: 'Arco col raggio: parte dalla fine della linea · scrivi il raggio + Invio · sopra quanto gira e come parte',
   polygon: 'Poligono: il numero di lati nella casella in alto · clic sul centro, poi su un vertice',
   fillet: 'Raccordo: clic sullo spigolo, oppure sulle due linee una dopo l’altra (come AutoCAD) · poi il raggio nella casella + Invio',
   chamfer: 'Smusso: clic sullo spigolo, oppure sulle due linee una dopo l’altra · poi la misura nella casella + Invio',
@@ -6234,6 +6410,7 @@ async function enterSketch(sid) {
 function exitSketch() {
   if (!SK) return;
   provaVia();
+  togliRossi();
   const era = SK;
   SK = null;
   aggiornaLayout();
@@ -6259,10 +6436,13 @@ function exitSketch() {
   renderTree();
   buildDims();
 }
-function fitSketch(subito = false) {
+function fitSketch(subito = false, extra = []) {
   const pts = SK.v.points.filter(p => p.id !== 'O').map(p => v3(p.xyz));
   const box = new THREE.Box3();
   pts.forEach(p => box.expandByPoint(p));
+  // 03/11: anche la pancia degli archi (il collare: la cima dell'arco R55 restava fuori) e l'anteprima in corso
+  for (const a of SK.v.arcs || []) for (let i = 0; i <= 8; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 8; box.expandByPoint(skToWorld([a.xc[0] + a.r * Math.cos(t), a.xc[1] + a.r * Math.sin(t)])); }
+  extra.forEach(p => box.expandByPoint(p));
   SK.v.circles.forEach(c => { box.expandByPoint(v3(c.center).addScalar(c.r)); box.expandByPoint(v3(c.center).addScalar(-c.r)); });
   // sullo sviluppo o su una faccia si inquadra sempre anche quella: si disegna sopra di lei
   if (SK.v.on_flat && flatGroup.children.length) box.union(flatBox());
@@ -6304,13 +6484,15 @@ function setTool(t) {
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   $('#sk-help').textContent = AIUTI[t] + ' · destro sposta, rotella ingrandisce';
   if (t === 'text' && SK.lastText && !SK.provaTesto) provaTesto(SK.lastText);    // la scritta di prima segue il mouse
+  SK.arcR = null;
+  if (t === 'arcr') arcrInizia();
   drawRubber();
 }
 // 28/10: la barra «cosa fare adesso», uguale per ogni comando. I comandi scrivono come prima («Nome: cosa fare · Esc
 // annulla»); qui diventa: il comando con la sua icona, i passi (2 di 3), cosa fare, e i tasti disegnati
 const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'joint', Quota: 'dimension', Angolo: 'plane_angle', Offset: 'offset',
   Specchia: 'mirror', Copia: 'copy', Sposta: 'move', Poligono: 'polygon', Linea: 'line', Rettangolo: 'rect', Cerchio: 'circle', Arco: 'arc3',
-  Asola: 'slot', Testo: 'text', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'project', 'Foro su foro': 'hole',
+  Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'project', 'Foro su foro': 'hole',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
   Seleziona: 'select', Costruzione: 'construction' };
@@ -6752,6 +6934,16 @@ function drawRubber() {
     for (const tr of pt.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + o[0], q[1] + o[1]]))), SK_TESTO));
   }
   const tip = $('#sk-tip');
+  if (SK?.scritteProva) {                           // le scritte sotto i fori, in prova al loro posto
+    for (const sp of SK.scritteProva) for (const tr of sp.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + sp.at[0], q[1] + sp.at[1]]))), SK_TESTO));
+    tip.style.display = 'none'; ridisegna(); return;
+  }
+  if (SK?.serieProva) {                             // la serie in prova: le copie (non l'originale) in azzurro
+    const P = SK.serieProva;
+    const metti = (pts, mat) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), mat); l.computeLineDistances(); skRubber.add(l); };
+    for (let j = 0; j < P.r; j++) for (let i = 0; i < P.c; i++) if (i || j) anteprimaCopia(P.ids, i * P.px, j * P.py, metti);
+    tip.style.display = 'none'; ridisegna(); return;
+  }
   if (SK?.pick?.what === 'corner') { drawSnap({ tipo: 'punto', xy: SK.pick.xy }); updateCmd(); ridisegna(); return; }
   if (SK && (SK.tool === 'trim' || SK.tool === 'extend') && !SK.pick) {
     tip.style.display = 'none';
@@ -6774,6 +6966,10 @@ function drawRubber() {
     }
     ridisegna();
     return;
+  }
+  if (SK?.tool === 'arcr' && !SK.cursor) {         // arco col raggio: l'anteprima c'è anche senza il mouse sul disegno
+    arcrDisegna(pts => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), SK_RUB); l.computeLineDistances(); skRubber.add(l); });
+    tip.style.display = 'none'; ridisegna(); return;
   }
   if (!SK || !SK.cursor) { tip.style.display = 'none'; drawSnap(null); ridisegna(); return; }
   const c = SK.cursor.xy, last = SK.pts[SK.pts.length - 1];
@@ -6810,6 +7006,8 @@ function drawRubber() {
   } else if (SK.tool === 'rect' && last) {
     add([last.xy, [c[0], last.xy[1]], c, [last.xy[0], c[1]], last.xy]);
     testo = `${num(Math.abs(c[0] - last.xy[0]), 2)} × ${num(Math.abs(c[1] - last.xy[1]), 2)}`;
+  } else if (SK.tool === 'arcr') {
+    testo = arcrDisegna(add);
   } else if (SK.tool === 'arc3' && SK.pts.length === 1) {
     add([last.xy, c]);
   } else if (SK.tool === 'arc3' && SK.pts.length === 2) {
@@ -6918,6 +7116,107 @@ function skMove(ev) {
 }
 
 const ptArg = p => p.id || p.ref || p.xy;
+// ------------------------------------------------------------- arco col raggio scritto (03/11)
+// Dopo una linea: l'arco parte dalla sua fine. Si scrive il raggio (55) e si sceglie quanto gira (90°, mezzo giro,
+// altro) e come parte (tangente, o a squadra come il collare); il mouse dice da che parte. Niente punti cliccati sulla
+// griglia: raggio e angolo sono esatti. Poi si torna alla Linea, dalla fine dell'arco.
+let ultimoArcoR = { giro: 180, partenza: 'squadra' };
+function arcrPunti(A, r) {          // centro, fine e punti dell'arco per l'anteprima (stessi conti del motore)
+  const [ax, ay] = A.xa, [bx, by] = A.xb, L = Math.hypot(bx - ax, by - ay) || 1;
+  const ux = (bx - ax) / L, uy = (by - ay) / L, nx = -uy, ny = ux, lato = A.lato >= 0 ? 1 : -1;
+  let cx, cy, antiorario;
+  if (ultimoArcoR.partenza === 'squadra') { cx = bx + r * ux; cy = by + r * uy; antiorario = lato < 0; }
+  else { cx = bx + lato * r * nx; cy = by + lato * r * ny; antiorario = lato > 0; }
+  const t = ultimoArcoR.giro * Math.PI / 180 * (antiorario ? 1 : -1), vx = bx - cx, vy = by - cy;
+  const pts = [];
+  for (let i = 0; i <= 48; i++) { const a = t * i / 48; pts.push([cx + vx * Math.cos(a) - vy * Math.sin(a), cy + vx * Math.sin(a) + vy * Math.cos(a)]); }
+  return { c: [cx, cy], fine: pts[pts.length - 1], pts };
+}
+// la linea da cui parte: quella appena disegnata (la sua fine), o quella cliccata vicino a una delle sue estremità
+function arcrDa(pid) {
+  const linee = SK.v.lines.filter(l => !l.ref && !l.construction);
+  const l = pid ? linee.find(x => x.a === pid || x.b === pid)
+    : linee.sort((p, q) => (+q.id.replace(/\D/g, '') || 0) - (+p.id.replace(/\D/g, '') || 0))[0];
+  if (!l) return null;
+  const finale = pid ? pid : l.b;
+  return finale === l.b ? { linea: l.id, punto: l.b, xa: l.xa, xb: l.xb, lato: 1 } : { linea: l.id, punto: l.a, xa: l.xb, xb: l.xa, lato: 1 };
+}
+function arcrInizia() {
+  SK.arcR = arcrDa(null);
+  SK.pts = SK.arcR ? [{ id: SK.arcR.punto, xy: SK.arcR.xb }] : [];
+  arcrAiuto();
+}
+function arcrAiuto() {
+  setHelp(SK.arcR ? 'Arco col raggio: scrivi il raggio + Invio · sopra scegli quanto gira e come parte · il mouse dice da che parte · clic sulla fine di un’altra linea per partire da lì · Esc finisce'
+    : 'Arco col raggio: clic sulla fine della linea da cui parte l’arco · Esc finisce');
+}
+function arcrRaggio() {
+  const v = parseFloat(String(SK.buf || '').replace(',', '.'));
+  if (v > 0) return v;
+  if (ultimoArcoR.r > 0) return ultimoArcoR.r;
+  return null;
+}
+function arcrDisegna(add) {
+  const A = SK.arcR;
+  if (!A) return '';
+  const c = SK.cursor?.xy;
+  if (c) {                                             // da che parte: a sinistra o a destra della linea
+    const ux = A.xb[0] - A.xa[0], uy = A.xb[1] - A.xa[1];
+    const cr = ux * (c[1] - A.xb[1]) - uy * (c[0] - A.xb[0]);
+    if (Math.abs(cr) > 1e-6) A.lato = cr > 0 ? 1 : -1;
+  }
+  const r = arcrRaggio();
+  if (!r) return 'scrivi il raggio';
+  const p = arcrPunti(A, r);
+  add(p.pts);
+  // l'anteprima esce dalla vista: si allarga (una volta per raggio, se no la vista balla mentre muovi il mouse)
+  const fuori = p.pts.some(q => { const v = skToWorld(q).project(camera); return Math.abs(v.x) > 0.95 || Math.abs(v.y) > 0.95; });
+  if (fuori && A.adattato !== r) { A.adattato = r; setTimeout(() => SK && fitSketch(false, p.pts.map(skToWorld)), 0); }
+  return `R ${num(r, 2)} · ${ultimoArcoR.giro === 180 ? 'mezzo giro' : num(ultimoArcoR.giro, 1) + '°'} · ${ultimoArcoR.partenza === 'squadra' ? 'a squadra' : 'tangente'}`;
+}
+function arcrClic(c) {                                 // clic sulla fine di un'altra linea: si parte da lì
+  if (!c.id) { if (!SK.arcR) toast('Clicca la fine di una linea: l’arco parte da lì.', 'err'); return; }
+  const A = arcrDa(c.id);
+  if (!A) { toast('Questo punto non è la fine di una linea.', 'err'); return; }
+  SK.arcR = A; SK.pts = [{ id: A.punto, xy: A.xb }];
+  arcrAiuto();
+}
+function arcrScritto(r) {
+  const A = SK.arcR;
+  if (!A) { toast('Prima clicca la fine della linea da cui parte l’arco.', 'err'); return; }
+  ultimoArcoR.r = r;
+  const fine = arcrPunti(A, r).fine, sid = SK.sid, k = SK.constr;
+  const g = ultimoArcoR.giro, part = ultimoArcoR.partenza, lato = A.lato;
+  inCoda(async () => {
+    const res = await call('sketch_add_arc_raggio', sid, A.linea, A.punto, r, g, part, lato, k);
+    if (!(await apply(res)) || !SK || SK.sid !== sid) return;
+    // si continua con la Linea dalla fine dell'arco: scrivi 28 + Invio per la gamba
+    setTool('line');
+    SK.pts = [{ id: res.end, xy: fine }];
+    if (SK.v.points.some(q => { const p = v3(q.xyz).project(camera); return Math.abs(p.x) > 0.95 || Math.abs(p.y) > 0.95; })) fitSketch(true);
+    drawRubber();
+  });
+}
+// i pulsanti «quanto gira» e «come parte», accanto alla casella in alto
+function arcrScelte() {
+  const g = ultimoArcoR.giro, p = ultimoArcoR.partenza;
+  const b = (k, v, t, on) => `<button type="button" data-arcr-${k}="${v}" class="${on ? 'on' : ''}">${t}</button>`;
+  return `<span class="arcr"><span>gira</span>${b('g', 90, '90°', g === 90)}${b('g', 180, 'mezzo giro', g === 180)}<input id="sk-arcr-g" value="${esc(virgola(g))}" title="Quanti gradi gira l’arco"><i>°</i>
+    <span>parte</span>${b('p', 'tangente', 'tangente', p === 'tangente')}${b('p', 'squadra', 'a squadra', p === 'squadra')}</span>`;
+}
+document.addEventListener('mousedown', ev => { if (ev.target.closest('[data-arcr-g],[data-arcr-p]')) ev.preventDefault(); });   // la casella del raggio resta attiva
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-arcr-g],[data-arcr-p]');
+  if (!b || !SK) return;
+  if (b.dataset.arcrG) ultimoArcoR.giro = +b.dataset.arcrG; else ultimoArcoR.partenza = b.dataset.arcrP;
+  $('#sk-cmd-extra').innerHTML = arcrScelte();
+  drawRubber();
+});
+document.addEventListener('input', ev => {
+  if (ev.target.id !== 'sk-arcr-g') return;
+  const v = parseFloat(ev.target.value.replace(',', '.'));
+  if (v > 0 && v < 360) { ultimoArcoR.giro = v; drawRubber(); }
+});
 // cerchi e archi come { id, xc, r, a0, a1 } (il cerchio intero va da 0 a 2π)
 function roundsOf() {
   return [...SK.v.circles.map(c => ({ id: c.id, xc: c.xc, r: c.r, a0: 0, a1: 2 * Math.PI })),
@@ -7056,6 +7355,8 @@ function skPlace(c) {
   } else if (SK.tool === 'rect') {
     if (!SK.pts.length) { SK.pts.push(p); }
     else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(a), c.xy, k)); }); }
+  } else if (SK.tool === 'arcr') {
+    arcrClic(c);
   } else if (SK.tool === 'arc3') {
     if (SK.pts.length < 2) SK.pts.push(p);
     else {
@@ -7095,6 +7396,59 @@ function skPlace(c) {
 // la finestra del testo (30/10): nuova, al punto cliccato, o per cambiare una scritta già messa (doppio clic). Mentre
 // scrivi, la scritta si vede al suo posto; «al centro» = il punto cliccato è il centro della scritta (sul centro del foro)
 const TESTO_BASE = { text: '', h: 5, angle: 0, come: '', centro: true };
+// una scritta sotto ogni foro scelto, in una volta (03/11, porta ugelli: 6 numeri sotto 6 fori). I fori da sinistra
+// a destra; ogni scritta si vede al suo posto mentre scrivi. La finestra sta di lato e non copre i fori
+function scritteSottoFori(sid, cerchi) {
+  const fori = cerchi.map(id => SK.v.circles.find(c => c.id === id)).filter(Boolean)
+    .sort((a, b) => (Math.round(a.xc[0] * 1000) - Math.round(b.xc[0] * 1000)) || (a.xc[1] - b.xc[1]));
+  const u = { ...TESTO_BASE, come: 'saira', ...(SK.lastText || {}) };
+  const virg = x => esc(String(x).replace('.', ','));
+  modal(`<h3>Scritte sotto ${fori.length} fori</h3>
+    <p class="hint">Da sinistra a destra. Ogni scritta va centrata sotto il suo foro; vuota = niente.</p>
+    <div class="form" id="ss-form">${fori.map((f, i) => `<label>Foro ${i + 1} (Ø${virg(Math.round(f.r * 200) / 100)})<input class="field" data-ss="${i}" value=""></label>`).join('')}
+      <label style="grid-column:1/-1">Come<select class="field" id="ss-c">
+        <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
+        <option value="allerta"${u.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option>
+        <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option></select></label>
+      <label>Altezza delle lettere<span class="inp"><input class="field" id="ss-h" value="${virg(u.h)}"><i>mm</i></span></label>
+      <label>Spazio sotto il foro<span class="inp"><input class="field" id="ss-g" value="2"><i>mm</i></span></label></div>
+    <p class="fo-frase" id="ss-frase"></p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti le scritte</button></div>`, close => {
+    $('#modal').classList.add('laterale');
+    const leggi = () => ({ testi: fori.map((_, i) => $(`[data-ss="${i}"]`).value), h: $('#ss-h').value.trim().replace(',', '.'),
+      come: $('#ss-c').value, gioco: $('#ss-g').value.trim().replace(',', '.') });
+    let giro = 0;
+    const prova = async () => {
+      const v = leggi(), mio = ++giro, h = parseFloat(v.h), g = parseFloat(v.gioco) || 0;
+      const fatti = [];
+      for (let i = 0; i < fori.length; i++) {
+        const t = v.testi[i].trim();
+        if (!t || !(h > 0)) continue;
+        const r = await call('testo_anteprima', t, h, 0, v.come || null, true);
+        if (mio !== giro || !SK) return;
+        if (r?.ok) fatti.push({ at: [fori[i].xc[0], fori[i].xc[1] - fori[i].r - g - h / 2], tratti: r.tratti });
+      }
+      SK.scritteProva = fatti;
+      $('#ss-frase').textContent = fatti.length ? `${fatti.length} ${fatti.length === 1 ? 'scritta' : 'scritte'}: si vedono già sotto i fori` : 'Scrivi le scritte (es. 1.0, 1.2, 1.5…)';
+      drawRubber();
+    };
+    let t = null;
+    $('#ss-form').addEventListener('input', () => { clearTimeout(t); t = setTimeout(prova, 150); });
+    $('#ss-form').addEventListener('change', () => { clearTimeout(t); t = setTimeout(prova, 50); });
+    const chiudi = () => { if (SK) { SK.scritteProva = null; drawRubber(); } close(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const v = leggi();
+      SK.lastText = { ...(SK.lastText || {}), come: v.come, h: v.h };
+      chiudi();
+      inCoda(async () => { const r = await call('sketch_scritte_sotto', sid, fori.map(f => f.id), v.testi, v.h, v.come || null, v.gioco); await apply(r, r.message); });
+    };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    setTimeout(() => scostaDallaFinestra(fori.map(f => skToWorld(f.xc))), 0);
+    $('[data-ss="0"]')?.focus();
+    prova();
+  });
+}
 async function provaTesto(v, at = null) {
   if (!SK) return;
   const chiave = JSON.stringify([v.text, v.h, v.angle, v.come, v.centro]);
@@ -7123,6 +7477,7 @@ function finestraTesto({ valori, at, nuova, ok }) {
     <p class="hint" id="tx-hint"></p>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">${nuova ? 'Metti il testo' : 'Cambia'}</button></div>`, close => {
     $('#modal').classList.add('laterale');           // di lato: la scritta in prova sul foro si vede
+    if (at && SK) setTimeout(() => scostaDallaFinestra([skToWorld(at)]), 0);   // 03/11: e il punto non finisce sotto la finestra
     const chiudi = () => { if (SK) { SK.provaTesto = null; drawRubber(); } close(); };
     $('#m-no').onclick = chiudi;
     const leggi = () => ({ text: $('#tx-t').value, h: $('#tx-h').value.trim().replace(',', '.'), angle: ($('#tx-a').value.trim() || '0').replace(',', '.'),
@@ -7202,6 +7557,7 @@ function skTyped() {
   SK.buf = '';
   if (mr && !(rectH > 0)) { toast('Scrivi così: larghezza x altezza, per esempio 100x50', 'err'); return; }
   if (!(v > 0)) { toast('Scrivi un numero maggiore di zero.', 'err'); return; }
+  if (SK.tool === 'arcr' && !SK.pick) { arcrScritto(v); return; }
   const last = SK.pts[SK.pts.length - 1];
   if (!last) { toast('Prima clicca il punto di partenza.', 'err'); return; }
   if (SK.pick) { skPickTyped(v); return; }
@@ -7328,6 +7684,7 @@ function promptCmd() {
   if ((P?.what === 'copy' || P?.what === 'move') && P.base) return 'Distanza (nella direzione del mouse)';
   if (P) return null;
   if (SK.tool === 'polygon' && !SK.pts.length) return 'Numero di lati';
+  if (SK.tool === 'arcr') return SK.arcR ? 'Raggio dell’arco' : null;
   if (!SK.pts.length) return null;
   if (SK.tool === 'line') return 'Lunghezza, oppure lunghezza<angolo (es. 100<30)';
   if (SK.tool === 'rect') return 'Misure: larghezza x altezza (es. 100x50)';
@@ -7343,6 +7700,8 @@ function updateCmd() {
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', !off && SK?.tool === b.dataset.tool));
   document.querySelectorAll('#sk-panel [data-act="offset"], #ribbon [data-act="offset"]').forEach(b => b.classList.toggle('on', off));
   box.hidden = !testo;
+  const extra = $('#sk-cmd-extra'), vuole = testo && SK?.tool === 'arcr' && !SK.pick ? 'arcr' : '';
+  if (extra && extra.dataset.cosa !== vuole) { extra.dataset.cosa = vuole; extra.innerHTML = vuole ? arcrScelte() : ''; }
   if (!testo) { if (document.activeElement === inp) inp.blur(); return; }
   $('#sk-cmd-label').textContent = testo;
   if (document.activeElement !== inp) {
@@ -7488,6 +7847,12 @@ function skAction(act) {
     inCoda(async () => { await apply(await call('sketch_construction', sid, ids, !tutte)); });
     return;
   }
+  if (act === 'scritte') {
+    const cerchi = ids.filter(id => SK.v.circles.some(c => c.id === id));
+    if (!cerchi.length) { toast('Seleziona i fori (cerchi) sotto cui scrivere: clic, Maiusc+clic per aggiungerne.', 'err'); return; }
+    scritteSottoFori(sid, cerchi);
+    return;
+  }
   if (act === 'hole') {
     const cerchi = ids.filter(id => SK.v.circles.some(c => c.id === id && !c.ref));
     if (!cerchi.length) { toast('Seleziona uno o più cerchi (i fori).', 'err'); return; }
@@ -7522,17 +7887,65 @@ function skAction(act) {
     return;
   }
   if (act === 'pattern') {
-    modal(`<h3>Serie</h3><p class="hint">Colonne lungo X e righe lungo Y, originale compreso. I passi diventano parametri (px, py): li cambi dopo e la serie segue.</p>
-      <div class="form"><label>Colonne<input class="field" id="p-c" value="3"></label><label>Passo X (mm)<input class="field" id="p-px" value="50"></label>
-      <label>Righe<input class="field" id="p-r" value="1"></label><label>Passo Y (mm)<input class="field" id="p-py" value="50"></label></div>
+    // 03/11: la finestra di lato (non copre il disegno) e le copie in anteprima mentre scrivi, prima di confermare
+    const v0 = SK.lastSerie || { c: '3', px: '50', r: '1', py: '50' };
+    modal(`<h3>Serie</h3><p class="hint">Colonne verso destra e righe verso l’alto, originale compreso. Tratteggiate, le copie come verranno. I passi diventano misure (px, py): li cambi dopo e la serie segue.</p>
+      <div class="form"><label>Colonne<input class="field" id="p-c" value="${esc(v0.c)}"></label><label>Passo X (mm)<input class="field" id="p-px" value="${esc(v0.px)}"></label>
+      <label>Righe<input class="field" id="p-r" value="${esc(v0.r)}"></label><label>Passo Y (mm)<input class="field" id="p-py" value="${esc(v0.py)}"></label></div>
+      <p class="fo-frase" id="p-frase"></p>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea serie</button></div>`, close => {
-      $('#m-no').onclick = close;
-      $('#m-ok').onclick = () => { const v = ['#p-c', '#p-px', '#p-r', '#p-py'].map(q => $(q).value.trim()); close();
-        inCoda(async () => { await apply(await call('sketch_pattern', sid, ids, ...v)); }); };
-      $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+      $('#modal').classList.add('laterale');
+      const leggi = () => ({ c: $('#p-c').value.trim(), px: $('#p-px').value.trim(), r: $('#p-r').value.trim(), py: $('#p-py').value.trim() });
+      const nn = x => parseFloat(String(x).replace(',', '.'));
+      const prova = () => {
+        const v = leggi(), c = Math.round(nn(v.c)), r = Math.round(nn(v.r)), px = nn(v.px), py = nn(v.py);
+        const va = c >= 1 && r >= 1 && c * r >= 2 && (c === 1 || px) && (r === 1 || py) && c * r <= 400;
+        SK.serieProva = va ? { ids, c, r, px: px || 0, py: py || 0 } : null;
+        $('#p-frase').textContent = va ? `${c * r} in tutto (${c} × ${r}), originale compreso` : 'Scrivi colonne, righe e passi con i numeri.';
+        $('#m-ok').disabled = !va;
+        drawRubber();
+        if (va) scostaDallaFinestra(serieMondo(SK.serieProva));
+      };
+      const chiudi = () => { if (SK) { SK.serieProva = null; drawRubber(); } close(); };
+      $('#modal-box .form').addEventListener('input', prova);     // sul contenuto: la cornice della finestra resta per le altre
+      $('#m-no').onclick = chiudi;
+      $('#m-ok').onclick = () => { const v = leggi(); SK.lastSerie = v; chiudi();
+        inCoda(async () => { await apply(await call('sketch_pattern', sid, ids, v.c, v.px, v.r, v.py)); }); };
+      $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) $('#m-ok').click(); if (ev.key === 'Escape') chiudi(); };
+      prova();
+      $('#p-c').select();
     });
     return;
   }
+}
+// i punti (nel 3D) delle copie della serie in prova: per tenerle fuori da sotto la finestra
+function serieMondo(P) {
+  const out = [];
+  for (const c of SK.v.circles) if (P.ids.includes(c.id)) for (let j = 0; j < P.r; j++) for (let i = 0; i < P.c; i++) {
+    out.push(skToWorld([c.xc[0] + i * P.px + c.r, c.xc[1] + j * P.py]), skToWorld([c.xc[0] + i * P.px - c.r, c.xc[1] + j * P.py]));
+  }
+  for (const l of SK.v.lines) if (P.ids.includes(l.id)) for (let j = 0; j < P.r; j++) for (let i = 0; i < P.c; i++) {
+    out.push(skToWorld([l.xa[0] + i * P.px, l.xa[1] + j * P.py]), skToWorld([l.xb[0] + i * P.px, l.xb[1] + j * P.py]));
+  }
+  return out;
+}
+// la finestra di lato non deve coprire il punto su cui lavori (03/11: la finestra del testo copriva il foro, la
+// serie le copie): se ci finisce sotto, il disegno scorre a sinistra quanto basta. Torna com'era alla chiusura
+function scostaDallaFinestra(punti) {
+  const box = document.querySelector('#modal.laterale .modal-box');
+  if (!box || !punti.length) return;
+  const b = box.getBoundingClientRect();
+  const gia = camera.view?.enabled ? camera.view.offsetX : 0;
+  let destra = -Infinity;
+  for (const p of punti) {
+    const q = aSchermo(p.clone ? p.clone() : v3(p));
+    if (q && q[1] > b.top - 30 && q[1] < b.bottom + 30) destra = Math.max(destra, q[0]);
+  }
+  const dx = destra - (b.left - 40);
+  if (!(dx > 0)) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  camera.setViewOffset(w, h, gia + dx, 0, w, h);
+  ridisegna();
 }
 function skPickClick(ev) {
   const P = SK.pick;
@@ -7720,11 +8133,53 @@ window.addEventListener('keydown', e => {
 // subito (Ctrl+Z se non andava). La barra di prova, rossa col motivo, compare solo quando non si può fare
 function subitoOProva(o, chiama, okMsg) {
   inCoda(async () => {
+    togliRossi();
     const r = await chiama();
     if (r?.ok) { if (await apply(r, okMsg || r.message)) exitSketch(); }
-    else if (r && !r.cancelled) provaSulPezzo(o);
+    else if (r && !r.cancelled) {
+      provaSulPezzo(o);
+      // 03/11: «due contorni si sovrappongono» dice anche quali (in rosso) e, se sono doppioni, «Tienine una»
+      if (SK && /si sovrappongono/.test(r.message || '')) { const sid = SK.sid; await mostraSovrapposti(sid, () => subitoOProva(o, chiama, okMsg)); }
+    }
   });
 }
+// ------------------------------------------------------------- «Due contorni si sovrappongono»: dove, e come uscirne (03/11)
+// I due contorni in rosso sul disegno; se sono cose disegnate due volte (la scritta messa due volte) «Tienine una»
+// toglie le copie e si riprova il taglio. Prima l'errore non diceva quali, e le copie a video non si vedevano.
+const skRossi = new THREE.Group();
+scene.add(skRossi);
+const SK_ROSSO = new THREE.MeshBasicMaterial({ color: 0xE5484D, side: THREE.DoubleSide, depthTest: false });
+function togliRossi() {
+  skRossi.traverse(o => o.geometry?.dispose()); skRossi.clear();
+  document.getElementById('sovr-card')?.remove();
+  ridisegna();
+}
+async function mostraSovrapposti(sid, rifai) {
+  const r = await call('sketch_sovrapposti', sid);
+  if (!r.ok || !SK || SK.sid !== sid || (!r.contorni?.length && !r.doppioni)) return;
+  togliRossi();
+  for (const c of r.contorni) skRossi.add(fatLine(c, 4, SK_ROSSO));
+  ridisegna();
+  const box = document.createElement('div');
+  box.id = 'sovr-card';
+  box.innerHTML = `<button class="ec-x" title="Chiudi">×</button><h5>${r.doppioni ? 'Disegnato due volte' : 'Due contorni si sovrappongono'}</h5>
+    <p>${esc(r.frase)}</p><div class="ec-sol">${r.doppioni ? `<button class="btn primary" data-tieni>Tienine una</button>` : ''}
+    <button class="btn" data-mostra>Mostrami dove</button></div>`;
+  document.body.appendChild(box);
+  box.querySelector('.ec-x').onclick = togliRossi;
+  box.querySelector('[data-mostra]').onclick = () => {
+    const pts = r.contorni.flat().map(skToWorld);
+    if (pts.length) fitSketch(false, pts);
+  };
+  box.querySelector('[data-tieni]')?.addEventListener('click', () => {
+    togliRossi(); provaVia();
+    inCoda(async () => {
+      const t = await call('sketch_togli_doppioni', sid);
+      if (await apply(t, t.message) && rifai) rifai();
+    });
+  });
+}
+
 // la piega su una linea dello sketch, provata sul pezzo: 90° in su, la parte piccola; le scelte sono quote sulla linea
 function provaPiega() {
   const l = SK.v.lines.find(x => !x.ref && !x.construction && !x.xray);

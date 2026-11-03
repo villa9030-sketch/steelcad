@@ -325,6 +325,9 @@ class Api:
     def sketch_add_arc3(self, sid, p1, p2, p3, construction=False):
         return self._call(self._svc.sketch_add_arc3, sid, p1, p2, p3, construction)
 
+    def sketch_add_arc_raggio(self, sid, linea, punto, r, giro, partenza='tangente', lato=1, construction=False):
+        return self._call(self._svc.sketch_add_arc_raggio, sid, linea, punto, r, giro, partenza, lato, construction)
+
     def sketch_add_polygon(self, sid, center, vertex, n, construction=False):
         return self._call(self._svc.sketch_add_polygon, sid, center, vertex, n, construction)
 
@@ -444,6 +447,18 @@ class Api:
 
     def fori_guidati(self, face_name, spec):
         return self._call(self._svc.fori_guidati, face_name, spec)
+
+    def fori_dove(self, face_name, punto):
+        return self._call(self._svc.fori_dove, face_name, punto)
+
+    def sketch_scritte_sotto(self, sid, cerchi, testi, h, stencil=None, gioco=2):
+        return self._call(self._svc.sketch_scritte_sotto, sid, cerchi, testi, h, stencil, gioco)
+
+    def sketch_sovrapposti(self, sid):
+        return self._call(self._svc.sketch_sovrapposti, sid)
+
+    def sketch_togli_doppioni(self, sid):
+        return self._call(self._svc.sketch_togli_doppioni, sid)
 
     def new_project_preview(self, kind, values=None):
         return self._call(self._svc.new_project_preview, kind, values)

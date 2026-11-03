@@ -293,8 +293,10 @@ def _faces(loops: list, plane: bd.Plane) -> list:
                                                          if parent[j] == i and depth[j] == depth[i] + 1))) > TOL:
                 raise ValueError
         except Exception:  # noqa: BLE001 - un contorno interno che esce da quello esterno
-            raise SketchError('Due contorni dello sketch si sovrappongono (uno esce dall’altro): il profilo non è '
-                              'chiaro. Uniscili in un solo contorno o separali.', code='profilo_sovrapposto') from None
+            err = SketchError('Due contorni dello sketch si sovrappongono (uno esce dall’altro): il profilo non è '
+                              'chiaro. Uniscili in un solo contorno o separali.', code='profilo_sovrapposto')
+            err.contorni = [w] + holes                    # 03/11: quali sono, per farli vedere in rosso
+            raise err from None
         if face.normal_at().dot(plane.z_dir) < 0:
             face = -face
         faces.append(face)
@@ -307,8 +309,10 @@ def _faces(loops: list, plane: bd.Plane) -> list:
                 break
             a_, b_ = min(i, j), max(i, j)
             if depth[a_] == depth[b_] and toccano(box[a_], box[b_]) and _overlap(info[a_][1], info[b_][1]):
-                raise SketchError('Due contorni dello sketch si sovrappongono: il profilo non è chiaro.',
+                err = SketchError('Due contorni dello sketch si sovrappongono: il profilo non è chiaro.',
                                   code='profilo_sovrapposto')
+                err.contorni = [info[a_][0], info[b_][0]]     # 03/11: quali sono, per farli vedere in rosso
+                raise err
     return faces
 
 
