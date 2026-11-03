@@ -8688,7 +8688,11 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
   for (const l of SK.v.lines) { const d = segDist(m, proj(l.pa), proj(l.pb)); if (d < 7 && (!best || d < best.d)) best = { id: l.id, d }; }
   for (const c of SK.v.circles) {
     const ctr = proj(c.center), e = proj(skToWorld([...skToLocal(v3(c.center))].map((v, i) => i === 0 ? v + c.r : v)));
-    const d = Math.abs(Math.hypot(m[0] - ctr[0], m[1] - ctr[1]) - Math.hypot(e[0] - ctr[0], e[1] - ctr[1]));
+    const dc = Math.hypot(m[0] - ctr[0], m[1] - ctr[1]), rs = Math.hypot(e[0] - ctr[0], e[1] - ctr[1]);
+    let d = Math.abs(dc - rs);
+    // 04/11: un foro piccolo sullo schermo si prende anche cliccandoci dentro (sul suo centro), non solo sul filo:
+    // prima il clic al centro non sceglieva niente e «Serie» e «Tipo di foro» restavano spenti
+    if (d >= 7 && dc < rs && rs <= 40) d = 6.9;
     if (d < 7 && (!best || d < best.d)) best = { id: c.id, d };
   }
   for (const t of SK.v.texts || []) {
