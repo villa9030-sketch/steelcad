@@ -2719,3 +2719,5 @@ body.bottom-closed #toasts { bottom: 104px; }
    intero al passaggio del mouse (title della voce) */
 #tree .node .lb { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: normal; word-break: normal; line-height: 1.25;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding: 3px 0; }
+/* barre «prossimo passo»: l'icona del comando col colore di modalità (come la striscia a sinistra), non il blu */
+body[data-modo] :is(.sk-help, #sk-foot, #prova-barra, #sk-origine, #sk-cmd, #flat-bar) { --accento-icona: var(--modo); }
