@@ -2713,15 +2713,15 @@ function placeBarra() {
       if (!l) { l = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); l.id = 'sc-linea'; document.body.appendChild(l); }
       const ax = destra ? x : x + w, ay = Math.max(y + 20, Math.min(q[1], y + 60));
       l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
-    } else if (q && m._evita && mettiAccanto(m, m._evita(), r)) {
+    } else if (q && m._evita && mettiAccanto(m, m._evita(), { left: r.left, right: r.right, top: r.top, bottom: Math.min(r.bottom, sopraRiga(r) + 8) })) {
       // (assieme) sotto, sopra o di lato al pezzo: non sopra
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
       let x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
-      let y = Math.max(r.top + 34, Math.min(q[1] + (+m.dataset.giu || 30), r.bottom - h - 8));
+      let y = Math.max(r.top + 34, Math.min(q[1] + (+m.dataset.giu || 30), sopraRiga(r) - h));
       // 04/11 (regola 3): la barretta non copre quello che hai cliccato. Sotto la faccia (o la piega) scelta, se no
       // sopra, se no di lato; solo se la scelta riempie la vista resta dov'era
-      const sc = rettScelta(r), basso = r.bottom - 62, nome = 28;     // 62: la barra Inquadra/Quote/Tema in fondo
+      const sc = rettScelta(r), basso = sopraRiga(r), nome = 28;     // sopra la barra Inquadra/Quote/Tema (e la riga «prossimo passo»)
       if (sc) {
         const cx = Math.max(r.left + 8, Math.min((sc.left + sc.right) / 2 - w / 2, r.right - w - 8));
         const cy = Math.max(r.top + nome + 8, Math.min((sc.top + sc.bottom) / 2 - h / 2, basso - h));
@@ -2750,6 +2750,16 @@ function placeBarra() {
     const b = SCELTE.q.getBoundingClientRect();
     SCELTE.el.style.left = (b.left + b.width / 2) + 'px'; SCELTE.el.style.top = (b.bottom + 6) + 'px';
   }
+}
+// 04/11 notte (attriti): fin dove può scendere la barretta: sopra la barretta Inquadra/Quote/Tema (62 px dal fondo) e
+// sopra la riga «prossimo passo» se c'è (assieme appena creato, tubi): prima ci finiva sopra
+function sopraRiga(r) {
+  let y = r.bottom - 62;
+  for (const id of ['asm-passo', 'trav-hint']) {
+    const e = document.getElementById(id);
+    if (e && !e.hidden && e.offsetParent) y = Math.min(y, e.getBoundingClientRect().top - 10);
+  }
+  return y;
 }
 // 04/11: la barretta accanto al riquadro del pezzo, mai sopra: sotto (col nome sopra di lei), se no sopra, se no a
 // destra o a sinistra. Se il pezzo riempie la vista: in basso nella vista, sopra la barrina Inquadra/Quote
