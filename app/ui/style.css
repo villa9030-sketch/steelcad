@@ -1920,7 +1920,8 @@ body.bottom-closed .tabs button.on { font-weight: 500; }
 .dim.edit { border-color: var(--c-blu); box-shadow: var(--anello); }
 .dim .p, .dim .n, body.dark .dim .p { color: var(--c-spento); }
 .dim.rif, body.dark .dim.rif { color: var(--c-testo-2); border-style: dashed; }
-.dim.ing, body.dark .dim.ing { color: var(--c-warn-testo); border-color: color-mix(in srgb, var(--c-warn) 50%, var(--c-linea)); }
+/* l'ingombro: colore normale delle quote (ambra = solo attenzione), un filo più quieto; lo distingue ⤢ */
+.dim.ing, body.dark .dim.ing { color: var(--c-testo-2); border-color: var(--c-linea); }
 #interf-box .dim.interf { border-color: var(--c-err); color: var(--c-err-testo); }
 #mis-box .dim.mis { border-color: var(--c-sel); color: var(--c-testo); background: var(--c-sel-tenue); }
 .node-dot, body.dark .node-dot { border-color: var(--c-testo-2); background: var(--c-pannello); }

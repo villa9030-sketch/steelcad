@@ -194,7 +194,8 @@ scene.add(model, overlay, dimLines);
 const objs = new Map();
 const EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
 const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x3A4A5C });
-const ING_MAT = new THREE.LineDashedMaterial({ color: 0x8A6A1F, dashSize: 6, gapSize: 4 });
+// 04/11: l'ingombro col colore delle quote (l'ambra è solo «da guardare»); si riconosce dal tratteggio e da ⤢
+const ING_MAT = new THREE.LineDashedMaterial({ color: 0x3A4A5C, dashSize: 6, gapSize: 4 });
 const C_HOVER = new THREE.Color(0x6E9BFF), C_SEL = new THREE.Color(0xFFB21A);   // passaggio del mouse blu chiaro, selezione gialla (04/11)
 // 28/10: un pezzo giallo/arancio selezionato in ambra non si distingue: lì la selezione è blu, e i suoi spigoli si accendono
 const C_SEL_BLU = new THREE.Color(0x2F7DE1);
@@ -7894,8 +7895,8 @@ const SK_TRACK = new THREE.LineDashedMaterial({ color: 0x4CC3AE, dashSize: 3, ga
 const SK_PTS = new THREE.PointsMaterial({ color: 0x1C2228, size: 6, sizeAttenuation: false });
 // tema chiaro / scuro: i colori del disegno che devono staccare dallo sfondo
 const COLORI_TEMA = {
-  chiaro: [[SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
-  scuro: [[SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
+  chiaro: [[SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [ING_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
+  scuro: [[SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [ING_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
 };
 function applyTheme(scuro) {
   document.body.classList.toggle('dark', scuro);
