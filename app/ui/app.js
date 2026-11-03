@@ -2768,7 +2768,8 @@ function placeBarra() {
 // sopra la riga «prossimo passo» se c'è (assieme appena creato, tubi): prima ci finiva sopra
 function sopraRiga(r) {
   let y = r.bottom - 62;
-  for (const id of ['asm-passo', 'trav-hint']) {
+  // (occhio) anche Inquadra/Quote/Tema, che sale sopra la riga «prossimo passo» quando c'è
+  for (const id of ['asm-passo', 'trav-hint', 'link-hint', 'navbar']) {
     const e = document.getElementById(id);
     if (e && !e.hidden && e.offsetParent) y = Math.min(y, e.getBoundingClientRect().top - 10);
   }
@@ -7113,11 +7114,26 @@ new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal
   .observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
 
 // opz.stretta: una domanda breve (conferma, un nome, un campo solo) in una finestra stretta
+// 04/11 notte (occhio): «Spessore (mm)» con la casella sotto diventa «Spessore» e la casella con «mm» dentro, come in
+// tutte le altre finestre e nei pannelli (.campo-unita). Solo l'aspetto: la casella resta la stessa (id, eventi)
+function unitaDentro(box) {
+  for (const lab of box.querySelectorAll('label')) {
+    const t = [...lab.childNodes].find(n => n.nodeType === 3 && /\s\(mm\)\s*$/.test(n.textContent));
+    const inp = [...lab.children].find(c => c.matches('input.field'));
+    if (!t || !inp) continue;
+    t.textContent = t.textContent.replace(/\s\(mm\)\s*$/, '');
+    const cu = document.createElement('span');
+    cu.className = 'campo-unita';
+    inp.replaceWith(cu);
+    cu.append(inp, Object.assign(document.createElement('i'), { textContent: 'mm' }));
+  }
+}
 function modal(html, wire, opz = {}) {
   $('#modal-box').classList.remove('wide', 'nuovo', 'prepara', 'fatto', 'stretta');
   if (opz.stretta) $('#modal-box').classList.add('stretta');
   $('#modal').classList.remove('laterale');
   $('#modal-box').innerHTML = html;
+  unitaDentro($('#modal-box'));
   $('#modal').hidden = false;
   const close = () => { $('#modal').hidden = true; };
   wire(close);

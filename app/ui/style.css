@@ -2844,3 +2844,23 @@ body.dark :is(.btn.primary, .rb.primary, .cosa-b.primary, #b-prepara, .quota.blu
 .xyz label { gap: 4px; font-size: var(--fs-etichetta); color: var(--c-testo-2); }
 /* testi da leggere, non disattivi: grigio secondario */
 #doctab #docname .doc-stato, #storia-box > summary .storia-n { color: var(--c-testo-2); }
+/* le caselle con «mm» dentro (unitaDentro in app.js) prendono tutta la larghezza, come le caselle senza unità */
+#modal-box label > .campo-unita { display: flex; width: 100%; }
+/* un solo pulsante blu: con una finestra aperta che ha il suo pulsante principale (Fai il foro, Crea la lamiera…),
+   «Prepara» in alto e il pulsante blu della barra (Crea lamiera) tornano normali */
+body:has(#modal:not([hidden]) .btn.primary) #b-prepara {
+  background: var(--c-pannello); color: var(--c-testo); box-shadow: inset 0 0 0 1px var(--c-linea-forte); }
+body:has(#modal:not([hidden]) .btn.primary) #ribbon .rb.primary:not(:disabled) {
+  background: none; color: var(--c-testo); border-color: var(--c-linea-forte); }
+body:not(.dark):has(#modal:not([hidden]) .btn.primary) #ribbon .rb.primary:not(:disabled) :is(img, .ico) { filter: none; }
+/* le etichette delle finestre di lato (Foro, Piega i bordi, Angoli dello sviluppo…) come quelle dei pannelli e delle
+   altre finestre: 12,5 grigio secondario (prima 15 px: due grandezze diverse per la stessa cosa) */
+.ft-riga > span:first-child, .imp-riga > span:first-child { font-size: var(--fs-etichetta); color: var(--c-testo-2); }
+/* pagina iniziale a 768 px di altezza: le foto delle cinque partenze restano dentro la loro fascia (prima la regola
+   per gli schermi bassi perdeva contro quella generale e la foto copriva il titolo «Cono e tramoggia») */
+@media (max-height: 800px) { #home .home-nuovo .pic :is(img, .ico) { height: 64px; } }
+/* nel disegno «Adatta» in basso a destra è la stessa barretta di Inquadra / Quote / Tema (bianca, che galleggia) */
+#views { padding: 4px; border: 1px solid var(--c-linea); border-radius: var(--r-galleggia); background: var(--c-pannello); box-shadow: var(--ombra-galleggia); }
+#views button { height: 32px; min-height: 0; padding: 0 var(--s-3); border: 0; border-radius: var(--r-campo); background: none;
+  color: var(--c-testo-2); font: 500 var(--fs-etichetta)/1 var(--font); }
+#views button:hover { background: var(--c-sopra); color: var(--c-testo); }
