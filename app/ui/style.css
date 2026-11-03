@@ -2004,3 +2004,35 @@ body.una-scheda { --alt-rib: 100px; }
   -webkit-mask: url("icons/search.svg") no-repeat center / contain; mask: url("icons/search.svg") no-repeat center / contain; }
 /* con le schede (disegno: Disegno/Lamiera) il nome dei gruppi sotto la colonna da 4 non si taglia */
 body { --alt-rib: 132px; }
+
+/* =====================================================================================================================
+   ASSIEMI (notte 03→04/11): pannello del pezzo e dell'accoppiamento, pannelli dei comandi (Appoggia, Vite nei fori,
+   In fila, Interferenze, Esploso) a destra come il pannello, albero. Solo token e componenti delle FONDAMENTA.
+   ===================================================================================================================== */
+#right .panel:has(.asm-pan) > h2 { display: none; }
+.asm-pan { display: flex; flex-direction: column; }
+.asm-pan .fhead { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s-2); margin-bottom: var(--s-2); }
+.asm-pan .fhead h3 { margin-bottom: 2px; overflow-wrap: anywhere; }
+.asm-pan .fsub { color: var(--c-testo-2); font-size: var(--fs-etichetta); line-height: 1.35; }
+.asm-pan .sezione { padding: var(--s-3) 0; }
+.asm-pan .sezione > h4 { margin-bottom: 2px; }
+.asm-pan .sub { margin: var(--s-2) 0 var(--s-1); }
+.asm-pan .hint { margin-top: 2px; }
+.hint.stretto { margin-top: 2px; }
+.asm-azioni { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+.asm-azioni .btn { justify-content: flex-start; gap: var(--s-2); padding: 0 var(--s-2); min-width: 0; text-align: left; }
+.asm-azioni .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asm-azioni .btn img { flex: none; }
+.asm-mate { display: flex; align-items: center; gap: var(--s-2); width: 100%; min-height: var(--h-riga); padding: 4px var(--s-2); border: 0; border-radius: var(--r-campo);
+  background: none; color: var(--c-testo); font: inherit; font-size: var(--fs-fitto); text-align: left; cursor: pointer; line-height: 1.3; }
+.asm-mate:hover { background: var(--c-sopra); }
+.asm-mate img { width: 18px; height: 18px; flex: none; opacity: .8; }
+.asm-misura { display: grid; grid-template-columns: 1fr 104px; align-items: center; gap: var(--s-1) var(--s-2); padding: 0 var(--s-2) var(--s-2) 34px; }
+.asm-misura > span:first-child { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+.cursore { width: 100%; accent-color: var(--c-blu); margin: 0; }
+.asm-misura .cursore { grid-column: 1 / -1; }
+.asm-ruota { margin-top: 2px; }
+.asm-pan .interruttore { margin-top: var(--s-1); }
+.asm-fondo { position: sticky; bottom: calc(-1 * var(--s-3)); z-index: 1; margin: var(--s-2) calc(-1 * var(--s-3)) calc(-1 * var(--s-3)); padding: var(--s-3);
+  background: var(--c-pannello); border-top: 1px solid var(--c-linea); display: flex; gap: var(--s-2); }
+.asm-fondo .btn.primary { flex: 1; }

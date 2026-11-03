@@ -1897,7 +1897,7 @@ class AssemblyMixin:
             st = 'errore' if any(e['id'] == i['id'] for e in self.asm_errors) else ('fisso' if i.get('fixed') else None)
             figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': [], 'status': st})
         acc = [{'label': _frase_mate(m, nomi),
-                'kind': 'mate', 'ref': m['id'], 'children': [], 'status': None} for m in asm.mates]
+                'kind': 'mate', 'ref': m['id'], 'tipo': m['type'], 'children': [], 'status': None} for m in asm.mates]
         if acc:
             figli.append({'label': 'Accoppiamenti', 'kind': 'group', 'ref': None, 'children': acc, 'status': None})
         tree = {'label': asm.name, 'kind': 'assembly', 'ref': None, 'children': figli, 'status': None}

@@ -2529,6 +2529,8 @@ function placeBarra() {
       if (!l) { l = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); l.id = 'sc-linea'; document.body.appendChild(l); }
       const ax = destra ? x : x + w, ay = Math.max(y + 20, Math.min(q[1], y + 60));
       l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
+    } else if (q && m._evita && mettiAccanto(m, m._evita(), r)) {
+      // (assieme) sotto, sopra o di lato al pezzo: non sopra
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
       const x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
@@ -2554,6 +2556,26 @@ function placeBarra() {
     SCELTE.el.style.left = (b.left + b.width / 2) + 'px'; SCELTE.el.style.top = (b.bottom + 6) + 'px';
   }
 }
+// 04/11: la barretta accanto al riquadro del pezzo, mai sopra: sotto (col nome sopra di lei), se no sopra, se no a
+// destra o a sinistra. Se il pezzo riempie la vista: in basso nella vista, sopra la barrina Inquadra/Quote
+function mettiAccanto(m, p, r) {
+  if (!p) return false;
+  const w = m.offsetWidth, h = m.offsetHeight, nome = 30, g = 10;
+  const a = { left: Math.max(p.left, r.left), right: Math.min(p.right, r.right), top: Math.max(p.top, r.top), bottom: Math.min(p.bottom, r.bottom) };
+  const cx = Math.max(r.left + 8, Math.min((a.left + a.right) / 2 - w / 2, r.right - w - 8));
+  const cy = Math.max(r.top + nome + 8, Math.min((a.top + a.bottom) / 2 - h / 2, r.bottom - h - 8));
+  const prove = [
+    [cx, a.bottom + g + nome, () => a.bottom + g + nome + h <= r.bottom - 8],
+    [cx, a.top - g - h, () => a.top - g - h - nome >= r.top + 8],
+    [a.right + g, cy, () => a.right + g + w <= r.right - 8],
+    [a.left - g - w, cy, () => a.left - g - w >= r.left + 8],
+  ];
+  let [x, y] = [cx, r.bottom - h - 64];
+  const buona = prove.find(t => t[2]());
+  if (buona) [x, y] = buona;
+  m.style.left = x + 'px'; m.style.top = y + 'px';
+  return true;
+}
 // la barretta. voci: [icona, suggerimento, fai, classe, anteprima(on)]; '|' = separatore. opz.chi: chi è (stessa
 // cosa = niente animazione), opz.piu: cosa fa «⋯» (di solito il pannello completo), opz.piu === false: niente «⋯»
 function barretta(nome, voci, opz = {}) {
@@ -2569,6 +2591,7 @@ function barretta(nome, voci, opz = {}) {
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
     : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t)}</span>` : scritta(t)}</button>`).join('')
     + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
+  if (opz.evita) m._evita = opz.evita;
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
     const v = voci[+b.dataset.i];
@@ -2680,6 +2703,43 @@ function ancoraDi(s) {
   const o = objs.get(sel?.id);
   return o ? new THREE.Box3().setFromObject(o.mesh).getCenter(new THREE.Vector3()) : null;
 }
+// le azioni sul pezzo dell'assieme, le più usate prima: la barretta mostra le prime 5, il pannello tutte.
+// ic, t (il nome; tra parentesi il di più per il suggerimento), fai, cls ('mov' = la misura che lo tiene)
+function azioniPezzo(s) {
+  const id = s.id, faccia = sel?.id === id && sel?.face != null ? sel.face : null;
+  const piana = faccia != null && s.face?.kind === 'piana', foro = faccia != null && /cilindr/.test(s.face?.kind || '');
+  return [
+    // 03/11: il pezzo tenuto da una distanza o da un angolo (il cassetto): la misura sulla barretta, un clic e la
+    // scrivi o tiri il cursore nel pannello
+    ...(s.movimenti || []).slice(0, 2).map((mv, k) => ({ ic: 'dimension', cls: 'mov',
+      t: `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
+      fai: () => { tutteLeOpzioni(); setTimeout(() => { const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 60); } })),
+    { ic: 'open', t: 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
+    { ic: 'joint', t: piana ? 'Appoggia (da questa faccia)' : 'Appoggia', fai: () => appoggiaDa(id, piana ? faccia : null) },
+    ...(foro ? [{ ic: 'fastener', t: 'Viti nei fori', fai: () => runCmd('asm_viteria') }] : []),
+    { ic: 'move', t: 'Sposta', fai: () => spostaDa() },
+    ...(piana ? [{ ic: 'sketch', t: 'Pezzo nuovo qui (su questa faccia)', fai: () => nuovoPezzoDialog(s) }] : []),
+    ...(s.scassi ? [{ ic: 'cut', t: `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, fai: () => tutteLeOpzioni() }] : []),
+    { ic: 'pattern_rect', t: 'In fila', fai: () => ripetiApri(id) },
+    ...(foro ? [] : [{ ic: 'fastener', t: 'Viteria', fai: () => runCmd('asm_viteria') }]),
+    { ic: 'eye', t: 'Nascondi', fai: () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); } },
+    { ic: 'select', t: 'Solo questo', fai: () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); } },
+  ];
+}
+// dove sta il pezzo sullo schermo (il riquadro dei suoi 8 spigoli), per non metterci sopra la barretta
+function rettangoloPezzo(id) {
+  const o = objs.get(id);
+  if (!o) return null;
+  const b = new THREE.Box3().setFromObject(o.mesh);
+  if (b.isEmpty()) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
+    const q = aSchermo(new THREE.Vector3(x, y, z));
+    if (!q) return null;
+    x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]);
+  }
+  return { left: x0, top: y0, right: x1, bottom: y1 };
+}
 function miniBarra(s) {
   if (SK || DRESS || MIS) { if (!(sel?.soloMini)) nascondiMini(); return; }
   const d = MINI.dove;
@@ -2694,21 +2754,10 @@ function miniBarra(s) {
   togliQuote();
   sel.soloMini = !sel.pannello; aggiornaLayout();      // il pannello a destra solo se l'hai chiesto con «⋯»
   if (assieme) {
+    // 04/11 (regola 3): al massimo 5 azioni col nome, le altre in «Altro» (il pannello a destra le ha tutte, con il
+    // nome). La barretta si mette sotto il pezzo (o sopra, o di lato): prima copriva proprio il pezzo appena cliccato
     const id = sel?.id;
-    const faccia = sel?.face != null ? sel.face : null, piana = faccia != null && s.face?.kind === 'piana';
-    barretta(s.title, [['open', 'Apri il pezzo', () => apriPezzoAssieme(id)],
-      ['joint', piana ? 'Appoggia (da questa faccia)' : 'Appoggia', () => appoggiaDa(id, piana ? faccia : null)],
-      ['move', 'Sposta', () => spostaDa()],
-      ['pattern_rect', 'In fila', () => ripetiApri(id)],
-      // 03/11: il pezzo tenuto da una distanza o da un angolo (il cassetto): la misura sulla barretta, un clic e la
-      // scrivi o tiri il cursore. Prima stava solo nel pannello, che col clic sul pezzo non si apre più
-      ...(s.movimenti || []).map((mv, k) => ['dimension', `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
-        () => { tutteLeOpzioni(); const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 'mov']),
-      ...(piana ? [['sketch', 'Pezzo nuovo qui (su questa faccia)', () => nuovoPezzoDialog(s)]] : []),
-      ['fastener', faccia != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
-      ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
-      ['select', 'Solo questo', () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); }],
-      ...(s.scassi ? [['cut', `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, () => tutteLeOpzioni()]] : [])], { chi: 'i:' + id, nomi: true });
+    barretta(s.title, azioniPezzo(s).slice(0, 5).map(a => [a.ic, a.t, a.fai, a.cls]), { chi: 'i:' + id, nomi: true, evita: () => rettangoloPezzo(id) });
     return;
   }
   if (s.foro) { miniForo(s); return; }
@@ -4603,48 +4652,74 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); appoggiaFatto(); }
 }, true);
 window.__appoggia = { apri: appoggiaApri, stato: () => APP };      // per le prove automatiche
+// 04/11 (regola 2): il pannello del pezzo sempre nello stesso ordine: chi è → cosa puoi fare (tutte le azioni, col
+// nome) → chi lo tiene (gli accoppiamenti, con la misura e il cursore) → dove sta, sposta, ruota → il pezzo (nome,
+// fermo, finitura, da acquistare) → «Dettagli» chiuso (file, peso, ingombro) → in fondo, fermo, «Apri il pezzo» in blu
+function frasiMate() {                              // M1 → «Staffa su Piastra» (le stesse parole dell'albero)
+  const g = (S?.tree?.children || []).find(c => c.kind === 'group' && c.label === 'Accoppiamenti');
+  return Object.fromEntries((g?.children || []).map(c => [c.ref, c]));
+}
+// nella riga «Lo tengono» il nome del pezzo stesso non serve: «Staffa su Base» → «su Base»
+const senzaNome = (frase, nome) => frase.startsWith(nome + ' ') ? frase.slice(nome.length + 1) : frase;
+function cosEPezzo(s) {
+  const n = (s.mates || []).length;
+  if (s.fixed) return 'Pezzo dell’assieme, fermo: gli altri si appoggiano a lui';
+  if (s.acquisto) return 'Da acquistare: va in distinta, niente DXF';
+  return n ? `Pezzo dell’assieme, tenuto da ${n === 1 ? 'un accoppiamento' : n + ' accoppiamenti'}` : 'Pezzo dell’assieme, libero: si sposta come vuoi';
+}
+// l'icona di ogni tipo di accoppiamento (righe «Lo tengono» e albero)
+const ICONA_MATE = { faccia: 'project', asse: 'hole', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
+  perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'cut' };
 function instancePanel(s) {
   const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
-  const faccia = s.face ? `<p class="hint">Faccia: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
+  const faccia = s.face ? `<p class="hint">Faccia cliccata: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
   const incastri = s.tabs_with ? `<details class="fsec" open><summary>Incastri con ${esc(s.tabs_with)}</summary>
     <p class="hint">Questa punta appoggia su ${esc(s.tabs_with)}: linguette qui e asole nell’altro pezzo (si salvano i due file).</p>
     <div class="ff"><label>Quante<span class="inp"><input class="field" id="t-n" value="3"></span></label>
       <label>Larghezza<span class="inp"><input class="field" id="t-w" value="15"><i>mm</i></span></label>
       <label>Gioco<span class="inp"><input class="field" id="t-c" value="0,2"><i>mm</i></span></label>
       <label>Sporgenza<span class="inp"><input class="field" id="t-s" value="0"><i>mm</i></span></label></div>
-    <div class="row-btns"><button class="btn primary" id="t-go">Crea gli incastri</button></div></details>` : '';
+    <div class="row-btns"><button class="btn" id="t-go">Crea gli incastri</button></div></details>` : '';
   const scassi = s.scassi ? `<details class="fsec" open><summary>Scassi per i pezzi che entrano</summary>
     <p class="hint" id="sc-frase">${esc(s.scassi.frase)} In rosso dove taglia.</p>
     <div class="ff"><label>Gioco per lato<span class="inp"><input class="field" id="sc-c" value="0,5"><i>mm</i></span></label><span></span></div>
-    <div class="row-btns"><button class="btn primary" id="sc-go">Fai gli scassi</button></div></details>` : '';
-  return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
-      <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
-    <div class="ff" style="margin-bottom:6px"><label class="tutta-riga">Nome del pezzo<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
-    ${tab}${faccia}${incastri}${scassi}
-    ${(s.movimenti || []).map((m, k) => {
-      const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
-      return `<div class="sub">${esc(m.nome)}</div>
-        <div class="ff"><label>${m.campo === 'angle' ? 'Angolo' : 'Quanto'}<span class="inp"><input class="field" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span></label><span></span></div>
-        <input type="range" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" style="width:100%" title="Trascina: il pezzo si muove">`;
-    }).join('')}
-    ${dovePanel(s)}
-    <div${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
-    <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
-    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div></div>
-    <div class="sub">Ruota di 90°</div>
-    <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
-    <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
-    ${s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    <div class="row-btns"><button class="btn" id="sc-go">Fai gli scassi</button></div></details>` : '';
+  // cosa puoi fare: tutte le azioni della barretta (anche quelle che lì stanno in «Altro»), meno «Apri», che è in fondo
+  const azioni = azioniPezzo(s).filter(x => x.id !== 'open' && x.cls !== 'mov');
+  const cosa = `<section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">${azioni.map((x, i) =>
+    `<button class="btn" data-azione-pezzo="${i}" title="${esc(x.t)}"><img src="icons/${x.ic}.svg" alt=""><span>${esc(x.t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span></button>`).join('')}</div></section>`;
+  // chi lo tiene: ogni accoppiamento in parole (clic = lo apri); quelli con una misura hanno il campo e il cursore
+  const frasi = frasiMate(), mov = Object.fromEntries((s.movimenti || []).map((m, k) => [m.id, [m, k]]));
+  const tiene = `<section class="sezione"><h4>Lo tengono</h4>${(s.mates || []).length ? s.mates.map(mid => {
+    const [m, k] = mov[mid] || [], f = frasi[mid];
+    const riga = `<button class="asm-mate" data-vai-mate="${esc(mid)}" title="Apri l’accoppiamento"><img src="icons/${ICONA_MATE[f?.tipo] || 'joint'}.svg" alt=""><span>${esc(senzaNome(f?.label || mid, s.title))}</span></button>`;
+    if (!m) return riga;
+    const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
+    return riga + `<div class="asm-misura"><span>${esc(m.nome)}</span><span class="campo-unita"><input class="field num" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}" aria-label="${esc(m.nome)}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span>
+      <input type="range" class="cursore" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" title="Trascina: il pezzo si muove"></div>`;
+  }).join('') : '<p class="hint">Nessun accoppiamento: si sposta liberamente. Per metterlo su un altro pezzo: «Appoggia».</p>'}</section>`;
+  const fin = s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
-      <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`}
-    <label class="check"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}> Da acquistare (guide, viti, utensili…): in distinta, niente DXF</label>
-    ${s.acquisto ? `<div class="ff"><label class="tutta-riga">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
-      <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
-      <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}
-    <div class="row-btns"><button class="btn primary" id="a-open">Apri il pezzo</button></div>
-    ${s.face && s.face.kind === 'piana' ? `<div class="row-btns"><button class="btn primary" id="a-nuovo">Nuovo pezzo su questa faccia</button></div>
-      <p class="hint">Disegni sul piano di questa faccia, con i bordi dei pezzi che ci stanno: per una lamiera che li collega.</p>` : ''}
-    ${s.mates.length ? `<p class="hint">Accoppiamenti: ${esc(s.mates.join(', '))}</p>` : '<p class="hint">Nessun accoppiamento: si sposta liberamente.</p>'}`;
+      <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`;
+  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div>
+      <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
+    ${cosa}${incastri}${scassi}${tiene}
+    <section class="sezione"><h4>Dove sta</h4>${dovePanel(s)}
+      <div class="asm-sposta"${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
+      <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
+      <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div></div>
+      <div class="sub">Ruota di 90°</div>
+      <div class="seg asm-ruota"><button data-rot="x">attorno a X</button><button data-rot="y">attorno a Y</button><button data-rot="z">attorno a Z</button></div></section>
+    <section class="sezione"><h4>Il pezzo</h4>
+      <div class="ff"><label class="tutta-riga">Nome<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
+      <label class="interruttore"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}><i></i>Fermo: gli altri pezzi si appoggiano a lui</label>
+      ${fin}
+      <label class="interruttore"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}><i></i>Da acquistare (guide, viti…): in distinta, niente DXF</label>
+      ${s.acquisto ? `<div class="ff"><label class="tutta-riga">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
+        <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
+        <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}</section>
+    <details class="fsec"><summary>Dettagli</summary>${tab}${faccia}</details>
+    <div class="asm-fondo"><button class="btn primary big" id="a-open">Apri il pezzo</button></div></div>`;
 }
 // 03/11: «Sposta» diceva solo «di quanto», non dove sta il pezzo. Qui dove sta (l'angolo in basso a sinistra davanti) e,
 // se appoggia su un altro pezzo, quanto manca ai suoi bordi: si scrive dove lo vuoi e Invio, il conto lo fa Radius
@@ -4653,12 +4728,12 @@ function dovePanel(s) {
   if (!d) return '';
   const fermo = !!s.tenuto, v = x => mmTesto(x);
   const campo = (id, t, x) => `<label>${t}<input class="field" id="${id}" value="${v(x)}"${fermo ? ' readonly' : ''}></label>`;
-  return `<div class="sub">Dove sta (mm)</div>
+  return `
     <div class="xyz">${campo('a-px', 'X', d.min[0])}${campo('a-py', 'Y', d.min[1])}${campo('a-pz', 'Z', d.min[2])}</div>
-    <p class="hint" style="margin-top:2px">L’angolo in basso a sinistra, davanti${fermo ? '' : ': scrivi dove lo vuoi e Invio'}.</p>
+    <p class="hint stretto">L’angolo in basso a sinistra, davanti, in mm${fermo ? '' : ': scrivi dove lo vuoi e Invio'}.</p>
     ${d.sotto ? `<div class="sub">Dai bordi di «${esc(d.sotto.name)}» (mm)</div>
       <div class="xyz xyz4">${campo('a-bs', 'sinistra', d.sotto.sinistra)}${campo('a-bd', 'destra', d.sotto.destra)}${campo('a-bv', 'davanti', d.sotto.davanti)}${campo('a-bt', 'dietro', d.sotto.dietro)}</div>` : ''}
-    ${fermo ? `<p class="hint" style="margin-top:2px">Lo tengono gli accoppiamenti: per spostarlo ${(s.movimenti || []).length ? 'cambia le misure qui sopra o ' : ''}rifai «Appoggia».</p>` : ''}`;
+    ${fermo ? `<p class="hint stretto">Lo tengono gli accoppiamenti: per spostarlo ${(s.movimenti || []).length ? 'cambia le misure qui sopra o ' : ''}rifai «Appoggia».</p>` : ''}`;
 }
 function wireDove(s, fai) {
   const d = s.dove;
@@ -4701,7 +4776,9 @@ function wireInstance(s) {
   ['#a-acq-d', '#a-acq-c', '#a-acq-f'].forEach(id => { if ($(id)) $(id).onchange = () => fai('asm_set_acquisto', s.id, acq()); });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
   $('#a-open').onclick = () => apriPezzoAssieme(s.id);
-  if ($('#a-nuovo')) $('#a-nuovo').onclick = () => nuovoPezzoDialog(s);
+  const azioni = azioniPezzo(s).filter(x => x.id !== 'open' && x.cls !== 'mov');
+  document.querySelectorAll('[data-azione-pezzo]').forEach(b => { b.onclick = () => azioni[+b.dataset.azionePezzo]?.fai(); });
+  document.querySelectorAll('[data-vai-mate]').forEach(b => { b.onclick = () => inCoda(() => select('mate=' + b.dataset.vaiMate)); });
   if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
     $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
   wireScassi(s);
