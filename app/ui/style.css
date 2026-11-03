@@ -1397,3 +1397,18 @@ body.in-prova #sk-foot { display: none !important; }
 #sk-cmd-extra button.on { background: var(--action); border-color: var(--action); color: #fff; }
 #sk-cmd-extra input { width: 44px; padding: 2px 4px; font-size: 12px; text-align: right; }
 #sk-cmd-extra i { font-style: normal; }
+
+/* «due contorni si sovrappongono»: dove e come uscirne, in alto per non coprire la barra della prova (03/11) */
+#sovr-card { position: fixed; z-index: 85; left: 50%; bottom: 70px; transform: translateX(-50%); width: min(460px, 92vw); padding: 14px 16px 14px 18px;
+  border-radius: 10px; border: 1px solid #6B2D31; border-left: 4px solid #E5484D; background: #2A1E21; color: #F3DADB;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5); animation: miniSu .15s ease-out; }
+body:not(.dark) #sovr-card { background: #FFF3F3; color: #4A1A1D; border-color: #F0B8BA; border-left-color: #E5484D; }
+#sovr-card h5 { margin: 0 24px 4px 0; font-size: 14.5px; }
+#sovr-card p { margin: 0 0 10px; font-size: 13px; opacity: .85; }
+#sovr-card .ec-sol { display: flex; flex-direction: column; gap: 6px; }
+#sovr-card .ec-sol:empty { display: none; }
+#sovr-card .ec-sol .btn { text-align: left; }
+#sovr-card .ec-sol small { display: block; font-size: 11.5px; opacity: .75; font-weight: 400; }
+#sovr-card .ec-x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: inherit; font-size: 18px; opacity: .6; }
+#sovr-card .ec-x:hover { opacity: 1; }
+#sovr-card { bottom: auto; top: 160px; }

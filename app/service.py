@@ -928,6 +928,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     cambia = True
         return [Document._fid(f) for f in self.doc.features if Document._fid(f) in via and Document._fid(f) != fid]
 
+    def _nome_storia(self, fid: str) -> str:
+        """Il nome per la Storia: «Fori 4 × Ø10,5», non «TG3»."""
+        try:
+            nome = self._etichetta(fid)
+        except Exception:  # noqa: BLE001
+            return fid
+        return nome[0].lower() + nome[1:] if nome[:1].isupper() and not nome[1:2].isupper() else nome
+
     def _etichetta(self, fid: str) -> str:
         f = self.doc.feature(fid)
         if isinstance(f, Sketch):
@@ -1016,14 +1024,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     f['disattiva'] = True
                 else:
                     f.pop('disattiva', None)
-            return self._change(f'{"Disattiva" if azione == "disattiva" else "Attiva"} {ref}', fn, keep_broken=True)
+            return self._change(f'{"Disattiva" if azione == "disattiva" else "Attiva"} {self._nome_storia(ref)}', fn, keep_broken=True)
         if azione == 'elimina':
             via = self._dipendenti(ref) + [ref]
 
             def fn():
                 for x in reversed(via):                     # prima chi dipende, poi lei
                     self.doc.features = [g for g in self.doc.features if Document._fid(g) != x]
-            r = self._change(f'Elimina {ref}', fn)
+            r = self._change(f'Togli {self._nome_storia(ref)}', fn)
             if r.get('ok') and len(via) > 1:
                 r['message'] = f'Eliminate {len(via)} voci (con quelle che dipendevano da questa).'
             return r
@@ -1613,6 +1621,38 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return self._sketch_change(f'Testo «{str(testo)[:20]}»',
                                    lambda: sketch_ops.add_text(self.doc, sid, pos, testo, h, angolo, stencil or None,
                                                                bool(centrato)))
+
+    def sketch_scritte_sotto(self, sid: str, cerchi: list, testi: list, h, stencil=None, gioco=2) -> dict:
+        """Una scritta sotto ogni foro scelto, in una volta (03/11, porta ugelli: 6 numeri tagliati sotto 6 fori):
+        centrata sotto il foro, a «gioco» mm dal bordo del foro. I fori si contano da sinistra a destra (poi dal basso).
+        Le scritte vuote si saltano. Un Annulla le toglie tutte."""
+        try:
+            h, gioco = _numero(h, 'l’altezza'), _numero(gioco or 0, 'lo spazio sotto il foro')
+            if stencil and stencil not in ('saira', 'allerta'):
+                raise SteelCADError(f'Carattere «{stencil}» sconosciuto.', code='testo')
+            sk = self.doc.sketch(sid)
+            pts = self.doc.solved_sketch(sid).points
+            fori = []
+            for c in cerchi:
+                e = sk.entities.get(c)
+                if not e or e['kind'] != 'circle':
+                    raise SteelCADError('Scegli i fori (cerchi) sotto cui scrivere.', code='testo')
+                fori.append((pts.get(e['center']) or (sk.entities[e['center']]['x'], sk.entities[e['center']]['y']), float(e['r'])))
+            fori.sort(key=lambda f: (round(f[0][0], 3), round(f[0][1], 3)))
+            coppie = [(f, str(t).strip()) for f, t in zip(fori, testi or []) if str(t or '').strip()]
+            if not coppie:
+                raise SteelCADError('Scrivi almeno una scritta.', code='testo')
+        except SteelCADError as ex:
+            return _err(ex)
+
+        def fn():
+            for ((cx, cy), r), t in coppie:
+                sketch_ops.add_text(self.doc, sid, [cx, cy - r - gioco - h / 2], t, h, 0, stencil or None, True)
+        n = len(coppie)
+        res = self._sketch_change(f'Scritte sotto {n} fori' if n > 1 else f'Testo «{coppie[0][1][:20]}»', fn)
+        if res.get('ok'):
+            res['message'] = f'{n} scritte messe sotto i fori.' if n > 1 else 'Scritta messa sotto il foro.'
+        return res
 
     def _dati_testo(self, h, angolo, stencil):
         h, angolo = _numero(h, 'l’altezza'), _numero(angolo or 0, 'l’angolo')
@@ -2683,13 +2723,103 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if contorni <= 1:
             return {'ok': False, 'code': 'ultimo', 'feature': taglio['id'], 'nome': nome,
                     'message': f'È l’unico contorno di {nome}: si toglie il taglio intero.'}
-        r = self._change(f'Togli un contorno da {taglio["id"]}', lambda: sketch_ops.delete(self.doc, sid, eids))
+        r = self._change(f'Togli un contorno da {nome}', lambda: sketch_ops.delete(self.doc, sid, eids))
         if r.get('ok'):
             r['message'] = f'Tolto da {nome}. Annulla (Ctrl+Z) lo rimette.'
         return r
 
+    def _doppioni(self, sid: str) -> list:
+        """Le cose disegnate due volte una sopra l'altra (stessa scritta nello stesso punto, stesso cerchio, stessa
+        linea): per ognuna, l'id di quella che resta e delle copie in più."""
+        sk = self.doc.sketch(sid)
+        try:
+            pts = self.doc.solved_sketch(sid).points
+        except Exception:  # noqa: BLE001
+            pts = {}
+
+        def xy(k):
+            return tuple(round(v, 3) for v in (pts.get(k) or (sk.entities[k]['x'], sk.entities[k]['y'])))
+        visti, gruppi = {}, {}
+        for k, e in sk.entities.items():
+            if e.get('ref') or e['kind'] == 'point':
+                continue
+            try:
+                if e['kind'] == 'text':
+                    chiave = ('text', e['text'], xy(e['center']), round(float(e['h']), 3),
+                              round(float(e.get('angle', 0) or 0), 3), e.get('stencil'))
+                elif e['kind'] == 'circle':
+                    chiave = ('circle', xy(e['center']), round(float(e['r']), 3))
+                elif e['kind'] == 'line':
+                    chiave = ('line', tuple(sorted((xy(e['a']), xy(e['b'])))))
+                elif e['kind'] == 'arc':
+                    chiave = ('arc', xy(e['center']), xy(e['start']), xy(e['end']))
+                else:
+                    continue
+            except (KeyError, TypeError, ValueError):
+                continue
+            if chiave in visti:
+                gruppi.setdefault(visti[chiave], []).append(k)
+            else:
+                visti[chiave] = k
+        return [[primo] + altri for primo, altri in gruppi.items()]
+
+    def sketch_sovrapposti(self, sid: str) -> dict:
+        """«Due contorni si sovrappongono»: quali (le linee, nelle coordinate dello sketch, da mostrare in rosso) e se
+        sono cose disegnate due volte, che si sistemano con «Tienine una» (03/11)."""
+        try:
+            sk = self.doc.sketch(sid)
+            doppi = self._doppioni(sid)
+            contorni = []
+            pl = self.doc._plane(sk, self.result.body)
+            try:
+                from cad_engine.sketch.profile import build
+                build(self.doc.solved_sketch(sid), pl)
+            except SteelCADError as ex:
+                for w in getattr(ex, 'contorni', None) or []:
+                    linea = []
+                    for ed in w.edges():
+                        n = 2 if ed.geom_type.name == 'LINE' else 24
+                        for i in range(n + 1):
+                            q = pl.to_local_coords(ed.position_at(i / n))
+                            linea.append([round(q.X, 4), round(q.Y, 4)])
+                    contorni.append(linea)
+            if doppi:
+                cosa = []
+                for g in doppi:
+                    e = sk.entities[g[0]]
+                    cosa.append(f'la scritta «{e["text"]}»' if e['kind'] == 'text' else
+                                f'un cerchio Ø{fmt_mm(round(2 * e["r"], 2))}' if e['kind'] == 'circle' else
+                                'una linea' if e['kind'] == 'line' else 'un arco')
+                elenco = ', '.join(cosa[:4]) + (' …' if len(cosa) > 4 else '')
+                quante = 'C’è una cosa disegnata' if len(doppi) == 1 else f'Ci sono {len(doppi)} cose disegnate'
+                frase = f'{quante} due volte, una sopra l’altra: {elenco}. «Tienine una» toglie le copie in più.'
+            elif contorni:
+                frase = 'In rosso i due contorni che si sovrappongono: spostane uno, oppure uniscili in un contorno solo.'
+            else:
+                frase = ''
+            return _ok(contorni=contorni, doppioni=sum(len(g) - 1 for g in doppi), frase=frase)
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def sketch_togli_doppioni(self, sid: str) -> dict:
+        """«Tienine una»: delle cose disegnate due volte resta la prima, le copie in più si tolgono. Annulla le rimette."""
+        via = [k for g in self._doppioni(sid) for k in g[1:]]
+        if not via:
+            return {'ok': False, 'message': 'Non ci sono cose disegnate due volte.'}
+        r = self._sketch_change('Tolte le copie doppie', lambda: sketch_ops.delete(self.doc, sid, via))
+        if r.get('ok'):
+            r['message'] = (f'Tolta 1 copia doppia' if len(via) == 1 else f'Tolte {len(via)} copie doppie') + ': ora si può tagliare.'
+        return r
+
     def sketch_delete(self, sid: str, eids: list) -> dict:
-        return self._sketch_change(f'Elimina {", ".join(eids)}', lambda: sketch_ops.delete(self.doc, sid, eids))
+        # 03/11: nella Storia «Togli il testo «1.2»», non «Elimina T2»
+        try:
+            sk = self.doc.sketch(sid)
+            nomi = [_nome_elemento(sk, e) for e in eids if e in sk.entities]
+        except SteelCADError:
+            nomi = []
+        cosa = nomi[0] if len(nomi) == 1 else f'{len(eids)} elementi' if eids else 'niente'
+        return self._sketch_change(f'Togli {cosa}', lambda: sketch_ops.delete(self.doc, sid, eids))
 
     def sketch_on_face(self, face_name: str) -> dict:
         """La faccia cliccata diventa il piano di lavoro: uno sketch nuovo su di lei."""
@@ -2939,7 +3069,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             for k, (px, py) in enumerate(prove):
                 if not faccia.is_inside(piano.from_local_coords((px, py)), 1e-3):
                     dove = 'cade fuori dalla faccia' if k == 0 else 'esce dalla faccia'
-                    raise SteelCADError(f'{cosa}{quale} {dove}: finisce sulla piega o fuori dal pezzo. '
+                    raise SteelCADError(f'{cosa}{quale} {dove}: finisce sulla piega, fuori dal pezzo o su un foro che c’è già. '
                                         'Avvicinalo al centro o scegli un’altra faccia.', code='fori')
 
     def sketch_close(self, sid: str) -> dict:
@@ -3000,7 +3130,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
 
         def fn():
             tolti.extend(sketch_ops._prune(self.doc, sid, set()))
-        r = self._change('Tolti vincoli doppi', fn, keep_broken=True)
+        r = self._change('Tolte le misure doppie', fn, keep_broken=True)
         if not r.get('ok') or not tolti:
             return ''
         return ' e '.join(nomi.get(c, c) for c in tolti)
@@ -4871,6 +5001,26 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                'Controlli superati.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+
+def _nome_elemento(sk, eid: str) -> str:
+    """Un elemento dello sketch in parole: «il testo «1.2»», «il cerchio Ø10», «la linea 28», «l’arco R55»."""
+    e = sk.entities.get(eid, {})
+    k = e.get('kind')
+    try:
+        if k == 'text':
+            return f'il testo «{e["text"]}»'
+        if k == 'circle':
+            return f'il cerchio Ø{fmt_mm(round(2 * float(e["r"]), 2))}'
+        if k == 'line':
+            a, b = sk.entities[e['a']], sk.entities[e['b']]
+            return f'la linea {fmt_mm(round(math.hypot(b["x"] - a["x"], b["y"] - a["y"]), 1))}'
+        if k == 'arc':
+            c, a = sk.entities[e['center']], sk.entities[e['start']]
+            return f'l’arco R{fmt_mm(round(math.hypot(a["x"] - c["x"], a["y"] - c["y"]), 1))}'
+    except (KeyError, TypeError, ValueError):
+        pass
+    return {'point': 'il punto', 'line': 'la linea', 'circle': 'il cerchio', 'arc': 'l’arco', 'text': 'il testo'}.get(k, 'l’elemento')
 
 
 def _linee_per_punto(sk) -> dict:

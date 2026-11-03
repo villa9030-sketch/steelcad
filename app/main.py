@@ -432,6 +432,15 @@ class Api:
     def fori_dove(self, face_name, punto):
         return self._call(self._svc.fori_dove, face_name, punto)
 
+    def sketch_scritte_sotto(self, sid, cerchi, testi, h, stencil=None, gioco=2):
+        return self._call(self._svc.sketch_scritte_sotto, sid, cerchi, testi, h, stencil, gioco)
+
+    def sketch_sovrapposti(self, sid):
+        return self._call(self._svc.sketch_sovrapposti, sid)
+
+    def sketch_togli_doppioni(self, sid):
+        return self._call(self._svc.sketch_togli_doppioni, sid)
+
     def new_project_preview(self, kind, values=None):
         return self._call(self._svc.new_project_preview, kind, values)
 

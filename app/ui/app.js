@@ -1848,7 +1848,18 @@ function renderParams() {
     return `<tr><td title="${esc(p.label || p.name)}"><b>${esc(p.name)}</b>${nome}</td><td><input class="field" data-p="${esc(p.name)}" value="${esc(espr ? p.value : String(p.value).replace('.', ','))}"></td>` +
       `<td class="res">${espr && p.resolved != null ? '= ' + num(p.resolved, 2) : ''}</td></tr>`;
   }).join('');
-  $('#params').innerHTML = righe || '<tr><td class="hint">Nessuna misura con nome.</td></tr>';
+  // 03/11: raggio e K della piegatrice accanto alle misure della lamiera (prima solo nella scheda in basso, da trovare)
+  const sh = S.sheet, d = sh?.def || {}, manca = new Set(sh?.missing || []);
+  const riga = (k, sig, nome, miss) => `<tr><td title="${esc(nome)} (dato della piegatrice; vale per tutte le pieghe)"><b>${sig}</b><small>${esc(nome)}</small></td>
+    <td><input class="field${miss ? ' missing' : ''}" data-tech-sx="${k}" value="${esc(d[k] == null ? '' : String(d[k]).replace('.', ','))}" placeholder="${miss ? 'manca' : ''}"></td><td class="res"></td></tr>`;
+  const piega = sh ? riga('radius', 'R', 'Raggio interno di piega', manca.has('raggio interno'))
+    + (d.method === 'bd90' ? riga('bd90', 'BD', 'Deduzione a 90°', manca.has('deduzione a 90°')) : d.method === 'din6935' ? '' : riga('k', 'K', 'K-factor', manca.has('K-factor'))) : '';
+  $('#params').innerHTML = (righe + piega) || '<tr><td class="hint">Nessuna misura con nome.</td></tr>';
+  document.querySelectorAll('[data-tech-sx]').forEach(i => {
+    const ora = i.value, salva = () => inCoda(async () => apply(await call('set_sheet_tech', sh.feature, { [i.dataset.techSx]: i.value })));
+    i.onkeydown = ev => { if (ev.key === 'Enter') { ev.stopPropagation(); salva(); } };
+    i.onblur = () => { if (i.value.trim() !== ora) salva(); };
+  });
   const modello = !!S.from_template;
   $('#params-panel').classList.toggle('tpl', modello);
   $('#params-tpl').hidden = !modello;
@@ -2963,6 +2974,7 @@ function facciaPerForo() {
   return scelta?.name || null;
 }
 async function foroDialog(tipo = 'tondo', face = null) {
+  if (SK) { toast('Stai disegnando: nel disegno il foro è il Cerchio. Per il comando Foro sul pezzo, prima «Esci».', 'err'); return; }
   if (!objs.get('body')) { toast('I fori si fanno su una lamiera o su una piastra: prima crea il pezzo.', 'err'); return; }
   const info = await call('fori_info', face || facciaPerForo());
   if (!info.ok) { toast(info.message || 'Qui non si possono fare fori: clicca una faccia piana del pezzo.', 'err'); return; }
@@ -6132,6 +6144,7 @@ async function enterSketch(sid) {
 function exitSketch() {
   if (!SK) return;
   provaVia();
+  togliRossi();
   const era = SK;
   SK = null;
   aggiornaLayout();
@@ -6655,6 +6668,10 @@ function drawRubber() {
     for (const tr of pt.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + o[0], q[1] + o[1]]))), SK_TESTO));
   }
   const tip = $('#sk-tip');
+  if (SK?.scritteProva) {                           // le scritte sotto i fori, in prova al loro posto
+    for (const sp of SK.scritteProva) for (const tr of sp.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + sp.at[0], q[1] + sp.at[1]]))), SK_TESTO));
+    tip.style.display = 'none'; ridisegna(); return;
+  }
   if (SK?.serieProva) {                             // la serie in prova: le copie (non l'originale) in azzurro
     const P = SK.serieProva;
     const metti = (pts, mat) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), mat); l.computeLineDistances(); skRubber.add(l); };
@@ -7113,6 +7130,59 @@ function skPlace(c) {
 // la finestra del testo (30/10): nuova, al punto cliccato, o per cambiare una scritta già messa (doppio clic). Mentre
 // scrivi, la scritta si vede al suo posto; «al centro» = il punto cliccato è il centro della scritta (sul centro del foro)
 const TESTO_BASE = { text: '', h: 5, angle: 0, come: '', centro: true };
+// una scritta sotto ogni foro scelto, in una volta (03/11, porta ugelli: 6 numeri sotto 6 fori). I fori da sinistra
+// a destra; ogni scritta si vede al suo posto mentre scrivi. La finestra sta di lato e non copre i fori
+function scritteSottoFori(sid, cerchi) {
+  const fori = cerchi.map(id => SK.v.circles.find(c => c.id === id)).filter(Boolean)
+    .sort((a, b) => (Math.round(a.xc[0] * 1000) - Math.round(b.xc[0] * 1000)) || (a.xc[1] - b.xc[1]));
+  const u = { ...TESTO_BASE, come: 'saira', ...(SK.lastText || {}) };
+  const virg = x => esc(String(x).replace('.', ','));
+  modal(`<h3>Scritte sotto ${fori.length} fori</h3>
+    <p class="hint">Da sinistra a destra. Ogni scritta va centrata sotto il suo foro; vuota = niente.</p>
+    <div class="form" id="ss-form">${fori.map((f, i) => `<label>Foro ${i + 1} (Ø${virg(Math.round(f.r * 200) / 100)})<input class="field" data-ss="${i}" value=""></label>`).join('')}
+      <label style="grid-column:1/-1">Come<select class="field" id="ss-c">
+        <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
+        <option value="allerta"${u.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option>
+        <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option></select></label>
+      <label>Altezza delle lettere<span class="inp"><input class="field" id="ss-h" value="${virg(u.h)}"><i>mm</i></span></label>
+      <label>Spazio sotto il foro<span class="inp"><input class="field" id="ss-g" value="2"><i>mm</i></span></label></div>
+    <p class="fo-frase" id="ss-frase"></p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti le scritte</button></div>`, close => {
+    $('#modal').classList.add('laterale');
+    const leggi = () => ({ testi: fori.map((_, i) => $(`[data-ss="${i}"]`).value), h: $('#ss-h').value.trim().replace(',', '.'),
+      come: $('#ss-c').value, gioco: $('#ss-g').value.trim().replace(',', '.') });
+    let giro = 0;
+    const prova = async () => {
+      const v = leggi(), mio = ++giro, h = parseFloat(v.h), g = parseFloat(v.gioco) || 0;
+      const fatti = [];
+      for (let i = 0; i < fori.length; i++) {
+        const t = v.testi[i].trim();
+        if (!t || !(h > 0)) continue;
+        const r = await call('testo_anteprima', t, h, 0, v.come || null, true);
+        if (mio !== giro || !SK) return;
+        if (r?.ok) fatti.push({ at: [fori[i].xc[0], fori[i].xc[1] - fori[i].r - g - h / 2], tratti: r.tratti });
+      }
+      SK.scritteProva = fatti;
+      $('#ss-frase').textContent = fatti.length ? `${fatti.length} ${fatti.length === 1 ? 'scritta' : 'scritte'}: si vedono già sotto i fori` : 'Scrivi le scritte (es. 1.0, 1.2, 1.5…)';
+      drawRubber();
+    };
+    let t = null;
+    $('#ss-form').addEventListener('input', () => { clearTimeout(t); t = setTimeout(prova, 150); });
+    $('#ss-form').addEventListener('change', () => { clearTimeout(t); t = setTimeout(prova, 50); });
+    const chiudi = () => { if (SK) { SK.scritteProva = null; drawRubber(); } close(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const v = leggi();
+      SK.lastText = { ...(SK.lastText || {}), come: v.come, h: v.h };
+      chiudi();
+      inCoda(async () => { const r = await call('sketch_scritte_sotto', sid, fori.map(f => f.id), v.testi, v.h, v.come || null, v.gioco); await apply(r, r.message); });
+    };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    setTimeout(() => scostaDallaFinestra(fori.map(f => skToWorld(f.xc))), 0);
+    $('[data-ss="0"]')?.focus();
+    prova();
+  });
+}
 async function provaTesto(v, at = null) {
   if (!SK) return;
   const chiave = JSON.stringify([v.text, v.h, v.angle, v.come, v.centro]);
@@ -7511,6 +7581,12 @@ function skAction(act) {
     inCoda(async () => { await apply(await call('sketch_construction', sid, ids, !tutte)); });
     return;
   }
+  if (act === 'scritte') {
+    const cerchi = ids.filter(id => SK.v.circles.some(c => c.id === id));
+    if (!cerchi.length) { toast('Seleziona i fori (cerchi) sotto cui scrivere: clic, Maiusc+clic per aggiungerne.', 'err'); return; }
+    scritteSottoFori(sid, cerchi);
+    return;
+  }
   if (act === 'hole') {
     const cerchi = ids.filter(id => SK.v.circles.some(c => c.id === id && !c.ref));
     if (!cerchi.length) { toast('Seleziona uno o più cerchi (i fori).', 'err'); return; }
@@ -7791,11 +7867,53 @@ window.addEventListener('keydown', e => {
 // subito (Ctrl+Z se non andava). La barra di prova, rossa col motivo, compare solo quando non si può fare
 function subitoOProva(o, chiama, okMsg) {
   inCoda(async () => {
+    togliRossi();
     const r = await chiama();
     if (r?.ok) { if (await apply(r, okMsg || r.message)) exitSketch(); }
-    else if (r && !r.cancelled) provaSulPezzo(o);
+    else if (r && !r.cancelled) {
+      provaSulPezzo(o);
+      // 03/11: «due contorni si sovrappongono» dice anche quali (in rosso) e, se sono doppioni, «Tienine una»
+      if (SK && /si sovrappongono/.test(r.message || '')) { const sid = SK.sid; await mostraSovrapposti(sid, () => subitoOProva(o, chiama, okMsg)); }
+    }
   });
 }
+// ------------------------------------------------------------- «Due contorni si sovrappongono»: dove, e come uscirne (03/11)
+// I due contorni in rosso sul disegno; se sono cose disegnate due volte (la scritta messa due volte) «Tienine una»
+// toglie le copie e si riprova il taglio. Prima l'errore non diceva quali, e le copie a video non si vedevano.
+const skRossi = new THREE.Group();
+scene.add(skRossi);
+const SK_ROSSO = new THREE.MeshBasicMaterial({ color: 0xE5484D, side: THREE.DoubleSide, depthTest: false });
+function togliRossi() {
+  skRossi.traverse(o => o.geometry?.dispose()); skRossi.clear();
+  document.getElementById('sovr-card')?.remove();
+  ridisegna();
+}
+async function mostraSovrapposti(sid, rifai) {
+  const r = await call('sketch_sovrapposti', sid);
+  if (!r.ok || !SK || SK.sid !== sid || (!r.contorni?.length && !r.doppioni)) return;
+  togliRossi();
+  for (const c of r.contorni) skRossi.add(fatLine(c, 4, SK_ROSSO));
+  ridisegna();
+  const box = document.createElement('div');
+  box.id = 'sovr-card';
+  box.innerHTML = `<button class="ec-x" title="Chiudi">×</button><h5>${r.doppioni ? 'Disegnato due volte' : 'Due contorni si sovrappongono'}</h5>
+    <p>${esc(r.frase)}</p><div class="ec-sol">${r.doppioni ? `<button class="btn primary" data-tieni>Tienine una</button>` : ''}
+    <button class="btn" data-mostra>Mostrami dove</button></div>`;
+  document.body.appendChild(box);
+  box.querySelector('.ec-x').onclick = togliRossi;
+  box.querySelector('[data-mostra]').onclick = () => {
+    const pts = r.contorni.flat().map(skToWorld);
+    if (pts.length) fitSketch(false, pts);
+  };
+  box.querySelector('[data-tieni]')?.addEventListener('click', () => {
+    togliRossi(); provaVia();
+    inCoda(async () => {
+      const t = await call('sketch_togli_doppioni', sid);
+      if (await apply(t, t.message) && rifai) rifai();
+    });
+  });
+}
+
 // la piega su una linea dello sketch, provata sul pezzo: 90° in su, la parte piccola; le scelte sono quote sulla linea
 function provaPiega() {
   const l = SK.v.lines.find(x => !x.ref && !x.construction && !x.xray);

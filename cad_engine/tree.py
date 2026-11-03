@@ -252,8 +252,10 @@ def project_tree(doc, result) -> dict:
                     continue
                 st = (fr.sketch_status or {}).get('state') if fr else None
                 stato = None if fr and fr.ok else 'errore'
-                if st and st != 'completo':
-                    stato = 'errore' if not fr.ok else st
+                # 03/11: in parole di officina. Uno sketch senza tutte le quote è normale: niente scritta
+                if st and st not in ('completo', 'parziale'):
+                    stato = 'errore' if not fr.ok else {'ridondante': 'una misura di troppo',
+                                                        'sovra-vincolato': 'misure che litigano'}.get(st, 'da sistemare')
                 if chi and chi[0]['type'] == 'sheet':
                     m = _misura(list(_punti(doc, f).values()))
                     part['children'].append(_n(f'{f.name or "Base"}{" " + m if m and (f.name or "Base") == "Base" else ""}',

@@ -91,6 +91,29 @@ def main():
             sx = pg.locator('#modal-box').bounding_box()['x']
             ok('il punto del testo resta a sinistra della finestra', xt2 < sx - 20)
             pg.keyboard.press('Escape')
+            time.sleep(0.5)
+            # una scritta sotto ogni foro, in una volta
+            pg.locator('#ribbon [data-tool="select"]').first.click()
+            pg.keyboard.press('Control+A')
+            time.sleep(0.3)
+            pg.locator('#ribbon [data-act="scritte"]').first.click()
+            pg.wait_for_selector('[data-ss="5"]', timeout=10000)
+            for i, t in enumerate(['1.0', '1.2', '1.5', '2.0', '2.5', '3.0']):
+                pg.locator(f'[data-ss="{i}"]').fill(t)
+            pg.locator('[data-ss="5"]').dispatch_event('input')
+            pg.wait_for_function("document.getElementById('ss-frase')?.textContent.startsWith('6 scritte')", timeout=60000)
+            time.sleep(0.5)
+            pg.screenshot(path=str(SHOTS / '03_scritte_sotto_i_fori.png'))
+            pg.locator('#m-ok').click()
+            time.sleep(2.0)
+            testi = pg.evaluate('window.__steelcad.sketch.v.texts')
+            ok('6 scritte sotto i fori', sorted(t['text'] for t in testi) == ['1.0', '1.2', '1.5', '2.0', '2.5', '3.0'])
+            pg.screenshot(path=str(SHOTS / '04_scritte_messe.png'))
+            # raggio e K accanto alle misure, a sinistra
+            pg.locator('#sk-done').first.click()
+            time.sleep(1.5)
+            ok('R e K a sinistra con le misure', pg.locator('[data-tech-sx="radius"]').count() == 1 and pg.locator('[data-tech-sx="k"]').count() == 1)
+            pg.screenshot(path=str(SHOTS / '05_misure_con_R_e_K.png'))
             b.close()
     finally:
         srv.terminate()
