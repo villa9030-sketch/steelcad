@@ -3,6 +3,7 @@ con i campi nuovi e il logo. I ritocchi stanno nel progetto, con Annulla."""
 from PIL import Image
 
 from app.service import Service
+from cad_engine import drawings as D
 
 
 def _cassa():
@@ -121,7 +122,7 @@ def test_quote_aggiunte_come_le_altre_e_frecce(monkeypatch, tmp_path):
     s = _cassa()
     campi = {**s.drawing_fields()['fields'], 'formato': 'A4'}
     f = _foglio(s, campi)
-    assert abs(f['fattore'] - 0.5) < 1e-9
+    assert abs(f['fattore'] - 0.5 * D.TESTO) < 1e-9          # 03/11: anche le quote più grandi
     auto = next(o for o in f['oggetti'] if o['kind'] == 'quota' and o['testo'] == '420')
     p = s.tavola_ritocchi('pezzo', {'aggiunte': [{'vista': 'vista:alto', 'a': [0, 0], 'b': [100, 0], 'dir': 'h', 'd': -20}]}, campi)
     f = p['foglio']

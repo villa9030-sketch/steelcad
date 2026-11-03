@@ -101,7 +101,7 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
         if math.hypot(B[0] - A[0], B[1] - A[1]) < 1e-6:
             continue
         nome = f'{q["vista"]}/mano{i + 1}'
-        h = 2.8 * f.fattore                         # come le quote della tavola, rimpicciolite col foglio
+        h = 2.8 * f.fattore * f.u                        # come le quote della tavola, rimpicciolite col foglio
         f.elementi[nome] = {'kind': 'quota', 'a': list(A), 'b': list(B), 'distanza': float(q.get('d', 8)), 'valore': valore,
                             'h': h, 'prefisso': '', 'testo': None, 'padre': q['vista'], 'aggiunta': i}
         with f.oggetto(nome):
@@ -134,7 +134,7 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
     if ht:
         f.testi[:] = [(l, p, tx, float(ht) if t.endswith('/titolo') else h, al) for (l, p, tx, h, al), t in zip(f.testi, f.testi.tag)]
     # 5. le note
-    hn = float(testi.get('note') or 3.5 * f.fattore)
+    hn = float(testi.get('note') or 3.5 * f.fattore * f.u)
     for i, n in enumerate(r.get('note') or []):
         if not str(n.get('testo') or '').strip():
             continue
@@ -145,7 +145,7 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
             for k, riga in enumerate(str(n['testo']).split('\n')):
                 f.text('testo', (float(n['x']), float(n['y']) - k * float(n.get('h') or hn) * 1.4), riga, float(n.get('h') or hn))
     # 6. diametri e raggi, angoli, saldature (24/10)
-    k = f.fattore
+    k = f.fattore * f.u
     hq = float(testi.get('quote') or 2.8 * k)
     frq = float(testi.get('frecce') or 2.5 * hq / 2.8)
     for i, q in enumerate(r.get('diametri') or []):

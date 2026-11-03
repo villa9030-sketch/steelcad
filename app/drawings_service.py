@@ -12,6 +12,17 @@ from cad_engine import drawings as D
 from cad_engine.errors import SteelCADError
 
 FISSI = ('azienda', 'disegnatore')
+# i nomi che il programma dà da solo a un pezzo nuovo: non dicono niente, meglio il nome del file del progetto
+NOMI_DI_SERIE = {'', 'pezzo', 'lamiera', 'piastra', 'progetto', 'struttura', 'profilo', 'tubo'}
+
+
+def nome_pezzo(meta: dict, path=None, riserva: str = 'Pezzo') -> str:
+    """03/11: il nome del pezzo per il cartiglio e per i nomi dei file. Quello dato dall'utente; se è quello di serie
+    («Lamiera», «Pezzo») e il progetto è salvato, il nome del file del progetto; se no quello di serie."""
+    nome = str((meta or {}).get('name') or '').strip()
+    if nome.lower() in NOMI_DI_SERIE and path:
+        nome = Path(path).stem
+    return nome or riserva
 
 
 def _file_cartiglio() -> Path:
@@ -56,13 +67,26 @@ class DrawingsMixin:
         return {'ok': True, 'fields': out, 'assembly': self.asm is not None,
                 'campi_cartiglio': [[k, et, k in NUOVI_CARTIGLIO] for k, et in CAMPI_CARTIGLIO], 'logo': _logo()}
 
+    def _percorso_di(self, doc):
+        """Il file del progetto di questo pezzo (il pezzo aperto, o uno dell'assieme), se è salvato."""
+        if doc is getattr(self, 'doc', None) and self.asm is None:
+            return self.path
+        for p in (getattr(self, 'asm_parts', None) or {}).values():
+            if getattr(p, 'doc', None) is doc:
+                return getattr(p, 'path', None)
+        return None
+
     def _campi_pezzo(self, doc, result, campi: dict, n: int, tot: int) -> dict:
         from cad_engine.analysis import properties
         sheet = getattr(result.body, 'sheet', None) if result.body is not None else None
         massa = properties(result.body.shape, doc.material)['mass_kg'] if result.body is not None else 0
         sp = f'sp. {D.fmt(sheet.thickness)} mm · ' if sheet else ''
-        return {**campi, 'titolo': doc.meta.get('name') or 'Pezzo', 'materiale': doc.material,
-                'spessore_massa': f'{sp}{D.fmt(round(massa, 3))} kg', 'data': D.oggi(), 'foglio': f'{n}/{tot}'}
+        out = {**campi, 'titolo': nome_pezzo(doc.meta, self._percorso_di(doc)), 'materiale': doc.material,
+               'spessore_massa': f'{sp}{D.fmt(round(massa, 3))} kg', 'data': D.oggi(), 'foglio': f'{n}/{tot}'}
+        codice = str(doc.meta.get('codice') or '').strip()
+        if codice and not str(out.get('numero') or '').strip():
+            out['numero'] = codice                         # il codice del pezzo, se c'è, come numero del disegno
+        return out
 
     def _fogli_struttura(self, doc, result, campi: dict, formato: str, n0: int = 1, tot: int | None = None) -> list:
         """Una struttura in tubolare: le viste dell'insieme con gli ingombri, poi la distinta di taglio."""
@@ -77,7 +101,7 @@ class DrawingsMixin:
                 b.Add(forma, m.solid.wrapped)
         cl = cut_list(result.structures)
         tot = tot or 2
-        base = {**campi, 'titolo': doc.meta.get('name') or 'Struttura', 'materiale': doc.material,
+        base = {**campi, 'titolo': nome_pezzo(doc.meta, self._percorso_di(doc), 'Struttura'), 'materiale': doc.material,
                 'spessore_massa': f'{D.fmt(round(cl["kg"], 2))} kg', 'data': D.oggi()}
         # le file di aste uguali a passo costante (sbarre, ripiani): per gruppo, parallele
         file = []
@@ -134,7 +158,8 @@ class DrawingsMixin:
         sezione = sezione if sezione in ('X', 'Y') else ''
         tot = tot or ((2 if sheet else 1) + (1 if sezione else 0))
         fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato,
-                                quote_mano=doc.meta.get('quote') or [], saldature=self._saldature_tavola(doc, result))]
+                                quote_mano=doc.meta.get('quote') or [], saldature=self._saldature_tavola(doc, result),
+                                marche=[m['pezzo'] for m in (getattr(sheet, 'marks', None) or []) if m.get('pezzo')])]
         fogli[0].chiave = 'pezzo'
         if sezione:
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
@@ -144,7 +169,8 @@ class DrawingsMixin:
             n0 += 1
         if sheet is not None and getattr(sheet, 'bend_rows', None) is not None:
             r_, k_ = sheet.tech.get('radius'), sheet.tech.get('k')
-            pieg = [[str(x['n']), x.get('label') or f'P{x["n"]}', D.fmt(round(x['length'], 1)), f'{D.fmt(round(x["angle"], 2))}°', x.get('verso', '—'),
+            pieg = [[str(x['n']), x.get('label') or f'P{x["n"]}', D.fmt(round(x['length'], 1)), f'{D.fmt(round(x["angle"], 2))}°',
+                     x.get('verso') or {'up': 'su', 'down': 'giù'}.get(x.get('direction'), '—'),
                      D.fmt(r_) if r_ is not None else '', D.fmt(k_) if k_ is not None else '',
                      D.fmt(round(x['correction'], 3)) if x['correction'] is not None else ''] for x in sheet.bend_rows]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
@@ -197,7 +223,7 @@ class DrawingsMixin:
         voce = finiti.get(f.chiave)
         if voce is not None and voce[1] is f and voce[2] is not None:
             return voce[2]
-        d = {'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave, 'fattore': f.fattore,
+        d = {'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave, 'fattore': f.fattore * f.u,
              'oggetti': oggetti(f), 'ritocchi': self._ritocchi_tavole().get(f.chiave) or {},
              'persi': getattr(f, 'persi', None) or []}
         if voce is not None and voce[1] is f:
