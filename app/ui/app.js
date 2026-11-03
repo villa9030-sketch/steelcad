@@ -194,7 +194,8 @@ scene.add(model, overlay, dimLines);
 const objs = new Map();
 const EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
 const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x3A4A5C });
-const ING_MAT = new THREE.LineDashedMaterial({ color: 0x8A6A1F, dashSize: 6, gapSize: 4 });
+// 04/11: l'ingombro col colore delle quote (l'ambra è solo «da guardare»); si riconosce dal tratteggio e da ⤢
+const ING_MAT = new THREE.LineDashedMaterial({ color: 0x3A4A5C, dashSize: 6, gapSize: 4 });
 const C_HOVER = new THREE.Color(0x6E9BFF), C_SEL = new THREE.Color(0xFFB21A);   // passaggio del mouse blu chiaro, selezione gialla (04/11)
 // 28/10: un pezzo giallo/arancio selezionato in ambra non si distingue: lì la selezione è blu, e i suoi spigoli si accendono
 const C_SEL_BLU = new THREE.Color(0x2F7DE1);
@@ -1958,6 +1959,8 @@ const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole
 const APERTI = new Set();
 const chiaveNodo = n => `${n.kind}:${n.ref}`;
 const contieneSketch = (n, sid) => (n.kind === 'sketch' && n.ref === sid) || n.children.some(c => contieneSketch(c, sid));
+// l'etichetta di una voce dell'albero: se va a capo, non stacca il numero dalla sua unità né «= 6 mm» dal suo nome
+const etichettaAlbero = t => esc(t).replace(/(\d) (mm|°|kg)/g, '$1&nbsp;$2').replace(/ = (\S+)/g, '&nbsp;=&nbsp;$1');
 function renderTree() {
   if (document.activeElement?.classList?.contains('nome-albero')) return;      // mentre scrivi il nome di un pezzo
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
@@ -1992,7 +1995,7 @@ function renderTree() {
       occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
     }
     const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span><span class="lb">${etichettaAlbero(n.label)}</span>${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
   };
   // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
   let albero = S.tree;
@@ -2071,7 +2074,7 @@ function iniziaRinomina(el) {
   const prima = nomeSenzaCopia(ist.name);
   const inp = document.createElement('input');
   inp.className = 'field nome-albero'; inp.value = prima; inp.setAttribute('aria-label', 'Nome del pezzo');
-  [...el.childNodes].filter(n => n.nodeType === 3).forEach(n => n.remove());       // il testo della voce: al suo posto il campo
+  [...el.childNodes].filter(n => n.nodeType === 3 || n.classList?.contains('lb')).forEach(n => n.remove());   // il testo della voce: al suo posto il campo
   el.querySelector('.k').after(inp);
   inp.focus(); inp.select();
   let fatto = false;
@@ -7952,8 +7955,8 @@ const SK_TRACK = new THREE.LineDashedMaterial({ color: 0x4CC3AE, dashSize: 3, ga
 const SK_PTS = new THREE.PointsMaterial({ color: 0x1C2228, size: 6, sizeAttenuation: false });
 // tema chiaro / scuro: i colori del disegno che devono staccare dallo sfondo
 const COLORI_TEMA = {
-  chiaro: [[SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
-  scuro: [[SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
+  chiaro: [[SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [ING_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
+  scuro: [[SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [ING_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
 };
 function applyTheme(scuro) {
   document.body.classList.toggle('dark', scuro);
@@ -8754,7 +8757,11 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
   for (const l of SK.v.lines) { const d = segDist(m, proj(l.pa), proj(l.pb)); if (d < 7 && (!best || d < best.d)) best = { id: l.id, d }; }
   for (const c of SK.v.circles) {
     const ctr = proj(c.center), e = proj(skToWorld([...skToLocal(v3(c.center))].map((v, i) => i === 0 ? v + c.r : v)));
-    const d = Math.abs(Math.hypot(m[0] - ctr[0], m[1] - ctr[1]) - Math.hypot(e[0] - ctr[0], e[1] - ctr[1]));
+    const dc = Math.hypot(m[0] - ctr[0], m[1] - ctr[1]), rs = Math.hypot(e[0] - ctr[0], e[1] - ctr[1]);
+    let d = Math.abs(dc - rs);
+    // 04/11: un foro piccolo sullo schermo si prende anche cliccandoci dentro (sul suo centro), non solo sul filo:
+    // prima il clic al centro non sceglieva niente e «Serie» e «Tipo di foro» restavano spenti
+    if (d >= 7 && dc < rs && rs <= 40) d = 6.9;
     if (d < 7 && (!best || d < best.d)) best = { id: c.id, d };
   }
   for (const t of SK.v.texts || []) {

@@ -113,7 +113,7 @@ def test_lavorazioni_dopo_la_lamiera_avvisate_in_prepara(tmp_path):
         assert s.asm_insert(str(p))['ok']
     info = s.prepara_info()
     laser = info['voci'][0]
-    assert laser['si'] and laser['file'].startswith('DXF laser (1 pezzo, 2 senza DXF')
+    assert laser['si'] and laser['file'] == '1 DXF, ne mancano 2'
     avvisi = info['controllo']['avvisi']
     assert len(avvisi) == 2 and avvisi[0].startswith('Staffa: ') and '«Estrusione»' in avvisi[0]
     r = s.prepara(str(tmp_path / 'uscita'), ['laser'])

@@ -5501,8 +5501,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             voce_laser = {'id': 'laser', 'titolo': 'Per il laser',
                           'desc': 'Gli sviluppi di tutti i pezzi in lamiera, un DXF per pezzo (nel nome spessore e quanti '
                                   'tagliarne). Si aprono in Lantek.',
-                          'file': f'DXF laser ({n_lam} pezz{"o" if n_lam == 1 else "i"}'
-                                  + (f', {len(senza)} senza DXF: vedi sopra)' if senza else ')'),
+                          # 04/11: frase corta da officina (era «DXF laser (1 pezzo, 1 senza DXF: vedi sopra)»)
+                          'file': (f'{n_lam} DXF' if n_lam else 'Nessun DXF')
+                                  + (f', ne mancano {len(senza)}' if senza else ', uno per pezzo' if n_lam > 1 else ''),
                           'si': n_lam > 0, 'scelta': n_lam > 0,
                           'motivo': None if n_lam else ('nessun pezzo in lamiera si può stendere' if senza else
                                                         'nell’assieme non ci sono pezzi in lamiera')}
