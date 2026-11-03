@@ -2178,3 +2178,32 @@ body.dark #tav-ed .te-foglio svg { box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
 .pf-tipo { min-width: 40px; text-align: center; }
 .pf-nome { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .fatto-msg { margin: 0; }
+/* la distinta da ritoccare: un foglio di calcolo pulito, celle senza bordo finché non le tocchi */
+#modal-box.wide:has(.dd-tab) { width: min(940px, 94vw); }
+.dd-aiuto { margin: -6px 0 var(--s-3); }
+.dd-scorri { margin: 0 0 var(--s-3); border: 1px solid var(--c-linea); border-radius: var(--r-campo); background: var(--c-pannello); }
+.dd-tab th { padding: 8px 8px; background: var(--c-incavo); border-bottom: 1px solid var(--c-linea); color: var(--c-testo-2);
+  font: 600 var(--fs-piccolo)/1.2 var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-tab td { padding: 0; border-bottom: 1px solid var(--c-linea); }
+.dd-tab tr:last-child td { border-bottom: 0; }
+.dd-tab .field { height: 34px; min-height: 34px; padding: 0 8px; border: 1px solid transparent; border-radius: 0; background: transparent; font-size: var(--fs-fitto); }
+.dd-tab .field:hover { background: var(--c-sopra); }
+.dd-tab .field:focus { border-color: var(--c-blu); background: var(--c-campo); box-shadow: none; position: relative; z-index: 1; }
+.dd-tab .field::placeholder { color: var(--c-spento); }
+.dd-tab tr.nuova td { background: var(--c-blu-tenue); }
+.dd-tab tr.nuova .field { border-color: transparent; }
+.dd-tab .dd-via, .dd-tab [data-via] { width: 28px; min-height: 28px; margin: 3px 6px; padding: 0; border-color: transparent; background: transparent; color: var(--c-spento); font-size: 16px; }
+.dd-tab .dd-via:hover { background: var(--c-err-tenue); color: var(--c-err-testo); }
+.modal-box .te-bott { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+/* le finestrine dell'editor delle tavole: nota e saldatura */
+.te-nota { display: flex; flex-direction: column; gap: 6px; color: var(--c-testo-2); font-size: var(--fs-fitto); }
+.te-nota .field { width: 100%; min-height: 84px; resize: vertical; font-size: var(--fs-testo); }
+.modal-box:has(#nt-t) { width: min(440px, 94vw); }
+.modal-box:has(#sd-tipo) { width: min(440px, 94vw); }
+.te-form { display: flex; flex-direction: column; gap: var(--s-2); }
+.te-form .te-riga { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: var(--s-2); min-height: var(--h-riga);
+  color: var(--c-testo-2); font-size: var(--fs-fitto); }
+.te-form .te-mm { display: flex; align-items: center; gap: 6px; }
+.te-form .te-mm .field { flex: 1; min-width: 0; }
+.te-form .te-mm i { font-style: normal; color: var(--c-spento); }
+#tav-ed #te-sel .te-riga.te-pila { grid-template-columns: 1fr; }

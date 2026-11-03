@@ -5067,14 +5067,14 @@ document.addEventListener('keydown', ev => {
 // il simbolo di saldatura: tipo, misura, lunghezza, lato, tutto intorno, in opera (ISO 2553)
 function saldaturaDialog(q, fatto) {
   const tipi = [['angolo', 'D’angolo (a gola)'], ['V', 'Di testa a V'], ['I', 'Di testa a I (lembi dritti)']];
-  modal(`<h3>Saldatura</h3>
+  modal(`<h3>Saldatura</h3><div class="te-form">
     <label class="te-riga">Tipo<select class="field" id="sd-tipo">${tipi.map(([v, t]) => `<option value="${v}"${q.tipo === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
     <label class="te-riga">Misura<span class="te-mm"><input class="field" id="sd-a" value="${esc(q.a || '')}" placeholder="a gola, es. 4"><i>mm</i></span></label>
     <label class="te-riga">Lunghezza<input class="field" id="sd-l" value="${esc(q.l || '')}" placeholder="vuoto = tutto il giunto"></label>
     <label class="te-riga">Lato<select class="field" id="sd-lato"><option value="freccia"${q.lato !== 'altro' ? ' selected' : ''}>dalla parte della freccia</option><option value="altro"${q.lato === 'altro' ? ' selected' : ''}>dalla parte opposta</option></select></label>
     <label class="check"><input type="checkbox" id="sd-giro"${q.giro ? ' checked' : ''}> Tutto intorno</label>
-    <label class="check"><input type="checkbox" id="sd-opera"${q.opera ? ' checked' : ''}> In opera (in cantiere)</label>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti</button></div>`, close => {
+    <label class="check"><input type="checkbox" id="sd-opera"${q.opera ? ' checked' : ''}> In opera (in cantiere)</label></div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la saldatura</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
       const r = { tipo: $('#sd-tipo').value, a: $('#sd-a').value.trim(), l: $('#sd-l').value.trim(), lato: $('#sd-lato').value,
@@ -5089,10 +5089,10 @@ function saldaturaDialog(q, fatto) {
 function distintaDialog(o, d, fatto) {
   const celle = { ...(d.celle || {}) }, via = new Set((d.via || []).map(Number)), nuove = (d.nuove || []).map(r => [...r]);
   const nc = o.intest.length;
-  const larghe = [46, 0, 56, 110, 80, 70];
+  const larghe = [52, 0, 60, 104, 84, 90, 76];
   const riga = (cls, i, valori, orig) => `<tr class="${cls}" data-r="${i}">${valori.map((v, j) =>
     `<td><input class="field" data-c="${j}" value="${esc(v)}"${orig ? ` placeholder="${esc(orig[j] ?? '')}"` : ''}></td>`).join('')}
-    <td><button class="btn" data-via title="${cls === 'nuova' ? 'Togli questa riga' : 'Togli questa riga dalla distinta'}">×</button></td></tr>`;
+    <td><button class="btn dd-via" data-via title="${cls === 'nuova' ? 'Togli questa riga' : 'Togli questa riga dalla distinta'}">×</button></td></tr>`;
   const disegna = () => {
     const corpo = o.righe.map((r, i) => via.has(i) ? '' : riga('auto', i, r.map((v, j) => celle[`${i}:${j}`] ?? v), r)).join('')
       + nuove.map((r, i) => riga('nuova', i, Array.from({ length: nc }, (_, j) => r[j] ?? ''), null)).join('');
@@ -5112,11 +5112,11 @@ function distintaDialog(o, d, fatto) {
     }; });
   };
   modal(`<h3>Distinta</h3>
-    <p class="hint">Scrivi sopra le celle per cambiarle; × toglie una riga. Le righe automatiche seguono l’assieme: se cambi un pezzo, il resto si aggiorna.</p>
-    <div class="dd-scorri"><table class="dd-tab"><colgroup>${larghe.slice(0, nc).map(w => `<col${w ? ` style="width:${w}px"` : ''}>`).join('')}<col style="width:36px"></colgroup>
+    <p class="hint dd-aiuto">Scrivi sopra le celle per cambiarle; × toglie una riga. Le righe automatiche seguono l’assieme: se cambi un pezzo, il resto si aggiorna.</p>
+    <div class="dd-scorri"><table class="dd-tab"><colgroup>${larghe.slice(0, nc).map(w => `<col${w ? ` style="width:${w}px"` : ''}>`).join('')}<col style="width:40px"></colgroup>
       <thead><tr>${o.intest.map(t => `<th>${esc(t)}</th>`).join('')}<th></th></tr></thead><tbody id="dd-corpo"></tbody></table></div>
     <div class="te-bott"><button class="btn" id="dd-piu">+ Riga in più</button><button class="btn" id="dd-tolte" hidden></button></div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Applica</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti nella tavola</button></div>`, close => {
     disegna();
     $('#dd-piu').onclick = () => {
       const pos = String(o.righe.length - via.size + nuove.length + 1);
@@ -5617,7 +5617,7 @@ async function drawingsDialog() {
       salva(n); return;
     }
     if (ED.strumento === 'nota') {
-      modal(`<h3>Nota sulla tavola</h3><label style="display:block">Testo<textarea class="field" id="nt-t" rows="3" style="width:100%"></textarea></label>
+      modal(`<h3>Nota sulla tavola</h3><label class="te-nota">Testo<textarea class="field" id="nt-t" rows="3" placeholder="Es.: sbavare tutti gli spigoli"></textarea></label>
         <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la nota</button></div>`, close => {
         $('#m-no').onclick = close;
         $('#m-ok').onclick = () => { const t = $('#nt-t').value.trim(); close(); if (!t) return;
@@ -5753,7 +5753,7 @@ async function drawingsDialog() {
     el.innerHTML = `<div class="sk-help"><span class="g-cmd"><img src="icons/${icona}.svg" alt="">${esc(nome)}</span>
       ${passi.length > 1 ? `<span class="g-passi">${passi.map((_, i) => `<i class="${i <= k ? 'on' : ''}"></i>`).join('')}</span>` : ''}
       <span class="g-testo">${esc(t)}<small>${esc(sm)}</small></span><span class="g-sep"></span>
-      <span class="g-tasto"><kbd>Esc</kbd>${k > 0 ? 'ricomincia' : 'basta'}</span></div>`;
+      <span class="g-tasto"><kbd>Esc</kbd>${k > 0 ? 'ricomincia' : 'fine'}</span></div>`;
   };
   const strumento = nome => {
     ED.strumento = nome; ED.punto1 = null; ED.ang = []; ED.sald = null; ED.det = null; if (svgDi()) { segno(null); segno(null, 'te-p1'); }
@@ -9523,9 +9523,10 @@ canvas.addEventListener('dblclick', ev => {
 // ===================================================================== barra a schede (stile SolidCraft)
 let schedaPrima = 'lamiera';
 // Esporta: un pulsante solo con il menu; si vedono le voci che hanno senso per il pezzo aperto
-const VOCI_ESPORTA = [['drawings', 'Tavole PDF con cartiglio…'], ['export_dxf', 'DXF di taglio…'],
-  ['export_bendtable', 'Tabella pieghe (per la piegatrice)…'], ['export_step', 'STEP (modello 3D)…'],
-  ['export_bom', 'Distinta materiali (Excel)…']];
+// notte 03/11: gli stessi nomi di «Prepara» e delle conferme (DXF di taglio salvato, Tabella pieghe salvata…)
+const VOCI_ESPORTA = [['drawings', 'Tavole con cartiglio (PDF, DXF)…'], ['export_dxf', 'DXF di taglio, per il laser…'],
+  ['export_bendtable', 'Tabella pieghe, per la piegatrice…'], ['export_step', 'STEP, per un altro programma 3D…'],
+  ['export_bom', 'Distinta in Excel…']];
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => g.insertAdjacentHTML('beforebegin',
   `<div class="rgroup"><div class="rbtns"><button class="rb" data-cmd="misura" title="Quota: due clic = distanza; clic sul bordo di un foro = diametro (M)"><img src="icons/dimension.svg" alt=""><span>Quota</span></button><button class="rb" data-cmd="misura_angolo" title="Angolo: clic su un lato, sul vertice e sull’altro lato"><img src="icons/plane_angle.svg" alt=""><span>Angolo</span></button><button class="rb" data-azione="saldatura3d" title="Saldatura: clicca gli spigoli da saldare (si accendono), poi Invio: tipo e misura; i metri vanno in distinta"><img src="icons/joint.svg" alt=""><span>Saldatura</span></button></div><div class="rname">Misura</div></div>`));
 document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
