@@ -382,6 +382,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 objs.append({'id': f'{st.id}/{mem.id}', 'kind': 'member',
                              'name': f'{nomi[mem.id]} — {mem.profile.name} · {fmt_mm(round(mem.length, 1))}',
                              'group': mem.group, **m})
+            for a in st.accessori or []:                  # piedi e tappi (03/11)
+                tenuta = _MAGLIE_TUBI.get(id(a.solid))
+                if tenuta is None or tenuta[0] is not a.solid:
+                    tenuta = _MAGLIE_TUBI[id(a.solid)] = (a.solid, tessellate(a.solid.wrapped))
+                objs.append({'id': f'{st.id}/{a.id}', 'kind': 'accessorio', 'name': f'{a.nome} — {a.descrizione}',
+                             'tipo': a.tipo, **({'look': {'color': '#3A3F45'}} if a.acquisto else {}), **tenuta[1]})
         from cad_engine.structures.nomi import nome_punto
         import build123d as _bd
         from cad_engine.structures.nomi import _limiti
@@ -751,6 +757,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 return _ok(selection=self._flange_selection(fid_, flid_))
             st_id, mid = obj_id.split('/')
             st = next(s for s in self.result.structures if s.id == st_id)
+            a = next((x for x in st.accessori or [] if x.id == mid), None)
+            if a is not None:                  # un piede o un tappo (03/11): il suo pannello, per cambiarli tutti
+                return _ok(selection={'kind': 'accessorio', 'structure': st_id, 'title': a.nome,
+                                      'cosa': 'tappi' if mid.startswith('TAPPO') else 'piedi',
+                                      'rows': [['Cosa', a.descrizione + (' (da acquistare)' if a.acquisto else '')]]
+                                      + ([['Peso', fmt_kg(a.kg)]] if a.kg else [])})
             m = next(x for x in st.members if x.id == mid)
             fdef = self.doc.feature(st_id)
             orig = mid.split(SEP_PEZZO)[0]        # un pezzo di un tubo tagliato da un incrocio: i dati sono del tubo
@@ -4679,7 +4691,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return _ok(path=str(q), name=q.stem, folder=str(q.parent), thumb=_anteprima(q))
 
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
-    ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
+    ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'set_piedi', 'set_tappi', 'edit_member', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
                     'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati'}
@@ -4711,7 +4723,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return {'ok': False, 'message': r.get('message') or 'Così non si può fare.', 'vero': True, 'code': r.get('code'),
                     'fantasma': self._fantasma(metodo, args), 'soluzioni': r.get('soluzioni') or []}
         oggetti = [{'positions': o['positions'], 'indices': o['indices'], 'edges': o['edges']}
-                   for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member')]
+                   for o in prova.scene()['objects'] if o.get('kind') in ('body', 'member', 'accessorio')]
         out = {'ok': True, 'objects': oggetti, 'message': r.get('message') or ''}
         # 29/10: cosa succede, in parole semplici; e quello che si toglie (in arancio sopra il pezzo)
         try:

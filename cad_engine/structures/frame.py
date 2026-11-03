@@ -89,6 +89,7 @@ class StructureResult:
     warnings: list = None    # frasi per l'utente (aste che si compenetrano, …)
     nodes: dict = None       # {punto: {'xyz', 'members', 'joint', 'auto'}} per l'interfaccia
     incroci: dict = None     # {«A×B»: {'a', 'b', 'passa', 'xyz'}}: tubi che si attraversano, uno passa
+    accessori: list = None   # piedi e tappi (accessori.Accessorio): solidi a parte, righe a parte in distinta
 
     def compound(self) -> bd.Compound:
         return bd.Compound([m.solid for m in self.members])
@@ -286,6 +287,10 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
     res = StructureResult(fid, nome, members, _interferences(members, legati, chiavi),
                           _node_info(pts, members, nodes, fdef))
     res.incroci = incroci
+    if fdef.get('piedi') or fdef.get('tappi'):
+        from .accessori import calcola
+        from .nomi import nomi_aste
+        res.accessori = calcola(members, fdef, nomi_aste(members))
     return res
 
 

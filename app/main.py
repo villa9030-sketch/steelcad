@@ -271,6 +271,18 @@ class Api:
     def traverso_info(self, st_id, a_id, b_id):
         return self._call(self._svc.traverso_info, st_id, a_id, b_id)
 
+    def member_posizioni(self, obj_id):
+        return self._call(self._svc.member_posizioni, obj_id)
+
+    def piedi_info(self, st_id):
+        return self._call(self._svc.piedi_info, st_id)
+
+    def set_piedi(self, st_id, spec=None):
+        return self._call(self._svc.set_piedi, st_id, spec)
+
+    def set_tappi(self, st_id, spec=None):
+        return self._call(self._svc.set_tappi, st_id, spec)
+
     def dividi_info(self, st_id, mid, normale=None):
         return self._call(self._svc.dividi_info, st_id, mid, normale)
 

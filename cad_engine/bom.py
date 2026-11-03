@@ -47,6 +47,14 @@ def bom(doc, result) -> list[dict]:
             'thickness_mm': None, 'length_mm': r['length_mm'], 'dims_mm': None,
             'kg_each': r['kg_each'], 'kg_total': r['kg_total'], 'groups': r['groups'],
         })
+    # piedi e tappi delle strutture (03/11): piastre e lamierini da fare, piedini e tappi in plastica da comprare
+    for i, r in enumerate(cl.get('accessori') or [], start=1):
+        righe.append({
+            'code': f'C{i}', 'description': r['description'] + (' (da acquistare)' if r['acquisto'] else ''),
+            'qty': r['qty'], 'type': 'acquisto' if r['acquisto'] else ('lamiera' if r['thickness_mm'] else 'parte'),
+            'profile': None, 'material': r['material'], 'thickness_mm': r['thickness_mm'], 'length_mm': None,
+            'dims_mm': None, 'kg_each': r['kg_each'], 'kg_total': r['kg_total'],
+        })
     return righe
 
 

@@ -56,8 +56,10 @@ def cut_list(structures) -> dict:
         p['pieces'] += r['qty']
         p['total_length_mm'] += r['length_mm'] * r['qty']
         p['kg'] += r['kg_total']
+    from .accessori import righe as righe_accessori
     return {'rows': lista, 'totals': list(per_profilo.values()),
-            'pieces': sum(r['qty'] for r in lista), 'kg': sum(r['kg_total'] for r in lista)}
+            'pieces': sum(r['qty'] for r in lista), 'kg': sum(r['kg_total'] for r in lista),
+            'accessori': righe_accessori(structures)}
 
 
 def as_text(cl: dict) -> str:

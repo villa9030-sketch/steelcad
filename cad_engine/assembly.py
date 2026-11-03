@@ -100,6 +100,7 @@ def load_part(path) -> Part:
         nomi = res.body.names
     for st in res.structures:
         solidi += [m.solid.wrapped for m in st.members]
+        solidi += [a.solid.wrapped for a in getattr(st, 'accessori', None) or []]      # piedi e tappi
     if not solidi:
         raise AssemblyError(f'Il pezzo {p.name} è vuoto: non c’è niente da mettere nell’assieme.')
     if len(solidi) == 1:

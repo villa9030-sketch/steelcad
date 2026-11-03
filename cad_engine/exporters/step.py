@@ -53,6 +53,12 @@ def export_project(doc, result, path) -> dict:
             s.label = f'{st.name} - {m.group or "asta"} {m.id} - {m.profile.name} L={m.length:.1f}'
             figli.append(s)
             totale += m.solid.volume
+        for a in getattr(st, 'accessori', None) or []:          # piedi e tappi (03/11)
+            for k, x in enumerate(a.solid.solids() if hasattr(a.solid, 'solids') else [a.solid]):
+                s = x.copy() if hasattr(x, 'copy') else x
+                s.label = f'{st.name} - {a.descrizione}' + (f' ({k + 1})' if k else '')
+                figli.append(s)
+                totale += x.volume
     if not figli:
         raise ExportError("Il progetto è vuoto: non c'è niente da esportare.")
     asm = bd.Compound(children=figli)

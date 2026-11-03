@@ -99,6 +99,8 @@ class DrawingsMixin:
         for st in result.structures:
             for m in st.members:
                 b.Add(forma, m.solid.wrapped)
+            for a in getattr(st, 'accessori', None) or []:          # piedi e tappi (03/11)
+                b.Add(forma, a.solid.wrapped)
         cl = cut_list(result.structures)
         tot = tot or 2
         base = {**campi, 'titolo': nome_pezzo(doc.meta, self._percorso_di(doc), 'Struttura'), 'materiale': doc.material,
