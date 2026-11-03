@@ -319,7 +319,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                         pb = (pa[0], pb[1])
                     if math.dist(pa, pb) < 1e-9:
                         continue                        # quota zero: niente da mostrare
-                ga, gb = pl.from_local_coords(pa), pl.from_local_coords(pb)
+                ga, gb = _nel_mondo(pl, pa), _nel_mondo(pl, pb)
                 v = ss.values.get(did)
                 rif = bool(c.get('driven'))
                 if c['type'] in ('length', 'distance', 'pldistance'):
@@ -336,7 +336,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                             'value': v, 'shown': abs(v) if v is not None and c['type'] in ('hdistance', 'vdistance') else v,
                             'label': ('(' if rif else '') + ({'diameter': 'Ø', 'radius': 'R'}.get(c['type'], ''))
                             + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0)) + (')' if rif else ''),
-                            'a': [ga.X, ga.Y, ga.Z], 'b': [gb.X, gb.Y, gb.Z]})
+                            'a': ga, 'b': gb})
         # 24/10: la stessa quota ripetuta (le copie di una serie: 300 quadrati da 10 × 10 = 600 quote «10» che
         # coprivano il disegno) si mostra una volta, «10 ×300»; cambiarla cambia tutto il gruppo. Le altre restano
         # nell'elenco, segnate: chi le cerca le trova
@@ -4776,6 +4776,23 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                'Controlli superati.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+
+_PUNTI_QUOTE: dict = {}
+
+
+def _nel_mondo(pl, p) -> list:
+    """pl.from_local_coords(p) come [x, y, z], ricordato per piano e punto (03/11): le quote si rifanno a ogni modifica
+    e quelle degli sketch non toccati erano migliaia di conversioni uguali. Il piano resta tenuto: il suo id non torna."""
+    k = (id(pl), float(p[0]), float(p[1]))
+    gia = _PUNTI_QUOTE.get(k)
+    if gia is not None and gia[0] is pl:
+        return list(gia[1])
+    g = pl.from_local_coords(p)
+    if len(_PUNTI_QUOTE) > 50000:
+        _PUNTI_QUOTE.clear()
+    _PUNTI_QUOTE[k] = (pl, (g.X, g.Y, g.Z))
+    return [g.X, g.Y, g.Z]
 
 
 def _linee_per_punto(sk) -> dict:

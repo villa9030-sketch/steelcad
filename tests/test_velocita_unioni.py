@@ -189,3 +189,29 @@ def test_tante_svasature_in_un_taglio_uguale_a_prima(monkeypatch):
     prima = _firma(Document.from_dict(s.doc.to_dict()))
     assert dopo == prima
     assert sum(n for k, n, _ in dopo[2] if k.endswith('/svasatura')) >= 18
+
+
+def test_quote_sul_pezzo_ricordate_stessi_numeri():
+    """Le posizioni delle quote (da sketch a mondo) ricordate tra una modifica e l'altra: stessi numeri di
+    from_local_coords, e cambiando la quota si spostano davvero."""
+    import os
+    import tempfile
+    os.environ.setdefault('STEELCAD_HOME', tempfile.mkdtemp())
+    from app import service as SV
+    from app.service import Service
+    from cad_engine.sketch.profile import PLANES
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'P', 'larghezza': 200, 'profondita': 100, 'spessore': 3, 'raggio': 1, 'k': 0.4})['ok']
+    SV._PUNTI_QUOTE.clear()
+    freddo = s._dimensions()
+    caldo = s._dimensions()
+    assert freddo == caldo and freddo
+    pl = PLANES['XY']
+    for p in [(0, 0), (12.5, -3.25), (200, 100)]:
+        g = pl.from_local_coords(p)
+        assert SV._nel_mondo(pl, p) == [g.X, g.Y, g.Z] == SV._nel_mondo(pl, p)
+    d = next(x for x in freddo if x['type'] == 'length' and not x.get('driven'))
+    assert s.set_dimension(d['sketch'], d['dim'], d['value'] + 50)['ok']
+    nuove = {x['dim']: x for x in s._dimensions()}
+    assert nuove[d['dim']]['value'] == pytest.approx(d['value'] + 50)
+    assert nuove[d['dim']]['a'] != d['a'] or nuove[d['dim']]['b'] != d['b']
