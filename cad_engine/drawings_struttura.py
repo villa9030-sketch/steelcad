@@ -34,9 +34,29 @@ def _tipi(distinti: list) -> str:
     return parole[0] if len(parole) == 1 else ', '.join(parole[:-1]) + ' e ' + parole[-1]
 
 
+def _e(parti: list) -> str:
+    """«in basso», «in alto» → «in basso e in alto»; tre o più: «a, b e c»."""
+    return parti[0] if len(parti) == 1 else ', '.join(parti[:-1]) + ' e ' + parti[-1]
+
+
+def _elenco_dove(plurale: str, resto: list) -> str:
+    """«Traversi in basso e in alto», «Fianchi a sinistra e a destra, in alto»: scritto da officina, senza «:» né «;»
+    (04/11). Se i posti hanno una seconda parte diversa («a sinistra, in alto» e «a destra, in basso») non si
+    elencano: '' e resta il plurale."""
+    resto = [r for r in resto if r]
+    if not resto:
+        return ''
+    if all(', ' not in r for r in resto):
+        return f'{plurale} {_e(resto)}'
+    teste, code = zip(*(r.rsplit(', ', 1) if ', ' in r else (r, '') for r in resto))
+    if len(set(code)) == 1 and code[0] and all(', ' not in t for t in teste):
+        return f'{plurale} {_e(list(teste))}, {code[0]}'
+    return ''
+
+
 def nome_riga(nomi: list) -> str:
     """Il nome di una riga della distinta di taglio dai nomi dei suoi tubi: uno solo → quello; tutti dello stesso
-    tipo → «Gambe» o «Montanti: a sinistra; a destra»; tipi diversi → «Traverso e fianchi». Sempre corto: un
+    tipo → «Gambe» o «Montanti a sinistra e a destra»; tipi diversi → «Traverso e fianchi». Sempre corto: un
     carpentiere lo deve leggere al volo (03/11: i pezzi tagliati dagli incroci davano «Traverso in mezzo…; Fianco a
     sinistra, a 383 da terra…», lunghissimo)."""
     distinti = list(dict.fromkeys(_base(n) for n in nomi if _base(n)))
@@ -50,9 +70,8 @@ def nome_riga(nomi: list) -> str:
         plurale = PLURALI.get(tipo, tipo)
         if len(distinti) >= 4 or tipo not in PLURALI:
             return plurale
-        resto = [n[len(tipo):].strip(' ,') for n in distinti]
-        lungo = f'{plurale}: ' + '; '.join(r for r in resto if r)
-        return lungo if len(lungo) <= NOME_CORTO else plurale
+        lungo = _elenco_dove(plurale, [n[len(tipo):].strip(' ,') for n in distinti])
+        return lungo if lungo and len(lungo) <= NOME_CORTO else plurale
     return _tipi(distinti)
 
 

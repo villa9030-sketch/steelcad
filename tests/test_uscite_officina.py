@@ -9,7 +9,7 @@ import pytest
 
 from app.service import Service
 from cad_engine import drawings as D
-from cad_engine.drawings_struttura import nome_riga, righe_taglio
+from cad_engine.drawings_struttura import _elenco_dove, nome_riga, righe_taglio
 
 
 def _telaio():
@@ -43,7 +43,11 @@ def test_nome_riga_da_officina():
     assert nome_riga(['Gamba davanti a sinistra', 'Gamba dietro a destra', 'Gamba davanti a destra',
                       'Gamba dietro a sinistra']) == 'Gambe'
     assert nome_riga(['Fianco in alto (1)']) == 'Fianco in alto'
-    assert nome_riga(['Montante a sinistra', 'Montante a destra']) == 'Montanti: a sinistra; a destra'
+    assert nome_riga(['Montante a sinistra', 'Montante a destra']) == 'Montanti a sinistra e a destra'
+    # 04/11: da officina, senza «:» né «;»
+    assert nome_riga(['Traverso in basso', 'Traverso in alto']) == 'Traversi in basso e in alto'
+    assert _elenco_dove('Fianchi', ['a sinistra, in alto', 'a destra, in alto']) == 'Fianchi a sinistra e a destra, in alto'
+    assert nome_riga(['Fianco a sinistra, in alto', 'Fianco a destra, in basso']) == 'Fianchi'
 
 
 def test_nome_riga_corto_per_i_pezzi_degli_incroci():
