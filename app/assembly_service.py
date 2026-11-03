@@ -538,10 +538,11 @@ class AssemblyMixin:
                      - (np.dot(nA, F['a']['p']) + np.dot(nA, F['a2']['p'])) / 2)
 
     @_in_assieme
-    def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False, a2=None, b2=None) -> dict:
+    def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False, a2=None, b2=None, da_clic=False) -> dict:
         """a: la faccia del pezzo che sta fermo, b: quella del pezzo che si muove. {'inst': id, 'face': indice}.
         In mezzo vuole anche a2 (la faccia opposta del pezzo fermo) e b2 (l'opposta di quello da centrare).
-        offset: la distanza (mm) o l'angolo (gradi); None o vuoto = quello che c'è adesso (non si sposta niente)."""
+        offset: la distanza (mm) o l'angolo (gradi); None o vuoto = quello che c'è adesso (non si sposta niente).
+        da_clic: cliccato dall'utente (le regole di Appoggia per Faccia su faccia: non capovolge)."""
         from app.service import _numero
         if kind not in A.MATE_TYPES:
             return {'ok': False, 'message': f'Accoppiamento "{kind}" sconosciuto.'}
@@ -550,7 +551,7 @@ class AssemblyMixin:
             if a['inst'] == b['inst']:
                 raise A.AssemblyError('Le due facce sono dello stesso pezzo: scegline una su un altro pezzo.')
             serve_a, serve_b, msg = self._SERVE[kind]
-            refs = {'a': a, 'b': b}
+            refs = {'a': self._foro_da_clic(a), 'b': self._foro_da_clic(b)} if kind == 'asse' else {'a': a, 'b': b}
             if kind == 'centra':
                 if not a2 or not b2:
                     raise A.AssemblyError(msg)
@@ -576,7 +577,7 @@ class AssemblyMixin:
                             raise A.AssemblyError(f'In mezzo: le due facce {chi} devono essere parallele e diverse '
                                                   '(i due lati di un U, le due facce di una piastra).')
             terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
-            if kind == 'faccia' and not flip:
+            if kind == 'faccia' and not flip and da_clic:
                 # (03/11) le regole di Appoggia: cliccata la faccia che si vede (sopra), il pezzo non si capovolge,
                 # appoggia con la faccia dall'altra parte della lamiera
                 km = 'a' if rf['a']['inst'] != terra and rf['b']['inst'] == terra else 'b'
@@ -1167,6 +1168,34 @@ class AssemblyMixin:
     def _appoggia_testa(self, foro: dict, vite: str, verso=None) -> bool:
         """La vite (asse Y, sotto della testa a y = 0) appoggiata sulla faccia dove si apre il foro: quella girata
         verso chi guarda (verso: la direzione verso la camera, nel mondo)."""
+        cima = self._cima_del_pacco(foro, verso)
+        if cima is None:
+            return False
+        import build123d as bd
+
+        from cad_engine.topology.naming import _faces_of
+        dove = cima[0]
+        iv = self.asm.instance(vite)
+        Rv = np.array(iv['R'], dtype=float)
+        if float(np.dot(Rv @ np.array([0.0, -1.0, 0.0]), cima[2])) > 0:
+            # la vite nel foro a testa in giù (il risolutore la lascerebbe lì, dentro il pezzo): girata prima
+            ax = A._perp(np.eye(3)[int(np.argmin(np.abs(cima[2])))], cima[2])
+            G = A._rot_axis(ax / np.linalg.norm(ax), math.pi)
+            iv['R'] = (G @ Rv).tolist()
+            iv['T'] = (G @ (np.array(iv['T'], dtype=float) - cima[1]) + cima[1]).tolist()
+        vp = self.asm_parts[iv['file']]
+        sotto = [(bd.Face(f).area, k) for k, f in enumerate(_faces_of(vp.shape))
+                 if A.face_info(vp, f)['kind'] == 'piana' and abs(A.face_info(vp, f)['n'][1] + 1) < 1e-6
+                 and abs(A.face_info(vp, f)['p'][1]) < 1e-6]
+        if not sotto:
+            return False
+        r = self.asm_add_mate('faccia', {'inst': dove[0], 'face': dove[1]}, {'inst': vite, 'face': max(sotto)[1]}, 0)
+        return bool(r.get('ok'))
+
+    def _cima_del_pacco(self, foro: dict, verso=None):
+        """Il pacco dei pezzi attorno al foro (la staffa sulla piastra, una rondella): la faccia in cima dalla parte
+        di «verso» (dove va la testa della vite; col verso contrario: dove va il dado). ((inst, faccia), punto
+        sull'asse a quella quota nel mondo, verso fuori nel mondo) o None."""
         import build123d as bd
         from OCP.BRepAdaptor import BRepAdaptor_Surface
         from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
@@ -1186,7 +1215,7 @@ class AssemblyMixin:
         R = ad.Cylinder().Radius()
         capi = [o + d * ad.FirstVParameter(), o + d * ad.LastVParameter()]
         Rm = np.array(ip['R'], dtype=float)
-        v = np.array(verso if verso else [0, 0, 1], dtype=float)
+        v = np.array(verso if verso is not None and len(verso) else [0, 0, 1], dtype=float)
         scelte = []
         for k, f in enumerate(facce):
             s2 = BRepAdaptor_Surface(f)
@@ -1205,7 +1234,7 @@ class AssemblyMixin:
                     nn = bd.Face(f).normal_at(bd.Vector(*c))
                     scelte.append((float(np.dot(Rm @ np.array([nn.X, nn.Y, nn.Z]), v)), k))
         if not scelte:
-            return False
+            return None
         k_pezzo = max(scelte)[1]
         # il pacco (28/10): se sopra c'è un altro pezzo col foro allineato (la staffa sulla piastra, una rondella),
         # la vite appoggia sull'ultimo pezzo in cima, non dentro quello di mezzo
@@ -1224,14 +1253,7 @@ class AssemblyMixin:
                 break
             dove, h = sopra[0], sopra[1]
             visti.add(dove[0])
-        vp = self.asm_parts[self.asm.instance(vite)['file']]
-        sotto = [(bd.Face(f).area, k) for k, f in enumerate(_faces_of(vp.shape))
-                 if A.face_info(vp, f)['kind'] == 'piana' and abs(A.face_info(vp, f)['n'][1] + 1) < 1e-6
-                 and abs(A.face_info(vp, f)['p'][1]) < 1e-6]
-        if not sotto:
-            return False
-        r = self.asm_add_mate('faccia', {'inst': dove[0], 'face': dove[1]}, {'inst': vite, 'face': max(sotto)[1]}, 0)
-        return bool(r.get('ok'))
+        return dove, asse_w + su * h, su
 
     def _faccia_del_pacco(self, asse_w, su, h, R, visti):
         """Sopra la faccia a quota h (lungo «su», dall'asse del foro): un altro pezzo appoggiato lì (una sua faccia piana
@@ -1321,6 +1343,183 @@ class AssemblyMixin:
             if appoggiate:
                 msg += f', {"appoggiata" if appoggiate == 1 else f"{appoggiate} appoggiate"} sotto la testa'
         return {'ok': True, 'state': self.state(), 'select': messi[0], 'message': msg + '.'}
+
+    # ------------------------------------------------------------ vite nei fori allineati (03/11, secondo giro)
+    # «Foro su foro» e poi la vite: 2 clic (il foro di un pezzo, quello dell'altro) e la vite giusta proposta dal
+    # diametro del foro e dallo spessore del pacco, con il dado sotto; Invio e c'è.
+    _METRICHE = ('M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12', 'M16')
+
+    def _foro_da_clic(self, foro: dict) -> dict:
+        """Il foro cliccato: la parete del foro, o (03/11: i fori sono piccoli a schermo) la faccia attorno, vicino
+        al bordo del foro (entro 10 mm): allora il foro più vicino al punto cliccato ('pt', nel mondo)."""
+        if not foro or foro.get('pt') is None:
+            return foro
+        i = self.asm.instance(foro['inst'])
+        part = self.asm_parts.get(i['file'])
+        if part is None:
+            return foro
+        from cad_engine.assembly_appoggia import _pezzo
+        pz = _pezzo(part)
+        if foro.get('face') is not None and pz.info(int(foro['face']))['kind'] == 'cilindrica':
+            return {'inst': foro['inst'], 'face': int(foro['face'])}
+        q = np.array(i['R'], dtype=float).T @ (np.array(foro['pt'], dtype=float) - np.array(i['T'], dtype=float))
+        migliore = None
+        for k in range(len(pz.facce)):
+            inf = pz.info(k)
+            if inf['kind'] != 'cilindrica' or inf['r'] > 40:
+                continue
+            n, c = np.array(inf['n'], dtype=float), np.array(inf['p'], dtype=float)
+            pts = pz.per_faccia.get(k)
+            if pts is None or not len(pts):
+                continue
+            t = pts @ n
+            if not t.min() - 1.0 <= float(q @ n) <= t.max() + 1.0:      # all'altezza del foro (sulla faccia attorno)
+                continue
+            d = float(np.linalg.norm(A._perp(q - c, n)))
+            if d <= inf['r'] + 10 and (migliore is None or d < migliore[0]):
+                migliore = (d, k)
+        return {'inst': foro['inst'], 'face': migliore[1]} if migliore else {'inst': foro['inst'], 'face': foro.get('face')}
+
+    def _foro_mondo(self, foro: dict):
+        f = self._asm_face(foro['inst'], foro.get('face'))
+        if f['kind'] != 'cilindrica':
+            raise A.AssemblyError('Clicca dentro il foro (la parete tonda del foro).')
+        i = self.asm.instance(foro['inst'])
+        R, T = np.array(i['R'], dtype=float), np.array(i['T'], dtype=float)
+        return f, R @ np.array(f['p']) + T, R @ np.array(f['n'])
+
+    def _coassiali(self, foro_a: dict, foro_b: dict) -> bool:
+        _, pa, na = self._foro_mondo(foro_a)
+        _, pb, nb = self._foro_mondo(foro_b)
+        return bool(np.linalg.norm(np.cross(na, nb)) < 1e-4 and np.linalg.norm(A._perp(pb - pa, na)) < 0.05)
+
+    def _proposta_vite(self, foro_a: dict, foro_b: dict, verso=None) -> dict:
+        from app import libreria
+        fa, _, _ = self._foro_mondo(foro_a)
+        fb = self._foro_mondo(foro_b)[0] if foro_b else fa
+        d = 2 * min(fa['r'], fb['r'])
+        adatte = [m for m in self._METRICHE if float(m[1:]) <= d - 0.2]
+        if not adatte:
+            raise A.AssemblyError(f'Il foro Ø{fmt_mm(round(d, 2))} è troppo piccolo per una vite (da M3 in su).')
+        M = adatte[-1]
+        tipo = 'vite_te' if M in libreria.TE else 'vite_tcei'
+        dado = M in libreria.DADO
+        v = np.array(verso if verso is not None and len(verso) else [0, 0, 1], dtype=float)
+        cima, fondo = self._cima_del_pacco(foro_a, v), self._cima_del_pacco(foro_a, -v)
+        pacco = abs(float(np.dot(cima[1] - fondo[1], cima[2]))) if cima and fondo else 0.0
+        if foro_b and not self._si_toccano(foro_a, foro_b, v):   # non ancora uno sull'altro: i due fori, uno dopo l'altro
+            pacco = self._lungo_foro(foro_a) + self._lungo_foro(foro_b)
+        serve = pacco + (libreria.DADO[M][1] + 2 if dado else 0)
+        lunghe = libreria.CATALOGO[tipo]['lunghezze']
+        L = next((x for x in lunghe if x >= serve - 1e-6), lunghe[-1])
+        testo = f'{libreria.CATALOGO[tipo]["nome"].split(" ISO")[0]} {M}×{L}' + (f' + dado {M}' if dado else '')
+        return {'tipo': tipo, 'misura': M, 'L': L, 'dado': dado, 'foro': round(d, 2), 'pacco': round(pacco, 2),
+                'corta': L < serve - 1e-6, 'testo': testo}
+
+    def _lungo_foro(self, foro: dict) -> float:
+        from cad_engine.assembly_appoggia import _pezzo
+        f, _, _ = self._foro_mondo(foro)
+        pts = _pezzo(self.asm_parts[self.asm.instance(foro['inst'])['file']]).per_faccia.get(int(foro['face']))
+        if pts is None or not len(pts):
+            return 0.0
+        q = pts @ np.array(f['n'], dtype=float)
+        return float(q.max() - q.min())
+
+    def _verso_tra(self, foro_a: dict, foro_b: dict, v):
+        """Da che parte del pezzo del foro a sta (o deve andare) il pezzo del foro b, lungo l'asse: se si
+        sovrappongono, dalla parte di chi guarda (v)."""
+        _, pa, na = self._foro_mondo(foro_a)
+        _, pb, _ = self._foro_mondo(foro_b)
+        d = float(np.dot(pb - pa, na))
+        if abs(d) < (self._lungo_foro(foro_a) + self._lungo_foro(foro_b)) / 2 - 0.01:      # uno dentro l'altro
+            return na if float(np.dot(na, v)) >= 0 else -na
+        return na if d > 0 else -na
+
+    def _si_toccano(self, foro_a: dict, foro_b: dict, v) -> bool:
+        if not self._coassiali(foro_a, foro_b):
+            return False
+        cima = self._cima_del_pacco(foro_a, self._verso_tra(foro_a, foro_b, v))
+        return bool(cima) and cima[0][0] == foro_b['inst']
+
+    def asm_vite_proposta(self, foro: dict, verso=None) -> dict:
+        """Per la finestra Viteria con un foro cliccato: la misura giusta per il foro e la lunghezza per il pacco."""
+        try:
+            return {'ok': True, 'proposta': self._proposta_vite(foro, None, verso)}
+        except Exception as ex:  # noqa: BLE001 - è solo un suggerimento
+            return {'ok': False, 'message': getattr(ex, 'message', str(ex))}
+
+    @_in_assieme
+    def asm_bullone(self, foro_a: dict, foro_b: dict, opz: dict | None = None, prova: bool = False) -> dict:
+        """La vite nei due fori cliccati (di due pezzi): con prova solo la proposta (dal diametro del foro e dallo
+        spessore del pacco); se no allinea i fori se serve, mette la vite appoggiata sotto la testa dal lato che si
+        guarda (opz['verso']) e il dado dall'altra parte. opz: tipo, misura, L, dado (per cambiare la proposta)."""
+        from app import libreria
+        opz = opz or {}
+        try:
+            foro_a, foro_b = self._foro_da_clic(foro_a), self._foro_da_clic(foro_b)
+            if not foro_a or not foro_b or foro_a.get('inst') == foro_b.get('inst'):
+                raise A.AssemblyError('Vite nei fori: clic nel foro di un pezzo, poi nel foro dell’altro.')
+            prop = self._proposta_vite(foro_a, foro_b, opz.get('verso'))
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message}
+        if prova:
+            return {'ok': True, 'proposta': prop, 'allineati': self._coassiali(foro_a, foro_b),
+                    'misure': [m for m in self._METRICHE if m in libreria.CATALOGO[prop['tipo']]['misure']],
+                    'lunghezze': libreria.CATALOGO[prop['tipo']]['lunghezze']}
+        dado = prop['dado'] if opz.get('dado') is None else bool(opz.get('dado'))
+        n0 = len(self.asm_undo)
+        prima = self.asm.to_dict()
+
+        def indietro(r):
+            self.asm.__dict__.update(A.Assembly.from_dict(prima, self.asm.path).__dict__)
+            del self.asm_undo[n0:]
+            self._asm_reload()
+            self.scene_version += 1
+            return {**r, 'ok': False, 'state': self.state()}
+        v = np.array(opz.get('verso') or [0, 0, 1], dtype=float)
+        if not self._coassiali(foro_a, foro_b):
+            r = self.asm_add_mate('asse', foro_a, foro_b)
+            if not r.get('ok'):
+                return indietro(r)
+        if not self._si_toccano(foro_a, foro_b, v):
+            # i due pezzi uno contro l'altro (la vite li stringe): la faccia attorno al foro di b su quella di a
+            dv = self._verso_tra(foro_a, foro_b, v)
+            ca, cb = self._cima_del_pacco(foro_a, dv), self._cima_del_pacco(foro_b, -dv)
+            if ca and cb:
+                r = self.asm_add_mate('faccia', {'inst': ca[0][0], 'face': ca[0][1]}, {'inst': cb[0][0], 'face': cb[0][1]}, 0)
+                if not r.get('ok'):
+                    return indietro(r)
+        prop = self._proposta_vite(foro_a, foro_b, v.tolist())
+        tipo = opz.get('tipo') or prop['tipo']
+        M = opz.get('misura') or prop['misura']
+        L = opz.get('L') or prop['L']
+        r = self.asm_insert_viteria(tipo, M, L, foro_a, {'appoggia': True, 'verso': v.tolist()})
+        if not r.get('ok'):
+            return indietro(r)
+        vite = r['select']
+        if dado:
+            fondo = self._cima_del_pacco(foro_a, -v)
+            r = self.asm_insert_libreria('dado', M, None, foro_a)
+            if not r.get('ok'):
+                return indietro(r)
+            if fondo:
+                from cad_engine.topology.naming import _faces_of
+                idd = self.asm.instance(r['select'])
+                dp = self.asm_parts[idd['file']]
+                # la faccia del dado che guarda già verso il pezzo (girato com'è nel foro): niente capovolte
+                facce = [k for k, f in enumerate(_faces_of(dp.shape)) if A.face_info(dp, f)['kind'] == 'piana'
+                         and float(np.dot(np.array(idd['R']) @ np.array(A.face_info(dp, f)['n']), fondo[2])) < -0.999]
+                if facce:
+                    self.asm_add_mate('faccia', {'inst': fondo[0][0], 'face': fondo[0][1]}, {'inst': r['select'], 'face': facce[0]}, 0)
+        nome = libreria.descrizione(tipo, M, L).split(' cl.')[0] + (f' + dado {M}' if dado else '')
+        del self.asm_undo[n0:]
+        self.asm_undo.append((nome, prima))
+        self.asm_redo.clear()
+        self.asm_dirty = True
+        nomi = {i['id']: i['name'] for i in self.asm.instances}
+        return {'ok': True, 'state': self.state(), 'select': vite,
+                'message': f'{nome} nei fori di «{nomi.get(foro_a["inst"])}» e «{nomi.get(foro_b["inst"])}».'
+                           + ('' if self.asm.warnings else ' Se sposti i pezzi la vite li segue.')}
 
     def _siedi_nel_cono(self, foro, fr, nuovo):
         """La vite a testa svasata nel foro cliccato: la svasatura (il cono coassiale al foro, o il cono cliccato) con la

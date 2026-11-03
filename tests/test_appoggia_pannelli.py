@@ -113,7 +113,7 @@ def test_fatto_rifiuta_se_entra_ancora(pezzi, monkeypatch):
 def test_faccia_su_faccia_cliccando_quella_che_si_vede_non_capovolge(pezzi):
     import numpy as np
     s = _assieme(pezzi['piastra'], pezzi['staffa'])
-    r = s.asm_add_mate('faccia', _faccia(s, 'I1', 'SM1/sopra'), _faccia(s, 'I2', 'SM1/sopra'))
+    r = s.asm_add_mate('faccia', _faccia(s, 'I1', 'SM1/sopra'), _faccia(s, 'I2', 'SM1/sopra'), 0, False, None, None, True)
     assert r['ok'], r.get('message')
     assert np.allclose(s.asm.instance('I2')['R'], np.eye(3), atol=1e-9)        # dritta, la parete in su
     bb = _ingombro(s, 'I2')
@@ -123,7 +123,7 @@ def test_faccia_su_faccia_cliccando_quella_che_si_vede_non_capovolge(pezzi):
 
 def test_faccia_su_faccia_con_la_punta_dell_ala_resta_come_prima(pezzi):
     s = _assieme(pezzi['piastra'], pezzi['staffa'])
-    r = s.asm_add_mate('faccia', _faccia(s, 'I1', 'SM1/sopra'), _faccia(s, 'I2', 'SM1/FL1/punta'))
+    r = s.asm_add_mate('faccia', _faccia(s, 'I1', 'SM1/sopra'), _faccia(s, 'I2', 'SM1/FL1/punta'), 0, False, None, None, True)
     assert r['ok']
     assert s.asm.mates[0]['b']['name'] == 'SM1/FL1/punta'
     assert 'Nessuna' in s.asm_interferences()['message']
@@ -131,7 +131,7 @@ def test_faccia_su_faccia_con_la_punta_dell_ala_resta_come_prima(pezzi):
 
 def test_faccia_su_faccia_sotto_contro_sotto_non_entra(pezzi):
     s = _assieme(pezzi['vaschetta'], pezzi['staffa'])
-    r = s.asm_add_mate('faccia', _faccia(s, 'I1', 'SM1/sotto'), _faccia(s, 'I2', 'SM1/sotto'))
+    r = s.asm_add_mate('faccia', _faccia(s, 'I1', 'SM1/sotto'), _faccia(s, 'I2', 'SM1/sotto'), 0, False, None, None, True)
     assert r['ok']
     assert s.asm.mates[0]['b']['name'] == 'SM1/FL1/punta'           # appesa sotto con la punta dell'ala, fuori
     assert _ingombro(s, 'I2')[5] == 0

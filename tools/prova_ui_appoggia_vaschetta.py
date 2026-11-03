@@ -118,7 +118,7 @@ try:
         # 4. Faccia su faccia: la staffa tolta dagli accoppiamenti e rimessa cliccando la faccia che si vede
         msg = pg.evaluate(aggiorna, ['asm_add_mate', ['faccia', {'inst': 'I1', 'face': pg.evaluate(
             "window.__steelcad.objs.get('I1').data.faces.find(f => f.name === 'SM1/sotto').index")},
-            {'inst': 'I4', 'face': pg.evaluate("window.__steelcad.objs.get('I4').data.faces.find(f => f.name === 'SM1/sotto').index")}]])
+            {'inst': 'I4', 'face': pg.evaluate("window.__steelcad.objs.get('I4').data.faces.find(f => f.name === 'SM1/sotto').index")}, 0, False, None, None, True]])
         time.sleep(0.8)
         m = pg.evaluate("window.__steelcad.objs.get('I4').data.matrix")
         pg.screenshot(path=str(out / 'v5_faccia_su_faccia_sotto.png'))

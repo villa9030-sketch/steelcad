@@ -1388,6 +1388,17 @@ body.in-prova #sk-foot { display: none !important; }
 .ant-stato .ant-sol { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 #props .btn:disabled, #modal-box .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
 
+/* Vite nei fori (03/11): come il pannello di Appoggia */
+#vitefori { position: fixed; top: calc(36px + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+#vitefori .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
+#vitefori .ap-testa b { font-size: 14px; white-space: nowrap; }
+#vitefori .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#vitefori .ap-riga { display: flex; align-items: center; gap: 8px; }
+#vitefori .ap-riga select { width: auto; }
+#vitefori .ap-lab { color: var(--ink-2); font-size: 12.5px; }
+#vitefori .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
+#vitefori .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
 /* Appoggia (03/11): il pannello piccolo in alto a destra della vista */
 #appoggia { position: fixed; top: calc(36px + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }

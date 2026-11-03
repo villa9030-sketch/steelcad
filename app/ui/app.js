@@ -3220,7 +3220,7 @@ const ASM = { tool: null, clic: [] };
 // ogni accoppiamento: il nome e cosa cliccare, nell'ordine (il pezzo fermo prima); misura = parte dal valore che c'è
 const MATE_UI = {
   faccia: { nome: 'Faccia su faccia', clic: ['la faccia del pezzo che sta fermo', 'la faccia dell’altro pezzo'], val: 0 },
-  asse: { nome: 'Foro su foro', clic: ['il foro del pezzo che sta fermo', 'il foro dell’altro pezzo'], val: 0 },
+  asse: { nome: 'Foro su foro', clic: ['il foro del pezzo che sta fermo', 'il foro dell’altro pezzo (poi ti propongo la vite)'], val: 0 },
   distanza: { nome: 'Distanza', clic: ['una faccia del pezzo che sta fermo', 'la faccia dell’altro pezzo'], val: null },
   angolo: { nome: 'Angolo', clic: ['una faccia del pezzo che sta fermo', 'una faccia dell’altro pezzo'], val: null },
   tangente: { nome: 'Tangente', clic: ['la faccia (o il tubo) del pezzo che sta fermo', 'il tubo (o la faccia) dell’altro pezzo'], val: 0 },
@@ -3306,7 +3306,12 @@ async function viteriaDialog() {
   if (!r.ok) { toast(r.message, 'err'); return; }
   const cat = r.catalogo, foro = sel?.id && sel.face != null && objs.get(sel.id)?.data.kind === 'instance' ? { inst: sel.id, face: sel.face } : null;
   const opz = (lst, v) => lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('');
-  const ultimo = viteriaDialog.ultimo || { tipo: 'vite_tcei', misura: 'M6', L: 20 };
+  let ultimo = viteriaDialog.ultimo || { tipo: 'vite_tcei', misura: 'M6', L: 20 };
+  if (foro) {                                          // (03/11) la misura giusta per il foro cliccato e il pacco
+    const vv = camera.position.clone().sub(controls.target).normalize();
+    const pr = await call('asm_vite_proposta', foro, [vv.x, vv.y, vv.z]);
+    if (pr?.ok) ultimo = { ...ultimo, tipo: ultimo.tipo === 'vite_tspei' ? 'vite_tspei' : pr.proposta.tipo, misura: pr.proposta.misura, L: pr.proposta.L };
+  }
   modal(`<h3>Viteria</h3>
     <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
     <div class="form"><label style="grid-column:1/-1">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
@@ -3380,6 +3385,7 @@ function asmClick(ev) {
     h = pick(ev);
     if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
     c = { inst: h.id, face: h.face };
+    if (ASM.tool === 'asse') c.pt = [h.point.x, h.point.y, h.point.z];   // anche cliccando vicino al foro (è piccolo)
   }
   const u = u0, k = k0;
   const daFermo = k < u.clic.length / 2;                // le prime metà dei clic sono sul pezzo fermo
@@ -3391,14 +3397,59 @@ function asmClick(ev) {
   const cc = ASM.clic, tipo = ASM.tool;
   const [a, a2, b, b2] = cc.length === 4 ? cc : [cc[0], null, cc[1], null];
   asmTool(tipo);                                       // resta attivo per un altro accoppiamento
+  if (tipo === 'asse') { viteFori(a, b); return; }    // foro su foro: la vite già proposta, Invio e c'è
   inCoda(async () => {
-    const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2);
+    const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2, true);
     if (await apply(r, 'Accoppiato.') && r.select) {
       await select(r.select);
       if (u.val === null) setTimeout(() => { const c = $('#m-off') || $('#m-ang'); if (c) { c.focus(); c.select(); } }, 60);   // a pannello pronto
     }
   });
 }
+// ===================================================================== Vite nei fori (03/11, secondo giro)
+// Foro su foro: clic nel foro di un pezzo, poi in quello dell'altro → un pannello piccolo con la vite giusta per il
+// foro (Ø13 → M12) e lunga quanto il pacco più il dado: Invio la mette (e allinea i pezzi), «Solo allinea» come prima.
+const VF = { el: null, a: null, b: null, p: null };
+function viteForiChiudi() { VF.el?.remove(); VF.el = null; }
+async function viteFori(a, b) {
+  viteForiChiudi();
+  const verso = camera.position.clone().sub(controls.target).normalize(), v = [verso.x, verso.y, verso.z];
+  const r = await call('asm_bullone', a, b, { verso: v }, true);
+  if (!r.ok) {                                        // non è un foro (o troppo piccolo): foro su foro come prima
+    inCoda(async () => { const x = await call('asm_add_mate', 'asse', a, b, 0, false, null, null, true);
+      if (await apply(x, 'Accoppiato.') && x.select) await select(x.select); });
+    return;
+  }
+  const p = r.proposta, nomi = [a, b].map(f => objs.get(f.inst)?.data.name || f.inst);
+  const el = document.createElement('div');
+  el.id = 'vitefori';
+  const sel = (id, lst, v) => `<select class="field" id="${id}">${lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('')}</select>`;
+  el.innerHTML = `<div class="ap-testa"><b>Vite nei fori</b><small>«${esc(nomi[0])}» e «${esc(nomi[1])}»</small></div>
+    <div class="ap-riga"><span class="ap-lab">${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</span>${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="hint">mm</span>
+      ${p.dado ? '<label class="check"><input type="checkbox" id="vf-d" checked> con dado</label>' : ''}</div>
+    <p class="ap-dist">Foro Ø${mmTesto(p.foro)} → ${esc(p.misura)} · pacco ${mmTesto(p.pacco)} mm${r.allineati ? '' : ' · i pezzi si mettono uno contro l’altro, fori allineati'}</p>
+    ${p.corta ? '<p class="ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}
+    <div class="acts"><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite">Solo allinea</button><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
+  document.body.appendChild(el);
+  VF.el = el; VF.a = a; VF.b = b; VF.p = p; VF.v = v;
+  $('#vf-no').onclick = viteForiChiudi;
+  $('#vf-solo').onclick = () => { viteForiChiudi(); inCoda(async () => {
+    const x = await call('asm_add_mate', 'asse', a, b, 0, false, null, null, true);
+    if (await apply(x, 'Fori allineati.') && x.select) await select(x.select); }); };
+  $('#vf-ok').onclick = viteForiFatto;
+}
+function viteForiFatto() {
+  if (!VF.el) return;
+  const opz = { misura: $('#vf-m').value, L: +$('#vf-l').value, dado: $('#vf-d') ? $('#vf-d').checked : false, verso: VF.v };
+  const a = VF.a, b = VF.b;
+  viteForiChiudi();
+  inCoda(async () => { const r = await call('asm_bullone', a, b, opz, false); if (await apply(r, r.message) && r.select) await select(r.select); });
+}
+window.addEventListener('keydown', e => {
+  if (!VF.el || e.target.closest?.('input:not([type=checkbox]), textarea')) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); viteForiChiudi(); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); viteForiFatto(); }
+}, true);
 // ===================================================================== Appoggia (03/11)
 // Stefano: «appoggia e centra in un comando». Clic su una faccia del pezzo da mettere, poi su quella del pezzo fermo:
 // si appoggia senza capovolgersi né entrare e parte al centro. Un pannello piccolo per «al centro / su un bordo / a
