@@ -312,6 +312,7 @@ function buildScene(sc) {
   for (const g of ctxGeo) g.dispose();
   ctxGeo = [];
   model.clear(); objs.clear();
+  interfPulisci();                                 // le interferenze di prima non valgono più
   if (saldGroup) model.add(saldGroup);             // le saldature restano sul pezzo
   for (const d of sc.objects) {
     if (d.kind === 'context') {
@@ -1462,7 +1463,7 @@ function placeDims() {
   // i contenitori presi così: placeDims può girare prima che il resto del file abbia dichiarato nodesBox e misBox
   for (const box of [dimsBox, $('#nodes'), $('#mis-box')]) if (box) box.style.visibility = via ? 'hidden' : '';
   if (via) return;
-  for (const o of [...dimEls, ...nodeEls, ...(misEls || [])]) {
+  for (const o of [...dimEls, ...nodeEls, ...(misEls || []), ...(interfEls || [])]) {
     const p = _pv.copy(o.at).project(camera), el = o.el;
     const fuori = p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1;
     if (o.fuori !== fuori) { el.style.display = fuori ? 'none' : ''; o.fuori = fuori; }
@@ -1598,6 +1599,7 @@ async function apply(res, okMsg) {
     S = res.state;
     renderPanels();
     if (S.scene_version !== sceneVersion && S.mode === 'assembly' && S.geo && S.geo === geoCaricata && S.poses) {
+      interfPulisci();                              // le interferenze in rosso erano di prima che si muovesse
       spostaPezzi(S.poses);                         // si è mosso solo qualcosa: niente scena intera
       sceneVersion = S.scene_version;
       camera.up.copy(altoVista());
@@ -2459,6 +2461,7 @@ function miniBarra(s) {
     barretta(s.title, [['open', 'Apri il pezzo', () => apriPezzoAssieme(id)],
       ['joint', piana ? 'Appoggia (da questa faccia)' : 'Appoggia', () => appoggiaDa(id, piana ? faccia : null)],
       ['move', 'Sposta', () => spostaDa()],
+      ['pattern_rect', 'In fila', () => ripetiApri(id)],
       ...(piana ? [['sketch', 'Pezzo nuovo qui (su questa faccia)', () => nuovoPezzoDialog(s)]] : []),
       ['fastener', faccia != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
       ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
@@ -3558,7 +3561,7 @@ const ASM = { tool: null, clic: [] };
 // ogni accoppiamento: il nome e cosa cliccare, nell'ordine (il pezzo fermo prima); misura = parte dal valore che c'è
 const MATE_UI = {
   faccia: { nome: 'Faccia su faccia', clic: ['la faccia del pezzo che sta fermo', 'la faccia dell’altro pezzo'], val: 0 },
-  asse: { nome: 'Foro su foro', clic: ['il foro del pezzo che sta fermo', 'il foro dell’altro pezzo'], val: 0 },
+  asse: { nome: 'Foro su foro', clic: ['il foro del pezzo che sta fermo', 'il foro dell’altro pezzo (poi ti propongo la vite)'], val: 0 },
   distanza: { nome: 'Distanza', clic: ['una faccia del pezzo che sta fermo', 'la faccia dell’altro pezzo'], val: null },
   angolo: { nome: 'Angolo', clic: ['una faccia del pezzo che sta fermo', 'una faccia dell’altro pezzo'], val: null },
   tangente: { nome: 'Tangente', clic: ['la faccia (o il tubo) del pezzo che sta fermo', 'il tubo (o la faccia) dell’altro pezzo'], val: 0 },
@@ -3644,7 +3647,12 @@ async function viteriaDialog() {
   if (!r.ok) { toast(r.message, 'err'); return; }
   const cat = r.catalogo, foro = sel?.id && sel.face != null && objs.get(sel.id)?.data.kind === 'instance' ? { inst: sel.id, face: sel.face } : null;
   const opz = (lst, v) => lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('');
-  const ultimo = viteriaDialog.ultimo || { tipo: 'vite_tcei', misura: 'M6', L: 20 };
+  let ultimo = viteriaDialog.ultimo || { tipo: 'vite_tcei', misura: 'M6', L: 20 };
+  if (foro) {                                          // (03/11) la misura giusta per il foro cliccato e il pacco
+    const vv = camera.position.clone().sub(controls.target).normalize();
+    const pr = await call('asm_vite_proposta', foro, [vv.x, vv.y, vv.z]);
+    if (pr?.ok) ultimo = { ...ultimo, tipo: ultimo.tipo === 'vite_tspei' ? 'vite_tspei' : pr.proposta.tipo, misura: pr.proposta.misura, L: pr.proposta.L };
+  }
   modal(`<h3>Viteria</h3>
     <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
     <div class="form"><label style="grid-column:1/-1">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
@@ -3718,6 +3726,7 @@ function asmClick(ev) {
     h = pick(ev);
     if (!h || h.face == null) { toast('Clicca una faccia di un pezzo.', 'err'); return; }
     c = { inst: h.id, face: h.face };
+    if (ASM.tool === 'asse') c.pt = [h.point.x, h.point.y, h.point.z];   // anche cliccando vicino al foro (è piccolo)
   }
   const u = u0, k = k0;
   const daFermo = k < u.clic.length / 2;                // le prime metà dei clic sono sul pezzo fermo
@@ -3729,14 +3738,160 @@ function asmClick(ev) {
   const cc = ASM.clic, tipo = ASM.tool;
   const [a, a2, b, b2] = cc.length === 4 ? cc : [cc[0], null, cc[1], null];
   asmTool(tipo);                                       // resta attivo per un altro accoppiamento
+  if (tipo === 'asse') { viteFori(a, b); return; }    // foro su foro: la vite già proposta, Invio e c'è
   inCoda(async () => {
-    const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2);
+    const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2, true);
     if (await apply(r, 'Accoppiato.') && r.select) {
       await select(r.select);
       if (u.val === null) setTimeout(() => { const c = $('#m-off') || $('#m-ang'); if (c) { c.focus(); c.select(); } }, 60);   // a pannello pronto
     }
   });
 }
+// ===================================================================== In fila: lo stesso pezzo più volte (03/11)
+// «la stessa staffa × 4»: quante in tutto, a che passo (o distribuite tra la prima e l'ultima) e da che parte; le
+// copie si vedono subito, trasparenti; Invio le mette (bloccate all'originale: la fila lo segue).
+const RIP = { el: null, id: null, ghost: new THREE.Group(), t: null };
+scene.add(RIP.ghost);
+const RIP_MAT = new THREE.MeshBasicMaterial({ color: 0x5B9BFF, transparent: true, opacity: 0.35, depthWrite: false });
+function ripetiChiudi() { RIP.el?.remove(); RIP.el = null; RIP.ghost.clear(); ridisegna(); }
+function ripetiOpz() {
+  const v = id => RIP.el.querySelector(id).value.trim();
+  const sul = RIP.el.querySelector('#rp-modo .on')?.dataset.m === 'lung';
+  return { quante: v('#rp-n'), passo: sul ? null : v('#rp-p'), lung: sul ? v('#rp-p') : null, verso: RIP.el.querySelector('#rp-verso .on')?.dataset.v || 'destra' };
+}
+const RIP_VERSI = { destra: [1, 0, 0], sinistra: [-1, 0, 0], dietro: [0, 1, 0], davanti: [0, -1, 0], su: [0, 0, 1], giu: [0, 0, -1] };
+function ripetiAnteprima() {
+  RIP.ghost.clear();
+  const o = objs.get(RIP.id); if (!o || !RIP.el) return;
+  const op = ripetiOpz(), n = parseInt(op.quante, 10), num = x => parseFloat(String(x || '').replace(',', '.'));
+  const passo = op.lung != null ? num(op.lung) / Math.max(1, n - 1) : num(op.passo);
+  const info = RIP.el.querySelector('#rp-info');
+  if (!(n >= 2 && n <= 100) || !(passo > 0)) { info.textContent = 'Scrivi quante (da 2) e il passo in mm.'; ridisegna(); return; }
+  const d = RIP_VERSI[op.verso];
+  for (let k = 1; k < n; k++) {
+    const m = new THREE.Mesh(o.mesh.geometry, RIP_MAT);
+    m.matrixAutoUpdate = false;
+    m.matrix.copy(o.mesh.matrixWorld).premultiply(new THREE.Matrix4().makeTranslation(d[0] * passo * k, d[1] * passo * k, d[2] * passo * k));
+    RIP.ghost.add(m);
+  }
+  info.textContent = `${n} in tutto (questo + ${n - 1}), passo ${mmTesto(passo)} mm: la fila va ${mmTesto(passo * (n - 1))} mm verso ${op.verso === 'giu' ? 'giù' : op.verso}.`;
+  ridisegna();
+}
+function ripetiApri(id) {
+  ripetiChiudi();
+  const o = objs.get(id); if (!o) return;
+  const el = document.createElement('div');
+  el.id = 'ripeti';
+  const versi = Object.keys(RIP_VERSI).map(v => `<button data-v="${v}" class="${v === 'destra' ? 'on' : ''}">${v === 'giu' ? 'giù' : v}</button>`).join('');
+  el.innerHTML = `<div class="ap-testa"><b>In fila</b><small>«${esc(o.data.name)}» più volte</small></div>
+    <div class="ap-riga"><span class="ap-lab">Quante in tutto</span><span class="inp"><input class="field" id="rp-n" value="4"></span></div>
+    <div class="ap-riga"><span class="ap-lab">Verso</span><span class="seg" id="rp-verso">${versi}</span></div>
+    <div class="ap-riga"><span class="seg" id="rp-modo"><button data-m="passo" class="on">Passo</button><button data-m="lung">Dalla prima all’ultima</button></span>
+      <span class="inp"><input class="field" id="rp-p" value="100"><i>mm</i></span></div>
+    <p class="ap-dist" id="rp-info"></p>
+    <div class="acts"><button class="btn" id="rp-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="rp-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  document.body.appendChild(el);
+  RIP.el = el; RIP.id = id;
+  el.querySelectorAll('#rp-verso button, #rp-modo button').forEach(b => { b.onclick = () => {
+    b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); ripetiAnteprima(); }; });
+  el.querySelectorAll('input').forEach(i => { i.oninput = () => { clearTimeout(RIP.t); RIP.t = setTimeout(ripetiAnteprima, 60); }; });
+  $('#rp-no').onclick = ripetiChiudi;
+  $('#rp-ok').onclick = ripetiFatto;
+  ripetiAnteprima();
+  setTimeout(() => { const i = $('#rp-n'); i?.focus(); i?.select(); }, 0);
+}
+function ripetiFatto() {
+  if (!RIP.el) return;
+  const op = ripetiOpz(), id = RIP.id;
+  ripetiChiudi();
+  inCoda(async () => { const r = await call('asm_ripeti', id, op.quante, op.passo, op.verso, op.lung); await apply(r, r.message); });
+}
+window.addEventListener('keydown', e => {
+  if (!RIP.el) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); ripetiChiudi(); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); ripetiFatto(); }
+}, true);
+window.__ripeti = { apri: ripetiApri, get copie() { return RIP.ghost.children.length; } };
+// ===================================================================== Interferenze in rosso (03/11)
+// Il pezzo in comune tra due pezzi che entrano uno nell'altro, rosso sopra tutto, con un cartellino coi due nomi e
+// quanto entra. Resta finché non cambia l'assieme (o si rifà il controllo); clic sul cartellino = sceglie i due pezzi.
+const interfGroup = new THREE.Group();
+scene.add(interfGroup);
+var interfEls = [];                                 // var: placeDims la legge
+const interfBox = document.createElement('div');
+interfBox.id = 'interf-box';
+document.getElementById('dims').after(interfBox);
+const INTERF_MAT = new THREE.MeshBasicMaterial({ color: 0xE5484D, transparent: true, opacity: 0.75, depthTest: false, side: THREE.DoubleSide });
+function interfPulisci() {
+  interfGroup.traverse(x => x.geometry?.dispose()); interfGroup.clear();
+  interfBox.innerHTML = ''; interfEls = [];
+}
+function interfMostra(lista) {
+  interfPulisci();
+  for (const x of lista) {
+    if (x.mesh?.positions?.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(x.mesh.positions, 3));
+      g.setIndex(x.mesh.indices);
+      const m = new THREE.Mesh(g, INTERF_MAT); m.renderOrder = 40; interfGroup.add(m);
+    }
+    if (!x.centro) continue;
+    const el = document.createElement('div');
+    el.className = 'dim interf';
+    const cm3 = x.volume / 1000;
+    el.textContent = `${x.nomi[0]} ↔ ${x.nomi[1]}: ${cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(x.volume) + ' mm³'}`;
+    el.title = 'Questi due pezzi entrano uno nell’altro: clic per sceglierli';
+    el.onclick = ev => { ev.stopPropagation(); sel = { id: x.a, ids: [x.a, x.b] }; paint(); renderTree(); };
+    interfBox.appendChild(el);
+    interfEls.push({ el, at: new THREE.Vector3(...x.centro) });
+  }
+  placeDims(); ridisegna();
+}
+window.__interf = { mostra: interfMostra, pulisci: interfPulisci, get n() { return interfGroup.children.length; } };
+// ===================================================================== Vite nei fori (03/11, secondo giro)
+// Foro su foro: clic nel foro di un pezzo, poi in quello dell'altro → un pannello piccolo con la vite giusta per il
+// foro (Ø13 → M12) e lunga quanto il pacco più il dado: Invio la mette (e allinea i pezzi), «Solo allinea» come prima.
+const VF = { el: null, a: null, b: null, p: null };
+function viteForiChiudi() { VF.el?.remove(); VF.el = null; }
+async function viteFori(a, b) {
+  viteForiChiudi();
+  const verso = camera.position.clone().sub(controls.target).normalize(), v = [verso.x, verso.y, verso.z];
+  const r = await call('asm_bullone', a, b, { verso: v }, true);
+  if (!r.ok) {                                        // non è un foro (o troppo piccolo): foro su foro come prima
+    inCoda(async () => { const x = await call('asm_add_mate', 'asse', a, b, 0, false, null, null, true);
+      if (await apply(x, 'Accoppiato.') && x.select) await select(x.select); });
+    return;
+  }
+  const p = r.proposta, nomi = [a, b].map(f => objs.get(f.inst)?.data.name || f.inst);
+  const el = document.createElement('div');
+  el.id = 'vitefori';
+  const sel = (id, lst, v) => `<select class="field" id="${id}">${lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('')}</select>`;
+  el.innerHTML = `<div class="ap-testa"><b>Vite nei fori</b><small>«${esc(nomi[0])}» e «${esc(nomi[1])}»</small></div>
+    <div class="ap-riga"><span class="ap-lab">${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</span>${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="hint">mm</span>
+      ${p.dado ? '<label class="check"><input type="checkbox" id="vf-d" checked> con dado</label>' : ''}</div>
+    <p class="ap-dist">Foro Ø${mmTesto(p.foro)} → ${esc(p.misura)} · pacco ${mmTesto(p.pacco)} mm${r.allineati ? '' : ' · i pezzi si mettono uno contro l’altro, fori allineati'}</p>
+    ${p.corta ? '<p class="ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}
+    <div class="acts"><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite">Solo allinea</button><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
+  document.body.appendChild(el);
+  VF.el = el; VF.a = a; VF.b = b; VF.p = p; VF.v = v;
+  $('#vf-no').onclick = viteForiChiudi;
+  $('#vf-solo').onclick = () => { viteForiChiudi(); inCoda(async () => {
+    const x = await call('asm_add_mate', 'asse', a, b, 0, false, null, null, true);
+    if (await apply(x, 'Fori allineati.') && x.select) await select(x.select); }); };
+  $('#vf-ok').onclick = viteForiFatto;
+}
+function viteForiFatto() {
+  if (!VF.el) return;
+  const opz = { misura: $('#vf-m').value, L: +$('#vf-l').value, dado: $('#vf-d') ? $('#vf-d').checked : false, verso: VF.v };
+  const a = VF.a, b = VF.b;
+  viteForiChiudi();
+  inCoda(async () => { const r = await call('asm_bullone', a, b, opz, false); if (await apply(r, r.message) && r.select) await select(r.select); });
+}
+window.addEventListener('keydown', e => {
+  if (!VF.el || e.target.closest?.('input:not([type=checkbox]), textarea')) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); viteForiChiudi(); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); viteForiFatto(); }
+}, true);
 // ===================================================================== Appoggia (03/11)
 // Stefano: «appoggia e centra in un comando». Clic su una faccia del pezzo da mettere, poi su quella del pezzo fermo:
 // si appoggia senza capovolgersi né entrare e parte al centro. Un pannello piccolo per «al centro / su un bordo / a
@@ -3756,7 +3911,9 @@ function appoggiaClick(ev) {
 function appoggiaApri(mobile, fermo) {
   appoggiaChiudi(true);
   APP.mobile = mobile; APP.fermo = fermo; APP.dove = 'centro'; APP.info = null;
-  APP.opz = { u: { modo: 'centro', mm: 0 }, v: { modo: 'centro', mm: 0 }, gira: 0, capovolgi: false };
+  // auto: alla prima prova, se così entra nell'altro, Radius prova da solo a girarlo o capovolgerlo
+  APP.opz = { u: { modo: 'centro', mm: 0 }, v: { modo: 'centro', mm: 0 }, gira: 0, capovolgi: false, auto: true };
+  APP.cambio = null;
   APP.prima = {};
   for (const o of objs.values()) if (o.data.kind === 'instance') APP.prima[o.data.id] = [...o.data.matrix];
   const el = document.createElement('div');
@@ -3786,6 +3943,9 @@ async function appoggiaProva() {
   }
   spostaPezzi({ ...APP.prima, ...r.pose });
   const prima = !APP.info;
+  delete APP.opz.auto;
+  if (r.scelto) { APP.opz.gira = r.scelto.gira || 0; APP.opz.capovolgi = !!r.scelto.capovolgi; APP.cambio = r.cambio; }
+  else if (!prima) APP.cambio = null;
   APP.info = r;
   if (prima) appoggiaDisegna(); else appoggiaDistanze();
 }
@@ -3794,9 +3954,22 @@ function appoggiaDistanze() {
   if (!r || !el) return;
   el.querySelector('.ap-err').hidden = true;
   el.querySelector('.ap-dist').innerHTML = 'Dai bordi: ' + ['u', 'v'].map(k => { const d = r.dirs[k];
-    return `${esc(d.basso)} <b>${mmTesto(d.da_basso)}</b> · ${esc(d.alto)} <b>${mmTesto(d.da_alto)}</b>`; }).join(' · ') + ' mm';
+    const q = v => v < -0.05 ? `sporge <b>${mmTesto(-v)}</b>` : `<b>${mmTesto(v)}</b>`;      // più grande della faccia
+    return `${esc(d.basso)} ${q(d.da_basso)} · ${esc(d.alto)} ${q(d.da_alto)}`; }).join(' · ') + ' mm';
   const liberi = ['u', 'v'].filter(k => !r.dirs[k].tiene).map(k => `${r.dirs[k].basso}/${r.dirs[k].alto}`);
-  el.querySelector('.ap-nota').textContent = liberi.length ? `${liberi.join(', ')}: non c’è un lato piano per tenerlo; resta lì ma non segue i pezzi se cambiano.` : '';
+  const note = [];
+  if (APP.cambio) note.push(`${APP.cambio === 'Capovolgi' ? 'Capovolto' : APP.cambio === 'Gira di 90°' ? 'Girato di 90°' : 'Capovolto e girato'}: così ci sta senza entrare in «${r.nome_fermo}».`);
+  if (r.alzato > 0) note.push(`Sulla faccia non ci sta: lo poso su quello che tocca prima, ${mmTesto(r.alzato)} mm più su.`);
+  if (liberi.length) note.push(`${liberi.join(', ')}: non c’è un lato piano per tenerlo; resta lì ma non segue i pezzi se cambiano.`);
+  el.querySelector('.ap-nota').textContent = note.join(' ');
+  const prop = el.querySelector('.ap-prop');
+  prop.innerHTML = (r.proposte || []).length ? 'Ci sta giù se: ' + r.proposte.map((p, i) => `<button class="btn" data-prop="${i}">${esc(p.testo)}</button>`).join(' ') : '';
+  prop.querySelectorAll('[data-prop]').forEach(b => { b.onclick = () => {
+    const p = r.proposte[+b.dataset.prop].opz;
+    APP.opz.gira = p.gira || 0; APP.opz.capovolgi = !!p.capovolgi;
+    $('#ap-capo')?.classList.toggle('on', APP.opz.capovolgi);
+    appoggiaProva();
+  }; });
   const err = el.querySelector('.ap-err');
   if (r.dentro > 1) {
     const cm3 = r.dentro / 1000;
@@ -3817,7 +3990,7 @@ function appoggiaDisegna() {
   el.innerHTML = `<div class="ap-testa"><b>Appoggia «${esc(r.nome_mobile)}»</b><small>su «${esc(r.nome_fermo)}»</small></div>
     <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura (dai bordi)')}</div>
     ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
-    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-err" hidden></p>
+    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-prop"></p><p class="ap-err" hidden></p>
     <div class="ap-riga"><button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia">Gira di 90°</button>
       <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro">Capovolgi</button></div>
     <div class="acts"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;
@@ -6244,9 +6417,11 @@ const CMDS = [
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
     if (!r.ok) { toast(r.message, 'err'); return; }
+    interfPulisci();
     if (!r.interferences.length) { toast(r.message); return; }
-    sel = { id: r.interferences[0].a, ids: [...new Set(r.interferences.flatMap(x => [x.a, x.b]))] }; paint(); renderTree();
-    toast('Interferenze: ' + r.interferences.map(x => x.label).join(' · '), 'err');
+    clearSelection();                               // il rosso si vede meglio senza i pezzi scelti (e la barretta) sopra
+    interfMostra(r.interferences);
+    toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, col nome dei due pezzi (clic sul nome per sceglierli).`, 'err');
   }) },
   { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },

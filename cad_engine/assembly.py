@@ -719,8 +719,9 @@ def placed_shape(part: Part, R, T):
     return bd.Shape.cast(part.shape).moved(bd.Location(tr))
 
 
-def interferences(asm: Assembly, parts: dict, tol: float = 1e-3) -> list:
-    """Le coppie di istanze che si compenetrano, con il volume in comune (mm³)."""
+def interferences(asm: Assembly, parts: dict, tol: float = 1e-3, forme: bool = False) -> list:
+    """Le coppie di istanze che si compenetrano, con il volume in comune (mm³); con forme anche il pezzo in comune
+    ('forma', nel mondo: per farlo vedere in rosso)."""
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
     forme = []
     for i in asm.instances:
@@ -741,5 +742,5 @@ def interferences(asm: Assembly, parts: dict, tol: float = 1e-3) -> list:
             except Exception:  # noqa: BLE001
                 continue
             if v > tol:
-                out.append({'a': ia, 'b': ib, 'volume': v})
+                out.append({'a': ia, 'b': ib, 'volume': v, **({'forma': c} if forme else {})})
     return out

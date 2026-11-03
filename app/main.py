@@ -603,8 +603,8 @@ class Api:
     def asm_set(self, iid, fields):
         return self._call(self._svc.asm_set, iid, fields)
 
-    def asm_add_mate(self, kind, a, b, offset=0, flip=False, a2=None, b2=None):
-        return self._call(self._svc.asm_add_mate, kind, a, b, offset, flip, a2, b2)
+    def asm_add_mate(self, kind, a, b, offset=0, flip=False, a2=None, b2=None, da_clic=False):
+        return self._call(self._svc.asm_add_mate, kind, a, b, offset, flip, a2, b2, da_clic)
 
     def asm_rinomina(self, iid, nome):
         return self._call(self._svc.asm_rinomina, iid, nome)
@@ -671,6 +671,15 @@ class Api:
 
     def asm_insert_viteria(self, tipo, misura, lunghezza=None, foro=None, opz=None):
         return self._call(self._svc.asm_insert_viteria, tipo, misura, lunghezza, foro, opz)
+
+    def asm_bullone(self, foro_a, foro_b, opz=None, prova=False):
+        return self._call(self._svc.asm_bullone, foro_a, foro_b, opz, prova)
+
+    def asm_vite_proposta(self, foro, verso=None):
+        return self._call(self._svc.asm_vite_proposta, foro, verso)
+
+    def asm_ripeti(self, iid, quante, passo, verso='destra', su_lunghezza=None):
+        return self._call(self._svc.asm_ripeti, iid, quante, passo, verso, su_lunghezza)
 
     def asm_fori_uguali(self, inst, face):
         return self._call(self._svc.asm_fori_uguali, inst, face)

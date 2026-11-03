@@ -1094,6 +1094,8 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 
 /* Quota dappertutto (22/10) */
 #mis-box { position: absolute; inset: 0; pointer-events: none; }
+#interf-box { position: absolute; inset: 0; pointer-events: none; }
+#interf-box .dim.interf { pointer-events: auto; cursor: pointer; border-color: var(--err); color: var(--err); }
 #mis-box .dim.mis { pointer-events: auto; border-color: #FFB000; color: #FFB000; cursor: context-menu; }
 #mis-snap { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; display: none; z-index: 5;
   border: 2px solid #FFB000; box-sizing: border-box; }
@@ -1389,6 +1391,34 @@ body.in-prova #sk-foot { display: none !important; }
 .ant-stato .ant-sol { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 #props .btn:disabled, #modal-box .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
 
+/* In fila (03/11): come il pannello di Appoggia */
+#ripeti { position: fixed; top: calc(36px + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+#ripeti .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
+#ripeti .ap-testa b { font-size: 14px; white-space: nowrap; }
+#ripeti .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ripeti .ap-riga { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+#ripeti .ap-lab { width: 96px; flex: none; color: var(--ink-2); font-size: 12px; }
+#ripeti .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+#ripeti .seg button { white-space: nowrap; border: 0; border-right: 1px solid var(--line); background: none; padding: 4px 8px; font-size: 12.5px; color: var(--ink-2); }
+#ripeti .seg button:last-child { border-right: 0; }
+#ripeti .seg button:hover { background: var(--hov-bg); color: var(--ink); }
+#ripeti .seg button.on { background: var(--on-bg); color: var(--ink); font-weight: 600; }
+#ripeti .inp { display: inline-flex; align-items: center; gap: 4px; }
+#ripeti .inp input { width: 64px; }
+#ripeti .inp i { font-style: normal; color: var(--ink-3); font-size: 12px; }
+#ripeti .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
+/* Vite nei fori (03/11): come il pannello di Appoggia */
+#vitefori { position: fixed; top: calc(36px + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+#vitefori .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
+#vitefori .ap-testa b { font-size: 14px; white-space: nowrap; }
+#vitefori .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#vitefori .ap-riga { display: flex; align-items: center; gap: 8px; }
+#vitefori .ap-riga select { width: auto; }
+#vitefori .ap-lab { color: var(--ink-2); font-size: 12.5px; }
+#vitefori .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
+#vitefori .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
 /* Appoggia (03/11): il pannello piccolo in alto a destra della vista */
 #appoggia { position: fixed; top: calc(36px + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
@@ -1411,7 +1441,8 @@ body.in-prova #sk-foot { display: none !important; }
 #appoggia .inp i { font-style: normal; color: var(--ink-3); font-size: 12px; }
 #appoggia .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
 #appoggia .ap-dist b { color: var(--ink); }
-#appoggia .ap-nota:empty { display: none; }
+#appoggia .ap-nota:empty, #appoggia .ap-prop:empty { display: none; }
+#appoggia .ap-prop { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 #appoggia .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
 #appoggia .btn.on { background: var(--on-bg); border-color: var(--on-line); }
 #appoggia .acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
