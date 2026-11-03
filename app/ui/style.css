@@ -2721,3 +2721,8 @@ body.bottom-closed #toasts { bottom: 104px; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding: 3px 0; }
 /* barre «prossimo passo»: l'icona del comando col colore di modalità (come la striscia a sinistra), non il blu */
 body[data-modo] :is(.sk-help, #sk-foot, #prova-barra, #sk-origine, #sk-cmd, #flat-bar) { --accento-icona: var(--modo); }
+/* contrasto del segmento della modalità (04/11): bianco su verde acqua e su arancio scuriti stava sotto 4:1
+   (3,96 e 3,77); lì il fondo resta il colore vivo pieno e il testo è scuro (6,2 e 6,5). Lamiera e assieme
+   restano col testo bianco (6,5 e 6,2), tavole pure (10,7); nel tema scuro il testo era già scuro (5,1–8,4). */
+body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on,
+body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on:hover { background: var(--modo); color: #0E141A; }
