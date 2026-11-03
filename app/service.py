@@ -242,7 +242,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     ETICHETTE_PARAMETRI = {'W': 'Larghezza', 'P': 'Profondità', 'L': 'Lunghezza', 'H': 'Altezza', 'sp': 'Spessore',
                            'ps': 'Passo sbarre', 'pr': 'Passo ripiani', 'D1': 'Ø grande', 'D2': 'Ø piccolo',
                            'D': 'Distanza', 'A': 'Lato A', 'B': 'Lato B', 'ex': 'Spostamento X', 'ey': 'Spostamento Y',
-                           'lunghezza': 'Larghezza della fascia'}   # 04/11: il profilo estruso (collare)
+                           'lunghezza': 'Larghezza fascia'}   # 04/11: il profilo estruso (collare)
 
     def _etichette_parametri(self) -> dict:
         nomi = dict(self.ETICHETTE_PARAMETRI)

@@ -773,6 +773,8 @@ const tip = $('#hover-tip');
 let premuto = null;
 let destroGiu = null;
 canvas.addEventListener('pointerdown', ev => { if (ev.button === 2) destroGiu = [ev.clientX, ev.clientY]; }, true);
+// 04/11 (percorso D, Appoggia): al clic il cartellino del mouse sparisce, se no resta sopra il pezzo appena spostato
+canvas.addEventListener('pointerdown', () => { tip.style.display = 'none'; }, true);
 canvas.addEventListener('contextmenu', ev => {
   ev.preventDefault();
   if (S?.mode !== 'assembly' || SK || !destroGiu || Math.hypot(ev.clientX - destroGiu[0], ev.clientY - destroGiu[1]) > 5) return;
@@ -2461,7 +2463,11 @@ async function preparaDialog(ricorda = null) {
         v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span>
       ${v.si && tipoFile(v.file) ? `<small class="pv-file" title="${esc(v.file)}"><i>${esc(tipoFile(v.file))}</i>${esc(v.file)}</small>` : '<small class="pv-file"></small>'}</label>`).join('');
   const laserNo = !info.voci.some(v => v.id === 'laser' && v.si);
+  // 04/11 (percorsi A, B, C): un pezzo mai salvato non ha ancora un nome suo e i file venivano «Lamiera_sviluppo.dxf»,
+  // «Pezzo_pieghe.csv»: qui si scrive il nome, e file e cartella lo prendono subito
+  const chiediNome = !S?.path && S?.mode !== 'assembly';
   modal(`<h3>Cosa ti serve?</h3>
+    ${chiediNome ? `<label class="prep-nome"><span>Come si chiama il pezzo</span><input class="field" id="prep-nome" value="${esc(S.name || '')}" spellcheck="false"></label>` : ''}
     ${prepControllo(c, laserNo)}
     <div class="prep-voci" role="group" aria-label="Cosa salvare">${voci}</div>
     <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Si salvano in</span><b id="prep-dir" title="${esc(cartella)}">${percorsoHtml(cartella)}</b>
@@ -2478,16 +2484,38 @@ async function preparaDialog(ricorda = null) {
     $('#m-no').onclick = close;
     $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').innerHTML = percorsoHtml(cartella); $('#prep-dir').title = cartella; } });
     // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
+    const scelteOra = () => [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
+    const nomeNuovo = () => { const v = $('#prep-nome')?.value.trim(); return v && v !== S.name ? v : null; };
+    const rinomina = async v => { const r = await call('rinomina_pezzo', v); if (!(await apply(r))) return false; renderTree(); return true; };
+    if ($('#prep-nome')) {
+      const cambia = () => { const v = nomeNuovo(); if (!v) return;
+        const scelte = scelteOra(), diversa = cartella !== info.cartella ? cartella : null;
+        close(); inCoda(async () => { if (await rinomina(v)) await preparaDialog({ scelte, cartella: diversa }); }); };
+      $('#prep-nome').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); cambia(); } };
+      // mentre scrivi i nomi dei file si aggiornano (il nome vero si dà con Invio o con «Salva i file»)
+      const vecchio = S.name || '';
+      const file = [...document.querySelectorAll('#modal-box .pv-file')].map(el => [el, el.lastChild?.textContent || '']);
+      $('#prep-nome').oninput = () => {
+        const v = $('#prep-nome').value.trim() || vecchio;
+        for (const [el, f] of file) if (el.lastChild && vecchio && f.startsWith(vecchio)) el.lastChild.textContent = v + f.slice(vecchio.length);
+      };
+    }
     const tav = $('#prep-tavole');
     if (tav) tav.onclick = ev => {
       ev.preventDefault(); ev.stopPropagation();
-      tornaPrepara = { scelte: [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce), cartella };
-      close(); runCmd('drawings');
+      const v = nomeNuovo();                          // il nome scritto vale anche per le tavole (il cartiglio)
+      tornaPrepara = { scelte: scelteOra(), cartella: cartella !== info.cartella ? cartella : null };
+      close();
+      if (v) inCoda(async () => { await rinomina(v); runCmd('drawings'); }); else runCmd('drawings');
     };
     $('#m-ok').onclick = () => {
-      const scelte = [...document.querySelectorAll('#modal-box [data-voce]:checked')].map(i => i.dataset.voce);
+      const scelte = scelteOra(), v = nomeNuovo(), diversa = cartella !== info.cartella;
       close();
       inCoda(async () => {
+        if (v) {                                    // il nome scritto e non ancora confermato: prima quello
+          if (!(await rinomina(v))) return;
+          if (!diversa) { const ni = await call('prepara_info'); if (ni.ok) cartella = ni.cartella; }
+        }
         const r = await call('prepara', cartella, scelte);
         if (!r.ok) { toast(r.message || 'Non riuscito.', 'err'); return; }
         preparaFatto(r);
@@ -6375,7 +6403,8 @@ function renderSheet() {
     const i = document.querySelector(`[data-tech="${attivo.k}"]`);
     if (i) { i.value = attivo.v; i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   }
-  $('#sheet-badge').textContent = manca.size ? '!' : '';
+  // 04/11 (percorsi C, D): il «!» solo se il pezzo ha pieghe; una piastra piana non ha bisogno di raggio e K
+  $('#sheet-badge').textContent = manca.size && (sh.data?.bends?.length || sh.shape) ? '!' : '';
   const salva = fields => inCoda(async () => apply(parSp && 'thickness' in fields
     ? await call('set_parameter', parSp.name, fields.thickness) : await call('set_sheet_tech', sh.feature, fields)));
   document.querySelectorAll('[data-tech]').forEach(i => {
@@ -6931,7 +6960,10 @@ function anteprima(metodo, argomenti, stato, opz = {}) {
     if (stato) {
       stato.className = 'ant-stato ok';
       // DIVIDI: quanti tubi e che quadri vengono (03/11), è la cosa che l'officina controlla
-      stato.textContent = opz.frase ? '' : metodo === 'dividi' && r.message ? `In azzurro: ${r.message}` : 'Anteprima: in azzurro il pezzo come verrà.';
+      // 04/11 (percorso A): anche il profilo in lamiera dice cosa viene («calandrato R55 interno…») prima di confermare:
+      // con la parte sbagliata il collare veniva R52 e lo si scopriva solo dal messaggio, dopo
+      const dice = (metodo === 'dividi' || /^Profilo in lamiera/.test(r.message || '')) && r.message;
+      stato.textContent = opz.frase ? '' : dice ? `In azzurro: ${r.message}` : 'Anteprima: in azzurro il pezzo come verrà.';
     }
     // se il risultato esce dalla vista, si allarga l'inquadratura per vederlo tutto
     const box = new THREE.Box3().setFromObject(antGruppo);
@@ -10006,7 +10038,7 @@ function makeDialog(kind) {
         <button type="button" data-gira="1"><b>l’esterno</b> della lamiera<small>lo spessore va verso dentro</small></button></div>
       <div class="ff"><label>Lunghezza dell’estrusione (larghezza della fascia)<span class="inp"><input class="field" id="pf-L" value="1000"><i>mm</i></span></label>
         <label>Spessore<span class="inp"><input class="field" id="pf-sp" value="${esc(virgola(S?.parameters?.find?.(p => p.name === 'sp')?.value) || '3')}"><i>mm</i></span></label></div>
-      ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="vuoto = uno ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
+      ${archi ? `<div class="ff" id="pf-colpi-riga"${prima?.calandra ? ' style="display:none"' : ''}><label>Colpi per ogni arco<span class="inp"><input class="field" id="pf-colpi" placeholder="1 ogni 20 mm" value="${esc(virgola(prima?.colpi) || '')}"></span></label><span></span></div>` : ''}
       <div class="ff"><label>Raggio del punzone<span class="inp"><input class="field" id="pf-r" value="${esc(virgola(BD.radius) || '')}"><i>mm</i></span></label>
         <label>K-factor<span class="inp"><input class="field" id="pf-k" value="${esc(virgola(BD.k) || '')}"></span></label></div>
       <p class="hint">Il 3D si gira trascinando col mouse e si ingrandisce con la rotella, anche con questa finestra aperta.</p>
