@@ -6863,7 +6863,7 @@ async function showHome(info) {
     const lst = tutti.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
     $('#home-recent').innerHTML = lst.map(x => x.manca ? `<div class="home-rec manca" title="${esc(x.path)}">
         <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'joint' : 'box'}.svg" alt="">`}</span>
-        <div class="testo"><b>${esc(x.name)}</b><small class="testo-err">Spostato o cancellato: non è più in ${esc(x.folder)}</small>
+        <div class="testo"><b>${esc(x.name)}</b><small>Spostato o cancellato: non è più in ${esc(x.folder)}</small>
           <span class="rec-azioni"><button class="btn piccolo" data-ritrova="${esc(x.path)}">Cerca…</button><button class="btn piccolo" data-forget="${esc(x.path)}">Togli</button></span></div></div>`
       : `<div class="home-rec${x.assembly ? ' asm' : ''}" data-path="${esc(x.path)}" title="${esc(x.path)}" tabindex="0">
         <span class="pic">${foto(x)}</span>
@@ -6900,7 +6900,7 @@ async function showHome(info) {
     const d = [...document.querySelectorAll('#home-recent .home-rec[data-path]')].find(e => e.dataset.path === x.path);
     const pic = d?.querySelector('.pic');
     if (pic) pic.innerHTML = `<img src="${x.thumb}" alt="">`;
-  }), 300);
+  }), 1200);                                          // dopo un attimo: un clic svelto su «Lamiera» passa prima
   // Cono e Tubi: sopra i recenti si apre la scelta del tipo, con le foto; la lamiera si apre subito
   const scegli = cat => {
     $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
