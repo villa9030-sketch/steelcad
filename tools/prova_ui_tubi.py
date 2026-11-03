@@ -62,6 +62,9 @@ def main():
             sx, sy = pg.evaluate('(p) => window.__steelcad.toScreen(p)', sopra)
             pg.mouse.move(box['x'] + sx, box['y'] + sy, steps=3)
             pg.mouse.down(); pg.mouse.up()
+            # notte 03/11: il clic sul tubo dà la barretta (con «Fori qui»); «⋯» apre il pannello intero
+            pg.wait_for_selector('#mini-barra button:has-text("Fori qui")')
+            pg.click('#mini-barra button.piu')
             pg.wait_for_selector('#p-lav')
             ok(f'clic sul tubo {asta}: pulsante «{pg.inner_text("#p-lav")}»', 'di sopra' in pg.inner_text('#p-lav'))
             pg.screenshot(path=str(SHOTS / 'tubi1_asta.png'))

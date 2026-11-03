@@ -2448,3 +2448,115 @@ body.in-prova #navbar { display: none; }
   #props .cosa-fai { padding: var(--s-2) 0; }
   #props .fp-pic svg { max-height: 104px; }
 }
+   TUBI E STRUTTURE (notte 03→04/11, area tubi): pannelli di telai, cancelli, scaffali; frecce e capi nel 3D;
+   barra «prossimo passo» dei comandi dei tubi; cassetto «Taglio tubi». Solo token: lo scuro viene da sé.
+   ================================================================================================================== */
+:root, body {
+  --t-tubo-passa: #C9D0D8;    /* nei disegnini: il tubo che passa intero (chiaro) */
+  --t-tubo-taglio: #8592A0;   /* quello tagliato che ci batte contro (scuro) */
+  --t-tubo-filo: #15202B;     /* il filo del taglio */
+}
+body.dark { --t-tubo-passa: #8A96A3; --t-tubo-taglio: #56616D; --t-tubo-filo: #E8EDF2; }
+/* il pannello: titolo e cos'è, poi sezioni piatte; «Proprietà» sopra non serve (il titolo dice già cos'è) */
+#right .panel:has(.t-pan) > h2 { display: none; }
+.t-pan { display: flex; flex-direction: column; }
+.t-pan > h3 { margin: 0 0 2px !important; }
+.t-pan .t-cose { margin: 0 0 var(--s-3); color: var(--c-testo-2); font-size: var(--fs-etichetta); line-height: 1.45; }
+.t-pan .t-titoletto { margin: var(--s-4) 0 2px; font: 600 var(--fs-testo)/1.3 var(--font); color: var(--c-testo); }
+.t-pan .sezione { padding: var(--s-3) 0; }
+.t-pan .sezione:first-of-type { border-top: 1px solid var(--c-linea); padding-top: var(--s-3); }
+.t-pan .sezione > .hint, .t-pan .sezione .hint { margin: 0; }
+.t-pan .sezione .seg { margin: 0; }
+.t-pan .seg .btn, .t-pan .seg button { white-space: nowrap; padding: 0 6px; }
+.t-pan .sezione .sub { margin: var(--s-1) 0 0; }
+.t-pan label.lbl { display: grid; gap: 4px; font-size: var(--fs-etichetta); color: var(--c-testo-2); }
+.t-pan .check { font-size: var(--fs-fitto); }
+.t-pan .riga > b { text-align: right; font-weight: 600; color: var(--c-testo); }
+.t-pan .riga > span:first-child { flex: 0 0 auto; max-width: 52%; }
+.t-pan .t-misure .riga, .t-pan .t-righe .riga { align-items: baseline; min-height: 28px; padding: 3px 0; }
+.t-pan .t-misure .riga > b { flex: 1; font-weight: 500; }
+.t-pan .t-misure .riga:first-child > b { font-weight: 700; font-size: var(--fs-testo); }
+.t-pan .t-righe .riga { border-top: 1px solid var(--c-incavo); font-size: var(--fs-etichetta); }
+.t-pan .t-righe .riga:first-child { border-top: 0; }
+.t-pan .t-righe .riga > span:first-child { flex: 1; max-width: none; }
+.t-pan .t-righe .riga > b { flex: none; font-weight: 500; color: var(--c-testo-2); }
+.t-pan .fsec { margin-top: 0; }
+.t-pan .fsec[open] { display: flex; flex-direction: column; gap: var(--s-2); padding-bottom: var(--s-3); }
+.t-pan .fsec .riga { min-height: 26px; font-size: var(--fs-etichetta); }
+.t-pan .fsec .hint { margin: 0; }
+/* un campo e il suo pulsante sulla stessa riga */
+.t-in-riga { display: flex; gap: var(--s-2); align-items: center; }
+.t-in-riga > .field, .t-in-riga > .campo-unita { flex: 1; min-width: 0; }
+.t-in-riga > .btn { flex: none; }
+.t-campi { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+.t-campi .campo-unita, .t-pan label.lbl .campo-unita { display: flex; }
+.st-tpl { gap: var(--s-2) var(--s-2); align-items: end; }
+/* in fondo, fermo: il pulsante che chiude il lavoro del pannello */
+.t-piede { position: sticky; bottom: calc(-1 * var(--s-4)); z-index: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2);
+  margin: var(--s-2) calc(-1 * var(--s-3)) calc(-1 * var(--s-4)); padding: var(--s-3); border-top: 1px solid var(--c-linea); background: var(--c-pannello); }
+.t-piede .btn.danger { margin-right: auto; }
+.t-pan .ant-stato { margin: var(--s-2) 0 0; }
+/* «Cosa puoi fare adesso»: righe con icona e nome, una riga di spiegazione; niente schede-card */
+.cosa.t-azioni { gap: 0; margin: 0 calc(-1 * var(--s-2)); }
+.cosa-b.t-az { display: grid; grid-template-columns: 24px 1fr; column-gap: var(--s-3); row-gap: 0; align-items: center; min-height: 44px;
+  padding: 6px var(--s-2); border: 0; border-radius: var(--r-campo); background: none; color: var(--c-testo); text-align: left; }
+.cosa-b.t-az img { grid-row: 1 / span 2; width: 22px; height: 22px; }
+.cosa-b.t-az b { font: 600 var(--fs-fitto)/1.3 var(--font); }
+.cosa-b.t-az span { grid-column: 2; color: var(--c-testo-2); font-size: var(--fs-piccolo); line-height: 1.35; }
+.cosa-b.t-az:hover { background: var(--c-sopra); border: 0; }
+.cosa-b.t-az:focus-visible { outline: 2px solid var(--c-blu); outline-offset: -2px; }
+.t-punto { display: grid; gap: 6px; margin: 2px var(--s-2) var(--s-2) 44px; }
+.t-punto .hint { margin: 0; }
+/* i disegnini: come si saldano, come sta il profilo */
+.t-pan .angoli { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
+.t-pan .angolo svg { width: 46px; height: 46px; }
+.t-piede.t-libero { position: static; margin: var(--s-2) 0 0; padding: var(--s-3) 0 0; }
+.t-pan .angolo { justify-content: flex-start; gap: 4px; padding: 6px 4px; border: 1px solid var(--c-linea); background: var(--c-pannello); color: var(--c-testo);
+  font: 500 var(--fs-piccolo)/1.3 var(--font); transition: border-color var(--t-veloce), background var(--t-veloce); }
+.t-pan .angolo:hover { border-color: var(--c-blu-linea); background: var(--c-sopra); }
+.t-pan .angolo.on { border: 1px solid var(--c-blu); background: var(--c-blu-tenue); box-shadow: inset 0 0 0 1px var(--c-blu); font-weight: 600; }
+.angolo svg .gt-p { fill: var(--t-tubo-passa); }
+.angolo svg .gt-t { fill: var(--t-tubo-taglio); }
+.angolo svg .gt-l { stroke: var(--t-tubo-filo); stroke-width: 2; }
+.angolo svg .t-asse { stroke: var(--c-spento); }
+.angolo svg .t-sezione { fill: var(--t-tubo-passa); stroke: var(--t-tubo-filo); }
+/* Su, Giù, Avanti…: nel pannello con la freccia disegnata */
+.t-pan .dirs { gap: var(--s-1); }
+.t-pan .dirs .btn { gap: 6px; padding: 0 6px; }
+.t-verso { flex: none; fill: none; stroke: var(--modo-tubi); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* nel 3D: le frecce intorno all'angolo, con la punta arancio che guarda dove va il tubo */
+.freccia-3d { z-index: 9; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px 0 8px; border-radius: 14px;
+  border: 1px solid var(--c-linea); background: var(--c-pannello); color: var(--c-testo); font: 600 var(--fs-etichetta)/1 var(--font);
+  box-shadow: var(--ombra-galleggia); transition: background var(--t-veloce), color var(--t-veloce); }
+.freccia-3d .t-punta { flex: none; fill: none; stroke: var(--modo-tubi); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transform: rotate(var(--ang, 0rad)); }
+.freccia-3d:hover { background: var(--modo-tubi); border-color: var(--modo-tubi); color: #fff; }
+.freccia-3d:hover .t-punta { stroke: #fff; }
+/* i pallini degli angoli: bianchi; quello scelto giallo, con l'alone */
+.node-dot.sel, body.dark .node-dot.sel { border-color: #8A5A00; background: var(--c-sel); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-sel) 35%, transparent); }
+.node-dot.target { border-color: var(--c-blu); background: var(--c-blu-tenue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-blu) 22%, transparent); }
+/* il cartellino del tubo sotto il mouse: nome in grassetto, sotto tubo e lunghezza */
+#hover-tip.t-cartellino { padding: 5px 10px; line-height: 1.3; }
+#hover-tip.t-cartellino b { display: block; font-weight: 600; }
+#hover-tip.t-cartellino span { display: block; opacity: .78; font-size: var(--fs-piccolo); }
+/* barra «prossimo passo» dei tubi (traverso, Dividi, punto sul tubo, unisci): una riga in basso al centro */
+#trav-hint, #link-hint { top: auto !important; bottom: 64px; left: 50%; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: var(--s-4);
+  max-width: calc(100% - 32px); min-height: 44px; padding: 0 var(--s-4); white-space: nowrap;
+  border: 1px solid var(--c-linea); border-left: 4px solid var(--modo); border-radius: var(--r-galleggia);
+  background: var(--c-pannello); color: var(--c-testo); box-shadow: var(--ombra-galleggia); font: 500 var(--fs-fitto)/1.3 var(--font); }
+#trav-hint .t-passo, #link-hint .t-passo { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+#trav-hint .g-tasto, #link-hint .g-tasto { flex: none; color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#trav-hint kbd, #link-hint kbd { margin: 0 2px 0 0; padding: 1px 6px; border: 1px solid var(--c-linea); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--c-incavo); color: var(--c-testo); font: 600 11px var(--font); }
+/* cassetto «Taglio tubi»: righe pulite, numeri in colonna, il pezzo disegnato col suo taglio */
+.t-taglio { grid-template-columns: minmax(0, 2.6fr) minmax(220px, 1fr); gap: var(--s-6); align-items: start; }
+.t-taglio th, .t-acc th { white-space: nowrap; }
+.t-taglio .t-pos { color: var(--c-spento); width: 36px; }
+.t-taglio .t-lung { font-weight: 600; font-size: var(--fs-testo); }
+.t-nowrap { white-space: nowrap; }
+.t-tagli { display: inline-flex; align-items: center; gap: var(--s-2); }
+.t-tagli > span { color: var(--c-testo-2); }
+svg.forma-pezzo { flex: none; }
+svg.forma-pezzo polygon { fill: var(--t-tubo-passa); stroke: var(--t-tubo-filo); stroke-width: 1; stroke-linejoin: round; }
+.t-sotto { margin: var(--s-4) 0 var(--s-1); font: 600 var(--fs-etichetta)/1.3 var(--font); color: var(--c-testo-2); }
+.t-compra { margin-left: 6px; padding: 1px 7px; border-radius: 9px; background: var(--c-incavo); color: var(--c-testo-2); font-size: var(--fs-piccolo); font-weight: 600; }
+.t-pan .t-nota { margin: 0 0 var(--s-3); }
