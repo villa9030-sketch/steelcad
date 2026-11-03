@@ -43,6 +43,67 @@ def add_arc3(doc, sid: str, p1, p2, p3, construction: bool = False) -> str:
     return arco
 
 
+# ------------------------------------------------------------------------------- arco col raggio scritto
+def arco_raggio_punti(xa, xb, r: float, giro: float, partenza: str, lato: int):
+    """Dove va l'arco che parte dalla fine B di una linea A→B (03/11): raggio r, quanto gira (gradi), come parte
+    («tangente»: continua la linea; «squadra»: parte a 90° dalla linea, il centro sta sul suo prolungamento, come il
+    collare) e da che parte (lato +1 = a sinistra guardando da A a B, -1 = a destra).
+    Torna centro, fine e se gira in senso antiorario."""
+    (ax, ay), (bx, by) = xa, xb
+    lun = math.hypot(bx - ax, by - ay)
+    if lun < 1e-9:
+        raise SketchError('La linea da cui parte l’arco non ha lunghezza.')
+    ux, uy = (bx - ax) / lun, (by - ay) / lun
+    nx, ny = -uy, ux                                          # a sinistra della linea
+    lato = 1 if lato >= 0 else -1
+    if partenza == 'squadra':
+        cx, cy = bx + r * ux, by + r * uy
+        antiorario = lato < 0
+    else:
+        cx, cy = bx + lato * r * nx, by + lato * r * ny
+        antiorario = lato > 0
+    t = math.radians(giro) * (1 if antiorario else -1)
+    vx, vy = bx - cx, by - cy
+    ex, ey = cx + vx * math.cos(t) - vy * math.sin(t), cy + vx * math.sin(t) + vy * math.cos(t)
+    return (cx, cy), (ex, ey), antiorario
+
+
+def add_arc_raggio(doc, sid: str, linea: str, punto: str, r, giro, partenza: str = 'tangente', lato: int = 1,
+                   construction: bool = False) -> dict:
+    """L'arco col raggio scritto, attaccato alla fine di una linea: niente punti cliccati sulla griglia, quindi
+    raggio e angolo sono esatti (il collare 28 + R55 mezzo giro + 28 viene 166 con le pieghe a 90° giusti).
+    Vincoli: parte dal punto della linea, raggio quotato; tangente alla linea, o col centro sul prolungamento
+    della linea (a squadra); a mezzo giro a squadra anche la fine resta sulla linea."""
+    sk = doc.sketch(sid)
+    r, giro = float(r), float(giro)
+    if r <= 0:
+        raise SketchError('Il raggio dell’arco deve essere più di zero.')
+    if not 0 < giro < 360:
+        raise SketchError('Quanto gira l’arco: tra 0° e 360° (mezzo giro = 180°).')
+    e = sk.entities.get(linea)
+    if not e or e['kind'] != 'line' or punto not in (e['a'], e['b']):
+        raise SketchError('L’arco parte dalla fine di una linea: clicca la fine della linea.')
+    altro = e['a'] if punto == e['b'] else e['b']
+    from cad_engine.sketch.solver import solve
+    try:
+        pts = solve(sk, doc.resolved_parameters()).points
+    except Exception:  # noqa: BLE001 - se lo sketch non si risolve, valgono le coordinate disegnate
+        pts = {}
+    xy = lambda k: pts.get(k) or (sk.entities[k]['x'], sk.entities[k]['y'])  # noqa: E731
+    (cx, cy), (ex, ey), antiorario = arco_raggio_punti(xy(altro), xy(punto), r, giro, partenza, lato)
+    c = sk.point(cx, cy)
+    fine = sk.point(ex, ey)
+    arco = sk.arc(c, punto, fine, construction=construction) if antiorario else sk.arc(c, fine, punto, construction=construction)
+    sk.dimension('radius', arco, value=_r(r))
+    if partenza == 'squadra':
+        sk.constrain('on_line', c, linea)
+        if abs(giro - 180) < 1e-9:
+            sk.constrain('on_line', fine, linea)
+    else:
+        sk.constrain('tangent', linea, arco)
+    return {'arc': arco, 'end': fine, 'center': c}
+
+
 # ------------------------------------------------------------------------------- poligono
 def add_polygon(doc, sid: str, center, vertex, n: int, construction: bool = False) -> dict:
     """Poligono regolare inscritto in un cerchio di costruzione: centro, un vertice, numero di lati.

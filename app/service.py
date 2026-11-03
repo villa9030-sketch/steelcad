@@ -1662,6 +1662,23 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return _err(ex)
         return self._sketch_change('Arco per tre punti', lambda: sketch_more.add_arc3(self.doc, sid, p1, p2, p3, construction))
 
+    def sketch_add_arc_raggio(self, sid: str, linea: str, punto: str, r, giro, partenza: str = 'tangente', lato=1,
+                              construction: bool = False) -> dict:
+        """Arco col raggio scritto dalla fine di una linea (03/11): raggio, quanto gira, tangente o a squadra."""
+        try:
+            r, giro = _numero(r, 'il raggio'), _numero(giro, 'quanto gira')
+        except SteelCADError as ex:
+            return _err(ex)
+        out = {}
+
+        def fn():
+            out.update(sketch_more.add_arc_raggio(self.doc, sid, linea, punto, r, giro, partenza, int(lato or 1), construction))
+        g = {180: 'mezzo giro', 90: '90°'}.get(round(float(giro), 6), f'{fmt_mm(float(giro))}°')
+        res = self._sketch_change(f'Arco R{fmt_mm(float(r))} {g}', fn)
+        if res.get('ok'):
+            res['arc'], res['end'] = out.get('arc'), out.get('end')
+        return res
+
     def sketch_add_polygon(self, sid: str, center, vertex, n, construction: bool = False) -> dict:
         try:
             center, vertex, n = _punto(center, 'il centro'), _punto(vertex, 'il vertice'), _numero(n, 'il numero di lati')
@@ -2773,6 +2790,21 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
+    def fori_dove(self, face_name: str, punto) -> dict:
+        """Il punto cliccato sul pezzo (3D) in misure da officina: dal bordo sinistro e dal bordo davanti, fuori tutto.
+        Serve a «Dove clicco» del comando Foro (03/11)."""
+        try:
+            from cad_engine.sketch.face_plane import plane_of
+            if self.result.body is None or face_name not in self.result.body.names:
+                return {'ok': False, 'message': 'Clicca una faccia del pezzo.'}
+            piano = plane_of(self.result.body, face_name, Sketch('_dove', plane={'face': face_name}))
+            ox, oy, w, h = self._fuori_tutto(piano, face_name)
+            q = piano.to_local_coords(tuple(float(v) for v in punto))
+            # al millimetro: è un punto cliccato, la misura giusta si scrive dopo nel campo
+            return {'ok': True, 'x': float(round(q.X - ox)), 'y': float(round(q.Y - oy)), 'outer': [w, h]}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
     def _fuori_tutto(self, piano, face_name: str | None = None) -> tuple:
         """Dove comincia il pezzo, fuori tutto, nelle coordinate della faccia: le distanze dei fori si misurano dal bordo
         esterno (com'è in officina), non dall'inizio della parte piana dopo la piega. Su una forma a facce (tramoggia,
@@ -2790,31 +2822,59 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     def fori_guidati(self, face_name: str, spec: dict) -> dict:
         """Fori tondi, asole o finestre come si segnano sul pezzo: misura, centro dal bordo sinistro e dal bordo
         davanti, e se serve una fila (quanti, ogni quanto, verso destra o verso dietro). Dietro c'è lo stesso
-        sketch di sempre (con le quote, si modifica dopo), ma in un'operazione sola: un Annulla li toglie tutti."""
+        sketch di sempre (con le quote, si modifica dopo), ma in un'operazione sola: un Annulla li toglie tutti.
+        03/11 (comando «Foro»): con spec['disposizione'] (centro / angoli / fila / punti) i centri li calcola
+        fori_rapidi dal fuori tutto della faccia; l'asola si dà con larghezza × altezza vere (larg, alt)."""
+        from app import fori_rapidi
         try:
             n = lambda k, d=None: _number(spec.get(k, d))  # noqa: E731
             tipo = spec.get('tipo', 'tondo')
-            x, y = float(n('x')), float(n('y'))
-            quanti = max(1, int(n('n', 1) or 1)) if spec.get('fila') else 1
-            passo = float(n('passo', 0) or 0)
+            disp = spec.get('disposizione')
+            if disp:
+                fori_rapidi.ingombri(spec)                # misure scritte giuste, prima di toccare il progetto
+                x = y = 0.0
+                quanti = 1
+            else:
+                x, y = float(n('x')), float(n('y'))
+                quanti = max(1, int(n('n', 1) or 1)) if spec.get('fila') else 1
+            passo = float(n('passo', 0) or 0) if not disp else 0.0
             if quanti > 1 and passo <= 0:
                 raise SteelCADError('Scrivi ogni quanto va un foro della fila.', code='fori')
             if face_name not in (self.result.body.names if self.result.body is not None else {}):
-                raise SteelCADError('Questa faccia non c’è più: riapri «Fai fori o asole».', code='fori')
+                raise SteelCADError('Questa faccia non c’è più: clicca di nuovo la faccia.', code='fori')
         except SteelCADError as ex:
             return _err(ex)
         except (TypeError, ValueError):
             return {'ok': False, 'code': 'fori', 'message': 'Scrivi le misure con i numeri.'}
         nomi = {'tondo': 'Fori', 'asola': 'Asole', 'finestra': 'Finestre'}
+        fatti = {'n': quanti}
 
         def fn():
             nonlocal x, y
-            sk = self._crea_sketch_faccia(face_name, nomi.get(tipo, 'Fori'))
+            import build123d as bd
             from cad_engine.sketch.face_plane import plane_of
-            ox, oy, _, _ = self._fuori_tutto(plane_of(self.result.body, face_name, sk), face_name)
-            x, y = x + ox, y + oy                          # dal bordo esterno del pezzo alle coordinate della faccia
+            faccia3d = bd.Face(self.result.body.face(face_name)[0])
+            sk = self._crea_sketch_faccia(face_name, nomi.get(tipo, 'Fori'))
+            piano = plane_of(self.result.body, face_name, sk)
+            ox, oy, w, h = self._fuori_tutto(piano, face_name)
             prima = set(sk.entities)
-            if tipo == 'tondo':
+            if disp:
+                centri = fori_rapidi.posizioni(spec, w, h)
+                mx, my = fori_rapidi.ingombri(spec)
+                self._fori_sulla_faccia(faccia3d, piano, [(cx + ox, cy + oy) for cx, cy in centri], mx, my, tipo)
+                fatti['n'] = len(centri)
+                for cx, cy in centri:
+                    cx, cy = cx + ox, cy + oy
+                    if tipo == 'asola':
+                        lun, lar, piedi = fori_rapidi.misure_asola(spec)
+                        hh = (lun - lar) / 2
+                        c1, c2 = ([cx, cy - hh], [cx, cy + hh]) if piedi else ([cx - hh, cy], [cx + hh, cy])
+                        sketch_ops.add_slot(self.doc, sk.id, c1, c2, lar / 2)
+                    else:
+                        sketch_ops.add_circle(self.doc, sk.id, [cx, cy], fori_rapidi._num(spec.get('d'), 'il diametro') / 2)
+            else:
+                x, y = x + ox, y + oy                          # dal bordo esterno del pezzo alle coordinate della faccia
+            if not disp and tipo == 'tondo':
                 foro = spec.get('foro') or 'semplice'
                 if foro == 'filettato':
                     m = str(spec.get('M', '')).upper().replace(' ', '')
@@ -2824,17 +2884,17 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 else:
                     d = float(n('d'))
                 sketch_ops.add_circle(self.doc, sk.id, [x, y], d / 2)
-            elif tipo == 'asola':
+            elif not disp and tipo == 'asola':
                 lun, lar = float(n('lungh')), float(n('larg'))
                 if lar <= 0 or lun <= lar:
                     raise SteelCADError('L’asola deve essere più lunga che larga.', code='fori')
                 h = (lun - lar) / 2
                 c1, c2 = ([x, y - h], [x, y + h]) if spec.get('verticale') else ([x - h, y], [x + h, y])
                 sketch_ops.add_slot(self.doc, sk.id, c1, c2, lar / 2)
-            elif tipo == 'finestra':
+            elif not disp and tipo == 'finestra':
                 lun, lar = float(n('lungh')), float(n('larg'))
                 sketch_ops.add_rectangle(self.doc, sk.id, [x - lun / 2, y - lar / 2], [x + lun / 2, y + lar / 2])
-            else:
+            elif not disp:
                 raise SteelCADError(f'Forma "{tipo}" sconosciuta.', code='fori')
             if quanti > 1:
                 nuove = [k for k, e in sk.entities.items() if k not in prima and e['kind'] != 'point' and not e.get('ref')]
@@ -2853,11 +2913,34 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             else:
                 self.doc.add_feature('extrude', nomi.get(tipo, 'Fori'), sketch=sk.id, operation='cut', through_all=True, reverse=True)
         cosa = {'tondo': 'foro', 'asola': 'asola', 'finestra': 'finestra'}.get(tipo, 'foro')
-        r = self._change(f'{quanti} {cosa}' if quanti > 1 else cosa.capitalize(), fn)
+        etichetta = f'{quanti} {cosa}' if quanti > 1 else cosa.capitalize()
+        if disp:
+            etichetta = {'tondo': 'Fori', 'asola': 'Asole'}.get(tipo, 'Fori')
+        r = self._change(etichetta, fn)
+        quanti = fatti['n']
         if r.get('ok'):
             plur = {'foro': 'fori', 'asola': 'asole', 'finestra': 'finestre'}[cosa]
             r['message'] = f'Fatt{"i" if cosa == "foro" else "e"} {quanti} {plur}.' if quanti > 1 else f'Fatt{"o" if cosa == "foro" else "a"} {"il foro" if cosa == "foro" else "l’" + cosa if cosa == "asola" else "la finestra"}.'
         return r
+
+    @staticmethod
+    def _fori_sulla_faccia(faccia, piano, centri, mx: float, my: float, tipo: str) -> None:
+        """Ogni foro deve stare tutto sulla faccia cliccata: se tocca la piega o esce dal pezzo lo si dice, con il
+        numero del foro, invece di fare un taglio storto sulla piega."""
+        import math as _m
+        cosa = 'L’asola' if tipo == 'asola' else 'Il foro'
+        for i, (cx, cy) in enumerate(centri, 1):
+            quale = f' n. {i}' if len(centri) > 1 else ''
+            # il centro e 16 punti sul contorno (per l'asola: il rettangolo che la contiene, basta per i bordi dritti)
+            prove = [(cx, cy)] + [(cx + mx * _m.cos(a), cy + my * _m.sin(a)) for a in (k * _m.pi / 8 for k in range(16))]
+            if mx != my:
+                prove += [(cx + sx * mx, cy + sy * (my - min(mx, my))) for sx in (-1, 1) for sy in (-1, 1)]
+                prove += [(cx + sx * (mx - min(mx, my)), cy + sy * my) for sx in (-1, 1) for sy in (-1, 1)]
+            for k, (px, py) in enumerate(prove):
+                if not faccia.is_inside(piano.from_local_coords((px, py)), 1e-3):
+                    dove = 'cade fuori dalla faccia' if k == 0 else 'esce dalla faccia'
+                    raise SteelCADError(f'{cosa}{quale} {dove}: finisce sulla piega o fuori dal pezzo. '
+                                        'Avvicinalo al centro o scegli un’altra faccia.', code='fori')
 
     def sketch_close(self, sid: str) -> dict:
         """Uscendo da uno sketch su faccia o sullo sviluppo appena aperto e lasciato vuoto, lo si toglie: era
@@ -4432,7 +4515,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     ANTEPRIMA_OK = {'fai_tubi', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
-                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter'}
+                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati'}
 
     def anteprima(self, metodo: str, args: list) -> dict:
         """L'anteprima di un comando (22/10, «ci deve essere SEMPRE una preview»): lo stesso comando provato su una
@@ -4468,6 +4551,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             out['frase'] = self._frase(metodo, args, prova)
             if metodo == 'create_from_sketch' and len(args) > 1 and args[1] == 'cut':
                 out['togli'] = self._fantasma(metodo, args)
+            elif metodo == 'fori_guidati':
+                # i fori nuovi in arancio sopra il pezzo: si vedono anche piccoli o dietro una piega (03/11)
+                sid = next((f.id for f in reversed(prova.doc.features) if isinstance(f, Sketch)), None)
+                out['togli'] = prova._fantasma('create_from_sketch', [sid]) if sid else None
         except Exception:  # noqa: BLE001 - solo un aiuto
             pass
         return out
@@ -4484,6 +4571,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if kind == 'mark':
                 testi = [e['text'] for e in sk.entities.values() if e['kind'] == 'text']
                 return 'Scrive col laser ' + (', '.join(f'«{t}»' for t in testi[:2]) or 'quello che hai disegnato')
+        if metodo == 'fori_guidati' and len(args) > 1:
+            spec = args[1] or {}
+            n = len([e for f in prova.doc.features[-2:] if isinstance(f, Sketch) for e in f.entities.values()
+                     if e['kind'] == ('circle' if (spec.get('tipo') or 'tondo') == 'tondo' else 'arc') and not e.get('ref')])
+            if (spec.get('tipo') or 'tondo') == 'asola':
+                n //= 2
+                return f'Toglie dal pezzo: {"un’asola" if n == 1 else f"{n} asole"} {str(spec.get("larg")).replace(".", ",")} × {str(spec.get("alt")).replace(".", ",")}'
+            return f'Toglie dal pezzo: {"un foro" if n == 1 else f"{n} fori"} Ø{str(spec.get("d")).replace(".", ",")}'
         if metodo == 'sheet_tab':
             return 'Aggiunge materiale nel piano della faccia (linguetta)'
         if metodo in ('togli_dal_taglio', 'togli_fori_da_taglio'):

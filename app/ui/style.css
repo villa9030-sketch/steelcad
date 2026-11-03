@@ -1382,3 +1382,18 @@ body.in-prova #sk-foot { display: none !important; }
 #prova-barra .btn:disabled { opacity: .38; cursor: not-allowed; filter: grayscale(.6); }
 .ant-stato .ant-sol { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 #props .btn:disabled, #modal-box .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
+
+/* comando Foro / Asola (03/11) */
+.fo-frase { margin: 8px 0 0; font-weight: 600; color: var(--ink); min-height: 1em; }
+.fo-punto .field { width: 70px; }
+#fo-corpo .seg { flex-wrap: wrap; }
+#mini-barra > button.con-scritta { display: flex; gap: 5px; width: auto; padding: 0 9px 0 7px; font-size: 12px; color: var(--ink); white-space: nowrap; }
+#mini-barra > button.con-scritta img { width: 18px; height: 18px; }
+#fo-corpo .ft-riga { grid-template-columns: 96px minmax(0, 1fr); }
+/* arco col raggio: quanto gira e come parte, accanto alla casella del raggio (03/11) */
+#sk-cmd-extra .arcr { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; font-size: 12px; color: var(--ink-2); }
+#sk-cmd-extra .arcr > span { margin-left: 6px; }
+#sk-cmd-extra button { white-space: nowrap; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 5px; padding: 2px 7px; font-size: 12px; cursor: pointer; }
+#sk-cmd-extra button.on { background: var(--action); border-color: var(--action); color: #fff; }
+#sk-cmd-extra input { width: 44px; padding: 2px 4px; font-size: 12px; text-align: right; }
+#sk-cmd-extra i { font-style: normal; }

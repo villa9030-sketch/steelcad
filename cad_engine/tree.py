@@ -186,15 +186,24 @@ def _cosa_taglia(sk, nome, coord=None) -> str:
             padre[radice(q)] = radice(pts[0])
     gruppi: dict = {}
     punti_g: dict = {}
+    archi_g: dict = {}
     for e in segni:
         r = radice(next(e[k] for k in ('a', 'start') if k in e))
         g = gruppi.setdefault(r, [0, 0])
         g[0 if e['kind'] == 'line' else 1] += 1
         if coord:
             punti_g.setdefault(r, []).extend(coord[q] for q in (e.get(k) for k in ('a', 'b', 'start', 'end')) if q in coord)
+            if e['kind'] == 'arc':
+                archi_g.setdefault(r, []).append(e)
     tipi = {'asola': 0, 'rettangolo': 0, 'sagoma': 0}
-    for linee, archi in gruppi.values():
+    for r, (linee, archi) in gruppi.items():
         tipi['asola' if (linee, archi) == (2, 2) else 'rettangolo' if (linee, archi) == (4, 0) else 'sagoma'] += 1
+        # 03/11: l'asola si misura fuori tutto (30 × 10), non da centro a centro (era «Asola 20 × 10»)
+        for e in archi_g.get(r, []) if (linee, archi) == (2, 2) else []:
+            if e.get('center') in coord and e.get('start') in coord:
+                (cx, cy), (sx, sy) = coord[e['center']], coord[e['start']]
+                rr = ((sx - cx) ** 2 + (sy - cy) ** 2) ** 0.5
+                punti_g[r].extend([(cx + rr, cy), (cx - rr, cy), (cx, cy + rr), (cx, cy - rr)])
     parti = [f'{n} × {k}' if n > 1 else k.replace('svasati', 'svasato') for k, n in sorted(fori.items(), key=lambda x: -x[1])]
     pezzi = []
     if parti:
