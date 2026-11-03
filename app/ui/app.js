@@ -2636,7 +2636,11 @@ function barretta(nome, voci, opz = {}) {
   m.querySelector('.piu')?.addEventListener('click', () => (opz.piu ? opz.piu() : tutteLeOpzioni()));
   placeBarra();
 }
-function tutteLeOpzioni() { if (!sel) return; sel.pannello = true; sel.soloMini = false; aggiornaLayout(); }   // il pannello completo, a destra
+function tutteLeOpzioni() {
+  if (!sel) return;
+  sel.pannello = true; sel.soloMini = false; aggiornaLayout();
+  if (document.querySelector('#mini-barra.scheda-foro')) nascondiMini();   // 04/11: il pannello del foro dice già tutto
+}   // il pannello completo, a destra
 // mentre il pezzo si ricalcola: un segno accanto al nome (non sembra bloccata)
 function schedaCalcola(on) { document.getElementById('mini-barra')?.classList.toggle('calcolo', on); }
 // una quota sul pezzo. o: unita, num (il valore), etichetta, blu, dx/dy/fuori, titolo; e cosa fa:

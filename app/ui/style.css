@@ -2082,3 +2082,9 @@ body.in-prova #navbar { display: none; }
 #sk-cmd .sk-invio { padding: 1px 6px; border: 1px solid var(--c-linea); border-bottom-width: 2px; border-radius: 4px; background: var(--c-incavo);
   color: var(--c-testo-2); font: 600 11px var(--font); }
 #sk-foot { padding: 8px var(--s-4) !important; }
+/* schermi bassi (1366×768): le azioni del pannello più fitte, così i campi si vedono senza scorrere */
+@media (max-height: 800px) {
+  #props .btn.azione { min-height: 28px; }
+  #props .cosa-fai { padding: var(--s-2) 0; }
+  #props .fp-pic svg { max-height: 104px; }
+}
