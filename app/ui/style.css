@@ -1410,7 +1410,8 @@ body.in-prova #sk-foot { display: none !important; }
 #appoggia .inp i { font-style: normal; color: var(--ink-3); font-size: 12px; }
 #appoggia .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
 #appoggia .ap-dist b { color: var(--ink); }
-#appoggia .ap-nota:empty { display: none; }
+#appoggia .ap-nota:empty, #appoggia .ap-prop:empty { display: none; }
+#appoggia .ap-prop { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 #appoggia .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
 #appoggia .btn.on { background: var(--on-bg); border-color: var(--on-line); }
 #appoggia .acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }

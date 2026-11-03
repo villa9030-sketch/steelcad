@@ -484,6 +484,59 @@ class AssemblyMixin:
             return math.degrees(math.acos(max(-1.0, min(1.0, c))))
         return 0.0
 
+    def _faccia_gemella(self, rm: dict, km, rfermo: dict):
+        """Faccia su faccia (03/11): se la faccia cliccata del pezzo da muovere guarda dalla stessa parte di quella
+        del pezzo fermo (si è cliccata quella che si vede) ed è un lato della lamiera (dietro, a meno di 30 mm, c'è
+        l'altro lato), l'indice della faccia con cui appoggia senza capovolgersi, come in Appoggia. None se le facce
+        già si guardano o se è la punta di un'ala (si appoggia quella, come prima)."""
+        if km is None or rm.get('kind') != 'piana' or rfermo.get('kind') != 'piana':
+            return None
+        im, ifm = self.asm.instance(rm['inst']), self.asm.instance(rfermo['inst'])
+        nM, nF = np.array(im['R']) @ np.array(rm['n']), np.array(ifm['R']) @ np.array(rfermo['n'])
+        if float(np.dot(nM, nF)) <= 0.01:
+            return None
+        from cad_engine.assembly_appoggia import _pezzo
+        pb = _pezzo(self.asm_parts[im['file']])
+        n = np.array(rm['n'], dtype=float)
+        pts = pb.per_faccia.get(int(km))
+        if pts is None or not len(pts):
+            return None
+        liv = float((pts @ n).mean())
+        # l'ingombro della faccia cliccata, sul suo piano
+        u = A._perp(np.eye(3)[int(np.argmin(np.abs(n)))], n)
+        u /= np.linalg.norm(u)
+        v = np.cross(n, u)
+        qu, qv = pts @ u, pts @ v
+        migliore = None
+        for k, i in pb.piane():
+            if k == int(km) or float(np.dot(i['n'], n)) > -0.9999:
+                continue
+            q = pb.per_faccia.get(k)
+            if q is None or not len(q):
+                continue
+            d = liv - float((q @ n).mean())
+            c = q.mean(axis=0)
+            if not 0 < d <= 30 or not (qu.min() - 1e-6 <= c @ u <= qu.max() + 1e-6 and qv.min() - 1e-6 <= c @ v <= qv.max() + 1e-6):
+                continue
+            if migliore is None or d < migliore[0]:
+                migliore = (d, k)
+        if migliore is None:
+            return None
+        # come Appoggia: la faccia più in fondo del pezzo dalla parte opposta (sotto una staffa la sua base; con la
+        # faccia di sotto cliccata contro un'altra che guarda giù, la punta dell'ala: resta fuori dall'altro)
+        k = pb.faccia_estrema(n, -1, pts.mean(axis=0))
+        return k if k is not None else migliore[1]
+
+    def _misura_centra(self, m: dict) -> float:
+        """In mezzo: di quanto il centro delle due facce di b è spostato da quello delle due di a, adesso."""
+        F = {}
+        for k in ('a', 'b', 'a2', 'b2'):
+            i = self.asm.instance(m[k]['inst'])
+            F[k] = A._nel_mondo(A._info(m[k], self.asm_parts, self.asm), np.array(i['R']), np.array(i['T']))
+        nA = F['a']['n']
+        return float((np.dot(nA, F['b']['p']) + np.dot(nA, F['b2']['p'])) / 2
+                     - (np.dot(nA, F['a']['p']) + np.dot(nA, F['a2']['p'])) / 2)
+
     @_in_assieme
     def asm_add_mate(self, kind: str, a: dict, b: dict, offset=0, flip=False, a2=None, b2=None) -> dict:
         """a: la faccia del pezzo che sta fermo, b: quella del pezzo che si muove. {'inst': id, 'face': indice}.
@@ -523,6 +576,14 @@ class AssemblyMixin:
                             raise A.AssemblyError(f'In mezzo: le due facce {chi} devono essere parallele e diverse '
                                                   '(i due lati di un U, le due facce di una piastra).')
             terra = next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
+            if kind == 'faccia' and not flip:
+                # (03/11) le regole di Appoggia: cliccata la faccia che si vede (sopra), il pezzo non si capovolge,
+                # appoggia con la faccia dall'altra parte della lamiera
+                km = 'a' if rf['a']['inst'] != terra and rf['b']['inst'] == terra else 'b'
+                kf = 'b' if km == 'a' else 'a'
+                gem = self._faccia_gemella(rf[km], refs[km].get('face'), rf[kf])
+                if gem is not None:
+                    rf[km] = self._asm_face(rf[km]['inst'], gem)
             if rf['a']['inst'] != terra and rf['b']['inst'] == terra:      # il fermo va in a
                 rf = {'a': rf['b'], 'b': rf['a'], **({'a2': rf['b2'], 'b2': rf['a2']} if 'a2' in rf else {})}
             mid = self.asm.new_id('M', {m['id'] for m in self.asm.mates})
@@ -552,7 +613,7 @@ class AssemblyMixin:
         return next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
 
     def _appoggia_conti(self, mobile: dict, fermo: dict, opz: dict | None):
-        from cad_engine.assembly_appoggia import appoggia
+        from cad_engine.assembly_appoggia import appoggia_senza_entrare
         if not mobile or not fermo or mobile.get('inst') == fermo.get('inst'):
             raise A.AssemblyError('Appoggia: clic su una faccia del pezzo da mettere, poi su una faccia di un altro pezzo.')
         if mobile['inst'] == self._terra() and fermo['inst'] != self._terra():
@@ -563,7 +624,7 @@ class AssemblyMixin:
             raise A.AssemblyError('Uno dei due pezzi non si legge.')
         if mobile.get('face') is None or fermo.get('face') is None:
             raise A.AssemblyError('Clicca una faccia di ciascun pezzo.')
-        r = appoggia(pa, ia['R'], ia['T'], int(fermo['face']), pb, ib['R'], ib['T'], int(mobile['face']), opz)
+        r = appoggia_senza_entrare(pa, ia['R'], ia['T'], int(fermo['face']), pb, ib['R'], ib['T'], int(mobile['face']), opz)
         return ia, ib, int(fermo['face']), r
 
     @staticmethod
@@ -581,7 +642,9 @@ class AssemblyMixin:
             out[k] = {'modo': d['modo'], 'mm': d['mm'], 'basso': d['basso'], 'alto': d['alto'],
                       'da_basso': round(d['da_basso'], 2), 'da_alto': round(d['da_alto'], 2),
                       'lungo_a': round(d['lungo_a'], 2), 'lungo_b': round(d['lungo_b'], 2), 'tiene': tiene}
-        return {'fermo': ia['id'], 'mobile': ib['id'], 'nome_fermo': ia['name'], 'nome_mobile': ib['name'], 'dirs': out}
+        return {'fermo': ia['id'], 'mobile': ib['id'], 'nome_fermo': ia['name'], 'nome_mobile': ib['name'], 'dirs': out,
+                'dentro': round(float(r.get('dentro') or 0), 1), 'alzato': round(float(r.get('alzato') or 0), 2),
+                'proposte': r.get('proposte') or [], 'scelto': r.get('scelto'), 'cambio': r.get('cambio')}
 
     @_in_assieme
     def asm_appoggia(self, mobile: dict, fermo: dict, opz: dict | None = None, prova: bool = False) -> dict:
@@ -595,18 +658,15 @@ class AssemblyMixin:
                 return {'ok': False, 'message': ex.message}
             R, T = r['R'], r['T']
             posa = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
-            # se così entra nell'altro (una faccia interna, una vaschetta più piccola del pezzo): lo si dice subito
-            try:
-                prova_b = {**ib, 'R': R.tolist(), 'T': T.tolist()}
-                dentro = sum(x['volume'] for x in A.interferences(A.Assembly('prova', [ia, prova_b]), self.asm_parts))
-            except Exception:  # noqa: BLE001 - è solo un avviso
-                dentro = 0.0
-            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, 'dentro': round(float(dentro), 1),
-                    **self._appoggia_info(ia, ib, r)}
+            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, **self._appoggia_info(ia, ib, r)}
         esito = {}
 
         def fn():
+            from cad_engine.assembly_appoggia import DENTRO
             ia, ib, ka, r = self._appoggia_conti(mobile, fermo, opz)
+            if r['dentro'] > DENTRO:
+                raise A.AssemblyError(f'Così «{ib["name"]}» entra in «{ia["name"]}» e non trovo dove posarlo: scegli '
+                                      'un’altra faccia o spostalo dal bordo.')
             esito.update(self._appoggia_info(ia, ib, r))
             ib['R'], ib['T'] = r['R'].tolist(), r['T'].tolist()
             coppia = {ia['id'], ib['id']}
@@ -621,16 +681,27 @@ class AssemblyMixin:
                     m['lato'] = lato
                 if tipo == 'distanza':
                     m['offset'] = round(self._misura_mate(m), 4)
-                    if m['offset'] < 0:                 # «a 20 dal bordo» si legge e si scrive 20, non −20
+                    if m['offset'] < 0 and lato:        # «a 20 dal bordo» si legge e si scrive 20, non −20
                         m['segno'] = -1
+                elif tipo == 'centra':
+                    # le facce di riferimento possono non essere proprio sui bordi (un pannello piegato): quanto il
+                    # centro è spostato adesso resta (per una coppia messa simmetrica è zero)
+                    m['offset'] = round(self._misura_centra(m), 4)
                 self.asm.mates.append(m)
             fa = lambda k: self._asm_face(ia['id'], k)          # noqa: E731
             fb = lambda k: self._asm_face(ib['id'], k)          # noqa: E731
-            nuovo('faccia', a=fa(ka), b=fb(r['kb2']))
+            if r['alzato'] > 0:                         # non ci sta: posato su quello che tocca
+                if r['contatto']:
+                    nuovo('faccia', a=fa(r['contatto'][0]), b=fb(r['contatto'][1]))
+                else:
+                    nuovo('distanza', a=fa(ka), b=fb(r['kb2']))
+            else:
+                nuovo('faccia', a=fa(ka), b=fb(r['kb2']))
             for d in r['dirs'].values():
                 (fa0, fa1), (fb0, fb1) = d['fermo'], d['mobile']
-                if d['modo'] == 'centro' and None not in (fa0, fa1, fb0, fb1):
-                    nuovo('centra', a=fa(fa0), a2=fa(fa1), b=fb(fb0), b2=fb(fb1))
+                ca, cb = d.get('coppia_fermo'), d.get('coppia_mobile')
+                if d['modo'] == 'centro' and ca and cb:
+                    nuovo('centra', a=fa(ca[0]), a2=fa(ca[1]), b=fb(cb[0]), b2=fb(cb[1]))
                 elif d['modo'] == 'basso' and None not in (fa0, fb0):
                     nuovo('distanza', d['basso'], a=fa(fa0), b=fb(fb0))
                 elif d['modo'] == 'alto' and None not in (fa1, fb1):
@@ -644,6 +715,8 @@ class AssemblyMixin:
                               if d['modo'] != 'centro' else f'al centro {d["basso"]}/{d["alto"]}' for d in dd.values()))
             liberi = [f'{d["basso"]}/{d["alto"]}' for d in dd.values() if not d['tiene']]
             r['message'] = (f'Fatto: «{esito["nome_mobile"]}» sta su «{esito["nome_fermo"]}», {dove}.'
+                            + (f' Sulla faccia non ci stava: posato su quello che tocca prima, {fmt_mm(round(esito["alzato"], 1))} mm più su.'
+                               if esito['alzato'] > 0 else '')
                             + (f' {", ".join(liberi).capitalize()}: non c’è un lato piano per tenerlo, resta dove l’ho messo.'
                                if liberi else ' Se cambi un pezzo resta al suo posto.'))
             r['appoggia'] = esito

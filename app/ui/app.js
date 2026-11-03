@@ -3418,7 +3418,9 @@ function appoggiaClick(ev) {
 function appoggiaApri(mobile, fermo) {
   appoggiaChiudi(true);
   APP.mobile = mobile; APP.fermo = fermo; APP.dove = 'centro'; APP.info = null;
-  APP.opz = { u: { modo: 'centro', mm: 0 }, v: { modo: 'centro', mm: 0 }, gira: 0, capovolgi: false };
+  // auto: alla prima prova, se così entra nell'altro, Radius prova da solo a girarlo o capovolgerlo
+  APP.opz = { u: { modo: 'centro', mm: 0 }, v: { modo: 'centro', mm: 0 }, gira: 0, capovolgi: false, auto: true };
+  APP.cambio = null;
   APP.prima = {};
   for (const o of objs.values()) if (o.data.kind === 'instance') APP.prima[o.data.id] = [...o.data.matrix];
   const el = document.createElement('div');
@@ -3448,6 +3450,9 @@ async function appoggiaProva() {
   }
   spostaPezzi({ ...APP.prima, ...r.pose });
   const prima = !APP.info;
+  delete APP.opz.auto;
+  if (r.scelto) { APP.opz.gira = r.scelto.gira || 0; APP.opz.capovolgi = !!r.scelto.capovolgi; APP.cambio = r.cambio; }
+  else if (!prima) APP.cambio = null;
   APP.info = r;
   if (prima) appoggiaDisegna(); else appoggiaDistanze();
 }
@@ -3456,9 +3461,22 @@ function appoggiaDistanze() {
   if (!r || !el) return;
   el.querySelector('.ap-err').hidden = true;
   el.querySelector('.ap-dist').innerHTML = 'Dai bordi: ' + ['u', 'v'].map(k => { const d = r.dirs[k];
-    return `${esc(d.basso)} <b>${mmTesto(d.da_basso)}</b> · ${esc(d.alto)} <b>${mmTesto(d.da_alto)}</b>`; }).join(' · ') + ' mm';
+    const q = v => v < -0.05 ? `sporge <b>${mmTesto(-v)}</b>` : `<b>${mmTesto(v)}</b>`;      // più grande della faccia
+    return `${esc(d.basso)} ${q(d.da_basso)} · ${esc(d.alto)} ${q(d.da_alto)}`; }).join(' · ') + ' mm';
   const liberi = ['u', 'v'].filter(k => !r.dirs[k].tiene).map(k => `${r.dirs[k].basso}/${r.dirs[k].alto}`);
-  el.querySelector('.ap-nota').textContent = liberi.length ? `${liberi.join(', ')}: non c’è un lato piano per tenerlo; resta lì ma non segue i pezzi se cambiano.` : '';
+  const note = [];
+  if (APP.cambio) note.push(`${APP.cambio === 'Capovolgi' ? 'Capovolto' : APP.cambio === 'Gira di 90°' ? 'Girato di 90°' : 'Capovolto e girato'}: così ci sta senza entrare in «${r.nome_fermo}».`);
+  if (r.alzato > 0) note.push(`Sulla faccia non ci sta: lo poso su quello che tocca prima, ${mmTesto(r.alzato)} mm più su.`);
+  if (liberi.length) note.push(`${liberi.join(', ')}: non c’è un lato piano per tenerlo; resta lì ma non segue i pezzi se cambiano.`);
+  el.querySelector('.ap-nota').textContent = note.join(' ');
+  const prop = el.querySelector('.ap-prop');
+  prop.innerHTML = (r.proposte || []).length ? 'Ci sta giù se: ' + r.proposte.map((p, i) => `<button class="btn" data-prop="${i}">${esc(p.testo)}</button>`).join(' ') : '';
+  prop.querySelectorAll('[data-prop]').forEach(b => { b.onclick = () => {
+    const p = r.proposte[+b.dataset.prop].opz;
+    APP.opz.gira = p.gira || 0; APP.opz.capovolgi = !!p.capovolgi;
+    $('#ap-capo')?.classList.toggle('on', APP.opz.capovolgi);
+    appoggiaProva();
+  }; });
   const err = el.querySelector('.ap-err');
   if (r.dentro > 1) {
     const cm3 = r.dentro / 1000;
@@ -3479,7 +3497,7 @@ function appoggiaDisegna() {
   el.innerHTML = `<div class="ap-testa"><b>Appoggia «${esc(r.nome_mobile)}»</b><small>su «${esc(r.nome_fermo)}»</small></div>
     <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura (dai bordi)')}</div>
     ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
-    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-err" hidden></p>
+    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-prop"></p><p class="ap-err" hidden></p>
     <div class="ap-riga"><button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia">Gira di 90°</button>
       <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro">Capovolgi</button></div>
     <div class="acts"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;

@@ -151,6 +151,36 @@ def _bordi(pa: _Pezzo, ka: int, u):
     return lo, hi, basso, alto
 
 
+def _piane_lungo(p: _Pezzo, d):
+    """Le facce piane del pezzo a squadra con la direzione d: [(posizione lungo d, indice)]."""
+    out = []
+    for k, i in p.piane():
+        if abs(float(np.dot(i['n'], d))) > PARALLELA:
+            pts = p.per_faccia.get(k)
+            q = float((pts @ d).mean()) if pts is not None and len(pts) else float(np.dot(i['p'], d))
+            out.append((q, k))
+    return out
+
+
+def _ripiego(p: _Pezzo, d, lo, hi, basso, alto):
+    """Quando un lato non ha una faccia piana proprio sul bordo (03/11: i pannelli piegati, dove la faccia finisce
+    in una piega): le facce piane a squadra più vicine ai bordi (l'interno o l'esterno delle ali, i fianchi), così
+    l'accoppiamento tiene lo stesso. Per «al centro» una coppia messa simmetrica rispetto al centro se c'è (le due
+    ali interne di una vaschetta): se il pezzo cambia, resta al centro davvero. Ritorna (basso, alto, coppia)."""
+    cand = _piane_lungo(p, d)
+    if not cand:
+        return basso, alto, (basso, alto) if None not in (basso, alto) else None
+    b = basso if basso is not None else min(cand, key=lambda x: (abs(x[0] - lo), x[1]))[1]
+    a = alto if alto is not None else min(cand, key=lambda x: (abs(x[0] - hi), x[1]))[1]
+    if basso is not None and alto is not None:
+        return b, a, (b, a)
+    c = (lo + hi) / 2
+    coppie = [(round(abs((q1 + q2) / 2 - c), 2), round(abs(q1 - lo) + abs(q2 - hi), 2), k1, k2)
+              for q1, k1 in cand for q2, k2 in cand if q1 <= q2 + 1e-9]
+    _, _, k1, k2 = min(coppie)
+    return b, a, (k1, k2)
+
+
 def appoggia(part_a, Ra, Ta, ka: int, part_b, Rb, Tb, kb: int, opz: dict | None = None) -> dict:
     """Dove va il pezzo b (R, T) appoggiato sulla faccia ka del pezzo a, e le facce per gli accoppiamenti.
 
@@ -231,9 +261,174 @@ def appoggia(part_a, Ra, Ta, ka: int, part_b, Rb, Tb, kb: int, opz: dict | None 
         d_loc = R.T @ Dw
         fb_basso = pb.faccia_estrema(d_loc, -1)
         fb_alto = pb.faccia_estrema(d_loc, +1)
+        esatti = None not in (basso, alto, fb_basso, fb_alto)
+        lo_al, hi_al = pa.estremi(Dloc, pa.per_faccia[ka])
+        basso, alto, coppia_a = _ripiego(pa, Dloc, lo_al, hi_al, basso, alto)
+        lo_bl, hi_bl = pb.estremi(d_loc)
+        fb_basso, fb_alto, coppia_b = _ripiego(pb, d_loc, lo_bl, hi_bl, fb_basso, fb_alto)
         dirs[chiave] = {'modo': modo, 'mm': mm, 'dir': Dw.tolist(), 'basso': nome_lato(-Dw), 'alto': nome_lato(Dw),
-                        'lungo_a': hi_a - lo_a, 'lungo_b': hi_b - lo_b,
+                        'lungo_a': hi_a - lo_a, 'lungo_b': hi_b - lo_b, 'esatti': esatti,
                         'fermo': (basso, alto), 'mobile': (fb_basso, fb_alto),
+                        'coppia_fermo': coppia_a, 'coppia_mobile': coppia_b,
                         # distanze dai due bordi, a pezzo messo (per il pannello)
                         'da_basso': lo_b + sp - lo_a, 'da_alto': hi_a - (hi_b + sp)}
     return {'R': R, 'T': T, 'kb2': kb2, 'su': su.tolist(), 'dirs': dirs}
+
+
+# ------------------------------------------------------------------ mai dentro l'altro (03/11, secondo giro)
+def _posato(part, R, T):
+    return A.placed_shape(part, np.asarray(R, dtype=float).tolist(), np.asarray(T, dtype=float).tolist())
+
+
+def _comune(sa, sb):
+    """Il pezzo in comune tra due forme già messe (None se non si toccano nemmeno come ingombro)."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    ba, bb = sa.bounding_box(), sb.bounding_box()
+    if (ba.max.X < bb.min.X or bb.max.X < ba.min.X or ba.max.Y < bb.min.Y or bb.max.Y < ba.min.Y
+            or ba.max.Z < bb.min.Z or bb.max.Z < ba.min.Z):
+        return None
+    try:
+        return sa._bool_op((sa,), (sb,), BRepAlgoAPI_Common())
+    except Exception:  # noqa: BLE001 - se l'operazione non riesce: come se non entrasse
+        return None
+
+
+DENTRO = 1.0                    # mm³: sotto questo è solo il contatto tra le due facce
+
+
+def entra(part_a, Ra, Ta, part_b, R, T) -> float:
+    """Quanto il pezzo b, messo in (R, T), entra nel pezzo a (mm³)."""
+    c = _comune(_posato(part_a, Ra, Ta), _posato(part_b, R, T))
+    try:
+        return float(c.volume) if c is not None else 0.0
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _estremi_forma(sh, n):
+    n = np.asarray(n, dtype=float)
+    if np.max(np.abs(n)) > 0.99999:                 # lungo un asse: basta l'ingombro
+        b = sh.bounding_box()
+        k = int(np.argmax(np.abs(n)))
+        lo, hi = (b.min.X, b.min.Y, b.min.Z)[k], (b.max.X, b.max.Y, b.max.Z)[k]
+        return (lo, hi) if n[k] > 0 else (-hi, -lo)
+    v, _ = sh.tessellate(0.05)
+    q = np.array([[p.X, p.Y, p.Z] for p in v]) @ n
+    return float(q.min()), float(q.max())
+
+
+def _livelli(p: _Pezzo, R, T, n, verso):
+    """I livelli lungo n delle facce piane del pezzo messo in (R, T) che guardano come n (verso=+1) o contro (-1)."""
+    R, T = np.asarray(R, dtype=float), np.asarray(T, dtype=float)
+    out = set()
+    for k, i in p.piane():
+        if float(np.dot(R @ np.array(i['n']), n)) * verso > PARALLELA:
+            pts = p.per_faccia.get(k)
+            if pts is not None and len(pts):
+                out.add(round(float(((pts @ R.T + T) @ n).mean()), 4))
+    return sorted(out)
+
+
+def solleva(part_a, Ra, Ta, part_b, R, T, n, giri: int = 8):
+    """Se il pezzo b entra nell'a, lo alza lungo n (la normale della faccia su cui appoggia) finché non entra più:
+    si posa su quello che tocca prima, come quando lo si appoggia davvero (una piastra più grande del fondo di una
+    vaschetta resta sui bordi). Prima prova le altezze dove una faccia del pezzo va a toccarne una dell'altro (i bordi
+    della vaschetta sotto la piastra), dalla più bassa; se nessuna va, sale a passi. Ritorna (T nuovo, di quanto l'ha
+    alzato, quanto entra ancora)."""
+    T = np.array(T, dtype=float)
+    n = np.asarray(n, dtype=float)
+    sa = _posato(part_a, Ra, Ta)
+
+    def dentro(TT):
+        c = _comune(sa, _posato(part_b, R, TT))
+        try:
+            return (float(c.volume) if c is not None else 0.0), c
+        except Exception:  # noqa: BLE001
+            return 0.0, None
+    v, c = dentro(T)
+    if v <= DENTRO:
+        return T, 0.0, v
+    su = _livelli(_pezzo(part_a), Ra, Ta, n, +1)
+    giu = _livelli(_pezzo(part_b), R, T, n, -1)
+    for h in sorted({round(la - lb, 4) for la in su for lb in giu if la - lb > 1e-6})[:12]:
+        vv, _ = dentro(T + n * h)
+        if vv <= DENTRO:
+            return T + n * h, h, vv
+    alzato = 0.0
+    for _ in range(giri):
+        lo, hi = _estremi_forma(c, n)
+        passo = max(hi - lo, 0.01)
+        T = T + n * passo
+        alzato += passo
+        v, c = dentro(T)
+        if v <= DENTRO:
+            break
+    return T, alzato, v
+
+
+def _contatto(pa: _Pezzo, Ra, Ta, pb: _Pezzo, R, T, n):
+    """Dopo averlo alzato: la faccia del pezzo fermo (che guarda come n) e quella del pezzo mosso (che guarda
+    contro) allo stesso livello, per l'accoppiamento faccia su faccia (i bordi della vaschetta sotto la piastra)."""
+    Ra, Ta, R, T = (np.asarray(x, dtype=float) for x in (Ra, Ta, R, T))
+    sotto = {}
+    for k, i in pa.piane():
+        if float(np.dot(Ra @ np.array(i['n']), n)) > PARALLELA:
+            pts = pa.per_faccia.get(k)
+            if pts is not None and len(pts):
+                sotto[k] = float(((pts @ Ra.T + Ta) @ n).max())
+    for k, i in pb.piane():
+        if float(np.dot(R @ np.array(i['n']), n)) < -PARALLELA:
+            pts = pb.per_faccia.get(k)
+            if pts is None or not len(pts):
+                continue
+            liv = float(((pts @ R.T + T) @ n).min())
+            for ka, la in sorted(sotto.items(), key=lambda x: x[0]):
+                if abs(la - liv) < 0.05:
+                    return ka, k
+    return None
+
+
+# le prove quando il pezzo entra: girato, capovolto, tutti e due (in quest'ordine)
+_ALTERNATIVE = (({'gira': 1}, 'Gira di 90°'), ({'capovolgi': True}, 'Capovolgi'),
+                ({'gira': 1, 'capovolgi': True}, 'Capovolgi e gira di 90°'))
+
+
+def _con(opz: dict, cambio: dict) -> dict:
+    o = {k: (dict(v) if isinstance(v, dict) else v) for k, v in (opz or {}).items()}
+    o['gira'] = (int(o.get('gira') or 0) + int(cambio.get('gira') or 0)) % 4
+    if cambio.get('capovolgi'):
+        o['capovolgi'] = not o.get('capovolgi')
+    o.pop('auto', None)
+    return o
+
+
+def appoggia_senza_entrare(part_a, Ra, Ta, ka: int, part_b, Rb, Tb, kb: int, opz: dict | None = None) -> dict:
+    """Come appoggia(), ma il pezzo non entra mai nell'altro (03/11, Stefano). Se così entra (una faccia interna,
+    una vaschetta più piccola del pezzo):
+    - alla prima prova (opz['auto']) prova da solo a girarlo / capovolgerlo e tiene il primo modo in cui ci sta
+      ('scelto': le opzioni usate, 'cambio': cosa ha fatto, per il pannello);
+    - se no lo alza finché si posa su quello che tocca ('alzato': di quanto, 'contatto': le due facce che si
+      toccano) e dice quali modi lo farebbero stare giù ('proposte': [{'testo', 'opz'}])."""
+    opz = dict(opz or {})
+    auto = bool(opz.pop('auto', False))
+    r = appoggia(part_a, Ra, Ta, ka, part_b, Rb, Tb, kb, opz)
+    r.update(dentro=0.0, alzato=0.0, contatto=None, proposte=[], scelto=None, cambio=None)
+    if entra(part_a, Ra, Ta, part_b, r['R'], r['T']) <= DENTRO:
+        return r
+    puliti = []
+    for cambio, testo in _ALTERNATIVE:
+        o = _con(opz, cambio)
+        try:
+            r2 = appoggia(part_a, Ra, Ta, ka, part_b, Rb, Tb, kb, o)
+        except A.AssemblyError:
+            continue
+        if entra(part_a, Ra, Ta, part_b, r2['R'], r2['T']) <= DENTRO:
+            if auto:
+                r2.update(dentro=0.0, alzato=0.0, contatto=None, proposte=[], scelto=o, cambio=testo)
+                return r2
+            puliti.append({'testo': testo, 'opz': o})
+    n = np.asarray(Ra, dtype=float) @ np.array(_pezzo(part_a).info(ka)['n'], dtype=float)
+    T, alzato, dentro = solleva(part_a, Ra, Ta, part_b, r['R'], r['T'], n)
+    r.update(T=T, alzato=alzato, dentro=dentro, proposte=puliti,
+             contatto=_contatto(_pezzo(part_a), Ra, Ta, _pezzo(part_b), r['R'], T, n) if dentro <= DENTRO else None)
+    return r

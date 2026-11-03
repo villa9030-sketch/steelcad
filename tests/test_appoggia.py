@@ -237,4 +237,5 @@ def test_anteprima_avvisa_se_entra_nell_altro(assieme):
     f = s.asm.instance('I2')['file']
     assert t.asm_insert(f)['ok'] and t.asm_insert(s.asm.instance('I1')['file'])['ok']
     r = t.asm_appoggia(_faccia(t, 'I2', 'SM1/sopra'), _faccia(t, 'I1', 'SM1/FL1/interno'), None, True)
-    assert r['ok'] and r['dentro'] > 1
+    # (secondo giro, 03/11) non entra più: si posa su quello che tocca prima, e lo dice
+    assert r['ok'] and r['dentro'] == 0 and r['alzato'] > 1
