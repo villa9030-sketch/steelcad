@@ -355,8 +355,6 @@ details.altro summary { cursor: pointer; color: var(--ink-2); }
 .sk-more { margin-top: 2px; }
 .sk-more summary { cursor: pointer; font-size: 12px; color: var(--ink-2); padding: 4px 0; list-style: none; }
 .sk-more summary::-webkit-details-marker { display: none; }
-.sk-more summary::after { content: ' ▾'; }
-.sk-more[open] summary::after { content: ' ▴'; }
 .sk-more-btns { display: flex; flex-direction: column; gap: 4px; }
 .sk-legend { display: flex; flex-direction: column; gap: 3px; margin: 14px 0 6px; font-size: 11px; color: var(--ink-3); }
 .sk-legend span { display: flex; align-items: center; gap: 8px; }
@@ -559,8 +557,6 @@ body:not(.dark) #sk-foot { background: rgba(255, 255, 255, .98) !important; bord
 #storia-box > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
 #storia-box > summary::-webkit-details-marker { display: none; }
 #storia-box > summary h2 { margin: 0; }
-#storia-box > summary::before { content: '▸'; color: var(--ink-3); font-size: 11px; }
-#storia-box[open] > summary::before { content: '▾'; }
 .storia-n { margin-left: auto; font-size: 11px; color: var(--ink-3); }
 .storia { display: flex; flex-direction: column; gap: 1px; margin: 8px 0 4px; max-height: 260px; overflow: auto; }
 .storia button { position: relative; display: flex; align-items: center; gap: 8px; text-align: left; padding: 4px 8px 4px 22px; border: 0;
@@ -887,8 +883,6 @@ body.dark .ibtn :is(img, .ico) { filter: none; }
 .fsec { border-top: 1px solid var(--line); padding: 8px 0 2px; margin-top: 10px; }
 .fsec summary { cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); padding: 2px 0 6px; list-style: none; }
 .fsec summary::-webkit-details-marker { display: none; }
-.fsec summary::before { content: '▸'; display: inline-block; width: 14px; transition: transform .12s; }
-.fsec[open] summary::before { transform: rotate(90deg); }
 .fsec .lbl { display: grid; gap: 3px; margin-bottom: 8px; }
 .fsec .hint { margin: 0 0 8px; }
 .fnote { margin-top: 10px; padding: 9px 10px; border-radius: 6px; background: var(--on-bg); border: 1px solid var(--on-line); font-size: 12px; display: grid; gap: 6px; }
@@ -1752,10 +1746,10 @@ body.dark .drop button:hover, body.dark .menu-item.open > button { background: v
 .sezione:first-child { border-top: 0; padding-top: 0; }
 .sezione > h4 { margin: 0; }
 .fsec { border-top: 1px solid var(--c-linea); padding: var(--s-2) 0 2px; margin-top: var(--s-3); }
-.fsec summary { display: flex; align-items: center; min-height: 28px; padding: 0; }
-.fsec summary::before { content: ''; width: 6px; height: 6px; margin: 0 10px 0 2px; border-right: 1.6px solid var(--c-spento); border-bottom: 1.6px solid var(--c-spento);
+.fsec > summary { display: flex; align-items: center; min-height: 28px; padding: 0; }
+.fsec > summary::before { content: ''; width: 6px; height: 6px; margin: 0 10px 0 2px; border-right: 1.6px solid var(--c-spento); border-bottom: 1.6px solid var(--c-spento);
   transform: rotate(-45deg); transition: transform var(--t-veloce); }
-.fsec[open] summary::before { transform: rotate(45deg); }
+.fsec[open] > summary::before { transform: rotate(45deg); }
 /* una riga etichetta + valore: <div class="riga"><span>Spessore</span><b>2 mm</b></div> */
 .riga { display: flex; align-items: center; gap: var(--s-2); min-height: var(--h-riga); }
 .riga > span:first-child { color: var(--c-testo-2); flex: 1; min-width: 0; }
@@ -2711,3 +2705,12 @@ body.bottom-closed #toasts { bottom: 104px; }
 #mancanti > span:first-of-type { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
 .imp-info { margin-bottom: var(--s-3); }
 .modal-box .fo-frase { margin: var(--s-3) 0 0; font-size: var(--fs-fitto); }
+/* sezioni richiudibili: UNA freccina per tutte (Avanzate, Dettagli, Storia, Altro…), la stessa di .fsec.
+   :where = precedenza zero: margini e grandezze restano quelli di ogni sezione */
+:where(details) > summary { display: flex; align-items: center; cursor: pointer; list-style: none; }
+:where(details) > summary::-webkit-details-marker { display: none; }
+:where(details) > summary::before { content: ''; flex: none; width: 6px; height: 6px; margin: 0 10px 0 2px;
+  border-right: 1.6px solid var(--c-spento); border-bottom: 1.6px solid var(--c-spento); transform: rotate(-45deg); transition: transform var(--t-veloce); }
+:where(details[open]) > summary::before { transform: rotate(45deg); }
+/* le misure di un pezzo normale: «tutti i parametri» è aperto e senza titolo, niente linea in più sotto il materiale */
+#params-panel:not(.tpl) #params-box { border-top: 0; margin-top: 0; padding-top: 0; }
