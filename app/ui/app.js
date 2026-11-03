@@ -2898,6 +2898,7 @@ const NUM = v => virgola(Math.round(+v * 100) / 100);
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (e.target.closest?.('.quota, .q-scelte')) return;          // nel campo di una quota Esc annulla solo quello
+  if (!$('#palette').hidden || !$('#home').hidden) return;      // palette o pagina iniziale aperte: Esc chiude quelle
   if (document.getElementById('mini-barra')) { e.stopPropagation(); clearSelection(); }
 }, true);
 // 28/10: l'errore che dice dove e come uscirne. Il punto si accende in rosso (se c'è), le soluzioni si applicano con un
