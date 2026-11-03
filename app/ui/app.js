@@ -717,7 +717,7 @@ function selectEdge(e) {
         } else schedaCalcola(false);
       });
     };
-    barretta(punta ? 'Punta della flangia' : `Bordo ${e.label}`, [
+    barretta(punta ? 'Punta della flangia' : `Bordo ${latoOfficina(e.label)}`, [
       ['flange', `Piega ${versi.up.toLowerCase()}`, () => piega('up'), '', prova('up')],
       ['fold', `Piega ${versi.down.toLowerCase()}`, () => piega('down'), '', prova('down')],
       ['pattern_rect', 'Piega anche altri bordi (tutti uguali)', () => { anteprimaVia(); nascondiMini(); pieghePiuBordi(e); }]],
@@ -846,7 +846,7 @@ canvas.addEventListener('pointermove', ev => {
   if (he !== hoverEdge) { hoverEdge = he; paint(); }
   if (he) {
     if (hover) { hover = null; paint(); }
-    tip.textContent = `Bordo: ${he.label} · clic per piegare qui`;
+    tip.textContent = `Bordo ${latoOfficina(he.label)}: clic per piegare qui`;
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
     tip.style.top = (ev.clientY - r.top + 14) + 'px';
@@ -870,7 +870,7 @@ canvas.addEventListener('pointermove', ev => {
   if (h) {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
-    tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${f?.label || 'faccia'}`) : h.name;
+    tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${(f?.label || 'faccia').replace(/ di "[^"]*"$/, '')}`) : h.name;   // 04/11: il nome una volta sola
     // il cartellino di un tubo: il nome da officina in grassetto, sotto tubo e lunghezza (notte 03/11)
     const parti = h.face == null && o.data.kind === 'member' ? String(h.name || '').split(' — ') : [];
     tip.classList.toggle('t-cartellino', parti.length > 1);
@@ -948,7 +948,7 @@ function pannelloTraverso() {
     <div class="seg">${scelte.map(([k, t]) => `<button class="btn${rif === k ? ' on' : ''}" data-rif="${k}">${t}</button>`).join('')}</div></section>
     <section class="sezione"><label class="lbl">Tubo<input class="field" id="tr-prof" list="dl-prof" value="${esc(TRAV.prof || TRAV.info?.profilo || ultimaAsta.profile || '40x40x3')}"></label>
     <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche dall’altra parte (dietro), alla stessa misura</label></section>
+    <label class="check"><input type="checkbox" id="tr-dietro" ${TRAV.dietro === false ? '' : 'checked'}> Anche il gemello dall’altra parte, alla stessa misura</label></section>
     <div class="t-piede"><button class="btn" id="tr-no">Annulla</button><button class="btn primary" id="tr-ok">Aggiungi il traverso</button></div>`
     : '<div class="t-piede"><button class="btn" id="tr-no">Annulla</button></div>'}</div>`;
   $('#tr-no').onclick = () => { anteprimaVia(); finisciTraverso(); };
@@ -3684,7 +3684,7 @@ async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
   nascondiMini();
   const testo = x => (x == null ? '' : typeof x === 'number' ? virgola(x) : String(x));
   const v = modifica ? { ...ultimoForo, ...Object.fromEntries(Object.entries(modifica.spec).map(([k, x]) => [k, k === 'punti' ? x.map(p => p.map(testo)) : testo(x)])) }
-    : { ...ultimoForo, tipo, punti: [] };
+    : { ...ultimoForo, tipo, punti: [], disposizione: ultimoForo.perTipo?.[tipo] || 'centro' };
   if (modifica) { v.punti = v.punti || []; v.diversa = modifica.spec.bordo_y != null && modifica.spec.bordo_y !== ''; if (!v.lato) v.lato = 'mezzo'; }
   FORO = { face: info.face, info, v, modifica: modifica?.feature || null };
   const nomeFaccia = s => (s || '').replace(/ di "[^"]*"$/, '');
@@ -3781,7 +3781,8 @@ async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
     $('#m-ok').onclick = () => {
       const s = spec(), face = FORO.face, cambia = FORO.modifica;
       if (v.disposizione === 'punti' && !v.punti.length) { toast('Clicca sul pezzo dove va il foro.', 'err'); return; }
-      ultimoForo = { ...v, punti: [] };
+      // 04/11 (percorso B): la disposizione si ricorda per tipo: dopo «4 agli angoli» per i fori l'asola non propone 4 asole
+      ultimoForo = { ...v, punti: [], perTipo: { ...ultimoForo.perTipo, [v.tipo]: v.disposizione } };
       chiudi();
       inCoda(async () => { const r = cambia ? await call('fori_modifica', cambia, s) : await call('fori_guidati', face, s); await apply(r, r.message); });
     };
@@ -4200,6 +4201,8 @@ const VERSI_PUNTA = { up: 'Verso dentro', down: 'Verso fuori' };
 const POS_UI = { inside: 'Fuori tutto', outside: 'Dal bordo' };
 // il lato di una piega in parole di officina
 const LATI = { 'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra', 'lato sinistro': 'a sinistra' };
+// 04/11 (percorso B): il bordo si chiama come nell'albero («davanti»), non come nello sketch («lato sotto»)
+function latoOfficina(l) { return String(l || '').replace(/^lato (sotto|sopra|destro|sinistro)(?![a-z])/, m => LATI[m] || m); }
 const SPIEGA = { up_t: 'Verso dentro: chiude, es. il bordo di una scatola', down_t: 'Verso fuori: apre, es. la tesa di un omega',
   inside: 'La lunghezza è la quota esterna, misurata dal contorno: il pezzo resta delle misure disegnate',
   outside: 'La piega parte dal bordo del contorno e la flangia sta fuori: il pezzo cresce dello spessore' };
@@ -6122,6 +6125,12 @@ async function newAssemblyDialog() {
     };
     const wire = () => {
       $('#na-tab').querySelectorAll('[data-i]').forEach(c => { c.onchange = () => { scegliPezzo(pezzi[+c.dataset.i], c.checked); c.closest('tr').classList.toggle('scelto', c.checked); tot(); }; });
+      // 04/11 (percorso D): un clic sul nome o sulla foto del pezzo lo spunta, non solo sulla casella da 13 px
+      $('#na-tab').querySelectorAll('tr').forEach(tr => { tr.onclick = ev => {
+        const c = tr.querySelector('[data-i]');
+        if (!c || ev.target.closest('input, label, button')) return;
+        c.checked = !c.checked; c.dispatchEvent(new Event('change'));
+      }; });
       $('#na-tab').querySelectorAll('[data-n]').forEach(c => { c.oninput = () => {
         const x = pezzi[+c.dataset.n]; x.n = c.value.trim(); if (!x.scelto && x.n) { scegliPezzo(x, true); c.closest('tr').classList.add('scelto'); c.closest('tr').querySelector('[data-i]').checked = true; } tot(); }; });
       tot();
@@ -6711,10 +6720,11 @@ function renderBottom() {
   badge.textContent = n ? String(n) : '';
   badge.classList.toggle('err', S.errors.length > 0);
   // la barretta del pannello chiuso: quante righe e quanti kg, e se c'è qualcosa da guardare
-  const sum = [b.length ? `Distinta: ${b.length === 1 ? '1 riga' : b.length + ' righe'} · ${kg(S.bom_kg)} kg` : 'Distinta vuota'];
-  if (S.sheet?.missing?.length) sum.push('Lamiera: mancano dati di piega');
+  // 04/11: niente «·» (brief); «mancano dati di piega» solo se il pezzo ha pieghe (una piastra piana non ne ha bisogno)
+  const sum = [b.length ? `Distinta: ${b.length === 1 ? '1 riga' : b.length + ' righe'}, ${kg(S.bom_kg)} kg` : 'Distinta vuota'];
+  if (S.sheet?.missing?.length && (S.sheet.data?.bends?.length || S.sheet.shape)) sum.push('Lamiera: mancano dati di piega');
   if (n) sum.push(`${n} ${n === 1 ? 'avviso' : 'avvisi'}`);
-  $('#bottom-sum').textContent = sum.join(' · ');
+  $('#bottom-sum').textContent = sum.join('; ');
 }
 // pannello in basso (il cassetto): chiuso è una barretta col riassunto; si apre col clic su una scheda (Distinta,
 // Info…) e si chiude con la freccia o con un altro clic sulla scheda aperta. 04/11: parte SEMPRE chiuso, la vista prende lo spazio (non si ricorda aperto)
@@ -6751,7 +6761,9 @@ document.querySelector('.tabs').addEventListener('click', ev => {
 const ICONE_TOAST = { err: '!', ok: '✓', '': 'i' };
 function toast(msg, kind = '', azione = null, durata = 0) {
   const t = document.createElement('div');
-  if (!kind && /^(fatto|salvat|tavole salvate|quota tolta|aggiunt|creat|esportat)/i.test(String(msg))) kind = 'ok';
+  // un lavoro riuscito è verde (brief: verde = fatto), anche «Fatti 4 fori.», «Traverso aggiunto.», «4 tubi aggiunti…» (04/11)
+  if (!kind && (/^(fatt[oaie](?![a-z])|salvat|tavole salvate|quota tolta|aggiunt|creat|esportat|tagliat)/i.test(String(msg))
+    || /^[^.:]{0,40}[ ]aggiunt[oaie](?![a-z])/i.test(String(msg)))) kind = 'ok';
   t.className = 'toast ' + kind;
   const ic = document.createElement('span'); ic.className = 'ti'; ic.textContent = ICONE_TOAST[kind] ?? 'i';
   const tx = document.createElement('span'); tx.className = 'tt'; tx.textContent = msg;
@@ -7710,7 +7722,9 @@ const CMDS = [
   { id: 'contour_help', label: 'Lamiera a contorno', run: () => toast(S?.sheet?.data
     ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi «Pieghe e forme ▾» → «Lamiera a contorno».'
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
-  { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna su questa faccia» nel pannello a destra.') },
+  { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna qui» nella barretta che compare.') },
+  // 04/11 (percorso C): «testo», «scritta», «marca» nella ricerca portano qui (la scritta si fa disegnando sulla faccia)
+  { id: 'scritta', label: 'Scritta sul pezzo, tagliata o marcata (testo)…', run: () => toast('Clicca la faccia dove va la scritta, poi «Disegna qui» e il comando «Testo». Tagliata: «Togli materiale»; marcata: «Marca col laser».') },
   { id: 'member_help', label: 'Nuova asta', run: () => toast(nodes.length ? 'Clicca un nodo (pallino) del telaio: nel pannello scegli direzione e lunghezza della nuova asta.' : 'Prima serve una struttura: Telaio / tavolo o Struttura libera.', nodes.length ? '' : 'err') },
   { id: 'export_bendtable', label: 'Esporta la tabella pieghe…', run: () => inCoda(() => esportaFile('bendtable')) },
   { id: 'sheet_rules', label: 'Regole di lamiera…', run: () => inCoda(rulesDialog) },
@@ -9163,7 +9177,7 @@ function finestraTesto({ valori, at, nuova, ok }) {
     };
     $('#m-ok').onclick = vai;
     $('#tx-t').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); vai(); } };
-    $('#tx-t').focus();
+    $('#tx-t').focus(); $('#tx-t').select();          // 04/11 (percorso C): scrivendo «1.2» sopra «1.0» viene 1.2, non «1.21.0»
   });
 }
 // asola: la larghezza è il doppio della distanza del mouse dalla linea dei centri

@@ -2612,3 +2612,10 @@ body[data-modo="tavole"] #ribbon, #tav-ed .te-strumenti { --accento-icona: var(-
 /* il pulsante ancora acceso (scelto) resta del colore di modalità, mai il colore del testo */
 #ribbon .rb .ico, #ribbon .rb.rb-s .ico { opacity: 1; }
 
+
+/* ======================================================= percorsi di lavoro (notte 04/11) */
+/* finestra Foro: i quattro «Dove» in due righe da due, ognuno su una riga sola (prima «Uno al / centro» andava a capo) */
+#fo-corpo [data-fo-seg="disposizione"] { display: grid; grid-template-columns: 1fr 1fr; }
+#fo-corpo [data-fo-seg="disposizione"] button { white-space: nowrap; padding: 0 6px; }
+/* nuovo assieme: tutta la riga del pezzo si clicca */
+#na-tab tr:has([data-i]) { cursor: pointer; }
