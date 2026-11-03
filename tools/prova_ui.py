@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
+from ui_barra import comando, comando_visibile, scheda  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / '.venv' / 'Scripts' / 'python.exe'
@@ -128,9 +128,15 @@ def main():
             ok('larghezza 400 → pezzo 400 largo', True)
             pg.screenshot(path=str(SHOTS / '3_piastra.png'))
             pg.keyboard.press('Control+K'); pg.keyboard.type('esporta dxf'); pg.keyboard.press('Enter')
-            pg.wait_for_selector('.toast:has-text("DXF salvato")')
-            ok('export DXF: ' + pg.inner_text('.toast:has-text("DXF")'), True)
+            # 03/11: dopo l'esportazione non più un messaggio che passa ma la conferma con il file e la cartella
+            pg.wait_for_selector('#modal-box.fatto h3:has-text("DXF di taglio salvato")')
+            ok('export DXF: ' + pg.inner_text('#modal-box .prep-fatti').strip(), '.dxf' in pg.inner_text('#modal-box .prep-fatti').lower())
+            pg.click('#m-ok'); pg.wait_for_selector('#modal', state='hidden')
             pg.keyboard.press('Control+S')
+            # 03/11: il primo salvataggio chiede il nome del pezzo (va in distinta, cartiglio e DXF)
+            pg.wait_for_selector('#sv-nome')
+            ok('Salva chiede il nome, già scritto: ' + pg.input_value('#sv-nome'), pg.input_value('#sv-nome') == 'Piastra')
+            pg.click('#m-ok')
             pg.wait_for_function('window.__steelcad.state.path && !window.__steelcad.state.dirty')
             ok('salvataggio', any(cart.glob('*.steelcad')))
             try:
@@ -187,7 +193,7 @@ def da_zero(pg, ok):
     pg.wait_for_function("window.__steelcad.sketch.v.lines.length === 4 && window.__steelcad.sketch.v.ok")
     stato = pg.evaluate('window.__steelcad.sketch.v.status')
     quote = sorted(pg.locator('.dim').all_inner_texts())
-    ok(f'contorno disegnato e chiuso: {stato} {quote}', 'completamente' in stato and quote == ['200', '400'])
+    ok(f'contorno disegnato e chiuso: {stato} {quote}', ('completamente' in stato or 'tutto quotato' in stato) and quote == ['200', '400'])
     pg.keyboard.press('c')
     clic(100, 100)
     pg.keyboard.type('20')
@@ -212,7 +218,7 @@ def da_zero(pg, ok):
     # riapro lo sketch dall'albero e allungo il pezzo con la quota
     pg.click('#tree .node:has-text("Contorno")')
     pg.wait_for_function("window.__steelcad.sketch")
-    comando(pg, '.rbody:not([hidden]) >> text=Seleziona')         # con la Linea attiva i clic passano attraverso le quote
+    comando(pg, '.rbody:not([hidden]) [data-tool="select"]')         # con la Linea attiva i clic passano attraverso le quote
     pg.locator('.dim', has_text='400').first.click()
     pg.keyboard.press('Control+A'); pg.keyboard.type('500'); pg.keyboard.press('Enter')
     pg.wait_for_function("window.__steelcad.state.sheet.data && Math.round(Math.max(...window.__steelcad.state.sheet.data.flat_size)) >= 500")
@@ -241,7 +247,11 @@ def scatola(pg, ok):
         pg.wait_for_function("!!document.querySelector('#props [data-flangia]')")
     pg.evaluate("window.__steelcad.select('flange=SM1/FL1')")
     pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]', state='attached')
-    pg.click('#props details.fsec:has(.corner) summary')          # gli angoli stanno in una sezione chiusa
+    # notte 03/11: il clic sulla piega dà la barretta; «⋯» apre il pannello intero, dove stanno gli angoli
+    if not pg.is_visible('#props details.fsec:has(.corner) summary'):
+        pg.click('#mini-barra button.piu')
+    if not pg.is_visible('.corner[data-other="FL2"] [data-corner]'):
+        pg.click('#props details.fsec:has(.corner) summary')      # gli angoli stanno in una sezione chiusa
     pg.wait_for_selector('.corner[data-other="FL2"] [data-corner]')
     area0 = pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
     pg.select_option('.corner[data-other="FL2"] [data-corner]', 'over')
@@ -252,6 +262,7 @@ def scatola(pg, ok):
     # clic sulla faccia esterna di FL1 → disegna qui → cerchio Ø8 → taglia
     pg.evaluate("""() => { const o = window.__steelcad.objs.get('body');
         const f = o.data.faces.find(x => x.name === 'SM1/FL1/esterno'); window.__steelcad.select('body', f.index); }""")
+    pannello(pg)
     pg.wait_for_selector('[data-face-sketch]')
     pg.click('[data-face-sketch]')
     pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL1/esterno'")
@@ -270,7 +281,10 @@ def scatola(pg, ok):
     pg.screenshot(path=str(SHOTS_G / '9_su_faccia.png'))
     area1 = pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
     pg.click('#sk-face [data-make="cut"]')
-    pg.wait_for_selector('#pr-ok:not([disabled])', timeout=20000); pg.click('#pr-ok')   # 29/10: prima la prova sul pezzo
+    # 29/10: prima la prova sul pezzo; un foro tondo chiuso ora lo fa subito (si annulla con Ctrl+Z)
+    pg.wait_for_function("!!document.querySelector('#pr-ok:not([disabled])') || !window.__steelcad.sketch", timeout=20000)
+    if pg.is_visible('#pr-ok'):
+        pg.click('#pr-ok')
     pg.wait_for_function("(a) => !window.__steelcad.sketch && window.__steelcad.state.sheet.data.flat_area < a - 1", arg=area1)
     diff = area1 - pg.evaluate('window.__steelcad.state.sheet.data.flat_area')
     ok(f'foro Ø8 disegnato sulla faccia della flangia, anche nello sviluppo (−{diff:.2f} mm²)', abs(diff - math.pi * 16) < 0.5)
@@ -334,7 +348,7 @@ def comandi_sketch(pg, ok):
     pg.keyboard.type('10'); pg.keyboard.press('Enter')
     attendi('v.circles.length === 1')
     c0 = v()['circles'][0]
-    ok(f'foro all’incrocio delle guide: {v()["status"]}', 'completamente' in v()['status'])
+    ok(f'foro all’incrocio delle guide: {v()["status"]}', ('completamente' in v()['status'] or 'tutto quotato' in v()['status']))
     # serie di 3 a passo 40
     pg.keyboard.press('s')
     finestra((48, 28), (72, 52))            # finestra da sinistra a destra attorno al foro
@@ -366,18 +380,27 @@ def comandi_sketch(pg, ok):
     pg.mouse.click(box['x'] + sx, box['y'] + sy)
     attendi('v.lines.length === 15')             # 4 lati nuovi + le loro 4 guide a 90°
     pg.keyboard.press('Escape')                  # fine dell'offset
-    ok('offset del contorno 15 verso dentro: ' + v()['status'], 'completamente' in v()['status'])
+    ok('offset del contorno 15 verso dentro: ' + v()['status'], ('completamente' in v()['status'] or 'tutto quotato' in v()['status']))
     pg.screenshot(path=str(SHOTS_G / '11_comandi.png'))
     # il passo della serie è un parametro: px1 = 50 e i fori si spostano (anche quelli specchiati)
     pg.keyboard.press('Control+K'); pg.keyboard.type('px1 = 45'); pg.keyboard.press('Enter')
     attendi("v.circles.some(c => Math.abs(c.xc[0] - 105) < 1e-6)")
     xs = sorted(round(c['xc'][0], 3) for c in v()['circles'])
     ok(f'px1 = 45 → fori a {xs} (anche gli specchiati seguono)', xs == [60, 105, 150, 170, 215, 260])
-    pg.click('#sk-make [data-make="plate"]')
+    comando(pg, '#sk-make [data-make="plate"]')   # sta in «Crea ▾»
     pg.fill('#m-sp', '8')
     pg.click('#m-ok')
     pg.wait_for_function("!window.__steelcad.sketch && window.__steelcad.state.info.part")
     ok('piastra con 6 fori creata: ' + pg.evaluate("window.__steelcad.state.bom[0].description"), True)
+
+
+def pannello(pg):
+    """03/11: col clic sul pezzo si apre la barretta; «⋯» (Tutte le opzioni) apre il pannello completo a destra."""
+    try:
+        pg.wait_for_selector('#mini-barra button.piu', timeout=4000)
+        pg.click('#mini-barra button.piu')
+    except Exception:
+        pass
 
 
 def lamiera(pg, ok):
@@ -387,7 +410,7 @@ def lamiera(pg, ok):
     pg.fill('#n-name', 'Canalina')
     pg.click('#n-ok')
     pg.wait_for_function("window.__steelcad.state.name === 'Canalina' && window.__steelcad.state.sheet")
-    pg.click('.tabs button[data-tab="sheet"]')
+    scheda(pg, 'sheet')
     ok('scheda Lamiera: mancano raggio e K', 'Mancano' in pg.inner_text('#tab-sheet'))
     pg.fill('#t-radius', '2')
     pg.keyboard.press('Enter')
@@ -408,7 +431,7 @@ def lamiera(pg, ok):
     ok(f'U: sviluppo {size}', abs(size[0] - 500) < 1e-6 and abs(size[1] - 352.7964594) < 1e-5)
     ok('pannello flangia senza "Fori" e "Chiudi la testata" (tolti: si fanno disegnando sulla faccia)',
        'fori sulla flangia' not in pg.inner_text('#props').lower() and 'testata' not in pg.inner_text('#props').lower())
-    pg.click('.tabs button[data-tab="sheet"]')
+    scheda(pg, 'sheet')
     pg.wait_for_selector('#flat-svg')
     time.sleep(0.3)
     pg.screenshot(path=str(SHOTS_G / '6_lamiera.png'))
@@ -419,8 +442,11 @@ def lamiera(pg, ok):
     if pg.is_enabled('#modal-box [data-voce="piegatrice"]'):
         pg.uncheck('#modal-box [data-voce="piegatrice"]')
     pg.click('#m-ok')
-    pg.wait_for_selector('.toast:has-text("Salvati 1 file")')
-    ok('export sviluppo: ' + pg.inner_text('.toast:has-text("Salvati")')[:90], True)
+    # 03/11: non più un messaggio che passa ma la finestra «File pronti» con i file e la cartella
+    pg.wait_for_selector('#modal-box.prepara h3:has-text("File pronti")')
+    fatti = pg.inner_text('#modal-box .prep-fatti').strip().replace('\n', ' ')
+    ok('export sviluppo: ' + fatti, 'Salvato 1 file' in pg.inner_text('#modal-box') and 'Canalina_sviluppo.dxf' in fatti)
+    pg.click('#m-ok'); pg.wait_for_selector('#modal', state='hidden')
 
 
 def cancello(pg, ok, errori):
@@ -472,8 +498,9 @@ def cancello(pg, ok, errori):
             ok('annulla rimette i tubi', True)
             # spostare un angolo sopra un altro: rifiutato con il motivo
             pg.evaluate("window.__steelcad.select('ST1:N1')")
-            pg.wait_for_selector('details.altro')
-            pg.click('details.altro summary')
+            # 04/11: «Sposta l'angolo» è una sezione che si apre del pannello (details.fsec), chiusa di base
+            pg.wait_for_selector('details.fsec:has(#n-move)', state='attached')
+            pg.click('details.fsec:has(#n-move) summary')
             pg.fill('[data-xyz="2"]', '0'); pg.click('#n-move')
             pg.wait_for_selector('.toast.err:has-text("Non applicato")')
             ok('angolo sopra un altro: ' + pg.inner_text('.toast.err:has-text("Non applicato")')[:80], pg.evaluate("window.__steelcad.state.cutlist.pieces") == 4)
