@@ -2714,3 +2714,7 @@ body.bottom-closed #toasts { bottom: 104px; }
 :where(details[open]) > summary::before { transform: rotate(45deg); }
 /* le misure di un pezzo normale: «tutti i parametri» è aperto e senza titolo, niente linea in più sotto il materiale */
 #params-panel:not(.tpl) #params-box { border-top: 0; margin-top: 0; padding-top: 0; }
+/* albero: un nome lungo va a capo tra le parole (le misure come 1002×600×6 restano intere), al massimo due righe con «…»;
+   intero al passaggio del mouse (title della voce) */
+#tree .node .lb { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: normal; word-break: normal; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; padding: 3px 0; }

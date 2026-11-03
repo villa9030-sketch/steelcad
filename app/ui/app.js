@@ -1956,6 +1956,8 @@ const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole
 const APERTI = new Set();
 const chiaveNodo = n => `${n.kind}:${n.ref}`;
 const contieneSketch = (n, sid) => (n.kind === 'sketch' && n.ref === sid) || n.children.some(c => contieneSketch(c, sid));
+// l'etichetta di una voce dell'albero: se va a capo, non stacca il numero dalla sua unità né «= 6 mm» dal suo nome
+const etichettaAlbero = t => esc(t).replace(/(\d) (mm|°|kg)/g, '$1&nbsp;$2').replace(/ = (\S+)/g, '&nbsp;=&nbsp;$1');
 function renderTree() {
   if (document.activeElement?.classList?.contains('nome-albero')) return;      // mentre scrivi il nome di un pezzo
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
@@ -1990,7 +1992,7 @@ function renderTree() {
       occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
     }
     const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span><span class="lb">${etichettaAlbero(n.label)}</span>${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
   };
   // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
   let albero = S.tree;
@@ -2069,7 +2071,7 @@ function iniziaRinomina(el) {
   const prima = nomeSenzaCopia(ist.name);
   const inp = document.createElement('input');
   inp.className = 'field nome-albero'; inp.value = prima; inp.setAttribute('aria-label', 'Nome del pezzo');
-  [...el.childNodes].filter(n => n.nodeType === 3).forEach(n => n.remove());       // il testo della voce: al suo posto il campo
+  [...el.childNodes].filter(n => n.nodeType === 3 || n.classList?.contains('lb')).forEach(n => n.remove());   // il testo della voce: al suo posto il campo
   el.querySelector('.k').after(inp);
   inp.focus(); inp.select();
   let fatto = false;
