@@ -318,6 +318,9 @@ function buildScene(sc) {
   const cartellino = document.getElementById('hover-tip');
   if (cartellino) { cartellino.style.display = 'none'; cartellino.textContent = ''; }
   interfPulisci();                                 // le interferenze di prima non valgono più
+  if (ESPLOSO && !sc.objects.some(d => d.kind === 'instance')) {   // fuori dall'assieme: niente esploso né il suo pannello
+    ESPLOSO = 0; esplosoPannello(false); document.querySelector('#ribbon [data-cmd="asm_esploso"]')?.classList.remove('on');
+  }
   if (saldGroup) model.add(saldGroup);             // le saldature restano sul pezzo
   for (const d of sc.objects) {
     if (d.kind === 'context') {
@@ -413,6 +416,23 @@ function pianoEsploso(ist) {
   }
   pianoEspl = { chiave, spost: radiale.map((r, i) => r.add(strato[i])) };
   return pianoEspl;
+}
+// 04/11: aperta la vista esplosa, a destra quanto aprirla e «Chiudi l'esploso»
+function esplosoPannello(on) {
+  document.getElementById('esploso-pan')?.remove();
+  if (!on) return;
+  clearSelection();
+  const el = document.createElement('div');
+  el.id = 'esploso-pan'; el.className = 'pannello-cmd';
+  el.innerHTML = `<div class="pc-testa"><h3>Vista esplosa</h3><p>I pezzi si allontanano dal centro per vedere come si montano. Solo a video: l’assieme non cambia</p></div>
+    <div class="pc-corpo"><section class="sezione"><h4>Quanto aprire</h4>
+      <input type="range" class="cursore" id="esp-quanto" min="0.1" max="2" step="0.05" value="0.8" aria-label="Quanto aprire">
+      <div class="riga"><span>Poco</span><span class="testo-2">Tanto</span></div>
+      <p class="hint">Nelle tavole c’è il foglio dell’esploso con l’ordine di montaggio (Esporta, Tavole PDF).</p></section></div>
+    <div class="pc-fondo"><button class="btn primary big" id="esp-chiudi">Chiudi l’esploso</button></div>`;
+  document.body.appendChild(el);
+  $('#esp-quanto').oninput = ev => esplodi(+ev.target.value);
+  $('#esp-chiudi').onclick = () => runCmd('asm_esploso');
 }
 function esplodi(f) {
   ESPLOSO = f;
@@ -4392,15 +4412,17 @@ function ripetiApri(id) {
   ripetiChiudi();
   const o = objs.get(id); if (!o) return;
   const el = document.createElement('div');
-  el.id = 'ripeti';
+  el.id = 'ripeti'; el.className = 'pannello-cmd';
   const versi = Object.keys(RIP_VERSI).map(v => `<button data-v="${v}" class="${v === 'destra' ? 'on' : ''}">${v === 'giu' ? 'giù' : v}</button>`).join('');
-  el.innerHTML = `<div class="ap-testa"><b>In fila</b><small>«${esc(o.data.name)}» più volte</small></div>
-    <div class="ap-riga"><span class="ap-lab">Quante in tutto</span><span class="inp"><input class="field" id="rp-n" value="4"></span></div>
-    <div class="ap-riga"><span class="ap-lab">Verso</span><span class="seg" id="rp-verso">${versi}</span></div>
-    <div class="ap-riga"><span class="seg" id="rp-modo"><button data-m="passo" class="on">Passo</button><button data-m="lung">Dalla prima all’ultima</button></span>
-      <span class="inp"><input class="field" id="rp-p" value="100"><i>mm</i></span></div>
-    <p class="ap-dist" id="rp-info"></p>
-    <div class="acts"><button class="btn" id="rp-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="rp-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  el.innerHTML = `<div class="pc-testa"><h3>In fila</h3><p>«${esc(o.data.name)}» più volte, a passo fisso: le copie si vedono subito, trasparenti</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Quante</h4>
+      <div class="ap-riga"><span class="ap-lab">Quante in tutto (con questo)</span><span class="inp"><input class="field num" id="rp-n" value="4"></span></div></section>
+    <section class="sezione"><h4>Verso</h4><span class="seg griglia3" id="rp-verso">${versi}</span></section>
+    <section class="sezione"><h4>Distanza</h4><span class="seg" id="rp-modo"><button data-m="passo" class="on">Passo</button><button data-m="lung">Dalla prima all’ultima</button></span>
+      <div class="ap-riga"><span class="inp"><input class="field num" id="rp-p" value="100"><i>mm</i></span></div>
+      <p class="ap-dist" id="rp-info"></p></section></div>
+    <div class="pc-fondo"><button class="btn" id="rp-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="rp-ok">Fatto <kbd>Invio</kbd></button></div>`;
   document.body.appendChild(el);
   RIP.el = el; RIP.id = id;
   el.querySelectorAll('#rp-verso button, #rp-modo button').forEach(b => { b.onclick = () => {
@@ -4436,6 +4458,24 @@ const INTERF_MAT = new THREE.MeshBasicMaterial({ color: 0xE5484D, transparent: t
 function interfPulisci() {
   interfGroup.traverse(x => x.geometry?.dispose()); interfGroup.clear();
   interfBox.innerHTML = ''; interfEls = [];
+  document.getElementById('interf-pan')?.remove();
+}
+// 04/11: l'elenco delle interferenze a destra, come il pannello del pezzo: ogni riga sceglie i due pezzi
+function interfPannello(lista) {
+  document.getElementById('interf-pan')?.remove();
+  const el = document.createElement('div');
+  el.id = 'interf-pan'; el.className = 'pannello-cmd';
+  const vol = x => { const cm3 = x.volume / 1000; return cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(x.volume) + ' mm³'; };
+  el.innerHTML = `<div class="pc-testa"><h3>Interferenze</h3><p>${lista.length === 1 ? 'Un punto' : lista.length + ' punti'} dove un pezzo entra nell’altro: in rosso nel 3D. Clic su una riga per scegliere i due pezzi</p></div>
+    <div class="pc-corpo"><section class="sezione"><h4>Dove</h4>${lista.map((x, i) => `<button class="asm-mate" data-interf="${i}"><img src="icons/section.svg" alt="">
+      <span>«${esc(x.nomi[0])}» e «${esc(x.nomi[1])}»<small class="testo-2"> entra ${vol(x)}</small></span></button>`).join('')}</section>
+    <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="interf-rifai"><img src="icons/section.svg" alt="">Controlla di nuovo</button>
+      <p class="hint">Sposta o cambia un pezzo: il rosso sparisce da solo, poi controlla di nuovo.</p></section></div>
+    <div class="pc-fondo"><button class="btn primary big" id="interf-ok">Fatto</button></div>`;
+  document.body.appendChild(el);
+  el.querySelectorAll('[data-interf]').forEach(b => { b.onclick = () => { const x = lista[+b.dataset.interf]; sel = { id: x.a, ids: [x.a, x.b] }; paint(); renderTree(); }; });
+  $('#interf-rifai').onclick = () => runCmd('asm_interf');
+  $('#interf-ok').onclick = () => { interfPulisci(); ridisegna(); };
 }
 function interfMostra(lista) {
   interfPulisci();
@@ -4457,6 +4497,7 @@ function interfMostra(lista) {
     interfEls.push({ el, at: new THREE.Vector3(...x.centro) });
   }
   placeDims(); ridisegna();
+  if (lista.length) interfPannello(lista);
 }
 window.__interf = { mostra: interfMostra, pulisci: interfPulisci, get n() { return interfGroup.children.length; } };
 // ===================================================================== Vite nei fori (03/11, secondo giro)
@@ -4475,14 +4516,17 @@ async function viteFori(a, b) {
   }
   const p = r.proposta, nomi = [a, b].map(f => objs.get(f.inst)?.data.name || f.inst);
   const el = document.createElement('div');
-  el.id = 'vitefori';
+  el.id = 'vitefori'; el.className = 'pannello-cmd';
   const sel = (id, lst, v) => `<select class="field" id="${id}">${lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('')}</select>`;
-  el.innerHTML = `<div class="ap-testa"><b>Vite nei fori</b><small>«${esc(nomi[0])}» e «${esc(nomi[1])}»</small></div>
-    <div class="ap-riga"><span class="ap-lab">${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</span>${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="hint">mm</span>
-      ${p.dado ? '<label class="check"><input type="checkbox" id="vf-d" checked> con dado</label>' : ''}</div>
-    <p class="ap-dist">Foro Ø${mmTesto(p.foro)} → ${esc(p.misura)} · pacco ${mmTesto(p.pacco)} mm${r.allineati ? '' : ' · i pezzi si mettono uno contro l’altro, fori allineati'}</p>
-    ${p.corta ? '<p class="ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}
-    <div class="acts"><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite">Solo allinea</button><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
+  el.innerHTML = `<div class="pc-testa"><h3>Vite nei fori</h3><p>«${esc(nomi[0])}» e «${esc(nomi[1])}»: la vite giusta per il foro, lunga quanto il pacco</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite"><img src="icons/hole.svg" alt="">Solo allinea i fori, senza vite</button></section>
+    <section class="sezione"><h4>${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</h4>
+      <div class="ap-riga vf-misura">${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="testo-2">mm</span></div>
+      ${p.dado ? '<label class="interruttore"><input type="checkbox" id="vf-d" checked><i></i>Con dado</label>' : ''}
+      <p class="ap-dist">Foro Ø${mmTesto(p.foro)}, quindi ${esc(p.misura)}; pacco ${mmTesto(p.pacco)} mm.${r.allineati ? '' : ' I pezzi si mettono uno contro l’altro, coi fori allineati.'}</p>
+      ${p.corta ? '<p class="msg warn ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}</section></div>
+    <div class="pc-fondo"><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
   document.body.appendChild(el);
   VF.el = el; VF.a = a; VF.b = b; VF.p = p; VF.v = v;
   $('#vf-no').onclick = viteForiChiudi;
@@ -4528,8 +4572,8 @@ function appoggiaApri(mobile, fermo) {
   APP.prima = {};
   for (const o of objs.values()) if (o.data.kind === 'instance') APP.prima[o.data.id] = [...o.data.matrix];
   const el = document.createElement('div');
-  el.id = 'appoggia';
-  el.innerHTML = '<div class="ap-testa"><b>Appoggia</b><small>calcolo…</small></div>';
+  el.id = 'appoggia'; el.className = 'pannello-cmd';
+  el.innerHTML = '<div class="pc-testa"><h3>Appoggia</h3><p>Calcolo dove sta…</p></div>';
   document.body.appendChild(el);
   APP.el = el;
   appoggiaProva();
@@ -4564,9 +4608,10 @@ function appoggiaDistanze() {
   const r = APP.info, el = APP.el;
   if (!r || !el) return;
   el.querySelector('.ap-err').hidden = true;
-  el.querySelector('.ap-dist').innerHTML = 'Dai bordi: ' + ['u', 'v'].map(k => { const d = r.dirs[k];
+  // 04/11: una riga per coppia di lati, senza «·» (dai bordi, in mm)
+  el.querySelector('.ap-dist').innerHTML = 'Dai bordi, in mm:' + ['u', 'v'].map(k => { const d = r.dirs[k];
     const q = v => v < -0.05 ? `sporge <b>${mmTesto(-v)}</b>` : `<b>${mmTesto(v)}</b>`;      // più grande della faccia
-    return `${esc(d.basso)} ${q(d.da_basso)} · ${esc(d.alto)} ${q(d.da_alto)}`; }).join(' · ') + ' mm';
+    return `<span class="riga-dist">${esc(d.basso)} ${q(d.da_basso)}, ${esc(d.alto)} ${q(d.da_alto)}</span>`; }).join('');
   const liberi = ['u', 'v'].filter(k => !r.dirs[k].tiene).map(k => `${r.dirs[k].basso}/${r.dirs[k].alto}`);
   const note = [];
   if (APP.cambio) note.push(`${APP.cambio === 'Capovolgi' ? 'Capovolto' : APP.cambio === 'Gira di 90°' ? 'Girato di 90°' : 'Capovolto e girato'}: così ci sta senza entrare in «${r.nome_fermo}».`);
@@ -4593,18 +4638,22 @@ function appoggiaDisegna() {
   const riga = k => {
     const d = r.dirs[k], m = o[k].modo;
     const b = (modo, t) => `<button data-k="${k}" data-modo="${modo}" class="${m === modo ? 'on' : ''}">${esc(t)}</button>`;
-    return `<div class="ap-riga"><span class="ap-lab">${esc(d.basso)} / ${esc(d.alto)}</span>
+    return `<div class="ap-riga ap-lati"><span class="ap-lab">${esc(d.basso[0].toUpperCase() + d.basso.slice(1))} o ${esc(d.alto)}</span>
       <span class="seg">${b('basso', d.basso)}${b('centro', 'al centro')}${b('alto', d.alto)}</span>
       ${APP.dove === 'misura' && m !== 'centro' ? `<span class="inp"><input class="field" data-mm="${k}" value="${mmTesto(+String(o[k].mm).replace(',', '.') || 0)}" aria-label="Distanza da ${esc(m === 'basso' ? d.basso : d.alto)}"><i>mm</i></span>` : ''}</div>`;
   };
   const dove = (k, t) => `<button data-dove="${k}" class="${APP.dove === k ? 'on' : ''}">${t}</button>`;
-  el.innerHTML = `<div class="ap-testa"><b>Appoggia «${esc(r.nome_mobile)}»</b><small>su «${esc(r.nome_fermo)}»</small></div>
-    <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura (dai bordi)')}</div>
-    ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
-    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-prop"></p><p class="ap-err" hidden></p>
-    <div class="ap-riga"><button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia">Gira di 90°</button>
-      <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro">Capovolgi</button></div>
-    <div class="acts"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  el.innerHTML = `<div class="pc-testa"><h3>Appoggia «${esc(r.nome_mobile)}»</h3><p>su «${esc(r.nome_fermo)}»: senza entrarci e senza capovolgersi. Ogni scelta si vede subito sul pezzo</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">
+      <button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia"><img src="icons/orbit.svg" alt=""><span>Gira di 90°</span></button>
+      <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro"><img src="icons/mirror.svg" alt=""><span>Capovolgi</span></button></div>
+      <p class="ap-prop"></p></section>
+    <section class="sezione"><h4>Dove sulla faccia</h4>
+      <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura')}</div>
+      ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
+      <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="msg err ap-err" hidden></p></section></div>
+    <div class="pc-fondo"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;
   el.querySelectorAll('[data-dove]').forEach(b => { b.onclick = () => {
     APP.dove = b.dataset.dove;
     for (const k of ['u', 'v']) {
@@ -7148,6 +7197,7 @@ const CMDS = [
     const passo = t => { const k = Math.min(1, (t - t0) / 450); esplodi(da + (a - da) * (1 - (1 - k) ** 3)); if (k < 1) requestAnimationFrame(passo); };
     requestAnimationFrame(passo);
     document.querySelector('#ribbon [data-cmd="asm_esploso"]')?.classList.toggle('on', a > 0);
+    esplosoPannello(a > 0);
   } },
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
@@ -7156,7 +7206,7 @@ const CMDS = [
     if (!r.interferences.length) { toast(r.message); return; }
     clearSelection();                               // il rosso si vede meglio senza i pezzi scelti (e la barretta) sopra
     interfMostra(r.interferences);
-    toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, col nome dei due pezzi (clic sul nome per sceglierli).`, 'err');
+    toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, l’elenco a destra.`, 'err');
   }) },
   { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
@@ -7582,7 +7632,7 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'joint', Q
   Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'project', 'Foro su foro': 'hole',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
-  Seleziona: 'select', Costruzione: 'construction' };
+  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'joint', 'Vite nei fori': 'fastener' };
 function setHelp(t) {
   const el = $('#sk-help');
   t = String(t || '');
