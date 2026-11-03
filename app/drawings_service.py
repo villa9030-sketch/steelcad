@@ -11,6 +11,10 @@ from pathlib import Path
 from cad_engine import drawings as D
 from cad_engine.errors import SteelCADError
 
+
+def _corto(t: str, n: int) -> str:
+    return t if len(t) <= n else t[:n - 1].rstrip() + '…'
+
 FISSI = ('azienda', 'disegnatore')
 # i nomi che il programma dà da solo a un pezzo nuovo: non dicono niente, meglio il nome del file del progetto
 NOMI_DI_SERIE = {'', 'pezzo', 'lamiera', 'piastra', 'progetto', 'struttura', 'profilo', 'tubo'}
@@ -119,13 +123,17 @@ class DrawingsMixin:
                     file.append({'assi': [(p.X, p.Y, p.Z) for p, _ in lista], 'nome': gruppo or 'aste',
                                  'profilo': m0.profile.name, 'larghezza': min(m0.profile.width, m0.profile.height)})
         fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato, file_passo=file)]
-        righe = [[str(i), r['profile'], D.fmt(r['length_mm']), ' / '.join(r['cuts']), str(r['qty']),
-                  ', '.join(r['groups']), D.fmt(round(r['kg_each'], 2)), D.fmt(round(r['kg_total'], 2))]
+        # 03/11: i tagli come li legge chi taglia («45° / 45° a trapezio, angolo sul lato da 60») e dove va il pezzo
+        righe = [[str(i), r['profile'], D.fmt(r['length_mm']), r.get('tagli_testo') or ' / '.join(r['cuts']), str(r['qty']),
+                  _corto(' · '.join(r.get('dove') or r['groups']), 60), D.fmt(round(r['kg_each'], 2)),
+                  D.fmt(round(r['kg_total'], 2))]
                  for i, r in enumerate(cl['rows'], 1)]
+        accessori = [[a['description'] + (' (da acquistare)' if a['acquisto'] else ''), str(a['qty']),
+                      D.fmt(round(a['kg_total'], 2)) if a['kg_total'] else ''] for a in cl.get('accessori') or []]
         totali = [[t['profile'], str(t['pieces']), D.fmt(round(t['total_length_mm'] / 1000, 2)), D.fmt(round(t['kg'], 2))]
                   for t in cl['totals']]
         fogli.append(D.tavola_taglio({**base, 'titolo': base['titolo'] + ' — distinta di taglio',
-                                      'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato))
+                                      'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato, cl['rows'], accessori))
         return fogli
 
     @staticmethod

@@ -1497,19 +1497,42 @@ def _sviluppo_forme(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     return f
 
 
-def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3') -> Foglio:
-    """La distinta di taglio di una struttura: profilo, lunghezza, tagli, quantità, gruppo, peso; e i totali per
-    profilo (pezzi, metri, kg). È il foglio che va in officina alla troncatrice o al laser tubo."""
+def tavola_taglio(campi: dict, righe: list, totali: list, formato: str = 'A3', forme: list | None = None,
+                  accessori: list | None = None) -> Foglio:
+    """La distinta di taglio di una struttura: profilo, lunghezza, il pezzo disegnato coi suoi tagli, i tagli a parole
+    («45° / 45° a trapezio, angolo sul lato da 60»), quantità, dove va, peso; i totali per profilo (pezzi, metri,
+    kg) e, se ci sono, piedi e tappi. È il foglio che va in officina alla troncatrice o al laser tubo.
+    righe: [pos, profilo, lunghezza, tagli, q.tà, dove va, kg cad., kg tot.]; forme: le righe della cut list
+    (per il disegnino: 'cuts' e 'forma')."""
     f = Foglio(formato, campi.get('titolo', ''))
     area, cart = _cornice(f, {**campi, 'scala': '—'})
-    col = [0, 12, 50, 80, 112, 126, 186, 206, 228]
-    intest = ['Pos.', 'Profilo', 'Lunghezza mm', 'Tagli', 'Q.tà', 'Gruppo', 'kg cad.', 'kg tot.']
-    ytop = area[3] - 12
-    _tabella(f, area[0] + 10, ytop, col, [intest] + righe, 'DISTINTA DI TAGLIO')
-    y2 = ytop - 7 * (len(righe) + 1) - 18
-    _tabella(f, area[0] + 10, y2, [0, 40, 60, 85, 110], [['Profilo', 'Pezzi', 'Metri', 'kg']] + totali,
+    # 03/11: una colonna col pezzo disegnato (le punte dei 45° si vedono) e i tagli scritti per intero
+    col = [0, 12, 40, 64, 92, 166, 178, 262, 280, 300]
+    intest = ['Pos.', 'Profilo', 'Lunghezza mm', 'Pezzo', 'Tagli', 'Q.tà', 'Dove va', 'kg cad.', 'kg tot.']
+    x0, ytop, h = area[0] + 10, area[3] - 12, 7.0
+    _tabella(f, x0, ytop, col, [intest] + [r[:3] + [''] + r[3:] for r in righe], 'DISTINTA DI TAGLIO')
+    for i, r in enumerate(forme or [], start=1):
+        _disegna_pezzo(f, x0 + col[3] + 2, ytop - i * h - h * 0.75, col[4] - col[3] - 4, h * 0.5, r)
+    y2 = ytop - h * (len(righe) + 1) - 18
+    _tabella(f, x0, y2, [0, 40, 60, 85, 110], [['Profilo', 'Pezzi', 'Metri', 'kg']] + totali,
              'TOTALI PER PROFILO (barre da comprare)')
+    if accessori:
+        _tabella(f, x0 + 130, y2, [0, 110, 125, 145], [['Piedi e tappi', 'Q.tà', 'kg tot.']] + accessori,
+                 'PIEDI E TAPPI')
     return f
+
+
+def _disegna_pezzo(f: Foglio, x, y, larg, alto, r):
+    """Il pezzo di tubo visto di lato coi suoi tagli: dritto, 45° a trapezio o a parallelogramma."""
+    ang = [float(str(c).replace('°', '').replace(',', '.')) if '°' in str(c) else 0.0 for c in r.get('cuts') or []]
+    if len(ang) < 2:
+        ang = (ang + [0.0, 0.0])[:2]
+    o = [min(larg / 3, alto * math.tan(math.radians(a))) for a in ang]
+    if r.get('forma') == 'parallelo':
+        pts = [(x + o[0], y + alto), (x + larg, y + alto), (x + larg - o[1], y), (x, y)]
+    else:
+        pts = [(x + o[0], y + alto), (x + larg - o[1], y + alto), (x + larg, y), (x, y)]
+    f.line('tabella', *pts, pts[0])
 
 
 def fori_e_asole(poly: list) -> list:

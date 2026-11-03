@@ -5038,9 +5038,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
              'desc': 'I disegni quotati con il cartiglio, da stampare' + (', con la lista di taglio dei tubi.' if strutture else '.'),
              'file': f'{nome}_disegni.pdf', 'si': corpo is not None or strutture or self.asm is not None,
              'scelta': strutture or self.asm is not None, 'motivo': None},
+            # 03/11: per la troncatrice o il laser tubo (anche esterno): la lista dei tagli che si apre con Excel
+            {'id': 'tubi', 'titolo': 'Per la troncatrice o il laser tubo',
+             'desc': 'La lista dei tubi da tagliare: misura, tagli a 45° (a trapezio o a parallelogramma), quanti, dove vanno (si apre con Excel).',
+             'file': f'{nome}_taglio_tubi.csv', 'si': strutture, 'scelta': strutture,
+             'motivo': None if strutture else 'il progetto non ha tubi'},
             {'id': 'step', 'titolo': 'Per un altro programma 3D', 'desc': 'Il pezzo in 3D (STEP), per chi usa SolidWorks, Inventor e simili.',
              'file': f'{nome}.step', 'si': corpo is not None or strutture or self.asm is not None, 'scelta': False, 'motivo': None},
         ]
+        voci = [v for v in voci if v['id'] != 'tubi' or v['si']]           # la lista dei tubi solo se ci sono tubi
         return {'ok': True, 'nome': nome, 'cartella': str(base / nome), 'voci': voci, 'controllo': controllo}
 
     def prepara(self, cartella: str, scelte: list, campi: dict | None = None) -> dict:
@@ -5058,6 +5064,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     r = self.export_dxf(str(p))
                 elif v['id'] == 'piegatrice':
                     r = self.export_bend_table(str(p))
+                elif v['id'] == 'tubi':
+                    r = self.export_taglio_tubi(str(p))
                 elif v['id'] == 'officina':
                     c = {**self.drawing_fields().get('fields', {}), **(campi or {})}
                     r = self.export_drawings(str(p), c, True)
@@ -5068,6 +5076,38 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 return {'ok': False, 'message': 'Scegli almeno una cosa da preparare.'}
             msg = (f'Salvati {len(fatti)} file in {d}.' if fatti else '') + (' Non riusciti: ' + '; '.join(problemi) if problemi else '')
             return {'ok': not problemi, 'files': fatti, 'cartella': str(d), 'message': msg.strip()}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def export_taglio_tubi(self, path: str) -> dict:
+        """La distinta di taglio dei tubi in CSV (punto e virgola, virgola decimale: si apre in Excel), per la
+        troncatrice o il laser tubo: una riga per misura, coi tagli scritti per intero; sotto le barre da comprare
+        e i piedi e tappi."""
+        try:
+            cl = cut_list(self.result.structures)
+            if not cl['rows']:
+                raise SteelCADError('Il progetto non ha tubi da tagliare.', code='tubi')
+            n = lambda v, d=1: f'{v:.{d}f}'.replace('.', ',')  # noqa: E731
+            righe = ['Pos.;Profilo;Materiale;Lunghezza mm;Taglio 1;Taglio 2;Come vengono le punte;Angolo sul lato da mm;'
+                     'Q.tà;Dove va;Lavorato;kg cad.;kg tot.']
+            for i, r in enumerate(cl['rows'], 1):
+                forma = {'trapezio': 'a trapezio (punte dallo stesso lato)',
+                         'parallelo': 'a parallelogramma (punte da lati opposti)'}.get(r.get('forma'), '')
+                lato = n(r['lato_taglio']) if r.get('lato_taglio') and r.get('quadro') is False else ''
+                righe.append(';'.join([str(i), r['profile'], r['material'], n(r['length_mm']), *(r['cuts'] + ['', ''])[:2],
+                                       forma, lato, str(r['qty']), ' · '.join(r.get('dove') or r['groups']).replace(';', ','),
+                                       'sì' if r.get('lavorata') else '', n(r['kg_each'], 2), n(r['kg_total'], 2)]))
+            righe += ['', 'Barre da comprare;Profilo;Materiale;Pezzi;Metri;kg']
+            for t in cl['totals']:
+                righe.append(';'.join(['', t['profile'], t['material'], str(t['pieces']), n(t['total_length_mm'] / 1000, 2),
+                                       n(t['kg'], 2)]))
+            if cl.get('accessori'):
+                righe += ['', 'Piedi e tappi;Descrizione;Q.tà;Da acquistare;kg tot.']
+                for a in cl['accessori']:
+                    righe.append(';'.join(['', a['description'], str(a['qty']), 'sì' if a['acquisto'] else '',
+                                           n(a['kg_total'], 2) if a['kg_total'] else '']))
+            Path(path).write_text('\n'.join(righe) + '\n', encoding='utf-8-sig')
+            return _ok(message=f'Lista di taglio salvata: {cl["pieces"]} pezzi, {len(cl["rows"])} misure.', path=path)
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 

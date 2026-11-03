@@ -668,7 +668,7 @@ class StruttureMixin:
         contorni = self._contorni(m.profile)
         out = []
         for r in rots:
-            x, y = _section_axes(m.w, r, flip)
+            x, y = _section_axes(m.w, r, flip, getattr(m, '_su', None))
             disegno = [[(round((x * px + y * py).dot(destra), 2), round((x * px + y * py).dot(su), 2)) for px, py in c]
                        for c in contorni]
             fam = m.profile.family
@@ -699,7 +699,7 @@ class StruttureMixin:
     # tubi rimaste aperte il tappo. Un comando per tutte le gambe a terra, uno per tutte le teste libere.
     def piedi_info(self, st_id: str) -> dict:
         """Per il pannello «Piedi e tappi»: quante gambe a terra e teste libere, cosa c'è già, le misure proposte."""
-        from cad_engine.structures.accessori import PIEDINI, _teste_libere, gambe_a_terra
+        from cad_engine.structures.accessori import PIEDINI, _teste_libere, gambe_a_terra, proposta
         try:
             st = self._st(st_id)
         except SteelCADError as ex:
@@ -707,12 +707,10 @@ class StruttureMixin:
         fdef = self.doc.feature(st_id)
         gambe = gambe_a_terra(st.members)
         tubo = max((max(m.profile.width, m.profile.height) for m in gambe), default=30)
-        lato = max(80, int(-(-(tubo + 50) // 10) * 10))
         coperte = {(m.id, 0 if m.start.Z < m.end.Z else 1) for m in gambe} if fdef.get('piedi') else set()
         teste = _teste_libere(st.members, coperte)
         return _ok(gambe=len(gambe), teste=len(teste), piedi=fdef.get('piedi'), tappi=fdef.get('tappi'),
-                   proposta={'tipo': 'piastra', 'lato': lato, 'sp': 6 if tubo <= 50 else 8, 'fori': 4, 'foro': 9,
-                             'dal_bordo': 15 if lato <= 100 else 20, 'misura': 'M10'},
+                   proposta=proposta(tubo),
                    piedini=list(PIEDINI))
 
     def _altezza(self, st) -> float:

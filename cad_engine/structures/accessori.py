@@ -56,6 +56,14 @@ def _num(spec, k, default, nome, minimo=0.0) -> float:
     return x
 
 
+def proposta(tubo: float) -> dict:
+    """La piastra che si mette di solito sotto un tubo da `tubo` mm: 25 per parte oltre il tubo (almeno 80),
+    sp. 6 fino al 50, poi 8; 4 fori Ø9 a 15 dal bordo (20 dalle piastre più grandi di 100)."""
+    lato = max(80, int(-(-(tubo + 50) // 10) * 10))
+    return {'tipo': 'piastra', 'lato': lato, 'sp': 6 if tubo <= 50 else 8, 'fori': 4, 'foro': 9,
+            'dal_bordo': 15 if lato <= 100 else 20, 'misura': 'M10'}
+
+
 def gambe_a_terra(members) -> list:
     """Le gambe che toccano terra: tubi in piedi che arrivano giù quanto il tubo più basso."""
     if not members:
@@ -71,11 +79,12 @@ def _piede(m, spec, mat, nome) -> list:
     hx, hy = (b.max.X - b.min.X) / 2, (b.max.Y - b.min.Y) / 2
     tipo = spec.get('tipo', 'piastra')
     if tipo == 'piastra':
-        lato = _num(spec, 'lato', 80, 'Lato della piastra', 10)
-        sp = _num(spec, 'sp', 6, 'Spessore della piastra', 1)
+        pr = proposta(2 * max(hx, hy))                  # le misure non scritte: quelle di solito per questo tubo
+        lato = _num(spec, 'lato', pr['lato'], 'Lato della piastra', 10)
+        sp = _num(spec, 'sp', pr['sp'], 'Spessore della piastra', 1)
         fori = int(_num(spec, 'fori', 4, 'Fori'))
         d = _num(spec, 'foro', 9, 'Diametro dei fori', 0)
-        e = _num(spec, 'dal_bordo', 15, 'Fori dal bordo', 0)
+        e = _num(spec, 'dal_bordo', pr['dal_bordo'], 'Fori dal bordo', 0)
         if lato < 2 * max(hx, hy) - 1e-6:
             raise FeatureError(f'La piastra da {fmt_mm(lato)} è più piccola del tubo: almeno {fmt_mm(round(2 * max(hx, hy)))}.')
         s = bd.Box(lato, lato, sp, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MAX)).moved(bd.Location((cx, cy, z)))

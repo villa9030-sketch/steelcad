@@ -5447,6 +5447,17 @@ function disegnaSaldature() {
   lineeInBlocco(saldGroup, tratti, 20);
   ridisegna();
 }
+// 03/11: il pezzo di tubo disegnato coi suoi tagli (dritto, 45° a trapezio o a parallelogramma), accanto alla scritta:
+// chi taglia vede subito come vengono le punte
+function formaPezzo(r) {
+  const ang = (r.cuts || []).map(c => /°/.test(c) ? parseFloat(c.replace(',', '.')) : 0);
+  if (!ang.some(a => a)) return '';
+  const W = 46, h = 10, o = a => Math.min(16, h * Math.tan(a * Math.PI / 180));
+  const [a0, a1] = ang.length === 2 ? ang : [ang[0] || 0, 0];
+  const pts = r.forma === 'parallelo' ? [[o(a0), 0], [W, 0], [W - o(a1), h], [0, h]]
+    : [[o(a0), 0], [W - o(a1), 0], [W, h], [0, h]];
+  return `<svg class="forma-pezzo" width="${W + 2}" height="${h + 2}" viewBox="-1 -1 ${W + 2} ${h + 2}" aria-hidden="true" style="vertical-align:middle;margin-right:6px"><polygon points="${pts.map(p => p.join(',')).join(' ')}" fill="#B8C0C8" stroke="#16191D" stroke-width="1"/></svg>`;
+}
 function renderBottom() {
   renderMancanti();
   disegnaSaldature();
@@ -5474,7 +5485,7 @@ function renderBottom() {
   $('#tab-cut').innerHTML = c.rows.length ? `<div class="cols"><table class="grid"><thead><tr><th>Profilo</th><th class="n">Lunghezza mm</th>
     <th>Tagli</th><th class="n">Q.tà</th><th>Dove va</th><th class="n">kg cad.</th><th class="n">kg tot.</th></tr></thead><tbody>
     ${c.rows.map(r => `<tr data-ids="${esc(r.members.join(','))}"><td>${esc(r.profile)} ${esc(r.material)}</td><td class="n">${num(r.length_mm)}</td>
-      <td>${esc(r.cuts.join(' / '))}</td><td class="n">${r.qty}</td><td title="${esc(r.groups.join(', '))}">${esc((r.dove || r.groups).join(' · '))}</td>
+      <td>${formaPezzo(r)}${esc(r.tagli_testo || r.cuts.join(' / '))}</td><td class="n">${r.qty}</td><td title="${esc(r.groups.join(', '))}">${esc((r.dove || r.groups).join(' · '))}</td>
       <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
     <tr class="tot"><td colspan="3">Totale</td><td class="n">${c.pieces}</td><td></td><td></td><td class="n">${kg(c.kg)}</td></tr></tbody></table>
     <table class="grid"><thead><tr><th>Per profilo</th><th class="n">Pezzi</th><th class="n">Metri</th><th class="n">kg</th></tr></thead><tbody>

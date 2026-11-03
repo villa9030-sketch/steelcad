@@ -228,6 +228,7 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
     righe = [{**m, **{k: v for k, v in ritocchi.get(m['id'], {}).items() if k != 'deleted'}}
              for m in righe if not ritocchi.get(m['id'], {}).get('deleted')]
     members = []
+    su_verticali = _su_verticali(righe, pts)
     for m in righe:
         mid = m.get('id')
         if m.get('from') not in pts or m.get('to') not in pts:
@@ -238,7 +239,9 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         prof = parse(m.get('profile') or '')
         mat = m.get('material', fdef.get('material', 'S235'))
         materials.get(mat)
-        x, y = _section_axes((b - a).normalized(), m.get('rotate', 0), m.get('flip', False))
+        a_mano = 'anchor' in m or 'offset' in m
+        su = None if a_mano else su_verticali.get(mid)
+        x, y = _section_axes((b - a).normalized(), m.get('rotate', 0), m.get('flip', False), su)
         anc = m.get('anchor', 'center')
         if anc not in ANCHORS:
             raise FeatureError(f'Ancoraggio "{anc}" sconosciuto per l\'asta {mid}: usa centro, sopra, sotto, '
@@ -249,7 +252,8 @@ def build(fdef: dict, params: dict, sketches: dict | None = None) -> StructureRe
         members.append(Member(mid, m.get('group', ''), prof, mat, a, b, x, y, shift))
         members[-1].ruolo = m.get('ruolo', '')
         members[-1].nome = m.get('name', '')
-        members[-1]._a_mano = 'anchor' in m or 'offset' in m
+        members[-1]._a_mano = a_mano
+        members[-1]._su = su
         members[-1]._rif = m.get('rif', 'sotto')
         members[-1]._rif_scelto = 'rif' in m
     if not members:       # si parte da un nodo e si costruisce: nessuna asta va bene
@@ -462,11 +466,52 @@ def _member_key(m: Member, nodes) -> tuple:
     return tuple(parti)
 
 
-def _section_axes(w: bd.Vector, rotate_deg: float, flip: bool):
-    """Altezza del profilo verso l'alto (Z) per le aste orizzontali; per quelle verticali verso Y."""
+def _su_verticali(righe, pts) -> dict:
+    """Per i tubi in piedi non quadri (60×40) di un telaio piano, dove va l'altezza del profilo: nel piano del
+    telaio, come i tubi sdraiati a cui sono attaccati (03/11: nel cancello 60×40 i montanti avevano il 60 di
+    profondità e i traversi il 60 nel piano, e il 45° dell'angolo non combaciava). Solo se i tubi sdraiati attaccati
+    vanno tutti in una direzione; un tavolo (traversi in X e in Y) resta com'era. {id: direzione}"""
+    def chiave(p):
+        return (round(p.X, 3), round(p.Y, 3), round(p.Z, 3))
+    dirs = {}
+    capi: dict = {}
+    for m in righe:
+        a, b = pts.get(m.get('from')), pts.get(m.get('to'))
+        if a is None or b is None or (b - a).length < 1e-6:
+            continue
+        w = (b - a).normalized()
+        dirs[m.get('id')] = (w, a, b, m)
+        for p in (a, b):
+            capi.setdefault(chiave(p), []).append(m.get('id'))
+    out = {}
+    for mid, (w, a, b, m) in dirs.items():
+        if abs(w.Z) < 0.999 or m.get('rotate'):
+            continue
+        try:
+            prof = parse(m.get('profile') or '')
+        except Exception:  # noqa: BLE001 - il profilo sbagliato lo dice dopo, con l'errore giusto
+            continue
+        if abs(prof.width - prof.height) < 1e-6:
+            continue
+        orizz = []
+        for p in (a, b):
+            for o in capi.get(chiave(p), []):
+                wo = dirs[o][0]
+                if o != mid and abs(wo.Z) < 0.05:
+                    d = bd.Vector(abs(wo.X), abs(wo.Y), 0)
+                    if not any((d - e).length < 1e-6 for e in orizz):
+                        orizz.append(d)
+        if len(orizz) == 1:
+            out[mid] = orizz[0]
+    return out
+
+
+def _section_axes(w: bd.Vector, rotate_deg: float, flip: bool, su: bd.Vector | None = None):
+    """Altezza del profilo verso l'alto (Z) per le aste orizzontali; per quelle verticali verso Y, o verso `su`
+    (la direzione dei tubi sdraiati attaccati, vedi _su_verticali)."""
     up = bd.Vector(0, 0, 1)
     if abs(w.dot(up)) > 0.999:
-        up = bd.Vector(0, 1, 0)
+        up = su if su is not None else bd.Vector(0, 1, 0)
     y = (up - w * w.dot(up)).normalized()
     x = y.cross(w).normalized()
     if rotate_deg:

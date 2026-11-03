@@ -102,3 +102,42 @@ def test_scaffale_teste_dei_montanti_e_step():
     with tempfile.TemporaryDirectory() as d:
         out = export_project(s.doc, s.result, Path(d) / 'scaffale.step')
     assert out['solids'] == len(st.members) + 8
+
+
+def test_distinta_di_taglio_con_le_punte_dei_45_e_file_per_il_laser_tubo(tmp_path):
+    """Cancello 60×40: i 45° a trapezio, l'angolo sul lato da 60 per tutti i pezzi del telaio (prima i montanti
+    avevano il 60 di profondità e il 45° non combaciava coi traversi); la lista per la troncatrice in CSV."""
+    s = Service()
+    s._set(templates.cancello('C', L=1500, H=1200, telaio='60x40x3', sbarre='20x20x2', passo=120))
+    righe = {r['length_mm']: r for r in cut_list(s.result.structures)['rows']}
+    for lung in (1500, 1200):
+        assert righe[lung]['forma'] == 'trapezio' and righe[lung]['lato_taglio'] == 60
+        assert righe[lung]['tagli_testo'] == '45° / 45° a trapezio, angolo sul lato da 60'
+    assert righe[1080]['tagli_testo'] == 'dritto / dritto'
+    st = s.result.structures[0]
+    assert st.warnings == []
+    mont = next(m for m in st.members if s.nomi_tubi(st)[m.id] == 'Montante a sinistra')
+    b = mont.solid.bounding_box()
+    assert round(b.size.X) == 60 and round(b.size.Y) == 40            # il 60 nel piano del cancello, come i traversi
+    # il file per la troncatrice / laser tubo, in Prepara per l'officina
+    voci = {v['id']: v for v in s.prepara_info()['voci']}
+    assert voci['tubi']['si'] and voci['tubi']['file'].endswith('_taglio_tubi.csv')
+    r = s.export_taglio_tubi(str(tmp_path / 't.csv'))
+    assert r['ok'], r.get('message')
+    testo = (tmp_path / 't.csv').read_text(encoding='utf-8-sig').splitlines()
+    assert testo[0].startswith('Pos.;Profilo;Materiale;Lunghezza mm;Taglio 1;Taglio 2;Come vengono le punte')
+    riga = next(x for x in testo if ';1500,0;' in x)
+    assert '45°;45°;a trapezio (punte dallo stesso lato);60,0;2;' in riga
+    assert any(x.startswith(';60×40×3;S235;4;') for x in testo)          # barre da comprare
+    # un parallelogramma: la diagonale tra due montanti (batte contro tutti e due): punte da lati opposti
+    from cad_engine.document import Document
+    doc = Document('Diag', 'S235')
+    doc.add_feature('structure', 'D', points={'A': [0, 0, 0], 'B': [0, 0, 1000], 'C': [1000, 0, 0], 'D': [1000, 0, 1000],
+                                              'E': [0, 0, 100], 'F': [1000, 0, 900]},
+                    members=[{'id': 'M1', 'from': 'A', 'to': 'B', 'profile': '40x40x3'},
+                             {'id': 'M2', 'from': 'C', 'to': 'D', 'profile': '40x40x3'},
+                             {'id': 'M3', 'from': 'E', 'to': 'F', 'profile': '40x40x3'}])
+    s2 = Service()
+    s2._set(doc)
+    m3 = next(r for r in cut_list(s2.result.structures)['rows'] if r['members'] == ['ST1/M3'])
+    assert m3['forma'] == 'parallelo' and 'a parallelogramma' in m3['tagli_testo']

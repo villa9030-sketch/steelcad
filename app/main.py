@@ -271,6 +271,9 @@ class Api:
     def traverso_info(self, st_id, a_id, b_id):
         return self._call(self._svc.traverso_info, st_id, a_id, b_id)
 
+    def export_taglio_tubi(self, path):
+        return self._call(self._svc.export_taglio_tubi, path)
+
     def member_posizioni(self, obj_id):
         return self._call(self._svc.member_posizioni, obj_id)
 
