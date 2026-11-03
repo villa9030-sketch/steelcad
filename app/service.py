@@ -5036,8 +5036,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                                                         'nell’assieme non ci sono pezzi in lamiera')}
             if senza:
                 controllo = {'ok': False, 'avvisi': senza,
-                             'testo': f'{len(senza)} pezz{"o" if len(senza) == 1 else "i"} in lamiera senza DXF per il laser: '
-                                      'hanno lavorazioni che lo sviluppo non contiene.'}
+                             'testo': (f'1 pezzo in lamiera senza DXF per il laser: ha lavorazioni' if len(senza) == 1 else
+                                       f'{len(senza)} pezzi in lamiera senza DXF per il laser: hanno lavorazioni')
+                                      + ' che lo sviluppo non contiene.'}
         else:
             voce_laser = {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
                           'file': f'{nome}_sviluppo.dxf', 'si': laser, 'scelta': laser,

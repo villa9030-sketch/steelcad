@@ -1795,7 +1795,7 @@ def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: fl
             chiave = (f'Ø{fmt(o["d"])}' if o['kind'] == 'foro' else f'Asola {fmt(o["L"])} × {fmt(o["W"])}')
             gruppi.setdefault(chiave, []).append(o)
         cx, cy = T(((x0 + x1) / 2, (y0 + y1) / 2))
-        occupati = [_box_testo(t) for t in f.testi]
+        occupati = [(b[0] - 0.8, b[1] - 0.8, b[2] + 0.8, b[3] + 0.8) for b in map(_box_testo, f.testi)]   # con un po' d'aria
         for testo, lista in gruppi.items():
             t = (f'{len(lista)}× ' if len(lista) > 1 else '') + testo
             # 03/11: la nota dove non copre altre scritte (le quote delle pieghe sopra e a destra): si prova dal
@@ -1815,18 +1815,22 @@ def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: fl
                     p0 = o['c']
                 P = T(p0)
                 sc = T((1, 0))[0] - T((0, 0))[0]
-                sx, sy = (1 if P[0] >= cx else -1), (1 if P[1] >= cy else -1)
-                for lungo in (7, 12, 18):
-                    q = (P[0] + sx * r * sc * 0.7, P[1] + sy * r * sc * 0.7)
-                    e = (q[0] + sx * lungo * u, q[1] + sy * lungo * u)
-                    w = len(t) * 2.8 * u * 0.55
-                    box = (e[0] + 1 * u if sx > 0 else e[0] - 1 * u - w, e[1], e[0] + 1 * u + w if sx > 0 else e[0] - 1 * u,
-                           e[1] + 3.4 * u)
-                    # il richiamo non deve passare sopra le scritte: qualche punto lungo la linea
-                    lungo_linea = [((q[0] * (8 - k) + e[0] * k) / 8, (q[1] * (8 - k) + e[1] * k) / 8) for k in range(1, 9)]
-                    scelte.append((q, e, sx, box, [(x - 0.3, y - 0.3, x + 0.3, y + 0.3) for x, y in lungo_linea]))
-            q, e, sx, box, _ = next((c for c in scelte if not any(_tocca(x, b) for b in occupati for x in [c[3]] + c[4])),
-                                    scelte[0])
+                fx, fy = (1 if P[0] >= cx else -1), (1 if P[1] >= cy else -1)
+                for verso, (sx, sy) in (('fuori', (fx, fy)), ('dentro', (-fx, -fy))):   # se fuori non c'è posto: verso il pezzo
+                    for lungo in (7, 12, 18):
+                        q = (P[0] + sx * r * sc * 0.7, P[1] + sy * r * sc * 0.7)
+                        e = (q[0] + sx * lungo * u, q[1] + sy * lungo * u)
+                        w = len(t) * 2.8 * u * 0.6
+                        box = (e[0] + 1 * u if sx > 0 else e[0] - 1 * u - w, e[1], e[0] + 1 * u + w if sx > 0 else e[0] - 1 * u,
+                               e[1] + 3.4 * u)
+                        # il richiamo non deve passare sopra le scritte: un punto ogni 0,8 mm di foglio
+                        passi = max(4, int(math.dist(q, e) / 0.8))
+                        lungo_linea = [((q[0] * (passi - k) + e[0] * k) / passi, (q[1] * (passi - k) + e[1] * k) / passi)
+                                       for k in range(1, passi + 1)]
+                        scelte.append((verso, q, e, sx, box, [(x - 0.3, y - 0.3, x + 0.3, y + 0.3) for x, y in lungo_linea]))
+            scelte.sort(key=lambda c: c[0] == 'dentro')           # prima tutte quelle fuori, poi quelle verso il pezzo
+            urti = [sum(1 for b in occupati for x in [c[4]] + c[5] if _tocca(x, b)) for c in scelte]
+            _, q, e, sx, box, _ = scelte[urti.index(min(urti))]
             occupati.append(box)
             f.line('quote', q, e, (e[0] + sx * (2 * u + len(t) * 1.6 * u), e[1]))
             _freccia(f, q, (q[0] - e[0], q[1] - e[1]), L=2.5 * u)
@@ -1836,7 +1840,7 @@ def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: fl
 def _box_testo(t) -> tuple:
     """Il rettangolo (circa) che occupa una scritta del foglio: (x0, y0, x1, y1)."""
     _, (x, y), testo, h, al = t
-    w = len(testo) * h * 0.55
+    w = len(testo) * h * 0.6
     if al == 'cv':
         return (x - h, y - w / 2, x, y + w / 2)
     x0 = {'l': x, 'c': x - w / 2, 'r': x - w}.get(al, x)

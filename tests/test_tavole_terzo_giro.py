@@ -118,3 +118,53 @@ def test_lavorazioni_dopo_la_lamiera_avvisate_in_prepara(tmp_path):
     assert len(avvisi) == 2 and avvisi[0].startswith('Staffa: ') and '«Estrusione»' in avvisi[0]
     r = s.prepara(str(tmp_path / 'uscita'), ['laser'])
     assert r['files'] == ['DXF laser\\03 Buona - sp 2 - 1 pz.dxf'] and 'Milestone' not in r['message']
+
+
+def test_tavole_assieme_quanti_pezzi_e_specchiato(tmp_path):
+    """03/11: nelle tavole dei pezzi dell'assieme il titolo dice quanti ne servono e se c'è lo specchiato."""
+    a = _pezzo(tmp_path, 'Staffa.steelcad', 'Lamiera', 200)
+    b = _pezzo(tmp_path, 'Staffa specchiato.steelcad', 'Staffa specchiato', 200)
+    c = _pezzo(tmp_path, 'Piastra.steelcad', 'Piastra', 300, piega=False)
+    s = Service()
+    s.new_assembly('Banco')
+    for p in (a, a, b, b, c):
+        assert s.asm_insert(str(p))['ok']
+    s._tavole_base = None
+    fogli = s._fogli({**s.drawing_fields()['fields'], 'formato': 'A3'}, True)
+    assert [f.titolo for f in fogli][2:4] == ['Staffa', 'Staffa — sviluppo']      # il nome del foglio resta corto
+    titoli = [next((t[2] for t in f.testi if t[2].startswith(f.titolo)), f.titolo) for f in fogli]   # nel cartiglio
+    assert 'Staffa · 2 pz + 2 specchiati' in titoli, titoli
+    assert 'Staffa — sviluppo · 2 pz + 2 specchiati' in titoli
+    assert 'Staffa specchiato — sviluppo · 2 pz' in titoli
+    assert 'Piastra' in titoli                                    # uno solo: non si scrive
+    assert titoli[0] == 'Banco'                                   # l'assieme resta com'era
+
+
+def test_pdf_assieme_grande_con_elenco_dei_fogli(tmp_path):
+    """03/11: il PDF di un assieme con tanti fogli comincia con l'elenco dei fogli (foglio, pezzo, che cosa)."""
+    import re
+    from cad_engine import drawings_elenco as DE
+    pezzi = [_pezzo(tmp_path, f'{n}.steelcad', n, 150 + 20 * i) for i, n in enumerate(('Fianco', 'Ripiano', 'Schiena', 'Cielo'))]
+    s = Service()
+    s.new_assembly('Armadio')
+    for p in pezzi:
+        assert s.asm_insert(str(p))['ok']
+    campi = {**s.drawing_fields()['fields'], 'formato': 'A3'}
+    fogli = s._fogli(campi, True)
+    assert len(fogli) == 10                                    # assieme, esploso, 4 × (pezzo, sviluppo)
+    righe = DE.righe_elenco(fogli)
+    assert righe[0] == ['1', 'Armadio', 'assieme'] and righe[1] == ['2', 'Armadio', 'esploso']
+    assert righe[2] == ['3', 'Fianco', 'disegno del pezzo'] and righe[3] == ['4', 'Fianco', 'sviluppo']
+    p = tmp_path / 'armadio.pdf'
+    r = s.export_drawings(str(p), campi, True)
+    assert r['ok'], r.get('message')
+    assert len(re.findall(rb'/Type\s*/Page[^s]', p.read_bytes())) == 11
+    el = DE.tavola_elenco({**campi, 'titolo': 'Armadio — elenco dei fogli'}, righe)
+    testi = [t[2] for t in el.testi]
+    assert 'ELENCO DEI FOGLI' in testi and 'Schiena' in testi and '10' in testi
+    # un pezzo solo: niente elenco
+    s2 = Service()
+    s2.open(str(pezzi[0]))
+    p2 = tmp_path / 'fianco.pdf'
+    assert s2.export_drawings(str(p2), {**s2.drawing_fields()['fields'], 'formato': 'A3'}, True)['ok']
+    assert len(re.findall(rb'/Type\s*/Page[^s]', p2.read_bytes())) == 2

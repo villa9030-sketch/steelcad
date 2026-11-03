@@ -25,6 +25,30 @@ def nome_pezzo(meta: dict, path=None, riserva: str = 'Pezzo') -> str:
     return nome or riserva
 
 
+def _con_quanti(c: dict) -> dict:
+    """03/11: nelle tavole dei pezzi di un assieme, quanti ne servono (e se c'è anche lo specchiato) in fondo al
+    titolo del cartiglio: «Staffa — sviluppo · 2 pz + 2 specchiati»."""
+    q = str(c.get('quanti') or '').strip()
+    return {**c, 'titolo': f'{c.get("titolo", "")} · {q}'} if q else c
+
+
+def quanti_pezzi(righe: list) -> dict:
+    """{file: «2 pz», «2 pz + 2 specchiati», '' per uno solo} dalla distinta
+    dell'assieme. Lo specchiato è il file «… specchiato» fatto con «Specchia il pezzo» accanto all'originale."""
+    import re
+    pos = {Path(r["file"]).stem.lower(): r for r in righe}
+    out = {}
+    for r in righe:
+        stem = Path(r['file']).stem
+        testo = f'{r["qty"]} pz'
+        if re.search(r' specchiato( \(\d+\))?$', stem, flags=re.I) is None:   # lo specchiato lo dice già il nome
+            for s2, r2 in pos.items():
+                if re.fullmatch(re.escape(stem.lower()) + r' specchiato( \(\d+\))?', s2):
+                    testo += f' + {r2["qty"]} specchiat{"o" if r2["qty"] == 1 else "i"}'
+        out[r['file']] = '' if testo == '1 pz' else testo        # uno solo: non serve scriverlo (titolo più corto)
+    return out
+
+
 def _file_cartiglio() -> Path:
     from app.service import _recent_file
     return _recent_file().with_name('cartiglio.json')
@@ -119,12 +143,12 @@ class DrawingsMixin:
         from cad_engine import drawings_struttura as DS
         righe = DS.righe_taglio(result.structures)
         posizioni = [(r['pos'], r['punti'][0]) for r in righe if r['punti']]
-        fogli = [D.tavola_pezzo(forma, {**base, 'foglio': f'{n0}/{tot}'}, {}, formato, file_passo=file,
+        fogli = [D.tavola_pezzo(forma, _con_quanti({**base, 'foglio': f'{n0}/{tot}'}), {}, formato, file_passo=file,
                                 tubi=DS.scatole_tubi(result.structures), posizioni=posizioni)]
         totali = [[t['profile'], str(t['pieces']), D.fmt(round(t['total_length_mm'] / 1000, 2)), D.fmt(round(t['kg'], 2))]
                   for t in cl['totals']]
-        fogli.append(DS.tavola_taglio({**base, 'titolo': base['titolo'] + ' — distinta di taglio',
-                                       'foglio': f'{n0 + 1}/{tot}'}, righe, totali, formato))
+        fogli.append(DS.tavola_taglio(_con_quanti({**base, 'titolo': base['titolo'] + ' — distinta di taglio',
+                                                   'foglio': f'{n0 + 1}/{tot}'}), righe, totali, formato))
         return fogli
 
     @staticmethod
@@ -158,14 +182,14 @@ class DrawingsMixin:
         sezione = str(campi.get('sezione') or '').upper()
         sezione = sezione if sezione in ('X', 'Y') else ''
         tot = tot or ((2 if sheet else 1) + (1 if sezione else 0))
-        fogli = [D.tavola_pezzo(result.body.shape, self._campi_pezzo(doc, result, campi, n0, tot), D.etichette_fori(doc), formato,
+        fogli = [D.tavola_pezzo(result.body.shape, _con_quanti(self._campi_pezzo(doc, result, campi, n0, tot)), D.etichette_fori(doc), formato,
                                 quote_mano=doc.meta.get('quote') or [], saldature=self._saldature_tavola(doc, result),
                                 marche=[m['pezzo'] for m in (getattr(sheet, 'marks', None) or []) if m.get('pezzo')])]
         fogli[0].chiave = 'pezzo'
         if sezione:
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sezione A-A'
-            fogli.append(D.tavola_sezione(result.body.shape, c, sezione, formato))
+            fogli.append(D.tavola_sezione(result.body.shape, _con_quanti(c), sezione, formato))
             fogli[-1].chiave = 'sezione'
             n0 += 1
         if sheet is not None and getattr(sheet, 'bend_rows', None) is not None:
@@ -176,14 +200,14 @@ class DrawingsMixin:
                      D.fmt(round(x['correction'], 3)) if x['correction'] is not None else ''] for x in sheet.bend_rows]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sviluppo'
-            fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
+            fogli.append(D.tavola_sviluppo(sheet, _con_quanti(c), pieg, formato))
             fogli[-1].chiave = 'sviluppo'
         elif sheet is not None:
             pieg = [[str(i), g.fid, D.fmt(g.length), f'{D.fmt(g.bend.angle)}°', 'su' if g.direction == 'up' else 'giù',
                      D.fmt(g.bend.r), D.fmt(round(g.bend.k, 3)), D.fmt(round(g.u1 - g.u0, 2))] for i, g in enumerate(sheet.in_ordine(), 1)]
             c = self._campi_pezzo(doc, result, campi, n0 + 1, tot)
             c['titolo'] = c['titolo'] + ' — sviluppo'
-            fogli.append(D.tavola_sviluppo(sheet, c, pieg, formato))
+            fogli.append(D.tavola_sviluppo(sheet, _con_quanti(c), pieg, formato))
             fogli[-1].chiave = 'sviluppo'
         return fogli
 
@@ -314,14 +338,17 @@ class DrawingsMixin:
                                           figli=self._viti_esploso()))
         if tutte:
             n = 2 + int(esploso)
+            quanti = quanti_pezzi(righe)
             for k, r in enumerate(righe):
                 if r.get('acquisto'):
                     continue                           # si compra: niente disegno
                 p = self.asm_parts[r['file']]
-                cp = {**campi, 'numero': f'{campi.get("numero") or self.asm.name}-{k + 1}'}
+                cp = {**campi, 'numero': f'{campi.get("numero") or self.asm.name}-{k + 1}', 'quanti': quanti[r['file']]}
                 nuovi = self._fogli_pezzo(p.doc, p.result, cp, formato, n, tot)
                 for g in nuovi:                    # i ritocchi di ogni pezzo al suo posto (non tutti «pezzo»)
                     g.chiave = f'{Path(r["file"]).stem}:{g.chiave}'
+                    if quanti[r['file']]:          # «· 2 pz» solo nel cartiglio: il nome del foglio resta corto
+                        g.titolo = g.titolo[:-len(' · ' + quanti[r['file']])]
                 n += len(nuovi)
                 fogli += nuovi
         return fogli
@@ -504,6 +531,13 @@ class DrawingsMixin:
             else:
                 if p.suffix.lower() != '.pdf':
                     p = p.with_suffix('.pdf')
+                from cad_engine import drawings_elenco as DE
+                if self.asm is not None and tutte and len(fogli) >= DE.QUANTI_PER_ELENCO:
+                    # 03/11: assieme grande: la prima pagina è l'elenco dei fogli
+                    formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
+                    elenco = DE.tavola_elenco({**campi, 'logo': _logo(), 'titolo': f'{self.asm.name} — elenco dei fogli',
+                                               'foglio': '', 'data': D.oggi()}, DE.righe_elenco(fogli), 'A2')
+                    fogli = [D.in_formato(elenco, formato)] + list(fogli)
                 D.to_pdf(fogli, p)
             _scrivi_fissi(campi)
             if self.asm is None:
