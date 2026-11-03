@@ -143,7 +143,7 @@ try:
         pg.evaluate("window.__steelcad.runCmd && 0")
         pg.click('#top .brand'); pg.wait_for_selector('#home:not([hidden])')
         pg.click('#home [data-new="assieme"]'); pg.wait_for_selector('#na-tab', timeout=5000); time.sleep(0.3)
-        ok('nuovo assieme: cartella corta (…\cartella)', all(len(x) < 60 for x in pg.eval_on_selector_all('#na-tab .hint[title]', 'els => els.map(e => e.textContent)')))
+        ok('nuovo assieme: cartella corta (…\\cartella)', all(len(x) < 60 for x in pg.eval_on_selector_all('#na-tab .hint[title]', 'els => els.map(e => e.textContent)')))
         pg.screenshot(path=str(out / 'ap12_nuovo_assieme.png'))
         ok('nessun errore JavaScript', not err)
         if err:

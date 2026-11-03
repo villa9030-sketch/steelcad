@@ -60,7 +60,7 @@ try:
                                                      flangia=50, verso_flangia='fuori', angoli_bordo='45', spessore=2, raggio=2,
                                                      k=0.4, divisione='lati'))
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5); pg.evaluate("window.__steelcad.hideHome()")
-        idx = pg.evaluate("(() => { const o = window.__steelcad.objs.get('body'); const f = o.data.faces.find(f => /^FM1\/bordo_[a-z]+\/fuori$/.test(f.name || '')); window.__nomeBordo = f && f.name; return f ? f.index : null; })()")
+        idx = pg.evaluate(r"(() => { const o = window.__steelcad.objs.get('body'); const f = o.data.faces.find(f => /^FM1\/bordo_[a-z]+\/fuori$/.test(f.name || '')); window.__nomeBordo = f && f.name; return f ? f.index : null; })()")
         chk('l’anello del bordo ha un nome nel 3D', idx is not None)
         pg.evaluate("i => window.__steelcad.select('body', i)", idx); time.sleep(1.2)
         # 03/11: il clic sulla faccia apre la barretta con «Disegna qui»

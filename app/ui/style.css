@@ -818,9 +818,10 @@ body.dark #home .home-cerca :is(img, .ico) { filter: invert(1); opacity: .6; }
 @media (max-width: 1180px) { #home .home-partenze { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-height: 800px) {
   #home .home-pagina { padding-top: var(--s-5); gap: var(--s-5); }
-  #home .home-nuovo .pic { height: 80px; } #home .home-nuovo img { height: 64px; }
-  #home .home-mod .pic { height: 60px; } #home .home-mod .pic svg, #home .home-mod .pic img { height: 58px; }
-  #home .home-rec .pic { height: 136px; } #home .home-rec .pic img { max-height: 124px; }
+  /* :is(img, .ico) come sopra, se no vince la regola grande e a 768 px i disegni coprono i titoli (collaudo 04/11) */
+  #home .home-nuovo .pic { height: 80px; } #home .home-nuovo :is(img, .ico) { height: 64px; }
+  #home .home-mod .pic { height: 60px; } #home .home-mod .pic svg, #home .home-mod .pic :is(img, .ico) { height: 58px; }
+  #home .home-rec .pic { height: 136px; } #home .home-rec .pic :is(img, .ico) { max-height: 124px; }
 }
 /* sottomenu (Apri recenti, Importa, Esporta) */
 .sub-item { position: relative; }
@@ -2760,7 +2761,7 @@ body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on:hover {
 #asm-passo .asm-passo-x { width: 28px; height: 28px; border: 0; border-radius: var(--r-campo); background: none; color: var(--c-testo-2); font-size: 18px; line-height: 1; }
 #asm-passo .asm-passo-x:hover { background: var(--c-sopra); color: var(--c-testo); }
 /* con la riga in basso i messaggi stanno più su (non la coprono) */
-body:has(#asm-passo:not([hidden])) #toasts { bottom: 168px; }
+body:has(:is(#asm-passo, #trav-hint, #link-hint):not([hidden])) #toasts { bottom: 168px; }
 /* la barra dei tubi col consiglio «Dividi» (telaio sopra, tubo lungo): un pulsante da cliccare dentro la riga */
 #trav-hint .btn { flex: none; }
 #trav-hint .btn :is(img, .ico) { width: 16px; height: 16px; }

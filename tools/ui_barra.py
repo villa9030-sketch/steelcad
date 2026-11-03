@@ -40,3 +40,19 @@ def scheda(pg, tab):
     """Apre il cassetto in basso sulla scheda (bom, cut, sheet, info). Dal 04/11 un clic sulla scheda già aperta
     chiude il cassetto: qui si clicca solo se serve."""
     pg.evaluate(APRI_SCHEDA, tab)
+
+
+def chiudi_cassetto(pg):
+    """Chiude il cassetto in basso se è aperto (dal 04/11 è alto quanto le sue righe: la vista si accorcia)."""
+    pg.evaluate("""() => { if (document.body.classList.contains('bottom-closed')) return;
+      const b = document.querySelector('#bottom .tabs button.on'); if (b) b.click(); }""")
+
+
+def pannello_intero(pg, attesa, timeout=10000):
+    """Dopo il clic su un tubo: «⋯» della barretta apre il pannello intero. Se la risposta del motore arriva tardi
+    (più di 2,5 s dal clic, PC carico) il pannello si apre già da solo, senza barretta: va bene lo stesso."""
+    pg.wait_for_function(f"""() => document.querySelector('#mini-barra button.piu')
+      || document.querySelector({attesa!r})""", timeout=timeout)
+    if pg.is_visible('#mini-barra button.piu'):
+        pg.click('#mini-barra button.piu')
+    pg.wait_for_selector(attesa, timeout=timeout, state='attached')

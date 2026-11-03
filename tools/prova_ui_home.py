@@ -20,6 +20,14 @@ try:
         pg.add_init_script("try { localStorage.setItem('steelcad.tema', 'scuro'); } catch {}")
         pg.goto('http://127.0.0.1:5181/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000); time.sleep(1.5)
         pg.screenshot(path=str(OUT / '1_home_vuota.png'))
+        # 04/11 collaudo: a 1366 × 768 i disegni delle partenze e dei modelli uscivano dal riquadro e coprivano i titoli
+        pg.set_viewport_size({'width': 1366, 'height': 768}); time.sleep(0.8)
+        fuori = pg.evaluate("""() => [...document.querySelectorAll('#home .home-nuovo .pic, #home .home-mod .pic')].filter(p => {
+          const a = p.getBoundingClientRect(), i = p.querySelector('img, svg'); if (!i) return false;
+          const b = i.getBoundingClientRect(); return b.bottom > a.bottom + 1 || b.top < a.top - 1; }).length""")
+        chk(f'1366 × 768: i disegni stanno nel loro riquadro ({fuori} fuori)', fuori == 0)
+        pg.screenshot(path=str(OUT / '1b_home_1366.png'))
+        pg.set_viewport_size({'width': 1400, 'height': 850}); time.sleep(0.5)
         pg.click('#top .menu-item >> nth=0'); time.sleep(0.5)
         chk('File nella home si vede', pg.is_visible('text=Nuovo assieme…'))
         pg.screenshot(path=str(OUT / '2_file_home.png'))

@@ -6,7 +6,7 @@ piedi e tappi dalla barra con l'anteprima, la distinta di taglio coi piedi e i t
 import os, subprocess, sys, tempfile, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-from ui_barra import comando, comando_visibile, scheda  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
+from ui_barra import comando, comando_visibile, scheda, chiudi_cassetto, pannello_intero  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
 SP = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -99,7 +99,9 @@ try:
             pg.click('#bottom-toggle'); time.sleep(0.8)
         pg.evaluate("document.querySelector('#tab-cut h4')?.scrollIntoView()"); time.sleep(0.5)
         foto('Distinta di taglio con piedi e tappi')
-        # 6. clic su una piastra nel 3D: il pannello dei piedi
+        # 6. clic su una piastra nel 3D: il pannello dei piedi (04/11: cassetto chiuso, aperto è alto quanto le righe
+        # e la vista si accorcia: la piastra diventa piccola e il clic prende il pallino del capo della gamba)
+        chiudi_cassetto(pg); time.sleep(1.5)
         clic_punto([-18, -18, -3]); time.sleep(1.5)
         ok('clic sulla piastra: pannello Piedi', pg.is_visible('#pd-ok'))
         foto('Clic su una piastra')
@@ -107,8 +109,7 @@ try:
         r = api('new_project', 'telaio', {'L': 1000, 'P': 600, 'H': 800, 'ripiano': 0, 'profilo': '40x20x2', 'gambe': '40x40x3'})
         pg.evaluate("r => window.__steelcad.apply(r)", r); time.sleep(3)
         # notte 03/11: il clic sul tubo dà la barretta; «⋯» apre il pannello intero (come la lamiera)
-        clic_punto([500, 0, 780]); time.sleep(3); pg.click('#mini-barra button.piu')
-        pg.wait_for_selector('[data-posiz]', timeout=10000, state='attached')
+        clic_punto([500, 0, 780]); pannello_intero(pg, '[data-posiz]')
         pg.locator('[data-posiz="1"]').scroll_into_view_if_needed(); time.sleep(0.5)
         ok('tubo rettangolare: due posizioni col disegnino', pg.locator('[data-posiz]').count() == 2)
         foto('Traverso 40×20: come sta il profilo (in piedi / sdraiato)')
@@ -121,7 +122,7 @@ try:
         foto('Sdraiato (anche gli altri del gruppo)')
         r = api('new_project', 'telaio', {'L': 1000, 'P': 600, 'H': 800, 'ripiano': 0, 'profilo': 'L 40x40x4', 'gambe': '40x40x3'})
         pg.evaluate("r => window.__steelcad.apply(r)", r); time.sleep(3)
-        clic_punto([500, 0, 798]); pg.click('#mini-barra button.piu'); pg.wait_for_selector('[data-posiz]', timeout=10000)
+        clic_punto([500, 0, 798]); pannello_intero(pg, '[data-posiz]')
         pg.locator('[data-posiz="1"]').scroll_into_view_if_needed(); time.sleep(0.5)
         ok('angolare: quattro posizioni', pg.locator('[data-posiz]').count() == 4)
         foto('Angolare: dove sta lo spigolo')
