@@ -7243,11 +7243,12 @@ const skRubber = new THREE.Group();
 const skOver = new THREE.Group();      // sopra lo sketch: solo gli elementi selezionati o sotto il mouse
 scene.add(skGroup, skGrid, skRubber, skOver);
 let skBase = null;                     // per quale vista dello sketch è fatto il disegno di base (si rifà solo se cambia)
-const SK_LINE = new THREE.LineBasicMaterial({ color: 0x1F5EFF });
-const SK_SEL = new THREE.LineBasicMaterial({ color: 0xE09A00 });
+// 04/11: il disegno nel suo colore di modalità (verde acqua), la selezione gialla come nel 3D
+const SK_LINE = new THREE.LineBasicMaterial({ color: 0x00A88F });
+const SK_SEL = new THREE.LineBasicMaterial({ color: 0xFFB21A });
 const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
 const SK_HOV = new THREE.LineBasicMaterial({ color: 0x6E9BFF });
-const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5EFF, dashSize: 6, gapSize: 4 });
+const SK_RUB = new THREE.LineDashedMaterial({ color: 0x00A88F, dashSize: 6, gapSize: 4 });
 const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 5, gapSize: 3 });   // dove andrà la copia
 // la griglia non scrive la profondità e si disegna per prima: dove c'è il pezzo (pieno) non si vede
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE, depthWrite: false });
@@ -7275,12 +7276,12 @@ function fatLine(pts, px, mat) {
   return m;
 }
 const SK_CONSTR = new THREE.LineDashedMaterial({ color: 0x7D8790, dashSize: 8, gapSize: 5 });
-const SK_TRACK = new THREE.LineDashedMaterial({ color: 0x2E9E5B, dashSize: 3, gapSize: 3 });       // puntamento
+const SK_TRACK = new THREE.LineDashedMaterial({ color: 0x4CC3AE, dashSize: 3, gapSize: 3 });       // puntamento
 const SK_PTS = new THREE.PointsMaterial({ color: 0x1C2228, size: 6, sizeAttenuation: false });
 // tema chiaro / scuro: i colori del disegno che devono staccare dallo sfondo
 const COLORI_TEMA = {
-  chiaro: [[SK_LINE, 0x1F5EFF], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
-  scuro: [[SK_LINE, 0x5AA0FF], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
+  chiaro: [[SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
+  scuro: [[SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
 };
 function applyTheme(scuro) {
   document.body.classList.toggle('dark', scuro);
@@ -7296,28 +7297,30 @@ const SK_XRAY = new THREE.LineDashedMaterial({ color: 0x38BDF8, dashSize: 2, gap
 // sullo sviluppo: la linea di piega e i bordi della sua striscia, guide arancio tratteggiate (ci si aggancia e si quota)
 const SK_PIEGA = new THREE.LineDashedMaterial({ color: 0xC0392B, dashSize: 6, gapSize: 3 });
 const SK_PIEGA_BORDO = new THREE.LineDashedMaterial({ color: 0xC2410C, dashSize: 2, gapSize: 2 });   // visto attraverso
-const SK_CONSTR_SEL = new THREE.LineDashedMaterial({ color: 0xE09A00, dashSize: 8, gapSize: 5 });
+const SK_CONSTR_SEL = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 8, gapSize: 5 });
 let lineeSpesse = true;
 const SPESSORE = new Map();          // materiale sottile -> pixel
 const GROSSI = new Map();            // materiale sottile -> materiale spesso (stesso colore, aggiornato ogni volta)
 SPESSORE.set(SK_CONSTR, 1.8); SPESSORE.set(SK_CONSTR_SEL, 2.2); SPESSORE.set(SK_REF, 2.2); SPESSORE.set(SK_XRAY, 1.6);
 SPESSORE.set(SK_TESTO, 2); SPESSORE.set(SK_SEL, 3.2); SPESSORE.set(SK_HOV, 3.2);
+// 04/11: la barra «prossimo passo» è una riga sola: il comando, cosa fare adesso (corto), i tasti scritti
 const AIUTI = {
-  line: 'Clic sui punti · scrivi la lunghezza + Invio, oppure lunghezza<angolo (es. 100<30) · clic sul primo punto per chiudere · Esc finisce',
-  rect: 'Clic su un angolo, poi sull’angolo opposto (o scrivi la misura + Invio)',
-  circle: 'Clic sul centro, poi sul bordo (o scrivi il diametro + Invio)',
-  slot: 'Asola: clic sul primo centro, clic sul secondo, poi muovi il mouse per la larghezza e clicca (o scrivi la larghezza + Invio)',
-  arc3: 'Arco: clic sul punto di partenza, su un punto dove passa, poi sul punto di arrivo',
-  arcr: 'Arco col raggio: parte dalla fine della linea · scrivi il raggio + Invio · sopra quanto gira e come parte',
-  polygon: 'Poligono: il numero di lati nella casella in alto · clic sul centro, poi su un vertice',
-  fillet: 'Raccordo: clic sullo spigolo, oppure sulle due linee una dopo l’altra (come AutoCAD) · poi il raggio nella casella + Invio',
-  chamfer: 'Smusso: clic sullo spigolo, oppure sulle due linee una dopo l’altra · poi la misura nella casella + Invio',
-  select: 'Clic su linee e cerchi (Maiusc per aggiungere, doppio clic = tutto il contorno, Ctrl+A tutto) · poi i comandi',
-  dim: 'Clic su una linea (lunghezza) o un cerchio (diametro) · oppure su due punti, o un punto e una linea (distanza)',
-  trim: 'Accorcia: passa sul pezzo di linea da togliere (diventa rosso) e clicca · si taglia fino alle linee più vicine · Esc finisce',
-  extend: 'Allunga: passa vicino all’estremità di una linea (l’allungamento tratteggiato) e clicca · Esc finisce',
-  text: 'Testo: clic sul punto (il centro del foro, se la vuoi centrata lì), poi scrivi testo, altezza e angolo · per cambiarla dopo: doppio clic con Seleziona · per marcarla: «Marca col laser»',
+  line: 'Linea: clic sui punti, o scrivi la lunghezza (100 o 100<30) · Invio conferma · Esc finisce',
+  rect: 'Rettangolo: clic su un angolo e sull’angolo opposto, o scrivi 100x50 · Invio conferma · Esc annulla',
+  circle: 'Cerchio: clic sul centro e sul bordo, o scrivi il diametro · Invio conferma · Esc annulla',
+  slot: 'Asola: clic sui due centri, poi la larghezza · Invio conferma · Esc annulla',
+  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · Esc annulla',
+  arcr: 'Arco col raggio: parte dalla fine della linea, scrivi il raggio · Invio conferma · Esc finisce',
+  polygon: 'Poligono: scrivi quanti lati, poi clic sul centro e su un vertice · Esc annulla',
+  fillet: 'Raccordo: clic sullo spigolo (o sulle due linee), poi scrivi il raggio · Invio conferma · Esc finisce',
+  chamfer: 'Smusso: clic sullo spigolo (o sulle due linee), poi scrivi la misura · Invio conferma · Esc finisce',
+  select: 'Seleziona: clic su linee e cerchi, poi un comando · Maiusc aggiunge · doppio clic il contorno · Canc toglie',
+  dim: 'Quota: clic su una linea, un cerchio, o due punti · Esc finisce',
+  trim: 'Accorcia: clic sul pezzo di linea da togliere (diventa rosso) · Esc finisce',
+  extend: 'Allunga: clic vicino alla fine della linea da allungare · Esc finisce',
+  text: 'Testo: clic dove va la scritta (sul centro del foro per centrarla) · doppio clic con Seleziona la cambia · Esc finisce',
 };
+const AIUTI_VISTA = ' · destro sposta · rotella zoom';
 
 const v3 = a => new THREE.Vector3(...a);
 // gli assi dello sketch come vettori, fatti una volta per disegno (03/11: rifatti per ogni punto, migliaia di volte a
@@ -7474,7 +7477,8 @@ function setTool(t) {
   // mouse si prendeva il clic e il punto «non veniva preso», 21/10); con Seleziona e Quota si cliccano
   document.body.classList.toggle('disegno-attivo', !['select', 'dim'].includes(t));
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  $('#sk-help').textContent = AIUTI[t] + ' · destro sposta, rotella ingrandisce';
+  setHelp(AIUTI[t] + AIUTI_VISTA);
+  $('#sk-tip').style.display = 'none';              // 04/11: niente scritta vecchia del mouse (B_staffa 21-31)
   if (t === 'text' && SK.lastText && !SK.provaTesto) provaTesto(SK.lastText);    // la scritta di prima segue il mouse
   SK.arcR = null;
   if (t === 'arcr') arcrInizia();
@@ -7491,7 +7495,8 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'joint', Q
 function setHelp(t) {
   const el = $('#sk-help');
   t = String(t || '');
-  if (!t) { el.innerHTML = ''; return; }
+  if (!t) { el.innerHTML = ''; el.removeAttribute('title'); return; }
+  el.title = t.replace(/\s+·\s+/g, ' · ');         // una riga sola: il testo intero passando col mouse
   const pezzi = t.split(/\s+·\s+/);
   let principale = pezzi.shift(), cmd = '', passo = null;
   const m = principale.match(/^([^:]{2,34}?)(?:\s*\((\d+) di (\d+)\))?:\s+(.+)$/);
@@ -7957,7 +7962,7 @@ function drawRubber() {
       const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pv.add.map(skToWorld)), SK_RUB);
       l.computeLineDistances(); skRubber.add(l);
     }
-    if (SK.cutMsg && SK.cutAt) setHelp(SK.cutMsg); else setHelp(AIUTI[SK.tool] + ' · destro sposta, rotella ingrandisce');
+    if (SK.cutMsg && SK.cutAt) setHelp(SK.cutMsg); else setHelp(AIUTI[SK.tool] + AIUTI_VISTA);
     ridisegna();
     return;
   }
@@ -8039,10 +8044,16 @@ function drawRubber() {
   const aggancio = SK.cursor.how && SK.cursor.how !== 'griglia' ? ` · ${SK.cursor.how}` : '';
   const scritto = SK.buf ? `<b>${esc(SK.buf)}</b>_ ` : '';
   tip.innerHTML = `${scritto}${esc(testo || `${num(c[0], 2)} ; ${num(c[1], 2)}`)}${esc(aggancio)}`;
-  tip.style.left = (s[0] + 14) + 'px'; tip.style.top = (s[1] + 14) + 'px'; tip.style.display = 'block';
+  tip.style.display = 'block';
+  // 04/11: la scritta vicino al mouse resta dentro la vista (prima usciva dal bordo destro, A_collare 16 e B_staffa 21)
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  const tx = s[0] + 14 + tw > view.clientWidth - 8 ? s[0] - 14 - tw : s[0] + 14;
+  const ty = s[1] + 14 + th > view.clientHeight - 8 ? s[1] - 14 - th : s[1] + 14;
+  tip.style.left = Math.max(4, tx) + 'px'; tip.style.top = Math.max(4, ty) + 'px';
   ridisegna();
 }
 
+view.addEventListener('pointerleave', () => { $('#sk-tip').style.display = 'none'; });
 function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionare)
   const r = canvas.getBoundingClientRect(), m = [ev.clientX - r.left, ev.clientY - r.top];
   let best = null;

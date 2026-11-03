@@ -2004,3 +2004,31 @@ body.una-scheda { --alt-rib: 100px; }
   -webkit-mask: url("icons/search.svg") no-repeat center / contain; mask: url("icons/search.svg") no-repeat center / contain; }
 /* con le schede (disegno: Disegno/Lamiera) il nome dei gruppi sotto la colonna da 4 non si taglia */
 body { --alt-rib: 132px; }
+
+/* ================================================================ LAMIERA E DISEGNO (notte 03→04/11)
+   Dentro la vista e nel pannello di destra quando lavori una lamiera, un disegno e lo sviluppo. Solo token e componenti. */
+/* barra «prossimo passo» del disegno: UNA riga (regola 4). Il testo lungo si taglia coi puntini, intero passando col mouse */
+#sk-foot { max-width: min(980px, calc(100% - 24px)); }
+.sk-help { white-space: nowrap; min-width: 0; gap: var(--s-3); }
+.sk-help .g-cmd { flex: none; }
+.sk-help .g-cmd img { width: 20px; height: 20px; }
+.sk-help .g-testo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sk-help .g-testo small { display: inline; margin-left: var(--s-2); font-size: var(--fs-etichetta); }
+.sk-help .g-sep { flex: none; height: 20px; align-self: center; }
+.sk-help .g-tasto { flex: none; gap: 5px; font-size: var(--fs-etichetta); }
+/* un problema del disegno (contorno aperto…) è «da guardare», non un errore: ambra, sotto la riga */
+.sk-problema { margin-top: var(--s-1); font: 500 var(--fs-etichetta)/1.35 var(--font); color: var(--c-warn-testo); white-space: normal; }
+/* la casella del comando (lunghezza, diametro…) sta SOPRA la barra «prossimo passo», non la copre */
+#sk-cmd { bottom: 66px; min-height: 40px; gap: var(--s-2); }
+#sk-cmd-label { font-size: var(--fs-fitto); color: var(--c-testo-2); }
+#sk-cmd .u { color: var(--c-spento); font-size: var(--fs-piccolo); }
+/* gli agganci del disegno nel colore di modalità (verde acqua); il suggerimento vicino al mouse scuro e quieto */
+#sk-snap svg * { stroke: var(--modo-disegno); stroke-width: 2.2; }
+#sk-tip { background: var(--c-suggerimento); border-radius: var(--r-campo); padding: 3px 8px; font: 500 var(--fs-etichetta)/1.3 var(--font); }
+#sk-tip b { color: var(--c-sel); }
+.sk-legend .l-draw, body.dark .sk-legend .l-draw { border-color: var(--modo-disegno); }
+/* le finestre del disegno (Testo, Gradino…): l'unità DENTRO il campo, come .campo-unita */
+.form .inp { position: relative; display: block; }
+.form .inp .field { width: 100%; padding-right: 34px; }
+.form .inp i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: var(--fs-etichetta);
+  color: var(--c-spento); pointer-events: none; }
