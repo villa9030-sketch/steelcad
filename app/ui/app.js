@@ -684,11 +684,13 @@ function selectEdge(e) {
       const f = { ...d, direction: verso };
       if (punta) ultimaPunta = f; else ultimaFlangia = f;
       schedaCalcola(true);
+      const chi = 'edge=' + e.id;
       inCoda(async () => {
         const r = await call('add_flange', e.feature, punta ? null : e.ref, f, punta ? e.ref : null);
         if (await apply(r)) {
-          MINI.nuova = true;
-          if (r.select) await select(r.select);       // la flangia nuova, con le sue quote
+          // 03/11: se mentre la piega si faceva hai cliccato altro, resta quello che hai cliccato (vince l'ultimo clic).
+          // Il bordo piegato sparisce col pezzo nuovo (la selezione si svuota): allora si passa alla flangia nuova
+          if (!sel || sel.id === chi) { MINI.nuova = true; if (r.select) await select(r.select); }   // la flangia nuova, con le sue quote
           if (r.ask_tip_corners) askTipCorners(r.ask_tip_corners);
           toast(`Piega ${virgola(f.length)} mm ${versi[verso].toLowerCase()}: clicca «${virgola(f.length)}» sul pezzo per cambiarla.`);
         } else schedaCalcola(false);
@@ -1790,9 +1792,13 @@ async function caricaScena() {
   const esiste = id => objs.has(id) || nodes.some(n => n.id === id) || id.startsWith('flange=') || id.startsWith('pb=');
   if (sel?.id?.startsWith('edge=')) {
     const e = edgeSel();               // il bordo c'è ancora (libero)? se no la flangia l'ha preso
+    // cliccato mentre il pezzo si rifaceva: torna la stessa barretta, non il pannello completo
+    if (e && sel.soloMini && MINI.ancora) MINI.dove = { p: MINI.ancora.clone(), t: performance.now() };
     if (e) selectEdge(e); else clearSelection();
   } else if (sel) {
-    if ((sel.ids || [sel.id]).every(esiste)) await select(sel.id, sel.face, sel.ids, true);
+    // 03/11: la faccia col nome di quando l'hai cliccata: il suo numero nel pezzo rifatto può essere un'altra faccia
+    // (cliccando un altro lato mentre la piega si costruiva, il pannello finiva sulla «Scatola»)
+    if ((sel.ids || [sel.id]).every(esiste)) await select(sel.id, sel.face, sel.ids, true, sel.nome);
     else clearSelection();
   }
 }
@@ -3301,12 +3307,19 @@ function togliDalTaglio(sid, eids, cosa) {
   if (!sid || !eids?.length) return;
   clearSelection();
   provaSulPezzo({ metodo: 'togli_dal_taglio', argomenti: () => [sid, eids],
-    accetta: r => r.code === 'ultimo',                  // era l'unico contorno: va via tutto il taglio (si chiede dopo)
+    accetta: r => r.code === 'ultimo',                  // era l'unico contorno: va via tutto il taglio (lo dice la barra)
     frase: r => (r?.code === 'ultimo' ? `Toglie ${cosa} e il suo taglio (era l’unico contorno)` : r?.frase || `Toglie ${cosa}: la lamiera torna piena`),
-    sotto: () => 'Lo sviluppo torna senza quel contorno · si annulla con Ctrl+Z',
+    // 03/11: una conferma sola. Quello che sparisce insieme al taglio lo dice già questa barra (prima, dopo la barra,
+    // si apriva anche la finestra «Elimina»)
+    sotto: r => (r?.code === 'ultimo' && r.dipendenti?.length ? `Spariscono anche: ${r.dipendenti.join(', ')} · si annulla con Ctrl+Z`
+      : 'Lo sviluppo torna senza quel contorno · si annulla con Ctrl+Z'),
     fai: () => inCoda(async () => {
       const r = await call('togli_dal_taglio', sid, eids);
-      if (!r.ok && r.code === 'ultimo') { confermaElimina('feature', r.feature, `${r.nome} (${r.feature}): era l’unico contorno, si toglie ${cosa} e il suo taglio`); return; }
+      if (!r.ok && r.code === 'ultimo') {
+        const r2 = await call('tree_action', 'feature', r.feature, 'elimina');
+        await apply(r2, r2.ok ? `Tolto ${cosa} e il suo taglio. Annulla (Ctrl+Z) lo rimette.` : undefined);
+        return;
+      }
       await apply(r, r.message);
     }) });
 }
@@ -8005,7 +8018,12 @@ function skMove(ev) {
   if (ev.buttons) return;
   if (SK.pick?.what === 'offset') {
     if (SK.pick.stage === 'obj') { const h = skHit(ev); if (h !== SK.hover) { SK.hover = h; drawSketch(); } }
-    if (SK.pick.stage === 'side') { SK.pick.mouse = skPick(ev); offPreview(); }
+    if (SK.pick.stage === 'side') {
+      // 03/11: il mouse fermo resta sullo stesso punto del disegno anche se la vista finisce di muoversi sotto
+      // (dopo «Disegna sulla faccia»): il lato è quello dell'anteprima che hai visto, non quello di dopo
+      const P = SK.pick, fermo = P.schermo && P.schermo[0] === ev.clientX && P.schermo[1] === ev.clientY;
+      if (!fermo) { P.schermo = [ev.clientX, ev.clientY]; P.mouse = skPick(ev); offPreview(); }
+    }
     return;
   }
   if (SK.pick?.what === 'axis' || (SK.tool === 'dim' && !SK.dimPick.length)) {
@@ -8720,13 +8738,17 @@ function offsetClick(ev) {
     if (!h) { toast('Clicca una linea o un cerchio.', 'err'); return; }
     P.ids = [h];                       // come AutoCAD: l'oggetto cliccato, una linea o un cerchio
     SK.sel = new Set(P.ids);
-    P.stage = 'side'; P.mouse = skPick(ev);
+    P.stage = 'side'; P.mouse = skPick(ev); P.schermo = [ev.clientX, ev.clientY];
     drawSketch(); offHelp(); offPreview();
     return;
   }
-  const punto = skPick(ev);
+  // il clic dove stava già il mouse: lo stesso punto dell'anteprima a video (la vista intanto poteva muoversi:
+  // una finestra a 10 dai bordi diventava un contorno a 10 fuori dai bordi, e Togli materiale tagliava la parete)
+  const fermo = P.schermo && P.mouse && P.schermo[0] === ev.clientX && P.schermo[1] === ev.clientY;
+  const punto = fermo ? P.mouse : skPick(ev);
   if (!punto) return;
   const sid = SK.sid, ids = P.ids, d = P.dist;
+  P.schermo = null;
   // fatto: si resta nell'offset con la stessa distanza, pronti per un altro oggetto
   P.ids = null; P.prev = null; P.stage = 'obj';
   SK.sel.clear(); drawSketch(); offHelp(); drawRubber();
@@ -9031,6 +9053,8 @@ function provaSulPezzo(o) {
       b.querySelector('.frase b').textContent = va ? o.frase(r) : 'Così non si può fare';
       b.querySelector('.frase small').textContent = va ? (o.sotto ? o.sotto(r) : '') : (r.message || '');
       $('#pr-ok').disabled = !va;
+      // Invio (o Conferma) premuto mentre l'anteprima si calcolava: appena è pronta si fa
+      if (PROVA.aspetta) { PROVA.aspetta = false; if (va) provaConferma(); }
     } });
   };
   PROVA.rifai = rifai;
@@ -9049,7 +9073,14 @@ function provaVia() {
   anteprimaVia();
 }
 function provaConferma() {
-  if (!PROVA || !PROVA.r?.ok) return;
+  if (!PROVA) return;
+  if (!PROVA.r) {
+    // 03/11: l'anteprima non è ancora pronta: prima Invio non faceva niente. Lo si dice, e appena è pronta si fa
+    PROVA.aspetta = true;
+    PROVA.el.querySelector('.frase small').textContent = 'Sto calcolando… lo faccio appena è pronto';
+    return;
+  }
+  if (!PROVA.r.ok) return;
   const fai = PROVA.fai;
   provaVia();
   fai();

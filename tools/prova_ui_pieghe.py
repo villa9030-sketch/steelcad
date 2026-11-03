@@ -43,6 +43,28 @@ def main():
         except Exception:
             pass
 
+    def vista_ferma(pg):
+        # 03/11: entrando nella faccia la vista si muove; sotto carico il passo dopo arrivava prima che si fermasse
+        # e i punti calcolati sullo schermo finivano altrove (l'offset andava fuori dai bordi)
+        prima, uguali = None, 0
+        for _ in range(80):
+            p = pg.evaluate("(() => { const c = window.__steelcad.camera; return [c.position.x, c.position.y, c.position.z, c.zoom]; })()")
+            uguali = uguali + 1 if prima and max(abs(a - b) for a, b in zip(p, prima)) < 1e-6 else 0
+            if uguali >= 4:
+                return
+            prima = p
+            time.sleep(0.1)
+
+    def taglia(pg):
+        # «Togli materiale»: se si può si fa subito (29/10); la barra di conferma compare solo se non si può (rossa)
+        pg.click('[data-make="cut"]')
+        for _ in range(150):
+            if pg.evaluate("!window.__steelcad.sketch || !!document.querySelector('#prova-barra.no')"):
+                break
+            time.sleep(0.1)
+        if pg.evaluate("!!document.querySelector('#prova-barra.no')"):
+            print('   taglio non riuscito:', pg.inner_text('#prova-barra'), flush=True)
+
     def faccia(pg, nome):
         pg.evaluate("""(n) => { const o = window.__steelcad.objs.get('body');
             const f = o.data.faces.find(x => x.name === n); window.__steelcad.select('body', f.index); }""", nome)
@@ -190,6 +212,7 @@ def main():
             pg.click('[data-face-sketch]')
             pg.wait_for_function("window.__steelcad.sketch && window.__steelcad.sketch.v.on_face === 'SM1/FL3/esterno'")
             time.sleep(0.5)
+            vista_ferma(pg)
             bordi = pg.evaluate("window.__steelcad.sketch.v.lines.filter(l => l.label === 'bordo del pezzo')")
             ok(f'sulla faccia ci sono i bordi del pezzo ({len(bordi)})', len(bordi) >= 4)
             box = pg.locator('#c3d').bounding_box()
@@ -203,6 +226,7 @@ def main():
             ok('offset: la casella della distanza si vede ed è pronta',
                pg.evaluate("!document.querySelector('#sk-cmd').hidden && document.activeElement.id === 'sk-cmd-in'"))
             pg.keyboard.type('10'); pg.keyboard.press('Enter')
+            vista_ferma(pg)
             cx = sum(b['xa'][0] for b in bordi) / len(bordi); cy = sum(b['xa'][1] for b in bordi) / len(bordi)
             sx, sy = pg.evaluate('(xy) => window.__steelcad.skScreen(xy)', [cx, cy])
             pg.mouse.move(box['x'] + sx, box['y'] + sy)
@@ -210,12 +234,14 @@ def main():
             ok('offset: l’anteprima segue il mouse', pg.evaluate('!!window.__steelcad.sketch.pick.prev'))
             pg.mouse.click(box['x'] + sx, box['y'] + sy)
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 4")
-            ok('offset 10 dal bordo del pezzo: contorno vero', True)
+            nuove = pg.evaluate("window.__steelcad.sketch.v.lines.filter(l => !l.construction).map(l => [l.xa, l.xb])")
+            xs = [p[0] for l in nuove for p in l]; ys = [p[1] for l in nuove for p in l]
+            ok(f'offset 10 dal bordo del pezzo: contorno vero, dentro i bordi (x {min(xs):.0f}…{max(xs):.0f}, y {min(ys):.0f}…{max(ys):.0f})',
+               abs(min(xs) - 10) < 1e-3 and abs(max(xs) - 382) < 1e-3 and abs(min(ys) - 10) < 1e-3 and abs(max(ys) - 42) < 1e-3)
             pg.keyboard.press('Escape')                  # fine dell'offset
             pg.screenshot(path=str(SHOTS / '3b_offset_dal_bordo.png'))
             v0 = pg.evaluate('window.__steelcad.state.info.part.volume_mm3')
-            pg.click('[data-make="cut"]')
-            pg.wait_for_selector('#pr-ok:not([disabled])', timeout=20000); pg.click('#pr-ok')   # 29/10: prima la prova sul pezzo
+            taglia(pg)
             pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             st = pg.evaluate('window.__steelcad.state')
             ok(f'finestra tagliata nella parete FL3 ({v0 - st["info"]["part"]["volume_mm3"]:.0f} mm³)',
@@ -269,8 +295,7 @@ def main():
             pg.wait_for_function("window.__steelcad.sketch.v.lines.filter(l => !l.construction).length === 7")
             pg.screenshot(path=str(SHOTS / '5_disegno_sviluppo.png'))
             v0 = pg.evaluate('window.__steelcad.state.info.part.volume_mm3')
-            pg.click('[data-make="cut"]')
-            pg.wait_for_selector('#pr-ok:not([disabled])', timeout=20000); pg.click('#pr-ok')   # 29/10: prima la prova sul pezzo
+            taglia(pg)
             try:
                 pg.wait_for_function('!window.__steelcad.sketch', timeout=15000)
             except Exception:
@@ -442,8 +467,11 @@ def main():
                 time.sleep(0.15)
                 return pg.evaluate('window.__steelcad.sketch.cursor')
             pg.keyboard.press('l')
-            meta = math.dist(c1, c2) / 2
-            xi, yi = (c1[0] + c2[0]) / 2, c1[1] + math.sqrt(15 ** 2 - meta ** 2)
+            # l'incrocio di sopra, dai cerchi veri (03/11: il primo centro si aggancia alla griglia, 70;24: i due centri
+            # non stanno più alla stessa altezza e il conto «a metà strada» mancava l'incrocio di un millimetro)
+            dd = math.dist(c1, c2); aa = dd / 2; hh = math.sqrt(15 ** 2 - aa ** 2)
+            ux, uy = (c2[0] - c1[0]) / dd, (c2[1] - c1[1]) / dd
+            xi, yi = max(((c1[0] + ux * aa - uy * hh * k, c1[1] + uy * aa + ux * hh * k) for k in (1, -1)), key=lambda q: q[1])
             c = sopra([xi + 0.4, yi - 0.4])
             ok(f'incrocio tra due cerchi ({c["tipo"]}, {c["xy"]})', c['tipo'] == 'incrocio' and abs(c['xy'][0] - xi) < 1e-6
                and pg.evaluate("document.querySelector('#sk-snap').style.display") == 'block')
@@ -546,8 +574,10 @@ def main():
             pg.uncheck('#modal-box [data-voce="laser"]')
             pg.check('#modal-box [data-voce="piegatrice"]')
             pg.click('#m-ok')
-            pg.wait_for_selector('.toast:has-text("Salvati 1 file")')
-            ok('tabella pieghe da «Prepara per il laser»', True)
+            # 03/11: la conferma resta a video (finestra «File pronti»), non più un messaggio di pochi secondi
+            pg.wait_for_selector('#modal:not([hidden]) .prep-ok')
+            ok('tabella pieghe da «Prepara per il laser»', 'Salvato 1 file' in pg.inner_text('#modal-box'))
+            pg.click('#modal-box #m-ok')
             pg.screenshot(path=str(SHOTS / '16_lamiera_barra.png'))
             ok('nessun errore in console', not errori)
             for e in errori:
