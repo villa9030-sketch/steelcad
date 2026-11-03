@@ -2291,6 +2291,33 @@ function preparaFatto(r) {
     $('#prep-tav').onclick = () => { close(); runCmd('drawings'); };
   });
 }
+// 03/11: dopo ogni esportazione (tavole PDF/DXF, DXF di taglio, STEP, Excel, tabella pieghe) la stessa conferma di
+// «Prepara»: il nome del file, la cartella, «Apri la cartella». Prima un messaggio di pochi secondi, e poi «dove l'ha messo?»
+function fileFatto(r, titolo = 'File salvato') {
+  const p = String(r.path || ''), k = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
+  const nome = k >= 0 ? p.slice(k + 1) : p, cartella = k >= 0 ? p.slice(0, k) : '';
+  const avvisi = r.avvisi?.length;
+  modal(`<h3>${esc(titolo)}</h3>
+    <div class="prep-ok${avvisi ? ' no' : ''}"><b>${esc(nome)}</b></div>
+    ${r.message ? `<p class="hint fatto-msg">${esc(r.message)}</p>` : ''}
+    <div class="prep-dove">Nella cartella <b class="prep-percorso" id="fatto-dir">${esc(cartella)}</b></div>
+    <div class="acts"><button class="btn" id="fatto-apri">Apri la cartella</button><button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
+    $('#m-ok').onclick = close;
+    $('#m-ok').focus();
+    $('#fatto-apri').onclick = () => inCoda(async () => {
+      const x = await call('apri_cartella', cartella);
+      if (x && x.ok === false) toast('Non riesco ad aprire la cartella: ' + (x.message || '') + '. Il percorso è scritto qui sopra.', 'err');
+    });
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter' || ev.key === 'Escape') close(); };
+  });
+}
+async function esportaFile(kind) {
+  const r = await call('export', kind);
+  if (r?.cancelled) return;
+  if (!r?.ok || !r.path) { await apply(r); return; }
+  const titoli = { step: 'STEP salvato', dxf: 'DXF di taglio salvato', bom: 'Distinta in Excel salvata', bendtable: 'Tabella pieghe salvata' };
+  fileFatto(r, titoli[kind]);
+}
 
 let profili = null;
 // 29/10: «la minibar fa cagare». Al clic nel 3D solo una barretta di icone attaccata alla cosa scelta (la segue quando
@@ -5166,7 +5193,8 @@ async function drawingsDialog() {
   if (box.querySelector('#tav-tutte')) box.querySelector('#tav-tutte').onchange = aggiorna;
   box.querySelector('#te-auto').onclick = () => { ED.sel = null; salva({}); };
   box.querySelector('#te-undo').onclick = () => inCoda(async () => { await call('undo'); ED.toccato = true; carica(await call('drawing_preview', leggi(), tutte())); });
-  const esporta = fmt => inCoda(async () => { const x = await call('export_drawings_dialog', fmt, leggi(), tutte()); if (!x.cancelled) toast(x.message, x.ok ? '' : 'err'); });
+  const esporta = fmt => inCoda(async () => { const x = await call('export_drawings_dialog', fmt, leggi(), tutte()); if (x.cancelled) return;
+    if (x.ok && x.path) fileFatto(x, fmt === 'pdf' ? 'Tavole in PDF salvate' : 'Tavole in DXF salvate'); else toast(x.message, x.ok ? '' : 'err'); });
   box.querySelector('#te-pdf').onclick = () => esporta('pdf');
   box.querySelector('#te-dxf').onclick = () => esporta('dxf');
   box.querySelector('#te-chiudi').onclick = chiudi;
@@ -6494,10 +6522,10 @@ const CMDS = [
     });
   } },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => salvaPezzo(true) },
-  { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
+  { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(() => esportaFile('step')) },
   { id: 'asm_viteria', label: 'Viteria: viti, dadi, rondelle, rivetti (norme ISO)…', run: () => inCoda(viteriaDialog) },
-  { id: 'export_bom', label: 'Distinta materiali in Excel (con gli acquisti)…', run: () => inCoda(async () => apply(await call('export', 'bom'))) },
-  { id: 'export_dxf', label: 'Esporta DXF di taglio…', run: () => inCoda(async () => apply(await call('export', 'dxf'))) },
+  { id: 'export_bom', label: 'Distinta materiali in Excel (con gli acquisti)…', run: () => inCoda(() => esportaFile('bom')) },
+  { id: 'export_dxf', label: 'Esporta DXF di taglio…', run: () => inCoda(() => esportaFile('dxf')) },
   { id: 'undo', label: 'Annulla', keys: 'Ctrl+Z', run: () => S?.undo[0] && inCoda(async () => apply(await call('undo'))) },
   { id: 'redo', label: 'Ripeti', keys: 'Ctrl+Y', run: () => S?.redo[0] && inCoda(async () => apply(await call('redo'))) },
   { id: 'view_iso', label: 'Vista isometrica', keys: '0', run: () => goTo(vistaIso()) },
@@ -6531,7 +6559,7 @@ const CMDS = [
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
   { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna su questa faccia» nel pannello a destra.') },
   { id: 'member_help', label: 'Nuova asta', run: () => toast(nodes.length ? 'Clicca un nodo (pallino) del telaio: nel pannello scegli direzione e lunghezza della nuova asta.' : 'Prima serve una struttura: Telaio / tavolo o Struttura libera.', nodes.length ? '' : 'err') },
-  { id: 'export_bendtable', label: 'Esporta la tabella pieghe…', run: () => inCoda(async () => apply(await call('export', 'bendtable'))) },
+  { id: 'export_bendtable', label: 'Esporta la tabella pieghe…', run: () => inCoda(() => esportaFile('bendtable')) },
   { id: 'sheet_rules', label: 'Regole di lamiera…', run: () => inCoda(rulesDialog) },
   { id: 'show_cut', label: 'Mostra la cut list', run: () => { document.querySelector('.tabs button[data-tab="cut"]').hidden = false; showTab('cut', true); } },
   { id: 'show_bom', label: 'Mostra la distinta', run: () => showTab('bom', true) },

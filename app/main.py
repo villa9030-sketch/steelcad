@@ -664,7 +664,7 @@ class Api:
         p = self._dialog(webview.SAVE_DIALOG, filtro, nome + ('.pdf' if fmt == 'pdf' else '.dxf'))
         if not p:
             return {'ok': False, 'cancelled': True}
-        return self._call(self._svc.export_drawings, p, campi, tutte)
+        return _col_percorso(self._call(self._svc.export_drawings, p, campi, tutte), p)
 
     def asm_open_part(self, iid):
         return self._call(self._svc.asm_open_part, iid)
@@ -794,7 +794,14 @@ class Api:
             return {'ok': False, 'cancelled': True}
         fn = {'step': self._svc.export_step, 'dxf': self._svc.export_dxf, 'bendtable': self._svc.export_bend_table,
               'bom': self._svc.asm_export_bom}[kind]
-        return self._call(fn, p)
+        return _col_percorso(self._call(fn, p), p)
+
+
+def _col_percorso(r, p):
+    """03/11: dopo un'esportazione l'interfaccia mostra il file e «Apri la cartella»: serve sempre dove l'ha salvato."""
+    if isinstance(r, dict) and r.get('ok') and not r.get('path'):
+        r['path'] = str(p)
+    return r
 
 
 ICONA = Path(__file__).resolve().parent / 'ui' / 'img' / 'radius.ico'
