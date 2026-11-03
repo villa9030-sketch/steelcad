@@ -128,7 +128,7 @@ def ritocca(f: Foglio, r: dict | None) -> Foglio:
             e['freccia'] = float(m.get('freccia') or fr)
         with f.oggetto(nome):
             _disegna_quota(f, e['a'], e['b'], e['distanza'], e['valore'], e['h'], e.get('prefisso', ''), e.get('testo'),
-                           e.get('freccia'))
+                           e.get('freccia'), dentro=e.get('dentro', False))
     # 4. i titoli delle viste
     ht = testi.get('titoli')
     if ht:

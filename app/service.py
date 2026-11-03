@@ -179,6 +179,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             p = properties(r.body.shape, doc.material)
             info['part'] = {'mass_kg': p['mass_kg'], 'volume_mm3': p['volume_mm3'], 'size_mm': p['bbox_mm']['size']}
         cl = cut_list(r.structures)
+        if cl['rows']:                              # 03/11: il nome da officina di ogni riga (anche i pezzi degli incroci)
+            from cad_engine.drawings_struttura import righe_taglio
+            for riga, rt in zip(cl['rows'], righe_taglio(r.structures, cl)):
+                riga['nome'], riga['tagli'] = rt['nome'], rt['tagli']
         righe = bom(doc, r)
         avvisi = [w for st in r.structures for w in (st.warnings or [])]
         sd = getattr(r.body, 'sheet', None) if r.body is not None else None
@@ -4754,10 +4758,19 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 r = self.export_dxf(str(Path(d) / 'prova.dxf'))
             controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', ''), 'avvisi': self.avvisi_angoli()}
         laser = controllo is not None and controllo['ok']
+        if self.asm is not None:                       # 03/11: l'assieme prepara i DXF di tutti i pezzi in lamiera
+            n_lam = len(self._lamiere_assieme())
+            voce_laser = {'id': 'laser', 'titolo': 'Per il laser',
+                          'desc': 'Gli sviluppi di tutti i pezzi in lamiera, un DXF per pezzo (nel nome spessore e quanti '
+                                  'tagliarne). Si aprono in Lantek.',
+                          'file': f'DXF laser ({n_lam} pezz{"o" if n_lam == 1 else "i"})', 'si': n_lam > 0,
+                          'scelta': n_lam > 0, 'motivo': None if n_lam else 'nell’assieme non ci sono pezzi in lamiera'}
+        else:
+            voce_laser = {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
+                          'file': f'{nome}_sviluppo.dxf', 'si': laser, 'scelta': laser,
+                          'motivo': None if laser else (controllo['testo'] if controllo else 'serve una lamiera o una piastra')}
         voci = [
-            {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',
-             'file': f'{nome}_sviluppo.dxf', 'si': laser, 'scelta': laser,
-             'motivo': None if laser else (controllo['testo'] if controllo else 'serve una lamiera o una piastra')},
+            voce_laser,
             {'id': 'piegatrice', 'titolo': 'Per la piegatrice', 'desc': 'Le pieghe in ordine: angolo, misura, correzione (si apre con Excel).',
              'file': f'{nome}_pieghe.csv', 'si': pieghe, 'scelta': pieghe, 'motivo': None if pieghe else 'il pezzo non ha pieghe'},
             {'id': 'officina', 'titolo': 'Per l’officina o il cliente',
@@ -4767,6 +4780,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             {'id': 'step', 'titolo': 'Per un altro programma 3D', 'desc': 'Il pezzo in 3D (STEP), per chi usa SolidWorks, Inventor e simili.',
              'file': f'{nome}.step', 'si': corpo is not None or strutture or self.asm is not None, 'scelta': False, 'motivo': None},
         ]
+        if strutture:                                  # 03/11: la lista dei tubi da tagliare, per la troncatrice
+            voci.insert(1, {'id': 'taglio', 'titolo': 'Per la troncatrice',
+                            'desc': 'La lista di taglio dei tubi: nome, profilo, lunghezza, tagli, quanti (si apre con Excel).',
+                            'file': f'{nome}_taglio.xlsx', 'si': True, 'scelta': True, 'motivo': None})
         return {'ok': True, 'nome': nome, 'cartella': str(base / nome), 'voci': voci, 'controllo': controllo}
 
     def prepara(self, cartella: str, scelte: list, campi: dict | None = None) -> dict:
@@ -4780,8 +4797,18 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 if v['id'] not in scelte or not v['si']:
                     continue
                 p = d / v['file']
-                if v['id'] == 'laser':
+                if v['id'] == 'laser' and self.asm is not None:
+                    p = d / 'DXF laser'
+                    r = self._dxf_assieme(p)
+                    if r.get('ok'):
+                        fatti += [f'DXF laser\\{x}' for x in r['fatti']]
+                        if r.get('saltati'):
+                            problemi.append('Per il laser, saltati: ' + '; '.join(r['saltati']))
+                        continue
+                elif v['id'] == 'laser':
                     r = self.export_dxf(str(p))
+                elif v['id'] == 'taglio':
+                    r = self.export_lista_taglio(str(p))
                 elif v['id'] == 'piegatrice':
                     r = self.export_bend_table(str(p))
                 elif v['id'] == 'officina':
@@ -4794,6 +4821,72 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 return {'ok': False, 'message': 'Scegli almeno una cosa da preparare.'}
             msg = (f'Salvati {len(fatti)} file in {d}.' if fatti else '') + (' Non riusciti: ' + '; '.join(problemi) if problemi else '')
             return {'ok': not problemi, 'files': fatti, 'cartella': str(d), 'message': msg.strip()}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def _lamiere_assieme(self) -> list:
+        """I pezzi dell'assieme da tagliare al laser: [(posizione, riga della distinta, pezzo)], quelli in lamiera
+        (con lo sviluppo) o piastre piane; non gli acquisti, i tubi e i pezzi pieni."""
+        from cad_engine import assembly as A
+        out = []
+        for k, r in enumerate(A.bom(self.asm, self.asm_parts), 1):
+            part = self.asm_parts.get(r['file'])
+            if r.get('acquisto') or part is None or part.result.body is None:
+                continue
+            if getattr(part.result.body, 'sheet', None) is not None or r.get('thickness'):
+                out.append((k, r, part))
+            elif not (part.result.structures and any(st.members for st in part.result.structures)):
+                out.append((k, r, part))              # una piastra? si prova: se non è piana lo dice l'export
+        return out
+
+    def _dxf_assieme(self, cartella) -> dict:
+        """03/11: un DXF di sviluppo per ogni pezzo in lamiera dell'assieme, in una cartella: «03 Pannello finestra
+        970 - sp 1,5 - 4 pz.dxf» (posizione della distinta, nome, spessore, quanti). Ogni file si riapre e si
+        controlla (layer di taglio e di piega). I pezzi che non si possono stendere si dicono e si saltano."""
+        from app.drawings_service import nome_pezzo
+        dest = Path(cartella)
+        dest.mkdir(parents=True, exist_ok=True)
+        fatti, saltati = [], []
+        for k, r, part in self._lamiere_assieme():
+            nome = nome_pezzo(part.doc.meta, getattr(part, 'path', None))
+            sheet = getattr(part.result.body, 'sheet', None)
+            sp = sheet.thickness if sheet is not None else r.get('thickness')
+            testo = f'{k:02d} {nome}' + (f' - sp {fmt_mm(round(sp, 2))}' if sp else '') + f' - {r["qty"]} pz'
+            f = dest / (re.sub(r'[\\/:*?"<>|]+', '-', testo).strip() + '.dxf')
+            try:
+                if sheet is not None:
+                    dxf.export_flat_pattern(sheet, f)
+                else:
+                    dxf.export_flat(part.result.body.shape, f)
+                fatti.append(f.name)
+            except SteelCADError as ex:
+                saltati.append(f'{nome}: {ex.message}')
+            except Exception as ex:  # noqa: BLE001 - un pezzo che non si stende non ferma gli altri
+                saltati.append(f'{nome}: {ex}')
+        if not fatti:
+            return {'ok': False, 'message': 'Nessun pezzo in lamiera da stendere' + (': ' + '; '.join(saltati) if saltati else '.')}
+        return {'ok': True, 'fatti': fatti, 'saltati': saltati, 'cartella': str(dest),
+                'message': f'{len(fatti)} DXF in {dest.name}' + (f'; saltati: {"; ".join(saltati)}' if saltati else '.')}
+
+    def export_lista_taglio(self, path: str) -> dict:
+        """03/11: la lista di taglio dei tubi in Excel (per la troncatrice o per chi taglia i tubi al laser): una
+        riga per pezzo da tagliare, coi nomi da officina come nella tavola, e i totali per profilo."""
+        from cad_engine.drawings_struttura import righe_taglio
+        from cad_engine.exporters import xlsx
+        try:
+            if self.asm is not None or not self.result.structures:
+                return {'ok': False, 'message': 'La lista di taglio si fa per una struttura in tubo.'}
+            righe = righe_taglio(self.result.structures)
+            cl = cut_list(self.result.structures)
+            tab = [['Pos.', 'Nome', 'Profilo', 'Materiale', 'Lunghezza mm', 'Tagli', 'Q.tà', 'kg cad.', 'kg tot.', 'Fatto']]
+            tab += [[r['pos'], r['nome'], r['profilo'], r['materiale'], r['lunghezza'], r['tagli'], r['qty'],
+                     round(r['kg'], 2), round(r['kg_tot'], 2), ''] for r in righe]
+            tot = [['Profilo', 'Materiale', 'Pezzi', 'Metri', 'kg']]
+            tot += [[t['profile'], t['material'], t['pieces'], round(t['total_length_mm'] / 1000, 2), round(t['kg'], 2)]
+                    for t in cl['totals']]
+            xlsx.scrivi(path, [('Lista di taglio', tab, [6, 50, 14, 10, 13, 14, 6, 9, 9, 8], [0]),
+                               ('Barre da comprare', tot, [14, 10, 8, 9, 9], [0])])
+            return {'ok': True, 'path': str(path), 'message': f'Lista di taglio salvata: {len(righe)} righe ({Path(path).name}).'}
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
