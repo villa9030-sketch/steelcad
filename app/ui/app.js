@@ -5770,7 +5770,7 @@ async function newAssemblyDialog() {
     <div class="na-testa"><div class="sub">Pezzi da mettere dentro</div><button class="btn" id="na-sfoglia">Sfoglia…</button></div>
     <div class="na-lista"><table class="grid" id="na-tab">${righe()}</table></div>
     <p class="hint">Il primo pezzo che scegli è la base e resta fermo; le copie si mettono a fianco e poi le accoppi. Nella distinta compaiono con la quantità.</p>
-    <div class="acts"><span class="hint" id="na-tot" style="margin-right:auto"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea assieme</button></div>`, close => {
+    <div class="acts"><span class="hint na-tot" id="na-tot"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea l’assieme</button></div>`, close => {
     const tot = () => {
       const sc = scelti();
       $('#na-tab').querySelectorAll('[data-base]').forEach(s => { s.textContent = pezzi[+s.dataset.base] === sc[0] ? 'base, resta fermo' : ''; });
@@ -5820,7 +5820,7 @@ async function impostazioniDialog(sezione = 'piegatrice') {
   const corpi = {
     piegatrice: `<h4>Piegatrice</h4>
       <p class="hint">Raggio e K per ogni lamiera nuova, quando non scrivi niente.</p>
-      <div class="imp-riga"><span>Raggio interno</span><span class="campo-unita imp-corto"><input class="field" id="i-r" value="${n(r.bend_default?.radius)}" placeholder="dalla piegatrice"><i>mm</i></span><span></span></div>
+      <div class="imp-riga"><span>Raggio interno</span><span class="campo-unita imp-corto"><input class="field" id="i-r" value="${n(r.bend_default?.radius)}" placeholder="es. 2"><i>mm</i></span><span></span></div>
       <div class="imp-riga"><span>Fattore K</span><span class="campo-unita imp-corto"><input class="field" id="i-k" value="${n(r.bend_default?.k)}" placeholder="es. 0,33"></span><span></span></div>
       <h4 class="imp-sotto">Regole salvate</h4>
       <table class="grid imp-regole"><tr><th>Nome</th><th>Materiale</th><th class="destra">Spessore</th><th class="destra">Raggio</th><th class="destra">K</th><th></th></tr>${regole}</table>`,

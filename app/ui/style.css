@@ -838,6 +838,8 @@ body.dark #home .home-cerca img { filter: invert(1); opacity: .6; }
 .subdrop button:hover { background: var(--hov-bg, #EEF2F7); }
 .subdrop small { color: var(--ink-3); font-size: 11px; }
 .subdrop .vuoto { padding: 6px 10px; color: var(--ink-3); }
+/* le scorciatoie nei menu: testo quieto a destra, senza riquadro (anche nello scuro) */
+.drop kbd, body.dark .drop kbd { padding: 0 0 0 var(--s-5); border: 0; background: none; color: var(--c-spento); }
 /* impostazioni (04/11: a sinistra le sezioni, a destra righe etichetta + campo, in fondo un pulsante blu solo) */
 .imp-box { display: flex; min-height: 480px; margin: calc(-1 * var(--s-5)) calc(-1 * var(--s-6)); }
 .imp-nav { width: 200px; flex-shrink: 0; padding: var(--s-5) var(--s-3); border-right: 1px solid var(--c-linea); border-radius: var(--r-galleggia) 0 0 var(--r-galleggia);
@@ -1009,7 +1011,16 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 .n-ris { min-height: 22px; font-size: var(--fs-testo); line-height: 1.5; border-radius: var(--r-campo); font-variant-numeric: tabular-nums; }
 .n-ris.ok { padding: var(--s-3) var(--s-4); background: var(--c-ok-tenue); border-left: 3px solid var(--c-ok); }
 .n-ris.warn { padding: var(--s-3) var(--s-4); background: var(--c-warn-tenue); border-left: 3px solid var(--c-warn); }
-.modal-box.nuovo .acts { padding-top: var(--s-4); border-top: 1px solid var(--c-linea); }
+/* i pulsanti restano in vista anche quando la finestra è più alta dello schermo (1366 × 768) */
+.modal-box.nuovo .acts, #modal-box:has(.mod-corpo) .acts { position: sticky; bottom: calc(-1 * var(--s-5)); z-index: 1; margin-bottom: calc(-1 * var(--s-5));
+  padding: var(--s-4) 0 var(--s-5); border-top: 1px solid var(--c-linea); background: var(--c-pannello); }
+@media (max-height: 800px) {
+  .modal-box.nuovo h3 { margin-bottom: var(--s-3); }
+  .n-kinds { margin-bottom: var(--s-3); padding-bottom: var(--s-3); gap: var(--s-1); }
+  .n-campi { gap: var(--s-2); }
+  .nc .field { min-height: 34px; font-size: 15px; }
+  .n-pic svg { max-height: 300px; }
+}
 /* il modello pronto (Staffa, Scatola…): come il pezzo nuovo, l'anteprima segue le misure */
 #modal-box.wide:has(.mod-corpo) { width: min(880px, 94vw); }
 #modal-box:has(.mod-corpo) h3 { font-size: 22px; }
@@ -1024,7 +1035,6 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 .campo-mod .inp i { position: absolute; right: 12px; font-style: normal; font-size: var(--fs-etichetta); color: var(--c-spento); pointer-events: none; }
 .mod-piega { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-1); padding-top: var(--s-3); border-top: 1px solid var(--c-linea); }
 .mod-campi > .hint, .mod-piega .hint { margin: 0; }
-#modal-box:has(.mod-corpo) .acts { padding-top: var(--s-4); border-top: 1px solid var(--c-linea); }
 .btn.big { padding: 10px 26px; font-size: 16px; font-weight: 600; }
 @media (max-width: 900px) { .n-main { grid-template-columns: 1fr; } }
 .modal-box .n-kinds.choice { margin-bottom: 14px; } .modal-box .n-kinds.choice button { flex: none; }
@@ -1224,6 +1234,7 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 .na-n { display: flex; align-items: center; gap: 4px; color: var(--ink-3); white-space: nowrap; }
 .na-n input { width: 48px; text-align: right; }
 .modal-box.na-box { width: min(760px, 94vw); }
+.na-tot { margin-right: auto; }
 .na-lista table { width: 100%; }
 .na-lista td.na-c { width: 26px; }
 .na-lista td.na-p { width: 64px; }
