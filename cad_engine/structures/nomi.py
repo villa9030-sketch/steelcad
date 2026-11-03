@@ -59,12 +59,32 @@ def _tipo(m) -> str:
     """Prima com'è messo (in piedi, sdraiato, inclinato), poi il gruppo per la parola giusta: nel gruppo «Spalle»
     ci sono sia i montanti sia i traversi di fianco."""
     g = (m.group or '').strip().lower()
-    w = m.w
+    w = _dir(m)
     if abs(w.Z) > 0.95:
         return {'gambe': 'Gamba', 'sbarre': 'Sbarra'}.get(g, 'Montante')
     if abs(w.Z) > 0.1:
         return 'Diagonale'
     return 'Traverso'
+
+
+class _V:
+    __slots__ = ('X', 'Y', 'Z')
+
+    def __init__(self, x, y, z):
+        self.X, self.Y, self.Z = x, y, z
+
+
+def _dir(m) -> _V:
+    """La direzione dell'asta con tre numeri (03/11: coi bd.Vector i nomi di uno scaffale grande costavano 30 ms)."""
+    a, b = m.start, m.end
+    dx, dy, dz = b.X - a.X, b.Y - a.Y, b.Z - a.Z
+    n = (dx * dx + dy * dy + dz * dz) ** 0.5 or 1.0
+    return _V(dx / n, dy / n, dz / n)
+
+
+def _mezzo(m) -> _V:
+    a, b = m.start, m.end
+    return _V((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
 
 
 def nomi_aste(members) -> dict:
@@ -77,8 +97,8 @@ def nomi_aste(members) -> dict:
         if getattr(m, 'nome', ''):
             out[m.id] = m.nome
             continue
-        tipo, w = _tipo(m), m.w
-        mid = (m.start + m.end) * 0.5
+        tipo, w = _tipo(m), _dir(m)
+        mid = _mezzo(m)
         parti = []
         if abs(w.Z) > 0.95:                                   # in piedi: dove sta in pianta
             parti = [_lato(mid.Y, ly, 'davanti', 'dietro'), _lato(mid.X, lx, 'a sinistra', 'a destra')]
@@ -100,8 +120,8 @@ def nomi_aste(members) -> dict:
         out[m.id] = f'{tipo} {testo}'.strip()
     conta = Counter(out.values())
     visti: Counter = Counter()
-    for m in sorted(members, key=lambda m: (((m.start + m.end) * 0.5).X, ((m.start + m.end) * 0.5).Y,
-                                            ((m.start + m.end) * 0.5).Z)):
+    mezzi = {id(m): _mezzo(m) for m in members}
+    for m in sorted(members, key=lambda m: (mezzi[id(m)].X, mezzi[id(m)].Y, mezzi[id(m)].Z)):
         n = out[m.id]
         if conta[n] > 1 and not getattr(m, 'nome', ''):
             visti[n] += 1
@@ -109,11 +129,12 @@ def nomi_aste(members) -> dict:
     return out
 
 
-def nome_punto(p, members) -> str:
-    """«Angolo davanti a sinistra, in alto» per un nodo sul bordo della struttura; «Punto a metà …» se no."""
+def nome_punto(p, members, limiti=None) -> str:
+    """«Angolo davanti a sinistra, in alto» per un nodo sul bordo della struttura; «Punto a metà …» se no.
+    `limiti` (da _limiti) per non ricalcolarli a ogni punto."""
     if not members:
         return 'Punto di partenza'
-    lx, ly, lz = _limiti(members)
+    lx, ly, lz = limiti or _limiti(members)
     pianta = ' '.join(x for x in (_lato(p.Y, ly, 'davanti', 'dietro'), _lato(p.X, lx, 'a sinistra', 'a destra')) if x)
     q = _quota(p.Z, lz)
     if pianta:

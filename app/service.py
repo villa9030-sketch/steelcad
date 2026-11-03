@@ -384,8 +384,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                              'group': mem.group, **m})
         from cad_engine.structures.nomi import nome_punto
         import build123d as _bd
+        from cad_engine.structures.nomi import _limiti
+        lim = {st.id: _limiti(st.members) for st in r.structures if st.members}
         nodi = [{'id': f'{st.id}:{k}', 'structure': st.id, 'key': k, **v,
-                 'nome': nome_punto(_bd.Vector(*v['xyz']), st.members)}
+                 'nome': nome_punto(_bd.Vector(*v['xyz']), st.members, lim.get(st.id))}
                 for st in r.structures for k, v in (st.nodes or {}).items()]
         # i bordi dove si può piegare: passandoci sopra col mouse si accendono, clic = flangia lì
         data = getattr(r.body, 'sheet', None) if r.body is not None else None
@@ -3481,6 +3483,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if n > 1 and v.get('connect'):
                 sk_def['connect'] = {'profile': str(v.get('connect_profile') or v['profile']),
                                      'group': v.get('connect_group') or 'Collegamenti'}
+                if v.get('connect_points'):           # non nei punti a T della sagoma (fai_tubi)
+                    tutti = sorted({q for ab in self.doc.solved_sketch(sid).lines.values() for q in ab})
+                    sk_def['connect']['points'] = [q for q in tutti if q not in v['connect_points']]
             st = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'structure'), None)
             if st is None:
                 extra = {'esterno': True, 'angoli': {'type': 'butt', 'passa': 'verticali'}} if v.get('esterno') else {}
@@ -4000,6 +4005,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if m['id'] in info['members'] or not info['members']:
                 profilo = m.get('profile', profilo)
                 break
+        else:
+            # 03/11: negli incroci (pezzi «D1~2») e negli scheletri il tubo proposto è quello dei tubi che ci sono
+            st_r = next((x for x in self.result.structures if x.id == st_id), None)
+            usati = [m for m in (st_r.members if st_r else []) if m.id in info['members']] or (st_r.members if st_r else [])
+            if usati:
+                profilo = usati[0].profile.name.replace('×', 'x')
         angolo = self.angolo_info(st_id, key)
         return {
             'kind': 'node', 'id': node_id, 'structure': st_id, 'key': key,

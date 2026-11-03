@@ -133,6 +133,7 @@ def test_distinta_con_i_nomi_da_officina():
     k = next(iter(s.result.structures[0].incroci))
     assert sorted(x['label'] for x in s.angolo_info('ST1', k)['scelte']) == [
         'Passa intero: traverso in mezzo', 'Passa intero: traverso in mezzo, da davanti a dietro']
+    assert s.select('ST1:' + k)['selection']['default_profile'] == '30x30x2'      # tubo nuovo da lì: lo stesso
 
 
 def test_scaffale_grande_incroci_tutti_uguali_e_maglie_tenute():
@@ -183,3 +184,29 @@ def test_cambiando_le_misure_le_divisioni_si_rifanno():
     # il traverso messo a mano resta
     assert any(v.startswith('Traverso davanti, a 150 da terra') for v in nomi.values())
     assert s.undo()['ok'] and _righe(s) == prima
+
+
+def test_quadro_e_ripeti_collega_solo_gli_angoli():
+    """Il fianco 2×2 disegnato come sagoma, ripetuto a 807 e collegato: i traversi tra i due fianchi vanno negli
+    angoli, non dove il montante e il traverso di mezzo arrivano sul telaio del fianco (punti a T)."""
+    import build123d as bd
+    s = Service()
+    assert s.new_project('disegno', {'name': 'Telaio', 'piano': 'YZ'})['ok']
+    sid = next(f.id for f in s.doc.features if hasattr(f, 'entities'))
+    sk = s.doc.sketch(sid)
+    a, b, c, d = sk.point(0, 0), sk.point(725, 0), sk.point(725, 795), sk.point(0, 795)
+    sk.line(a, b), sk.line(b, c), sk.line(c, d), sk.line(d, a)
+    sk.line(sk.point(362.5, 0), sk.point(362.5, 795))          # montante in mezzo
+    sk.line(sk.point(0, 397.5), sk.point(725, 397.5))          # traverso a metà
+    s._rebuild()
+    r = s.fai_tubi(sid, {'profile': '30x30x2', 'ripeti': True, 'distanza': 807, 'collega': True})
+    assert r['ok'], r.get('message')
+    st = s.result.structures[0]
+    assert sum(1 for m in st.members if m.group == 'Collegamenti') == 4
+    b = bd.Compound([m.solid for m in st.members]).bounding_box()
+    assert [round(v, 3) for v in (b.size.X, b.size.Y, b.size.Z)] == [807, 725, 795]
+    # e poi la croce sopra col Dividi, sui collegamenti in alto
+    alto = next(m.id for m in st.members if m.group == 'Collegamenti' and m.start.Z > 700)
+    r = s.dividi('ST1', alto, 'sopra', 2, 2)
+    assert r['ok'], r.get('message')
+    assert s.result.structures[0].warnings == []

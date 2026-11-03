@@ -880,6 +880,33 @@ class StruttureMixin:
         k, q = min(cand, key=lambda kv: ((kv[1] - p).length, kv[0]))
         return {'from': k, 'offset': [round(c, 3) for c in _t(p - q)]}
 
+    def _punti_a_t(self, sid) -> set:
+        """I punti della sagoma dove una linea finisce a metà di un'altra (il montante in mezzo al fianco che arriva
+        sul tubo sopra) o le attraversa: lì «collega» non mette un traverso tra i due lati (03/11: col fianco 2×2
+        disegnato si collegavano anche il montante e il traverso di mezzo, una croce sopra non voluta)."""
+        try:
+            ss = self.doc.solved_sketch(sid)
+        except Exception:  # noqa: BLE001 - senza sagoma risolta si collega come prima
+            return set()
+        ents = self.doc.sketch(sid).entities
+        linee = [ab for lid, ab in ss.lines.items() if not ents.get(lid, {}).get('construction')]
+        out = set()
+        for lid_ab in linee:
+            for pid in lid_ab:
+                x, y = ss.points[pid]
+                for a, b in linee:
+                    if pid in (a, b):
+                        continue
+                    (xa, ya), (xb, yb) = ss.points[a], ss.points[b]
+                    dx, dy = xb - xa, yb - ya
+                    n2 = dx * dx + dy * dy
+                    if not n2:
+                        continue
+                    t = ((x - xa) * dx + (y - ya) * dy) / n2
+                    if 1e-3 < t < 1 - 1e-3 and abs((x - xa) * dy - (y - ya) * dx) / n2 ** 0.5 < 1e-2:
+                        out.add(pid)
+        return out
+
     def sagoma_nuova(self, piano: str = 'XZ') -> dict:
         """Uno sketch vuoto per disegnare una sagoma di tubi dentro il progetto: di fronte, di fianco o dall'alto."""
         if piano not in ('XY', 'XZ', 'YZ'):
@@ -911,7 +938,9 @@ class StruttureMixin:
         except SteelCADError as ex:
             return _err(ex.message, ex.code)
         prima = {f['id'] for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'structure'}
+        punti_t = self._punti_a_t(sid) if collega else set()
         r = self._structure_from_sketch(sid, sk, {
+            'connect_points': punti_t,
             'profile': v.get('profile') or '40x40x3', 'copies': 2 if ripeti else 1, 'distance': dist,
             'side': 'back' if sk.plane == 'XZ' else 'front', 'connect': collega,
             'connect_profile': v.get('collega_profile') or v.get('profile'), 'group': 'Sagoma',
