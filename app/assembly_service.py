@@ -109,12 +109,59 @@ class AssemblyMixin:
             except SteelCADError as ex:
                 self.asm_errors.append({'id': i['id'], 'message': ex.message})
         self.asm_parts = parti
+        self._nomi_dai_pezzi()
         validi = A.Assembly(self.asm.name, [i for i in self.asm.instances if i['file'] in parti],
                             [m for m in self.asm.mates if m['a']['inst'] in self._asm_ids(parti) and m['b']['inst'] in self._asm_ids(parti)],
                             self.asm.path)
         A.solve(validi, parti)
         self.asm.warnings = getattr(validi, 'warnings', [])
         self.asm_ms = (time.perf_counter() - t0) * 1000
+
+    def _nomi_dai_pezzi(self):
+        """Le copie che si chiamano ancora come il modello («Lamiera», «Lamiera (2)») prendono il nome del pezzo (03/11)."""
+        for i in self.asm.instances:
+            part = self.asm_parts.get(i['file'])
+            if part is None:
+                continue
+            m = re.match(r'^(.*?)(?: \((\d+)\))?$', str(i.get('name') or ''))
+            base, n = m.group(1), m.group(2)
+            nome = part.doc.meta.get('name') or Path(i['file']).stem
+            if A.nome_di_partenza(base) and base != nome:
+                i['name'] = f'{nome} ({n})' if n else nome
+
+    @_in_assieme
+    def asm_rinomina(self, iid: str, nome: str) -> dict:
+        """Il nome del pezzo (03/11): si scrive nel file del pezzo, così vale per tutte le sue copie, la distinta e le
+        tavole. Le copie tengono il loro numero («Staffa (2)»)."""
+        from cad_engine import project_io
+        nome = str(nome or '').strip()
+        if not nome:
+            return {'ok': False, 'message': 'Scrivi il nome del pezzo.'}
+        if re.search(r'[\\/:*?"<>|]', nome):
+            return {'ok': False, 'message': 'Nel nome non vanno i segni \\ / : * ? " < > |'}
+        try:
+            i = self.asm.instance(iid)
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message}
+        f = Path(i['file'])
+        try:
+            doc = project_io.load(f)
+            doc.meta['name'] = nome
+            project_io.save(doc, f)
+        except Exception as ex:  # noqa: BLE001
+            return {'ok': False, 'message': f'Il pezzo non si rinomina: {getattr(ex, "message", ex)}'}
+
+        def fn():
+            k = 0
+            for j in self.asm.instances:
+                if j['file'] == i['file']:
+                    k += 1
+                    j['name'] = nome if k == 1 else f'{nome} ({k})'
+            return {'select': iid}
+        r = self._asm_change(f'Nome: {nome}', fn)
+        if r.get('ok'):
+            r['message'] = f'Il pezzo si chiama «{nome}» (anche in distinta e nelle tavole). Il file resta {f.name}.'
+        return r
 
     def _asm_ids(self, parti):
         return {i['id'] for i in self.asm.instances if i['file'] in parti}
@@ -250,7 +297,7 @@ class AssemblyMixin:
                 bb0 = __import__('build123d').Shape.cast(part.shape).bounding_box()
                 dx = (max(xs) if xs else 0) + 50 - bb0.min.X
             iid = self.asm.new_id('I', {i['id'] for i in self.asm.instances})
-            nome = part.doc.meta.get('name') or p.stem
+            nome = A.nome_visibile(part.doc, p)
             n = sum(1 for i in self.asm.instances if i['file'] == str(p))
             self.asm.instances.append({'id': iid, 'file': str(p), 'name': f'{nome} ({n + 1})' if n else nome,
                                        'R': np.eye(3).tolist(), 'T': [dx, 0, 0]})
@@ -1650,7 +1697,9 @@ class AssemblyMixin:
             m = A.part_mesh(part)
             R, T = i['R'], i['T']
             mat = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
-            facce = [{**f, 'label': f'{i["name"]}: {part.doc.describe_face(f["name"]) if f["name"] else "faccia"}'} for f in m['faces']]
+            # «Piastra: la faccia di sopra» (era «Piastra: Piastra: la faccia di sopra di "Piastra"»)
+            facce = [{**f, 'label': f'{i["name"]}: ' + (re.sub(r' di "[^"]*"$', '', part.doc.describe_face(f['name'])) if f['name'] else 'faccia')}
+                     for f in m['faces']]
             # le marcature laser del pezzo: tratti come gli spigoli, si muovono con lui
             dati = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
             segni = [[c for q in sg['pezzo'] for c in q] for sg in (getattr(dati, 'marks', None) or []) if sg.get('pezzo')]

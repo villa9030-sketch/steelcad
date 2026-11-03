@@ -170,3 +170,58 @@ def test_nel_pannello_del_pezzo_il_cursore_dice_dal_bordo(assieme):
     mv = s.select('I2')['selection']['movimenti']
     assert sorted((m['nome'], round(m['valore'], 3)) for m in mv) == [('Da dietro (dal bordo)', 30), ('Da sinistra (dal bordo)', 20)]
     assert s.select('I2')['selection']['tenuto'] and not s.select('I1')['selection']['tenuto']
+
+
+# ------------------------------------------------------------------ il nome del pezzo (03/11)
+def test_nell_assieme_il_pezzo_si_chiama_come_il_file(assieme):
+    s, _ = assieme
+    nomi = {i['id']: i['name'] for i in s.asm.instances}
+    assert nomi == {'I1': 'Piastra base', 'I2': 'Staffa a L'}
+    assert [r['description'].split(',')[0] for r in s.state()['bom']] == ['Piastra base', 'Staffa a L']
+
+
+def test_assieme_vecchio_con_lamiera_prende_il_nome_del_file(assieme):
+    s, cart = assieme
+    s.asm.instances[0]['name'] = 'Lamiera'
+    assert s.save(str(cart / 'Vecchio.steelcad-asm'))['ok']
+    t = Service()
+    assert t.open(str(cart / 'Vecchio.steelcad-asm'))['ok']
+    assert t.asm.instances[0]['name'] == 'Piastra base'
+
+
+def test_rinomina_dall_assieme_vale_per_distinta_e_copie(assieme):
+    s, cart = assieme
+    assert s.asm_insert(str(cart / 'Staffa a L.steelcad'))['ok']
+    r = s.asm_rinomina('I2', 'Staffa motore')
+    assert r['ok'], r.get('message')
+    assert [i['name'] for i in s.asm.instances] == ['Piastra base', 'Staffa motore', 'Staffa motore (2)']
+    riga = next(b for b in s.state()['bom'] if 'Staffa' in b['description'])
+    assert riga['description'].startswith('Staffa motore') and riga['qty'] == 2
+    p = Service()
+    assert p.open(str(cart / 'Staffa a L.steelcad'))['ok']
+    assert p.doc.meta['name'] == 'Staffa motore'
+    assert not s.asm_rinomina('I2', 'a/b')['ok']
+
+
+def test_salva_con_nome_da_il_nome_al_pezzo(tmp_path):
+    s = Service()
+    assert s.new_project('lamiera', {'larghezza': 300, 'profondita': 200, 'spessore': 8})['ok']
+    assert s.save(str(tmp_path / 'Lamiera.steelcad'))['ok']
+    assert s.save(str(tmp_path / 'Piastra base.steelcad'))['ok']
+    assert s.doc.meta['name'] == 'Piastra base'
+    s.doc.meta['name'] = 'Il mio nome'
+    assert s.save(str(tmp_path / 'Altro.steelcad'))['ok']
+    assert s.doc.meta['name'] == 'Il mio nome'           # un nome dato a mano non si tocca
+    t = Service()
+    assert t.open(str(tmp_path / 'Lamiera.steelcad'))['ok'] and t.doc.meta['name'] == 'Lamiera'
+
+
+def test_file_vecchio_con_dentro_lamiera_si_vede_col_nome_del_file(assieme):
+    s, cart = assieme
+    from cad_engine import project_io
+    doc = project_io.load(cart / 'Piastra base.steelcad')
+    doc.meta['name'] = 'Lamiera'
+    project_io.save(doc, cart / 'Piastra vecchia.steelcad')
+    assert s.asm_insert(str(cart / 'Piastra vecchia.steelcad'))['ok']
+    assert s.asm.instances[-1]['name'] == 'Piastra vecchia'
+    assert any(b['description'].startswith('Piastra vecchia') for b in s.state()['bom'])

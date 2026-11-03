@@ -4636,6 +4636,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             p = Path(path) if path else self.path
             if p is None:
                 return {'ok': False, 'code': 'serve_percorso', 'message': 'Scegli dove salvare.'}
+            # 03/11: «Salva con nome» «Piastra base» e dentro restava «Lamiera»: il pezzo prende il nome del file, se
+            # aveva ancora quello del modello (o quello del file di prima)
+            from cad_engine.assembly import nome_di_partenza
+            vecchio = str(self.doc.meta.get('name') or '').strip()
+            nuovo = Path(str(p)).name.removesuffix('.steelcad')
+            if nuovo and nuovo.lower() != vecchio.lower() and (nome_di_partenza(vecchio) or (self.path is not None and vecchio == self.path.stem)):
+                self.doc.meta['name'] = nuovo
             self.path = project_io.save(self.doc, p)
             self.history.dirty = False
             _add_recent(self.path)
@@ -4650,6 +4657,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             self.asm = None
             self._asm_ritorno = None
             doc = project_io.recover(path) if recover else project_io.load(path)
+            from cad_engine.assembly import nome_visibile
+            doc.meta['name'] = nome_visibile(doc, Path(path))      # «Lamiera» salvata come «Piastra base»: Piastra base
             self._set(doc)
             self.path = Path(path)
             self.blank = False

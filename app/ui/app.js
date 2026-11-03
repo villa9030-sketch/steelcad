@@ -825,7 +825,7 @@ canvas.addEventListener('pointermove', ev => {
   if (h) {
     const o = objs.get(h.id);
     const f = h.face != null ? o.data.faces.find(x => x.index === h.face) : null;
-    tip.textContent = h.face != null ? `${o.data.name}: ${f?.label || 'faccia'}` : h.name;
+    tip.textContent = h.face != null ? (o.data.kind === 'instance' && f?.label ? f.label : `${o.data.name}: ${f?.label || 'faccia'}`) : h.name;
     if (sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia) tip.textContent += ' · clic ancora: la faccia';
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
@@ -1503,6 +1503,7 @@ function spostaPezzi(pose) {                        // le copie dell'assieme al 
     o.data.matrix = m;
     for (const x of [o.mesh, o.lines, ...(o.extra || [])]) { x.matrix.copy(o.pos); x.updateMatrixWorld(true); }
   }
+  if (!SK) buildDims();                              // 03/11: l'ingombro (450 → 300) segue i pezzi spostati
   if (ESPLOSO > 0) esplodi(ESPLOSO); else paint();
 }
 async function loadScene() {
@@ -1613,6 +1614,7 @@ const APERTI = new Set();
 const chiaveNodo = n => `${n.kind}:${n.ref}`;
 const contieneSketch = (n, sid) => (n.kind === 'sketch' && n.ref === sid) || n.children.some(c => contieneSketch(c, sid));
 function renderTree() {
+  if (document.activeElement?.classList?.contains('nome-albero')) return;      // mentre scrivi il nome di un pezzo
   const selIds = new Set(sel ? (sel.ids || [sel.id]) : []);
   const nodo = n => {
     if (n.vuoto && !(SK && contieneSketch(n, SK.sid))) return '';
@@ -1694,6 +1696,41 @@ async function confermaElimina(kind, ref, titolo, dip = null) {
   });
 }
 function chiudiMenuAlbero() { document.getElementById('menu-albero')?.remove(); }
+// 03/11: il nome del pezzo nell'assieme si cambia con doppio clic sulla voce (vale per le copie, la distinta, le tavole)
+const nomeSenzaCopia = t => String(t || '').replace(/\s*\(\d+\)$/, '');
+function rinominaPezzo(iid, nome) {
+  const nuovo = String(nome || '').trim();
+  if (!nuovo) return;
+  inCoda(async () => { const r = await call('asm_rinomina', iid, nuovo); if (await apply(r, r.message) && r.select) await select(r.select, null, null, true); });
+}
+// il doppio clic si conta a mano: il primo clic sceglie il pezzo e ridisegna l'elenco, e il «dblclick» del browser
+// (che vuole due clic sullo stesso elemento) non arrivava
+let clicAlbero = { ref: null, t: 0 };
+$('#tree').addEventListener('click', ev => {
+  const el = ev.target.closest('.node[data-kind="instance"]');
+  if (!el || S?.mode !== 'assembly' || ev.target.closest('input, .occhio, [data-apri]')) return;
+  const t = performance.now(), doppio = clicAlbero.ref === el.dataset.ref && t - clicAlbero.t < 450;
+  clicAlbero = { ref: el.dataset.ref, t: doppio ? 0 : t };
+  if (!doppio) return;
+  ev.stopPropagation(); ev.preventDefault();
+  setTimeout(() => { const n = document.querySelector(`#tree .node[data-kind="instance"][data-ref="${CSS.escape(clicAlbero.ref || el.dataset.ref)}"]`); if (n) iniziaRinomina(n); }, 30);
+}, true);
+function iniziaRinomina(el) {
+  if (el.querySelector('input')) return;
+  const iid = el.dataset.ref, ist = (S.instances || []).find(i => i.id === iid);
+  if (!ist) return;
+  const prima = nomeSenzaCopia(ist.name);
+  const inp = document.createElement('input');
+  inp.className = 'field nome-albero'; inp.value = prima; inp.setAttribute('aria-label', 'Nome del pezzo');
+  [...el.childNodes].filter(n => n.nodeType === 3).forEach(n => n.remove());       // il testo della voce: al suo posto il campo
+  el.querySelector('.k').after(inp);
+  inp.focus(); inp.select();
+  let fatto = false;
+  const fine = ok => { if (fatto) return; fatto = true; inp.classList.remove('nome-albero'); if (ok && inp.value.trim() && inp.value.trim() !== prima) rinominaPezzo(iid, inp.value); else renderTree(); };
+  inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') fine(true); if (e.key === 'Escape') fine(false); };
+  inp.onblur = () => fine(true);
+  inp.onclick = e => e.stopPropagation();
+}
 // 28/10: nell'assieme i pezzi si nascondono, si isolano, si fanno trasparenti (solo a video, il file non cambia):
 // per lavorare sul fondo del cassone si tolgono di mezzo le pareti
 const VIS = { nascosti: new Set(), trasparenti: new Set(), solo: null };
@@ -3479,6 +3516,7 @@ function instancePanel(s) {
     <div class="row-btns"><button class="btn primary" id="sc-go">Fai gli scassi</button></div></details>` : '';
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
       <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
+    <div class="ff" style="margin-bottom:6px"><label style="grid-column:1/-1">Nome del pezzo<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
     ${tab}${faccia}${incastri}${scassi}
     ${(s.movimenti || []).map((m, k) => {
       const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
@@ -3542,6 +3580,9 @@ function wireDove(s, fai) {
 function wireInstance(s) {
   const fai = (m, ...a) => inCoda(async () => { if (await apply(await call(m, ...a))) await refreshSel(); });
   wireDove(s, fai);
+  const nm = $('#a-nome');
+  nm.onkeydown = ev => { if (ev.key === 'Enter') nm.blur(); };
+  nm.onchange = () => { if (nm.value.trim() && nm.value.trim() !== nomeSenzaCopia(s.title)) rinominaPezzo(s.id, nm.value); };
   $('#a-move').onclick = () => fai('asm_move', s.id, $('#a-dx').value.trim(), $('#a-dy').value.trim(), $('#a-dz').value.trim());
   document.querySelectorAll('[data-rot]').forEach(b => { b.onclick = () => fai('asm_rotate', s.id, b.dataset.rot, 90); });
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });

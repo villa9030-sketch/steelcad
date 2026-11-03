@@ -102,6 +102,19 @@ class _Pezzo:
         return min(cand)[2] if cand else None
 
 
+_CACHE: dict = {}
+
+
+def _pezzo(part) -> _Pezzo:
+    """Lo stesso pezzo tra un'anteprima e l'altra (ogni scelta nel pannello rifà i conti): le facce si leggono una volta."""
+    c = _CACHE.get(id(part))
+    if c is None or c.part is not part:
+        if len(_CACHE) > 64:
+            _CACHE.clear()
+        c = _CACHE[id(part)] = _Pezzo(part)
+    return c
+
+
 def _assi_della_faccia(pa: _Pezzo, ka: int, n_loc):
     """Le due direzioni sulla faccia del pezzo fermo (nelle sue coordinate): dai lati che la bordano, se no dagli
     assi del pezzo."""
@@ -146,7 +159,7 @@ def appoggia(part_a, Ra, Ta, ka: int, part_b, Rb, Tb, kb: int, opz: dict | None 
     (kb2), le direzioni con i nomi dei lati e, per ogni direzione, le facce da accoppiare (o None)."""
     opz = opz or {}
     Ra, Ta, Rb, Tb = (np.array(x, dtype=float) for x in (Ra, Ta, Rb, Tb))
-    pa, pb = _Pezzo(part_a), _Pezzo(part_b)
+    pa, pb = _pezzo(part_a), _pezzo(part_b)
     fa, fb = pa.info(ka), pb.info(kb)
     if fa['kind'] != 'piana' or fb['kind'] != 'piana':
         raise A.AssemblyError('Appoggia vuole due facce piane: una del pezzo da mettere, una di quello fermo. '

@@ -1421,3 +1421,4 @@ body.in-prova #sk-foot { display: none !important; }
 #mini-barra.con-nomi > button:hover .lab { color: var(--ink); }
 #mini-barra.con-nomi > button.piu { font-size: 16px; }
 #mini-barra.con-nomi > button[data-t]:hover::after { display: none; }
+#tree .nome-albero { flex: 1; min-width: 0; height: 22px; padding: 1px 5px; font-size: 13px; }

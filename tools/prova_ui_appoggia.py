@@ -122,6 +122,16 @@ try:
         ok('Sposta dice dove sta: X 20 Y 90 Z 8, dai bordi 20/180/90/30', dove[:3] == ['20', '90', '8'] and dove[3:7] == ['20', '180', '90', '30'])
         pg.screenshot(path=str(out / 'ap8_sposta_dove_sta.png'))
         pg.keyboard.press('Escape'); time.sleep(0.3)
+        # il nome del pezzo: doppio clic nell'elenco, scrivo, Invio → elenco, distinta, file
+        pg.dblclick('#tree .node[data-kind="instance"][data-ref="I2"]')
+        pg.wait_for_selector('#tree input.nome-albero', timeout=5000)
+        pg.screenshot(path=str(out / 'ap9_rinomina.png'))
+        pg.fill('#tree input.nome-albero', 'Staffa motore'); pg.keyboard.press('Enter')
+        pg.wait_for_function("window.__steelcad.state.instances.some(i => i.name === 'Staffa motore')", timeout=15000)
+        time.sleep(0.5)
+        ok('rinominato: elenco e distinta «Staffa motore»', 'Staffa motore' in pg.inner_text('#tree')
+           and any(b['description'].startswith('Staffa motore') for b in pg.evaluate('window.__steelcad.state.bom')))
+        pg.screenshot(path=str(out / 'ap10_rinominato.png'))
         ok('nessun errore JavaScript', not err)
         if err:
             print(err)
