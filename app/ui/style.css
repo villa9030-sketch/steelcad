@@ -429,6 +429,9 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 /* 28/10: con «Salva» scritto la barra è più piena: il percorso del file si accorcia, il pulsante non va mai a capo */
 #doctab { min-width: 0; flex-shrink: 1; }
 #doctab #docname { display: block; }
+#doctab #docname.rinomina { cursor: text; }
+#doctab #docname.rinomina:hover .nome { text-decoration: underline dotted; text-underline-offset: 3px; }
+#doctab #doc-nome { width: 100%; min-width: 200px; text-align: center; padding: 1px 6px; }
 #b-prepara { white-space: nowrap; flex-shrink: 0; }
 #top .tbtn { flex-shrink: 0; white-space: nowrap; }
 #palette-btn { background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .18); color: #CFD6DD; max-width: 220px; }

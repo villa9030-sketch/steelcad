@@ -1716,13 +1716,65 @@ function renderTop() {
   const vuoto = !S.tree?.children?.length && !S.cutlist?.rows?.length && S.mode !== 'assembly';
   bp.hidden = vuoto;
   bp.textContent = S.mode === 'assembly' || (S.cutlist?.rows?.length && !S.sheet) ? 'Prepara per l’officina' : 'Prepara per il laser';
-  $('#docname').innerHTML = `${S.dirty ? '<span class="dirty">● </span>' : ''}${nome}` +
-    (S.path ? ` <span style="color:var(--ink-3)">— ${esc(S.path)}</span>` : ' <span style="color:var(--ink-3)">— non salvato</span>');
+  // 03/11: in alto solo il nome (il percorso intero nel suggerimento); sul pezzo un clic e lo cambi
+  const dn = $('#docname'), pezzo = S.mode !== 'assembly';
+  if (!dn.querySelector('input')) {
+    dn.innerHTML = `${S.dirty ? '<span class="dirty">● </span>' : ''}<span class="nome">${nome}</span>` +
+      (S.path ? '' : ' <span style="color:var(--ink-3)">— non salvato</span>');
+    dn.classList.toggle('rinomina', pezzo);
+    dn.title = (S.path || 'Non ancora salvato') + (pezzo ? '\nClic: cambia il nome del pezzo' : '');
+  }
   for (const [b, k, t] of [['#b-undo', 'undo', 'Annulla'], ['#b-redo', 'redo', 'Ripeti']]) {
     const l = S[k][0];
     $(b).disabled = !l;
     $(b).title = l ? `${t}: ${l} (Ctrl+${k === 'undo' ? 'Z' : 'Y'})` : `Niente da ${t.toLowerCase()}`;
   }
+}
+// il nome del pezzo in alto: clic = campo, Invio salva il nome (vale per file, distinta, tavole e DXF), Esc lascia stare
+function nomeInAlto() {
+  const dn = $('#docname');
+  if (!S || S.mode === 'assembly' || dn.querySelector('input')) return;
+  dn.innerHTML = `<input class="field" id="doc-nome" value="${esc(S.name || '')}" aria-label="Nome del pezzo" spellcheck="false">`;
+  const i = $('#doc-nome');
+  i.focus(); i.select();
+  let fatto = false;
+  const fine = ok => {
+    if (fatto) return;
+    fatto = true;
+    const v = i.value.trim();
+    dn.innerHTML = '';
+    renderTop();
+    if (ok && v && v !== S.name) inCoda(async () => { await apply(await call('rinomina_pezzo', v)); renderTree(); });
+  };
+  i.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') fine(true); if (e.key === 'Escape') fine(false); };
+  i.onblur = () => fine(true);
+}
+$('#docname').addEventListener('click', nomeInAlto);
+// 03/11: il primo «Salva» di un pezzo nuovo chiede come si chiama (col nome che ha già, pronto da riscrivere);
+// poi la finestra di Windows parte con quel nome
+function salvaPezzo(conNome) {
+  if (conNome || S.path || S.mode === 'assembly') {
+    inCoda(async () => { if (await apply(await call('save', !!conNome), 'Salvato.')) fotoAnteprima(S.path); });
+    return;
+  }
+  modal(`<h3>Salva il pezzo</h3>
+    <div class="form"><label>Come si chiama il pezzo<input class="field" id="sv-nome" value="${esc(S.name || '')}" spellcheck="false"></label></div>
+    <p class="hint">Il nome va nella distinta, nel cartiglio delle tavole e nel nome del DXF. Poi scegli la cartella.</p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Salva</button></div>`, close => {
+    const i = $('#sv-nome');
+    i.focus(); i.select();
+    $('#m-no').onclick = close;
+    $('#m-ok').onclick = () => {
+      const v = i.value.trim();
+      if (!v) { i.focus(); return; }
+      close();
+      inCoda(async () => {
+        if (v !== S.name) { const r = await call('rinomina_pezzo', v); if (!(await apply(r))) return; }
+        if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path);
+      });
+    };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
+  });
 }
 
 const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole: '◯', fillet: '◜', chamfer: '◿', sheet: '▱', flange: '⌐',
@@ -6431,7 +6483,7 @@ const CMDS = [
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
   { id: 'import_step', label: 'Apri STEP di una lamiera (fa lo sviluppo)…', run: () => stepDialog() },
-  { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) fotoAnteprima(S.path); }) },
+  { id: 'save', label: 'Salva', keys: 'Ctrl+S', run: () => salvaPezzo(false) },
   { id: 'specchiato', label: 'Crea la versione specchiata (destra / sinistra)', run: () => {
     if (!S?.sheet?.data || S?.mode === 'assembly') { toast('Lo specchio si fa su un pezzo di lamiera aperto.', 'err'); return; }
     modal(`<h3>Versione specchiata</h3><p class="hint">Il pezzo rovesciato come in uno specchio (la staffa destra dalla sinistra), con il suo sviluppo per il laser.
@@ -6441,7 +6493,7 @@ const CMDS = [
       $('#m-ok').onclick = () => { close(); inCoda(async () => { const r = await call('crea_specchiato'); if (await apply(r, r.message)) await loadScene(); }); };
     });
   } },
-  { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => inCoda(async () => { if (await apply(await call('save', true), 'Salvato.')) fotoAnteprima(S.path); }) },
+  { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => salvaPezzo(true) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(async () => apply(await call('export', 'step'))) },
   { id: 'asm_viteria', label: 'Viteria: viti, dadi, rondelle, rivetti (norme ISO)…', run: () => inCoda(viteriaDialog) },
   { id: 'export_bom', label: 'Distinta materiali in Excel (con gli acquisti)…', run: () => inCoda(async () => apply(await call('export', 'bom'))) },

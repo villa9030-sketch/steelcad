@@ -609,6 +609,9 @@ class Api:
     def asm_rinomina(self, iid, nome):
         return self._call(self._svc.asm_rinomina, iid, nome)
 
+    def rinomina_pezzo(self, nome):
+        return self._call(self._svc.rinomina_pezzo, nome)
+
     def asm_appoggia(self, mobile, fermo, opz=None, prova=False):
         return self._call(self._svc.asm_appoggia, mobile, fermo, opz, prova)
 
