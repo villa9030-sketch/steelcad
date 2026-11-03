@@ -139,14 +139,14 @@ body.sx-chiuso #left > :not(#sx-apri), body.sx-chiuso #sx-maniglia { display: no
 body.sx-chiuso #sx-apri { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 10px 0;
   border: 0; background: none; color: var(--ink-2); }
 body.sx-chiuso #sx-apri:hover { background: var(--row); color: var(--ink); }
-#sx-apri span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+#sx-apri span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .08em; }
 /* 28/10: il pannello delle proprietà si apre sopra la vista, a destra: la vista 3D non si stringe e non salta */
 #right { position: fixed; top: calc(var(--alt-top) + var(--alt-rib)); right: 0; bottom: 0; width: 310px; z-index: 6; border-left: 1px solid var(--line);
   background: var(--panel); overflow: auto; box-shadow: -10px 0 28px rgba(0, 0, 0, .22); }
 body:not(.senza-destra) #viewcube { right: 326px; }
 .panel { padding: 10px 12px 14px; border-bottom: 1px solid var(--line); }
 .panel h2 {
-  margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); text-transform: uppercase;
+  margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2);
 }
 .hint { color: var(--ink-3); font-size: 12px; margin: 8px 0 0; }
 .empty { color: var(--ink-3); margin: 4px 0; }
@@ -299,7 +299,7 @@ details.altro summary { cursor: pointer; color: var(--ink-2); }
 .xyz.xyz4 { grid-template-columns: repeat(4, 1fr); }
 .xyz input[readonly] { background: transparent; color: var(--ink-2); }
 .xyz label { display: grid; gap: 1px; font-size: 11px; color: var(--ink-3); }
-.sub { margin: 14px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.sub { margin: 14px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); }
 .btn.danger { color: var(--err); }
 .btn.danger:hover { border-color: var(--err); background: #FDF0EF; }
 .through { display: grid; gap: 3px; margin-top: 4px; }
@@ -380,7 +380,7 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 /* --- lamiera --- */
 .sheet-cols { display: grid; grid-template-columns: 260px minmax(0, 2fr) minmax(0, 1fr); gap: 16px; padding-top: 8px; }
 .sheet-cols > div { min-width: 0; overflow-x: auto; }
-.sheet-cols h4 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.sheet-cols h4 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); }
 .tech { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; align-items: center; }
 .tech label { color: var(--ink-2); font-size: 12px; }
 .tech .missing { border-color: var(--err); background: #FDF0EF; }
@@ -500,7 +500,7 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
   font: 13px var(--font); box-shadow: 0 4px 12px rgba(0, 0, 0, .4); white-space: nowrap; }
 #man-quota s { opacity: .55; margin-right: 2px; }
 /* 28/10: i modelli pronti sulla pagina iniziale */
-.home-modelli h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.home-modelli h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; color: var(--ink-3); }
 .home-modelli-griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .home-mod { display: grid; gap: 2px; padding: 0 0 8px; text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
   overflow: hidden; transition: border-color .15s, transform .15s; }
@@ -518,7 +518,7 @@ body.sketching #views button:not([data-cmd="fit"]) { display: none; }
 .campo-mod .inp { display: flex; align-items: center; gap: 4px; }
 .campo-mod .inp i { font-style: normal; color: var(--ink-3); }
 .mod-piega { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
-.mod-piega b { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+.mod-piega b { font-size: 12px; letter-spacing: .05em; color: var(--ink-3); }
 /* 28/10: l'errore che spiega */
 #err-card { position: fixed; z-index: 85; left: 50%; bottom: 70px; transform: translateX(-50%); width: min(460px, 92vw); padding: 14px 16px 14px 18px;
   border-radius: 10px; border: 1px solid #6B2D31; border-left: 4px solid #E5484D; background: #2A1E21; color: #F3DADB;
@@ -608,7 +608,7 @@ body.una-scheda .rtabs { display: none; }
 .rgroup { display: flex; flex-direction: column; border-right: 1px solid var(--line); padding: 0 8px; }
 .rgroup:last-child { border-right: 0; }
 .rbtns { display: flex; gap: 2px; flex: 1; align-items: flex-start; }
-.rname { font: 600 10.5px/1 var(--font); letter-spacing: .05em; color: var(--ink-3); text-transform: uppercase;
+.rname { font: 600 10.5px/1 var(--font); letter-spacing: .05em; color: var(--ink-3);
   text-align: center; padding: 3px 0 5px; }
 .rb { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 66px; background: none; border: 1px solid transparent;
   border-radius: 5px; padding: 4px 2px 3px; font: 11px/1.15 var(--font); color: var(--ink); }
@@ -860,7 +860,7 @@ body.dark .ibtn img { filter: none; }
 .seg button:hover { background: var(--hov-bg); color: var(--ink); }
 .seg button.on { background: var(--action); color: #fff; }
 .fsec { border-top: 1px solid var(--line); padding: 8px 0 2px; margin-top: 10px; }
-.fsec summary { cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); padding: 2px 0 6px; list-style: none; }
+.fsec summary { cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); padding: 2px 0 6px; list-style: none; }
 .fsec summary::-webkit-details-marker { display: none; }
 .fsec summary::before { content: '▸'; display: inline-block; width: 14px; transition: transform .12s; }
 .fsec[open] summary::before { transform: rotate(90deg); }
@@ -1004,7 +1004,7 @@ details.bump summary { cursor: pointer; margin: 10px 0 4px; font-size: 12px; col
 .cosa .indietro { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .cosa .indietro button { width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; }
 .cosa .cerca { width: 100%; margin-bottom: 10px; font-size: 14px; padding: 8px 10px; }
-.cosa .gr { font-size: 11px; letter-spacing: .06em; color: var(--ink-3); margin: 12px 0 6px; text-transform: uppercase; }
+.cosa .gr { font-size: 11px; letter-spacing: .06em; color: var(--ink-3); margin: 12px 0 6px; }
 .cosa .voce { display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 6px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--surface); }
 .cosa .voce:hover { border-color: var(--hover); background: var(--hov-bg); }
@@ -1985,3 +1985,16 @@ body.una-scheda { --alt-rib: 106px; }
 .rb.rb-s { height: 21px; }
 .rbody { padding-top: 4px; }
 .rname { padding: 3px 0 4px; }
+/* il nome del documento: «modificato» come etichetta quieta dopo il nome (il pallino colorato è già quello di modalità).
+   Niente flex dentro #docname: le prove leggono il suo testo intero su una riga */
+#doctab #docname .dirty { display: none; }
+#doctab:has(.dirty)::after { content: 'modificato'; flex: none; padding: 1px 7px; border-radius: 9px; background: var(--c-warn-tenue); color: var(--c-warn-testo);
+  font: 600 var(--fs-piccolo)/1.4 var(--font); }
+/* più spazio alla vista (il pezzo al centro): barra in alto 44, colonne di pulsanti piccoli da 20, casella del comando bassa */
+:root, body { --alt-top: 44px; }
+body { --alt-rib: 126px; }
+body.una-scheda { --alt-rib: 100px; }
+.rb.rb-s { height: 20px; }
+.rname { padding: 2px 0 3px; }
+#sk-cmd { padding: 3px 6px 3px 12px; }
+#sk-cmd-in { min-height: 26px; padding: 2px 8px; }
