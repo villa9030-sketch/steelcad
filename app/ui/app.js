@@ -851,7 +851,7 @@ canvas.addEventListener('pointermove', ev => {
     // il cartellino di un tubo: il nome da officina in grassetto, sotto tubo e lunghezza (notte 03/11)
     const parti = h.face == null && o.data.kind === 'member' ? String(h.name || '').split(' — ') : [];
     tip.classList.toggle('t-cartellino', parti.length > 1);
-    if (parti.length > 1) tip.innerHTML = `<b>${esc(parti[0])}</b><span>${esc(parti.slice(1).join(', '))} mm</span>`;
+    if (parti.length > 1) tip.innerHTML = `<b>${esc(parti[0])}</b><span>${esc(parti.slice(1).join(' ').replace(' · ', ', lungo '))} mm</span>`;
     if (sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia) tip.textContent += ' · clic ancora: la faccia';
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
@@ -1691,11 +1691,11 @@ function buildFrecce() {
   for (const { el } of frecceEls) el.remove();
   frecceEls = [];
   const n = sel && nodes.find(x => x.id === sel.id);
-  if (!n || SK) return;
+  if (!n || SK || linkFrom) return;            // mentre scegli l'angolo da unire le frecce non servono
   for (const [dir, testo, v] of FRECCE) {
     const el = document.createElement('button');
     el.className = 'freccia-3d';
-    el.innerHTML = `<svg class="t-punta" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2.5L10.5 6L2 9.5L4 6Z"/></svg>${testo}`;
+    el.innerHTML = `<svg class="t-punta" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7H11.5M8 3.5L11.5 7 8 10.5"/></svg>${testo}`;
     el.title = `Tubo nuovo verso ${testo.toLowerCase()}`;
     el.addEventListener('click', ev => { ev.stopPropagation(); tuboDaFreccia(n, dir); });
     nodesBox.appendChild(el);
@@ -2285,6 +2285,7 @@ async function select(id, face = null, ids = null, silenzioso = false, nomeNoto 
 }
 function clearSelection() {
   nascondiMini(); togliManiglie(); MINI.faccia = false; MINI.s = null; puntoVia();
+  if (!TRAV && !DIVSCEGLI) passoTubi(null);
   selTok++; selGen++;
   togliAnteprimaForo();
   if ($('#modal').hidden) anteprimaVia();
@@ -2759,9 +2760,9 @@ function miniTubo(s, daClic) {
     ...(tb.facce?.length ? [['pattern_rect', 'Dividi', poi(() => inCoda(() => iniziaDividi({ id })))]] : []),
     ['line', 'Tubo nuovo da qui', poi(() => $('#p-punto')?.click())],
     ...(s.lavorabile ? [['hole', 'Fori qui', poi(() => $('#p-lav')?.click())]] : []),
-  ].slice(0, 5), { chi: 'tubo:' + id, scritte: true });
+  ].slice(0, 5), { chi: 'tubo:' + id, scritte: true, piu: apriPannelloTubi });   // «⋯»: il pannello intero, la barretta va via (direbbe le stesse cose)
   const m = document.getElementById('mini-barra');
-  if (m) { if (tb.verticale) m.classList.add('lato'); else m.dataset.giu = '58'; placeBarra(); }
+  if (m) { if (tb.verticale) m.classList.add('lato'); else m.dataset.giu = '72'; placeBarra(); }
 }
 // la flangia: lunghezza, angolo e verso sono quote sul pezzo; la lunghezza si scrive o si tira
 function miniFlangia(s, lavora) {
@@ -3011,6 +3012,7 @@ function maniglieFlangia(s) {
 }
 async function renderProps(s) {
   if (s.kind !== 'flange') togliManiglie();
+  if (!TRAV && !DIVSCEGLI && !PUNTO) passoTubi(null);          // la barra dei tubi di prima (capo libero, Dividi…)
   latoAcceso(null);
   miniBarra(s);
   togliAnteprimaForo();
@@ -6027,12 +6029,17 @@ function pannelloStruttura(s) {
     ${tAzione('data-azione="fori"', 'hole', 'Fori sui tubi', 'Clicca la faccia del tubo e disegna')}
     ${tAzione('data-cmd="prepara"', 'export', 'Prepara per l’officina', 'Lista di taglio dei tubi, tavola quotata')}</div></section>`;
   if (t) {
-    h += `<section class="sezione"><h4>Misure e tubi del ${esc(tMinuscola(t.title))}</h4>
-      <div class="form st-tpl">${t.fields.map(([k, l, v, scelte]) => scelte
-        ? `<label class="lbl">${esc(l)}<select class="field" data-tf="${esc(k)}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
-        : `<label class="lbl">${esc(l)}<input class="field" data-tf="${esc(k)}" list="dl-prof" value="${esc(String(v ?? '').replace('.', ','))}"></label>`).join('')}</div>
+    // le misure (in mm, o quanti ripiani) e i tubi in due sezioni: prima quanto è grande, poi con cosa è fatto
+    const numero = v => /^-?\d+([.,]\d+)?$/.test(String(v ?? '').trim());
+    const campo = ([k, l, v, scelte]) => scelte
+      ? `<label class="lbl">${esc(l)}<select class="field" data-tf="${esc(k)}">${Object.entries(scelte).map(([a, b]) => `<option value="${a}"${a === v ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
+      : numero(v) ? `<label class="lbl">${esc(l)}<span class="campo-unita"><input class="field" data-tf="${esc(k)}" value="${esc(String(v ?? '').replace('.', ','))}">${/ripian|livell/i.test(k) ? '' : '<i>mm</i>'}</span></label>`
+      : `<label class="lbl">${esc(l)}<input class="field" data-tf="${esc(k)}" list="dl-prof" value="${esc(String(v ?? ''))}" spellcheck="false"></label>`;
+    const misure = t.fields.filter(f => f[3] || numero(f[2])), tubi = t.fields.filter(f => !f[3] && !numero(f[2]));
+    h += `<section class="sezione"><h4>Misure</h4><div class="form st-tpl">${misure.map(campo).join('')}</div></section>
+      ${tubi.length ? `<section class="sezione"><h4>Tubi</h4><div class="form st-tpl">${tubi.map(campo).join('')}</div></section>` : ''}
       <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-      <p class="hint">Cambia e premi «Applica le misure»: la struttura si rifà. I tubi ritoccati a mano restano.</p></section>`;
+      <p class="hint t-nota">Cambia e premi «Applica le misure»: la struttura si rifà. I tubi ritoccati a mano restano.</p>`;
   } else h += `<p class="hint">Struttura disegnata: le misure si cambiano dal disegno (clic sul disegno nell’albero), il tubo cliccando i tubi.</p>`;
   const det = c ? [['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]] : [];
   for (const r of s.rows || []) if (!(c && r[0] === 'Peso')) det.push(r);
@@ -6079,7 +6086,7 @@ function pannelloTubo(s, quanti) {
     <details class="fsec"><summary>Dettagli</summary>${tRighe(s.rows.filter(r => r[0] === 'Tubo' || r[0] === 'Peso'))}
       ${s.esterno ? '' : `<label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
       <div class="t-in-riga"><select class="field" id="p-anc">${anc}</select><button class="btn" id="p-flip">Inverti</button></div>`}</details>
-    <div class="t-piede"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div></div>`;
+    <div class="t-piede t-libero"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div></div>`;
   const tutti = () => $('#p-all')?.checked ?? false;
   const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
   $('#p-apply').onclick = () => edit({ profile: $('#p-prof').value.trim() });
@@ -6193,6 +6200,8 @@ function nodePanel(s) {
   return h + '</div>';
 }
 function wireNode(s) {
+  // un capo libero (da zero, o la punta di una mensola): la barra in basso dice come si continua
+  if ((s.angolo?.quanti ?? (s.angolo?.righe?.length || 0)) <= 1) passoTubi('Scrivi la lunghezza a destra, poi clicca una freccia: il tubo parte da qui', [['Esc', 'finisci']]);
   document.querySelectorAll('[data-angolo]').forEach(b => {
     b.onclick = () => inCoda(async () => {
       if (await apply(await call('set_angolo', s.structure, s.key, b.dataset.angolo, !!$('#n-tutti')?.checked))) await refreshSel();
@@ -6208,7 +6217,7 @@ function wireNode(s) {
   $('#n-link').onclick = () => {
     ricordaTubo();
     linkFrom = { st: s.structure, key: s.key, profile: ultimaAsta.profile, group: '' };
-    paintNodes();                               // la barra in basso dice cosa fare (Esc annulla)
+    passoTubi(null); paintNodes();              // la barra in basso dice cosa fare (Esc annulla)
   };
 }
 // --------------------------------------------------------------- distinta, cut list, info

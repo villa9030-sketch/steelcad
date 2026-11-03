@@ -76,7 +76,9 @@ def crea_server(api, porta: int) -> ThreadingHTTPServer:
             self.end_headers()
             self.wfile.write(body)
 
-    return ThreadingHTTPServer(('127.0.0.1', porta), H)
+    class Srv(ThreadingHTTPServer):
+        request_queue_size = 64        # notte 03/11: con 5 (il valore di base) un pannello con 8 icone nuove trovava la porta chiusa
+    return Srv(('127.0.0.1', porta), H)
 
 
 def main():

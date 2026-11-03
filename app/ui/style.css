@@ -2066,8 +2066,10 @@ body.dark { --t-tubo-passa: #8A96A3; --t-tubo-taglio: #56616D; --t-tubo-filo: #E
 .t-punto { display: grid; gap: 6px; margin: 2px var(--s-2) var(--s-2) 44px; }
 .t-punto .hint { margin: 0; }
 /* i disegnini: come si saldano, come sta il profilo */
-.t-pan .angoli { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: var(--s-2); }
-.t-pan .angolo { gap: 6px; padding: var(--s-2) 6px; border: 1px solid var(--c-linea); background: var(--c-pannello); color: var(--c-testo);
+.t-pan .angoli { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
+.t-pan .angolo svg { width: 46px; height: 46px; }
+.t-piede.t-libero { position: static; margin: var(--s-2) 0 0; padding: var(--s-3) 0 0; }
+.t-pan .angolo { justify-content: flex-start; gap: 4px; padding: 6px 4px; border: 1px solid var(--c-linea); background: var(--c-pannello); color: var(--c-testo);
   font: 500 var(--fs-piccolo)/1.3 var(--font); transition: border-color var(--t-veloce), background var(--t-veloce); }
 .t-pan .angolo:hover { border-color: var(--c-blu-linea); background: var(--c-sopra); }
 .t-pan .angolo.on { border: 1px solid var(--c-blu); background: var(--c-blu-tenue); box-shadow: inset 0 0 0 1px var(--c-blu); font-weight: 600; }
@@ -2081,12 +2083,12 @@ body.dark { --t-tubo-passa: #8A96A3; --t-tubo-taglio: #56616D; --t-tubo-filo: #E
 .t-pan .dirs .btn { gap: 6px; padding: 0 6px; }
 .t-verso { flex: none; fill: none; stroke: var(--modo-tubi); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* nel 3D: le frecce intorno all'angolo, con la punta arancio che guarda dove va il tubo */
-.freccia-3d { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px 0 8px; border-radius: 14px;
+.freccia-3d { z-index: 9; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px 0 8px; border-radius: 14px;
   border: 1px solid var(--c-linea); background: var(--c-pannello); color: var(--c-testo); font: 600 var(--fs-etichetta)/1 var(--font);
   box-shadow: var(--ombra-galleggia); transition: background var(--t-veloce), color var(--t-veloce); }
-.freccia-3d .t-punta { flex: none; fill: var(--modo-tubi); transform: rotate(var(--ang, 0rad)); }
+.freccia-3d .t-punta { flex: none; fill: none; stroke: var(--modo-tubi); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transform: rotate(var(--ang, 0rad)); }
 .freccia-3d:hover { background: var(--modo-tubi); border-color: var(--modo-tubi); color: #fff; }
-.freccia-3d:hover .t-punta { fill: #fff; }
+.freccia-3d:hover .t-punta { stroke: #fff; }
 /* i pallini degli angoli: bianchi; quello scelto giallo, con l'alone */
 .node-dot.sel, body.dark .node-dot.sel { border-color: #8A5A00; background: var(--c-sel); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-sel) 35%, transparent); }
 .node-dot.target { border-color: var(--c-blu); background: var(--c-blu-tenue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-blu) 22%, transparent); }
@@ -2115,3 +2117,4 @@ svg.forma-pezzo { flex: none; }
 svg.forma-pezzo polygon { fill: var(--t-tubo-passa); stroke: var(--t-tubo-filo); stroke-width: 1; stroke-linejoin: round; }
 .t-sotto { margin: var(--s-4) 0 var(--s-1); font: 600 var(--fs-etichetta)/1.3 var(--font); color: var(--c-testo-2); }
 .t-compra { margin-left: 6px; padding: 1px 7px; border-radius: 9px; background: var(--c-incavo); color: var(--c-testo-2); font-size: var(--fs-piccolo); font-weight: 600; }
+.t-pan .t-nota { margin: 0 0 var(--s-3); }
