@@ -56,10 +56,10 @@ try:
         comando(pg, '#ribbon [data-cmd="asm_viteria"]'); pg.wait_for_selector('#vt-t')
         ok('la finestra propone «nel foro che hai cliccato»', pg.is_visible('#vt-f') and pg.is_checked('#vt-f'))
         pg.select_option('#vt-t', 'vite_tcei'); pg.select_option('#vt-m', 'M6'); pg.select_option('#vt-l', '20')
-        pg.click('#m-ok')
+        pg.click('#vt-ok')          # 04/11: la viteria è nel pannello a destra, non più in una finestra
         pg.wait_for_function("JSON.stringify(window.__steelcad.state.tree).includes('TCEI M6x20')", timeout=30000); time.sleep(1)
         st = pg.evaluate('window.__steelcad.state')
-        ok('vite TCEI M6x20 nell’assieme, accoppiata al foro', 'foro su foro' in str(st['tree']) and not st['warnings'])
+        ok('vite TCEI M6x20 nell’assieme, accoppiata al foro', 'in asse con' in str(st['tree']) and not st['warnings'])
         ok('in distinta tra gli acquisti', any(x.get('acquisto') for x in st['bom']))
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8); pg.mouse.move(5, 895)
         pg.screenshot(path=str(SHOTS / '1_vite_nel_foro.png'))

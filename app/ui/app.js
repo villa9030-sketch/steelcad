@@ -318,6 +318,9 @@ function buildScene(sc) {
   const cartellino = document.getElementById('hover-tip');
   if (cartellino) { cartellino.style.display = 'none'; cartellino.textContent = ''; }
   interfPulisci();                                 // le interferenze di prima non valgono più
+  if (ESPLOSO && !sc.objects.some(d => d.kind === 'instance')) {   // fuori dall'assieme: niente esploso né il suo pannello
+    ESPLOSO = 0; esplosoPannello(false); document.querySelector('#ribbon [data-cmd="asm_esploso"]')?.classList.remove('on');
+  }
   if (saldGroup) model.add(saldGroup);             // le saldature restano sul pezzo
   for (const d of sc.objects) {
     if (d.kind === 'context') {
@@ -413,6 +416,23 @@ function pianoEsploso(ist) {
   }
   pianoEspl = { chiave, spost: radiale.map((r, i) => r.add(strato[i])) };
   return pianoEspl;
+}
+// 04/11: aperta la vista esplosa, a destra quanto aprirla e «Chiudi l'esploso»
+function esplosoPannello(on) {
+  document.getElementById('esploso-pan')?.remove();
+  if (!on) return;
+  clearSelection();
+  const el = document.createElement('div');
+  el.id = 'esploso-pan'; el.className = 'pannello-cmd';
+  el.innerHTML = `<div class="pc-testa"><h3>Vista esplosa</h3><p>I pezzi si allontanano dal centro per vedere come si montano. Solo a video: l’assieme non cambia</p></div>
+    <div class="pc-corpo"><section class="sezione"><h4>Quanto aprire</h4>
+      <input type="range" class="cursore" id="esp-quanto" min="0.1" max="2" step="0.05" value="0.8" aria-label="Quanto aprire">
+      <div class="riga"><span>Poco</span><span class="testo-2">Tanto</span></div>
+      <p class="hint">Nelle tavole c’è il foglio dell’esploso con l’ordine di montaggio (Esporta, Tavole PDF).</p></section></div>
+    <div class="pc-fondo"><button class="btn primary big" id="esp-chiudi">Chiudi l’esploso</button></div>`;
+  document.body.appendChild(el);
+  $('#esp-quanto').oninput = ev => esplodi(+ev.target.value);
+  $('#esp-chiudi').onclick = () => runCmd('asm_esploso');
 }
 function esplodi(f) {
   ESPLOSO = f;
@@ -1931,7 +1951,10 @@ function renderTree() {
     const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '', n.status === 'disattivata' ? 'spenta' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
       ids && ids.length && ids.every(i => selIds.has(i)) && n.kind !== 'structure' && !(n.kind !== 'part' && ids[0] === 'body') ? 'sel' : ''];
-    const st = n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
+    // 04/11: «fisso» (il pezzo fermo dell'assieme) è un'informazione, non un allarme: grigio col lucchetto
+    const st = n.status === 'fisso' ? `<span class="st fisso" title="Il pezzo fermo: gli altri si appoggiano a lui"><img src="icons/c_fix.svg" alt="">fisso</span>`
+      : n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
+    const conta = S.mode === 'assembly' && n.kind === 'group' && n.children.length ? `<span class="n-conta">${n.children.length}</span>` : '';
     const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
     let figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
     let freccia = '';
@@ -1949,7 +1972,7 @@ function renderTree() {
       occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
     }
     const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${st}${occhio}${freccia}</div>${figli}</li>`;
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span>${freccia ? `<span class="lb">${esc(n.label)}</span>` : esc(n.label)}${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
   };
   // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
   let albero = S.tree;
@@ -2544,6 +2567,8 @@ function placeBarra() {
       if (!l) { l = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); l.id = 'sc-linea'; document.body.appendChild(l); }
       const ax = destra ? x : x + w, ay = Math.max(y + 20, Math.min(q[1], y + 60));
       l.innerHTML = `<path d="M${q[0]} ${q[1]}L${ax + (destra ? -24 : 24)} ${ay}H${ax}"/>`;
+    } else if (q && m._evita && mettiAccanto(m, m._evita(), r)) {
+      // (assieme) sotto, sopra o di lato al pezzo: non sopra
     } else if (q) {
       const w = m.offsetWidth, h = m.offsetHeight;
       const x = Math.max(r.left + 8, Math.min(q[0] - w / 2, r.right - w - 8));
@@ -2569,6 +2594,26 @@ function placeBarra() {
     SCELTE.el.style.left = (b.left + b.width / 2) + 'px'; SCELTE.el.style.top = (b.bottom + 6) + 'px';
   }
 }
+// 04/11: la barretta accanto al riquadro del pezzo, mai sopra: sotto (col nome sopra di lei), se no sopra, se no a
+// destra o a sinistra. Se il pezzo riempie la vista: in basso nella vista, sopra la barrina Inquadra/Quote
+function mettiAccanto(m, p, r) {
+  if (!p) return false;
+  const w = m.offsetWidth, h = m.offsetHeight, nome = 30, g = 10;
+  const a = { left: Math.max(p.left, r.left), right: Math.min(p.right, r.right), top: Math.max(p.top, r.top), bottom: Math.min(p.bottom, r.bottom) };
+  const cx = Math.max(r.left + 8, Math.min((a.left + a.right) / 2 - w / 2, r.right - w - 8));
+  const cy = Math.max(r.top + nome + 8, Math.min((a.top + a.bottom) / 2 - h / 2, r.bottom - h - 8));
+  const prove = [
+    [cx, a.bottom + g + nome, () => a.bottom + g + nome + h <= r.bottom - 8],
+    [cx, a.top - g - h, () => a.top - g - h - nome >= r.top + 8],
+    [a.right + g, cy, () => a.right + g + w <= r.right - 8],
+    [a.left - g - w, cy, () => a.left - g - w >= r.left + 8],
+  ];
+  let [x, y] = [cx, r.bottom - h - 64];
+  const buona = prove.find(t => t[2]());
+  if (buona) [x, y] = buona;
+  m.style.left = x + 'px'; m.style.top = y + 'px';
+  return true;
+}
 // la barretta. voci: [icona, suggerimento, fai, classe, anteprima(on)]; '|' = separatore. opz.chi: chi è (stessa
 // cosa = niente animazione), opz.piu: cosa fa «⋯» (di solito il pannello completo), opz.piu === false: niente «⋯»
 function barretta(nome, voci, opz = {}) {
@@ -2584,6 +2629,7 @@ function barretta(nome, voci, opz = {}) {
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
     : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t)}</span>` : scritta(t)}</button>`).join('')
     + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
+  if (opz.evita) m._evita = opz.evita;
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
     const v = voci[+b.dataset.i];
@@ -2695,6 +2741,43 @@ function ancoraDi(s) {
   const o = objs.get(sel?.id);
   return o ? new THREE.Box3().setFromObject(o.mesh).getCenter(new THREE.Vector3()) : null;
 }
+// le azioni sul pezzo dell'assieme, le più usate prima: la barretta mostra le prime 5, il pannello tutte.
+// ic, t (il nome; tra parentesi il di più per il suggerimento), fai, cls ('mov' = la misura che lo tiene)
+function azioniPezzo(s) {
+  const id = s.id, faccia = sel?.id === id && sel?.face != null ? sel.face : null;
+  const piana = faccia != null && s.face?.kind === 'piana', foro = faccia != null && /cilindr/.test(s.face?.kind || '');
+  return [
+    // 03/11: il pezzo tenuto da una distanza o da un angolo (il cassetto): la misura sulla barretta, un clic e la
+    // scrivi o tiri il cursore nel pannello
+    ...(s.movimenti || []).slice(0, 1).map((mv, k) => ({ ic: 'dimension', cls: 'mov',
+      t: `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
+      fai: () => { tutteLeOpzioni(); setTimeout(() => { const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 60); } })),
+    { ic: 'open', t: 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
+    { ic: 'joint', t: piana ? 'Appoggia (da questa faccia)' : 'Appoggia', fai: () => appoggiaDa(id, piana ? faccia : null) },
+    ...(foro ? [{ ic: 'fastener', t: 'Viti nei fori', fai: () => runCmd('asm_viteria') }] : []),
+    { ic: 'move', t: 'Sposta', fai: () => spostaDa() },
+    ...(piana ? [{ ic: 'sketch', t: 'Pezzo nuovo qui (su questa faccia)', fai: () => nuovoPezzoDialog(s) }] : []),
+    ...(s.scassi ? [{ ic: 'cut', t: `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, fai: () => tutteLeOpzioni() }] : []),
+    { ic: 'pattern_rect', t: 'In fila', fai: () => ripetiApri(id) },
+    ...(foro ? [] : [{ ic: 'fastener', t: 'Viteria', fai: () => runCmd('asm_viteria') }]),
+    { ic: 'eye', t: 'Nascondi', fai: () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); } },
+    { ic: 'select', t: 'Solo questo', fai: () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); } },
+  ];
+}
+// dove sta il pezzo sullo schermo (il riquadro dei suoi 8 spigoli), per non metterci sopra la barretta
+function rettangoloPezzo(id) {
+  const o = objs.get(id);
+  if (!o) return null;
+  const b = new THREE.Box3().setFromObject(o.mesh);
+  if (b.isEmpty()) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
+    const q = aSchermo(new THREE.Vector3(x, y, z));
+    if (!q) return null;
+    x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]);
+  }
+  return { left: x0, top: y0, right: x1, bottom: y1 };
+}
 function miniBarra(s) {
   if (SK || DRESS || MIS) { if (!(sel?.soloMini)) nascondiMini(); return; }
   const d = MINI.dove;
@@ -2709,21 +2792,10 @@ function miniBarra(s) {
   togliQuote();
   sel.soloMini = !sel.pannello; aggiornaLayout();      // il pannello a destra solo se l'hai chiesto con «⋯»
   if (assieme) {
+    // 04/11 (regola 3): al massimo 5 azioni col nome, le altre in «Altro» (il pannello a destra le ha tutte, con il
+    // nome). La barretta si mette sotto il pezzo (o sopra, o di lato): prima copriva proprio il pezzo appena cliccato
     const id = sel?.id;
-    const faccia = sel?.face != null ? sel.face : null, piana = faccia != null && s.face?.kind === 'piana';
-    barretta(s.title, [['open', 'Apri il pezzo', () => apriPezzoAssieme(id)],
-      ['joint', piana ? 'Appoggia (da questa faccia)' : 'Appoggia', () => appoggiaDa(id, piana ? faccia : null)],
-      ['move', 'Sposta', () => spostaDa()],
-      ['pattern_rect', 'In fila', () => ripetiApri(id)],
-      // 03/11: il pezzo tenuto da una distanza o da un angolo (il cassetto): la misura sulla barretta, un clic e la
-      // scrivi o tiri il cursore. Prima stava solo nel pannello, che col clic sul pezzo non si apre più
-      ...(s.movimenti || []).map((mv, k) => ['dimension', `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
-        () => { tutteLeOpzioni(); const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 'mov']),
-      ...(piana ? [['sketch', 'Pezzo nuovo qui (su questa faccia)', () => nuovoPezzoDialog(s)]] : []),
-      ['fastener', faccia != null && /cilindr/.test(s.face?.kind || '') ? 'Viti nei fori' : 'Viteria', () => runCmd('asm_viteria')],
-      ['eye', 'Nascondi', () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); }],
-      ['select', 'Solo questo', () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); }],
-      ...(s.scassi ? [['cut', `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, () => tutteLeOpzioni()]] : [])], { chi: 'i:' + id, nomi: true });
+    barretta(s.title, azioniPezzo(s).slice(0, 5).map(a => [a.ic, a.t, a.fai, a.cls]), { chi: 'i:' + id, nomi: true, evita: () => rettangoloPezzo(id) });
     return;
   }
   if (s.foro) { miniForo(s); return; }
@@ -3062,11 +3134,16 @@ async function renderProps(s) {
     wireInstance(s);
     return;
   } else if (s.kind === 'assembly') {
-    $('#props').innerHTML = `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">tutto l’assieme</div></div></div>
-      <table class="grid">${s.rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>
-      <div class="sub">Ruota tutto l’assieme di 90°</div>
-      <div class="row-btns"><button class="btn" data-rotall="x">attorno a X</button><button class="btn" data-rotall="y">attorno a Y</button><button class="btn" data-rotall="z">attorno a Z</button></div>
-      <p class="hint">Gira tutti i pezzi insieme: gli accoppiamenti restano come sono. Per guardarlo da un altro lato invece trascina col tasto sinistro.</p>`;
+    // 04/11 (regola 2): l'assieme intero, come il pannello del pezzo: cos'è, cosa puoi fare, ruota tutto, dettagli
+    const riga = k => s.rows.find(r => r[0] === k)?.[1] || '0';
+    const cmd = [['asm_insert', 'box', 'Inserisci pezzo'], ['asm_interf', 'section', 'Interferenze'], ['asm_esploso', 'explode', 'Vista esplosa'], ['drawings', 'export', 'Tavole PDF']];
+    $('#props').innerHTML = `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">L’assieme intero: ${esc(riga('Pezzi'))} pezzi, ${esc(riga('Accoppiamenti'))} accoppiamenti</div></div></div>
+      <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">${cmd.map(([c, ic, t]) => `<button class="btn" data-asm-cmd="${c}"><img src="icons/${ic}.svg" alt=""><span>${t}</span></button>`).join('')}</div></section>
+      <section class="sezione"><h4>Ruota tutto di 90°</h4>
+      <div class="seg asm-ruota"><button data-rotall="x">attorno a X</button><button data-rotall="y">attorno a Y</button><button data-rotall="z">attorno a Z</button></div>
+      <p class="hint">Gira tutti i pezzi insieme: gli accoppiamenti restano come sono. Per guardarlo da un altro lato invece trascina col tasto sinistro.</p></section>
+      <details class="fsec"><summary>Dettagli</summary><table class="grid">${s.rows.map(r => `<tr><td>${esc(r[0])}</td><td class="num">${esc(r[1])}</td></tr>`).join('')}</table></details></div>`;
+    document.querySelectorAll('[data-asm-cmd]').forEach(b => { b.onclick = () => runCmd(b.dataset.asmCmd); });
     document.querySelectorAll('[data-rotall]').forEach(b => {
       b.onclick = () => inCoda(async () => { if (await apply(await call('asm_rotate_all', b.dataset.rotall, 90))) await refreshSel(); });
     });
@@ -4144,7 +4221,7 @@ const MATE_UI = {
   tangente: { nome: 'Tangente', clic: ['la faccia (o il tubo) del pezzo che sta fermo', 'il tubo (o la faccia) dell’altro pezzo'], val: 0 },
   parallelo: { nome: 'Parallele', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
   perpendicolare: { nome: 'Perpendicolari', clic: ['una faccia (o un tubo) del pezzo che sta fermo', 'una faccia (o un tubo) dell’altro pezzo'], val: 0 },
-  centra: { nome: 'In mezzo', clic: ['un lato del pezzo che sta fermo (es. un’ala dell’U)', 'il lato opposto dello stesso pezzo', 'una faccia del pezzo da centrare', 'la sua faccia opposta'], val: 0 },
+  centra: { nome: 'In mezzo', clic: ['un lato del pezzo che sta fermo', 'il lato di fronte, sullo stesso pezzo', 'un lato del pezzo da mettere in mezzo', 'il suo lato di fronte'], val: 0 },
   blocca: { nome: 'Blocca', clic: ['il pezzo che sta fermo', 'il pezzo da bloccare'], val: 0 },
   spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
   spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
@@ -4155,7 +4232,9 @@ const MATE_UI = {
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
   const su = t => t.replace(/^la /, 'sulla ').replace(/^il /, 'sul ').replace(/^lo /, 'sullo ').replace(/^l’/, 'sull’').replace(/^(?!sul)/, 'su ');
-  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic ${su(u.clic[k])} · Esc annulla`);
+  // 04/11 (regola 4): una riga sola; sotto, piccolo, quale pezzo hai già scelto (dopo un giro della vista non si vedeva più)
+  const scelti = [...new Set(ASM.clic.map(c => objs.get(c.inst)?.data.name).filter(Boolean))];
+  setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic ${su(u.clic[k])}${scelti.length ? ` · Scelto «${scelti.join('» e «')}»` : ''} · Esc annulla`);
 }
 function asmTool(t) {
   if (t && !ASM.tool && sel) clearSelection();     // la barretta del pezzo scelto copriva proprio le facce da cliccare
@@ -4230,22 +4309,31 @@ async function viteriaDialog() {
     const pr = await call('asm_vite_proposta', foro, [vv.x, vv.y, vv.z]);
     if (pr?.ok) ultimo = { ...ultimo, tipo: ultimo.tipo === 'vite_tspei' ? 'vite_tspei' : pr.proposta.tipo, misura: pr.proposta.misura, L: pr.proposta.L };
   }
-  modal(`<h3>Viteria</h3>
-    <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
-    <div class="form"><label class="tutta-riga">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
-      <label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div>
-    ${foro ? `<label class="check"><input type="checkbox" id="vt-f" checked> nel foro che hai cliccato</label>
-      <label class="check" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked> <span id="vt-tutti-t">anche negli altri fori uguali del pezzo</span></label>
-      <label class="check"><input type="checkbox" id="vt-app" checked> appoggiata sotto la testa (dal lato che stai guardando)</label>`
-      : `<div class="ff"><label>Quante<span class="inp"><input class="field" id="vt-n" value="${esc(String(ultimo.n || 1))}"></span></label><span></span></div>
-      <p class="hint">Per metterle nei fori: clicca prima un foro del pezzo, poi «Viteria»: le metto in quel foro e, se vuoi, in tutti i fori uguali.</p>`}
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Inserisci</button></div>`, close => {
+  // 04/11 (regola 2): la viteria nel pannello a destra, come Vite nei fori (prima una finestra in mezzo, sopra il pezzo)
+  viteriaChiudi();
+  const el = document.createElement('div');
+  el.id = 'viteria-pan'; el.className = 'pannello-cmd';
+  el.innerHTML = `<div class="pc-testa"><h3>Viteria</h3><p>Viti, dadi, rondelle e rivetti dalle norme ISO: il pezzo si fa la prima volta e poi si riusa. In distinta va tra gli acquisti</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Cosa</h4><select class="field" id="vt-t" aria-label="Cosa">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
+      <div class="ff"><label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div></section>
+    <section class="sezione"><h4>Dove</h4>
+    ${foro ? `<label class="interruttore"><input type="checkbox" id="vt-f" checked><i></i>Nel foro che hai cliccato</label>
+      <label class="interruttore" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked><i></i><span id="vt-tutti-t">Anche negli altri fori uguali del pezzo</span></label>
+      <label class="interruttore"><input type="checkbox" id="vt-app" checked><i></i>Appoggiata sotto la testa (dal lato che guardi)</label>`
+      : `<div class="ff"><label>Quante<span class="inp"><input class="field num" id="vt-n" value="${esc(String(ultimo.n || 1))}"></span></label><span></span></div>
+      <p class="hint">Per metterle nei fori: clicca prima un foro del pezzo, poi «Viteria»: le metto in quel foro e, se vuoi, in tutti i fori uguali.</p>`}</section></div>
+    <div class="pc-fondo"><button class="btn" id="vt-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vt-ok">Inserisci</button></div>`;
+  document.body.appendChild(el);
+  VIT.el = el;
+  const close = viteriaChiudi;
+  {
     if (foro) call('asm_fori_uguali', foro.inst, foro.face).then(x => {      // quanti fori uguali ha il pezzo
       if (!x?.ok || x.n < 2 || !$('#vt-tutti-w')) return;
       $('#vt-tutti-w').hidden = false;
-      $('#vt-tutti-t').textContent = `in tutti i ${x.n} fori uguali del pezzo (una vite per foro)`;
-      $('#m-ok').textContent = `Inserisci (${x.n})`;
-      $('#vt-tutti').onchange = () => { $('#m-ok').textContent = $('#vt-tutti').checked ? `Inserisci (${x.n})` : 'Inserisci'; };
+      $('#vt-tutti-t').textContent = `In tutti i ${x.n} fori uguali del pezzo (una vite per foro)`;
+      $('#vt-ok').textContent = `Inserisci (${x.n})`;
+      $('#vt-tutti').onchange = () => { $('#vt-ok').textContent = $('#vt-tutti').checked ? `Inserisci (${x.n})` : 'Inserisci'; };
     });
     const rifai = () => {
       const c = cat[$('#vt-t').value];
@@ -4254,8 +4342,8 @@ async function viteriaDialog() {
       $('#vt-lw').hidden = !c.lunghezze.length;
     };
     $('#vt-t').onchange = rifai; rifai();
-    $('#m-no').onclick = close;
-    $('#m-ok').onclick = () => {
+    $('#vt-no').onclick = close;
+    VIT.ok = $('#vt-ok').onclick = () => {
       const tipo = $('#vt-t').value, misura = $('#vt-m').value, L = cat[tipo].lunghezze.length ? +$('#vt-l').value : null;
       const n = $('#vt-n') ? $('#vt-n').value.trim() : 1;
       viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L, n };
@@ -4266,8 +4354,15 @@ async function viteriaDialog() {
       close();
       inCoda(async () => { const r2 = await call('asm_insert_viteria', tipo, misura, L, dove, opz); if (await apply(r2, r2.message) && r2.select) await select(r2.select); });
     };
-  });
+  }
 }
+const VIT = { el: null, ok: null };
+function viteriaChiudi() { VIT.el?.remove(); VIT.el = null; VIT.ok = null; }
+window.addEventListener('keydown', e => {
+  if (!VIT.el || e.target.closest?.('input:not([type=checkbox]), textarea')) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); viteriaChiudi(); }
+  else if (e.key === 'Enter' && !e.target.closest?.('select')) { e.preventDefault(); e.stopImmediatePropagation(); VIT.ok?.(); }
+}, true);
 function pickInstEdge(ev) {                          // lo spigolo di una copia dell'assieme sotto il mouse (punto nel mondo)
   const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
   const scr = p => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * r.width, (1 - q.y) / 2 * r.height]; };
@@ -4320,7 +4415,9 @@ function asmClick(ev) {
     const r = await call('asm_add_mate', tipo, a, b, u.val, false, a2, b2, true);
     if (await apply(r, 'Accoppiato.') && r.select) {
       await select(r.select);
-      if (u.val === null) setTimeout(() => { const c = $('#m-off') || $('#m-ang'); if (c) { c.focus(); c.select(); } }, 60);   // a pannello pronto
+      // a pannello pronto (04/11: si aspetta che ci sia; con 60 ms fissi, la prima volta il pannello arrivava dopo)
+      if (u.val === null) { const t0 = performance.now(); const fuoco = () => { const c = $('#m-off') || $('#m-ang');
+        if (c && c.offsetParent) { c.focus(); c.select(); } else if (performance.now() - t0 < 3000) setTimeout(fuoco, 40); }; setTimeout(fuoco, 40); }
     }
   });
 }
@@ -4358,15 +4455,17 @@ function ripetiApri(id) {
   ripetiChiudi();
   const o = objs.get(id); if (!o) return;
   const el = document.createElement('div');
-  el.id = 'ripeti';
+  el.id = 'ripeti'; el.className = 'pannello-cmd';
   const versi = Object.keys(RIP_VERSI).map(v => `<button data-v="${v}" class="${v === 'destra' ? 'on' : ''}">${v === 'giu' ? 'giù' : v}</button>`).join('');
-  el.innerHTML = `<div class="ap-testa"><b>In fila</b><small>«${esc(o.data.name)}» più volte</small></div>
-    <div class="ap-riga"><span class="ap-lab">Quante in tutto</span><span class="inp"><input class="field" id="rp-n" value="4"></span></div>
-    <div class="ap-riga"><span class="ap-lab">Verso</span><span class="seg" id="rp-verso">${versi}</span></div>
-    <div class="ap-riga"><span class="seg" id="rp-modo"><button data-m="passo" class="on">Passo</button><button data-m="lung">Dalla prima all’ultima</button></span>
-      <span class="inp"><input class="field" id="rp-p" value="100"><i>mm</i></span></div>
-    <p class="ap-dist" id="rp-info"></p>
-    <div class="acts"><button class="btn" id="rp-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="rp-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  el.innerHTML = `<div class="pc-testa"><h3>In fila</h3><p>«${esc(o.data.name)}» più volte, a passo fisso: le copie si vedono subito, trasparenti</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Quante</h4>
+      <div class="ap-riga"><span class="ap-lab">Quante in tutto (con questo)</span><span class="inp"><input class="field num" id="rp-n" value="4"></span></div></section>
+    <section class="sezione"><h4>Verso</h4><span class="seg griglia3" id="rp-verso">${versi}</span></section>
+    <section class="sezione"><h4>Distanza</h4><span class="seg" id="rp-modo"><button data-m="passo" class="on">Passo</button><button data-m="lung">Dalla prima all’ultima</button></span>
+      <div class="ap-riga"><span class="inp"><input class="field num" id="rp-p" value="100"><i>mm</i></span></div>
+      <p class="ap-dist" id="rp-info"></p></section></div>
+    <div class="pc-fondo"><button class="btn" id="rp-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="rp-ok">Fatto <kbd>Invio</kbd></button></div>`;
   document.body.appendChild(el);
   RIP.el = el; RIP.id = id;
   el.querySelectorAll('#rp-verso button, #rp-modo button').forEach(b => { b.onclick = () => {
@@ -4402,6 +4501,24 @@ const INTERF_MAT = new THREE.MeshBasicMaterial({ color: 0xE5484D, transparent: t
 function interfPulisci() {
   interfGroup.traverse(x => x.geometry?.dispose()); interfGroup.clear();
   interfBox.innerHTML = ''; interfEls = [];
+  document.getElementById('interf-pan')?.remove();
+}
+// 04/11: l'elenco delle interferenze a destra, come il pannello del pezzo: ogni riga sceglie i due pezzi
+function interfPannello(lista) {
+  document.getElementById('interf-pan')?.remove();
+  const el = document.createElement('div');
+  el.id = 'interf-pan'; el.className = 'pannello-cmd';
+  const vol = x => { const cm3 = x.volume / 1000; return cm3 >= 1 ? mmTesto(cm3) + ' cm³' : Math.round(x.volume) + ' mm³'; };
+  el.innerHTML = `<div class="pc-testa"><h3>Interferenze</h3><p>${lista.length === 1 ? 'Un punto' : lista.length + ' punti'} dove un pezzo entra nell’altro: in rosso nel 3D. Clic su una riga per scegliere i due pezzi</p></div>
+    <div class="pc-corpo"><section class="sezione"><h4>Dove</h4>${lista.map((x, i) => `<button class="asm-mate" data-interf="${i}"><img src="icons/section.svg" alt="">
+      <span>«${esc(x.nomi[0])}» e «${esc(x.nomi[1])}»<small class="testo-2"> entra ${vol(x)}</small></span></button>`).join('')}</section>
+    <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="interf-rifai"><img src="icons/section.svg" alt="">Controlla di nuovo</button>
+      <p class="hint">Sposta o cambia un pezzo: il rosso sparisce da solo, poi controlla di nuovo.</p></section></div>
+    <div class="pc-fondo"><button class="btn primary big" id="interf-ok">Fatto</button></div>`;
+  document.body.appendChild(el);
+  el.querySelectorAll('[data-interf]').forEach(b => { b.onclick = () => { const x = lista[+b.dataset.interf]; sel = { id: x.a, ids: [x.a, x.b] }; paint(); renderTree(); }; });
+  $('#interf-rifai').onclick = () => runCmd('asm_interf');
+  $('#interf-ok').onclick = () => { interfPulisci(); ridisegna(); };
 }
 function interfMostra(lista) {
   interfPulisci();
@@ -4423,6 +4540,7 @@ function interfMostra(lista) {
     interfEls.push({ el, at: new THREE.Vector3(...x.centro) });
   }
   placeDims(); ridisegna();
+  if (lista.length) interfPannello(lista);
 }
 window.__interf = { mostra: interfMostra, pulisci: interfPulisci, get n() { return interfGroup.children.length; } };
 // ===================================================================== Vite nei fori (03/11, secondo giro)
@@ -4441,14 +4559,17 @@ async function viteFori(a, b) {
   }
   const p = r.proposta, nomi = [a, b].map(f => objs.get(f.inst)?.data.name || f.inst);
   const el = document.createElement('div');
-  el.id = 'vitefori';
+  el.id = 'vitefori'; el.className = 'pannello-cmd';
   const sel = (id, lst, v) => `<select class="field" id="${id}">${lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('')}</select>`;
-  el.innerHTML = `<div class="ap-testa"><b>Vite nei fori</b><small>«${esc(nomi[0])}» e «${esc(nomi[1])}»</small></div>
-    <div class="ap-riga"><span class="ap-lab">${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</span>${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="hint">mm</span>
-      ${p.dado ? '<label class="check"><input type="checkbox" id="vf-d" checked> con dado</label>' : ''}</div>
-    <p class="ap-dist">Foro Ø${mmTesto(p.foro)} → ${esc(p.misura)} · pacco ${mmTesto(p.pacco)} mm${r.allineati ? '' : ' · i pezzi si mettono uno contro l’altro, fori allineati'}</p>
-    ${p.corta ? '<p class="ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}
-    <div class="acts"><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite">Solo allinea</button><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
+  el.innerHTML = `<div class="pc-testa"><h3>Vite nei fori</h3><p>«${esc(nomi[0])}» e «${esc(nomi[1])}»: la vite giusta per il foro, lunga quanto il pacco</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite"><img src="icons/hole.svg" alt="">Solo allinea i fori, senza vite</button></section>
+    <section class="sezione"><h4>${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</h4>
+      <div class="ap-riga vf-misura">${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="testo-2">mm</span></div>
+      ${p.dado ? '<label class="interruttore"><input type="checkbox" id="vf-d" checked><i></i>Con dado</label>' : ''}
+      <p class="ap-dist">Foro Ø${mmTesto(p.foro)}, quindi ${esc(p.misura)}; pacco ${mmTesto(p.pacco)} mm.${r.allineati ? '' : ' I pezzi si mettono uno contro l’altro, coi fori allineati.'}</p>
+      ${p.corta ? '<p class="msg warn ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}</section></div>
+    <div class="pc-fondo"><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
   document.body.appendChild(el);
   VF.el = el; VF.a = a; VF.b = b; VF.p = p; VF.v = v;
   $('#vf-no').onclick = viteForiChiudi;
@@ -4494,8 +4615,8 @@ function appoggiaApri(mobile, fermo) {
   APP.prima = {};
   for (const o of objs.values()) if (o.data.kind === 'instance') APP.prima[o.data.id] = [...o.data.matrix];
   const el = document.createElement('div');
-  el.id = 'appoggia';
-  el.innerHTML = '<div class="ap-testa"><b>Appoggia</b><small>calcolo…</small></div>';
+  el.id = 'appoggia'; el.className = 'pannello-cmd';
+  el.innerHTML = '<div class="pc-testa"><h3>Appoggia</h3><p>Calcolo dove sta…</p></div>';
   document.body.appendChild(el);
   APP.el = el;
   appoggiaProva();
@@ -4530,9 +4651,10 @@ function appoggiaDistanze() {
   const r = APP.info, el = APP.el;
   if (!r || !el) return;
   el.querySelector('.ap-err').hidden = true;
-  el.querySelector('.ap-dist').innerHTML = 'Dai bordi: ' + ['u', 'v'].map(k => { const d = r.dirs[k];
+  // 04/11: una riga per coppia di lati, senza «·» (dai bordi, in mm)
+  el.querySelector('.ap-dist').innerHTML = 'Dai bordi, in mm:' + ['u', 'v'].map(k => { const d = r.dirs[k];
     const q = v => v < -0.05 ? `sporge <b>${mmTesto(-v)}</b>` : `<b>${mmTesto(v)}</b>`;      // più grande della faccia
-    return `${esc(d.basso)} ${q(d.da_basso)} · ${esc(d.alto)} ${q(d.da_alto)}`; }).join(' · ') + ' mm';
+    return `<span class="riga-dist">${esc(d.basso)} ${q(d.da_basso)}, ${esc(d.alto)} ${q(d.da_alto)}</span>`; }).join('');
   const liberi = ['u', 'v'].filter(k => !r.dirs[k].tiene).map(k => `${r.dirs[k].basso}/${r.dirs[k].alto}`);
   const note = [];
   if (APP.cambio) note.push(`${APP.cambio === 'Capovolgi' ? 'Capovolto' : APP.cambio === 'Gira di 90°' ? 'Girato di 90°' : 'Capovolto e girato'}: così ci sta senza entrare in «${r.nome_fermo}».`);
@@ -4559,18 +4681,22 @@ function appoggiaDisegna() {
   const riga = k => {
     const d = r.dirs[k], m = o[k].modo;
     const b = (modo, t) => `<button data-k="${k}" data-modo="${modo}" class="${m === modo ? 'on' : ''}">${esc(t)}</button>`;
-    return `<div class="ap-riga"><span class="ap-lab">${esc(d.basso)} / ${esc(d.alto)}</span>
+    return `<div class="ap-riga ap-lati"><span class="ap-lab">${esc(d.basso[0].toUpperCase() + d.basso.slice(1))} o ${esc(d.alto)}</span>
       <span class="seg">${b('basso', d.basso)}${b('centro', 'al centro')}${b('alto', d.alto)}</span>
       ${APP.dove === 'misura' && m !== 'centro' ? `<span class="inp"><input class="field" data-mm="${k}" value="${mmTesto(+String(o[k].mm).replace(',', '.') || 0)}" aria-label="Distanza da ${esc(m === 'basso' ? d.basso : d.alto)}"><i>mm</i></span>` : ''}</div>`;
   };
   const dove = (k, t) => `<button data-dove="${k}" class="${APP.dove === k ? 'on' : ''}">${t}</button>`;
-  el.innerHTML = `<div class="ap-testa"><b>Appoggia «${esc(r.nome_mobile)}»</b><small>su «${esc(r.nome_fermo)}»</small></div>
-    <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura (dai bordi)')}</div>
-    ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
-    <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="ap-prop"></p><p class="ap-err" hidden></p>
-    <div class="ap-riga"><button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia">Gira di 90°</button>
-      <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro">Capovolgi</button></div>
-    <div class="acts"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  el.innerHTML = `<div class="pc-testa"><h3>Appoggia «${esc(r.nome_mobile)}»</h3><p>su «${esc(r.nome_fermo)}»: senza entrarci e senza capovolgersi. Ogni scelta si vede subito sul pezzo</p></div>
+    <div class="pc-corpo">
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">
+      <button class="btn" id="ap-gira" title="Gira il pezzo di un quarto di giro sulla faccia"><img src="icons/orbit.svg" alt=""><span>Gira di 90°</span></button>
+      <button class="btn" id="ap-capo" title="Appoggia il pezzo dall’altra parte (sottosopra), sempre fuori dall’altro"><img src="icons/mirror.svg" alt=""><span>Capovolgi</span></button></div>
+      <p class="ap-prop"></p></section>
+    <section class="sezione"><h4>Dove sulla faccia</h4>
+      <div class="seg ap-dove">${dove('centro', 'Al centro')}${dove('bordo', 'Su un bordo')}${dove('misura', 'A misura')}</div>
+      ${APP.dove === 'centro' ? '' : riga('u') + riga('v')}
+      <p class="ap-dist"></p><p class="ap-nota hint"></p><p class="msg err ap-err" hidden></p></section></div>
+    <div class="pc-fondo"><button class="btn" id="ap-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="ap-ok">Fatto <kbd>Invio</kbd></button></div>`;
   el.querySelectorAll('[data-dove]').forEach(b => { b.onclick = () => {
     APP.dove = b.dataset.dove;
     for (const k of ['u', 'v']) {
@@ -4618,48 +4744,75 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); appoggiaFatto(); }
 }, true);
 window.__appoggia = { apri: appoggiaApri, stato: () => APP };      // per le prove automatiche
+// 04/11 (regola 2): il pannello del pezzo sempre nello stesso ordine: chi è → cosa puoi fare (tutte le azioni, col
+// nome) → chi lo tiene (gli accoppiamenti, con la misura e il cursore) → dove sta, sposta, ruota → il pezzo (nome,
+// fermo, finitura, da acquistare) → «Dettagli» chiuso (file, peso, ingombro) → in fondo, fermo, «Apri il pezzo» in blu
+function frasiMate() {                              // M1 → «Staffa su Piastra» (le stesse parole dell'albero)
+  const g = (S?.tree?.children || []).find(c => c.kind === 'group' && c.label === 'Accoppiamenti');
+  return Object.fromEntries((g?.children || []).map(c => [c.ref, c]));
+}
+// nella riga «Lo tengono» il nome del pezzo stesso non serve: «Staffa su Base» → «su Base»
+const senzaNome = (frase, nome) => frase.startsWith(nome + ' ') ? frase.slice(nome.length + 1) : frase;
+function cosEPezzo(s) {
+  const n = (s.mates || []).length;
+  if (s.fixed) return 'Pezzo dell’assieme, fermo: gli altri si appoggiano a lui';
+  if (s.acquisto) return 'Da acquistare: va in distinta, niente DXF';
+  return n ? `Pezzo dell’assieme, tenuto da ${n === 1 ? 'un accoppiamento' : n + ' accoppiamenti'}` : 'Pezzo dell’assieme, libero: si sposta come vuoi';
+}
+// l'icona di ogni tipo di accoppiamento (righe «Lo tengono» e albero)
+function iconaMate(t) { return ICONA_MATE[t] || null; }
+const ICONA_MATE = { faccia: 'project', asse: 'hole', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
+  perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'cut' };
 function instancePanel(s) {
   const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
-  const faccia = s.face ? `<p class="hint">Faccia: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
+  const faccia = s.face ? `<p class="hint">Faccia cliccata: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
   const incastri = s.tabs_with ? `<details class="fsec" open><summary>Incastri con ${esc(s.tabs_with)}</summary>
     <p class="hint">Questa punta appoggia su ${esc(s.tabs_with)}: linguette qui e asole nell’altro pezzo (si salvano i due file).</p>
     <div class="ff"><label>Quante<span class="inp"><input class="field" id="t-n" value="3"></span></label>
       <label>Larghezza<span class="inp"><input class="field" id="t-w" value="15"><i>mm</i></span></label>
       <label>Gioco<span class="inp"><input class="field" id="t-c" value="0,2"><i>mm</i></span></label>
       <label>Sporgenza<span class="inp"><input class="field" id="t-s" value="0"><i>mm</i></span></label></div>
-    <div class="row-btns"><button class="btn primary" id="t-go">Crea gli incastri</button></div></details>` : '';
+    <div class="row-btns"><button class="btn" id="t-go">Crea gli incastri</button></div></details>` : '';
   const scassi = s.scassi ? `<details class="fsec" open><summary>Scassi per i pezzi che entrano</summary>
     <p class="hint" id="sc-frase">${esc(s.scassi.frase)} In rosso dove taglia.</p>
     <div class="ff"><label>Gioco per lato<span class="inp"><input class="field" id="sc-c" value="0,5"><i>mm</i></span></label><span></span></div>
-    <div class="row-btns"><button class="btn primary" id="sc-go">Fai gli scassi</button></div></details>` : '';
-  return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
-      <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
-    <div class="ff" style="margin-bottom:6px"><label class="tutta-riga">Nome del pezzo<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
-    ${tab}${faccia}${incastri}${scassi}
-    ${(s.movimenti || []).map((m, k) => {
-      const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
-      return `<div class="sub">${esc(m.nome)}</div>
-        <div class="ff"><label>${m.campo === 'angle' ? 'Angolo' : 'Quanto'}<span class="inp"><input class="field" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span></label><span></span></div>
-        <input type="range" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" style="width:100%" title="Trascina: il pezzo si muove">`;
-    }).join('')}
-    ${dovePanel(s)}
-    <div${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
-    <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
-    <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div></div>
-    <div class="sub">Ruota di 90°</div>
-    <div class="row-btns"><button class="btn" data-rot="x">attorno a X</button><button class="btn" data-rot="y">attorno a Y</button><button class="btn" data-rot="z">attorno a Z</button></div>
-    <label class="check" style="margin-top:8px"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}> Fermo (gli altri pezzi si appoggiano a lui)</label>
-    ${s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    <div class="row-btns"><button class="btn" id="sc-go">Fai gli scassi</button></div></details>` : '';
+  // cosa puoi fare: tutte le azioni della barretta (anche quelle che lì stanno in «Altro»), meno «Apri», che è in fondo
+  const azioni = azioniPezzo(s).filter(x => x.id !== 'open' && x.cls !== 'mov');
+  const cosa = `<section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">${azioni.map((x, i) =>
+    `<button class="btn" data-azione-pezzo="${i}" title="${esc(x.t)}"><img src="icons/${x.ic}.svg" alt=""><span>${esc(x.t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span></button>`).join('')}</div></section>`;
+  // chi lo tiene: ogni accoppiamento in parole (clic = lo apri); quelli con una misura hanno il campo e il cursore
+  const frasi = frasiMate(), mov = Object.fromEntries((s.movimenti || []).map((m, k) => [m.id, [m, k]]));
+  const tiene = `<section class="sezione"><h4>Lo tengono</h4>${(s.mates || []).length ? s.mates.map(mid => {
+    const [m, k] = mov[mid] || [], f = frasi[mid];
+    const riga = `<button class="asm-mate" data-vai-mate="${esc(mid)}" title="Apri l’accoppiamento"><img src="icons/${ICONA_MATE[f?.tipo] || 'joint'}.svg" alt=""><span>${esc(senzaNome(f?.label || mid, s.title))}</span></button>`;
+    if (!m) return riga;
+    const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
+    return riga + `<div class="asm-misura"><span>${esc(m.nome)}</span><span class="campo-unita"><input class="field num" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}" aria-label="${esc(m.nome)}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span>
+      <input type="range" class="cursore" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" title="Trascina: il pezzo si muove"></div>`;
+  }).join('') : '<p class="hint">Nessun accoppiamento: si sposta liberamente. Per metterlo su un altro pezzo: «Appoggia».</p>'}</section>`;
+  const fin = s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
-      <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`}
-    <label class="check"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}> Da acquistare (guide, viti, utensili…): in distinta, niente DXF</label>
-    ${s.acquisto ? `<div class="ff"><label class="tutta-riga">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
-      <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
-      <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}
-    <div class="row-btns"><button class="btn primary" id="a-open">Apri il pezzo</button></div>
-    ${s.face && s.face.kind === 'piana' ? `<div class="row-btns"><button class="btn primary" id="a-nuovo">Nuovo pezzo su questa faccia</button></div>
-      <p class="hint">Disegni sul piano di questa faccia, con i bordi dei pezzi che ci stanno: per una lamiera che li collega.</p>` : ''}
-    ${s.mates.length ? `<p class="hint">Accoppiamenti: ${esc(s.mates.join(', '))}</p>` : '<p class="hint">Nessun accoppiamento: si sposta liberamente.</p>'}`;
+      <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`;
+  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div>
+      <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
+    ${cosa}${incastri}${scassi}${tiene}
+    <section class="sezione"><h4>Dove sta</h4>${dovePanel(s)}
+      <div class="asm-sposta"${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
+      <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
+      <div class="row-btns"><button class="btn" id="a-move">Sposta</button></div></div>
+      <div class="sub">Ruota di 90°</div>
+      <div class="seg asm-ruota"><button data-rot="x">attorno a X</button><button data-rot="y">attorno a Y</button><button data-rot="z">attorno a Z</button></div></section>
+    <section class="sezione"><h4>Il pezzo</h4>
+      <div class="ff"><label class="tutta-riga">Nome<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
+      <label class="interruttore"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}><i></i>Fermo: gli altri pezzi si appoggiano a lui</label>
+      ${fin}
+      <label class="interruttore"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}><i></i>Da acquistare (guide, viti…): in distinta, niente DXF</label>
+      ${s.acquisto ? `<div class="ff"><label class="tutta-riga">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
+        <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
+        <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}</section>
+    <details class="fsec"><summary>Dettagli</summary>${tab}${faccia}</details>
+    <div class="asm-fondo"><button class="btn primary big" id="a-open">Apri il pezzo</button></div></div>`;
 }
 // 03/11: «Sposta» diceva solo «di quanto», non dove sta il pezzo. Qui dove sta (l'angolo in basso a sinistra davanti) e,
 // se appoggia su un altro pezzo, quanto manca ai suoi bordi: si scrive dove lo vuoi e Invio, il conto lo fa Radius
@@ -4668,12 +4821,12 @@ function dovePanel(s) {
   if (!d) return '';
   const fermo = !!s.tenuto, v = x => mmTesto(x);
   const campo = (id, t, x) => `<label>${t}<input class="field" id="${id}" value="${v(x)}"${fermo ? ' readonly' : ''}></label>`;
-  return `<div class="sub">Dove sta (mm)</div>
+  return `
     <div class="xyz">${campo('a-px', 'X', d.min[0])}${campo('a-py', 'Y', d.min[1])}${campo('a-pz', 'Z', d.min[2])}</div>
-    <p class="hint" style="margin-top:2px">L’angolo in basso a sinistra, davanti${fermo ? '' : ': scrivi dove lo vuoi e Invio'}.</p>
+    <p class="hint stretto">L’angolo in basso a sinistra, davanti, in mm${fermo ? '' : ': scrivi dove lo vuoi e Invio'}.</p>
     ${d.sotto ? `<div class="sub">Dai bordi di «${esc(d.sotto.name)}» (mm)</div>
       <div class="xyz xyz4">${campo('a-bs', 'sinistra', d.sotto.sinistra)}${campo('a-bd', 'destra', d.sotto.destra)}${campo('a-bv', 'davanti', d.sotto.davanti)}${campo('a-bt', 'dietro', d.sotto.dietro)}</div>` : ''}
-    ${fermo ? `<p class="hint" style="margin-top:2px">Lo tengono gli accoppiamenti: per spostarlo ${(s.movimenti || []).length ? 'cambia le misure qui sopra o ' : ''}rifai «Appoggia».</p>` : ''}`;
+    ${fermo ? `<p class="hint stretto">Lo tengono gli accoppiamenti: per spostarlo ${(s.movimenti || []).length ? 'cambia le misure qui sopra o ' : ''}rifai «Appoggia».</p>` : ''}`;
 }
 function wireDove(s, fai) {
   const d = s.dove;
@@ -4716,7 +4869,9 @@ function wireInstance(s) {
   ['#a-acq-d', '#a-acq-c', '#a-acq-f'].forEach(id => { if ($(id)) $(id).onchange = () => fai('asm_set_acquisto', s.id, acq()); });
   $('#a-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_remove', s.id))); };
   $('#a-open').onclick = () => apriPezzoAssieme(s.id);
-  if ($('#a-nuovo')) $('#a-nuovo').onclick = () => nuovoPezzoDialog(s);
+  const azioni = azioniPezzo(s).filter(x => x.id !== 'open' && x.cls !== 'mov');
+  document.querySelectorAll('[data-azione-pezzo]').forEach(b => { b.onclick = () => azioni[+b.dataset.azionePezzo]?.fai(); });
+  document.querySelectorAll('[data-vai-mate]').forEach(b => { b.onclick = () => inCoda(() => select('mate=' + b.dataset.vaiMate)); });
   if ($('#t-go')) $('#t-go').onclick = () => inCoda(async () => apply(await call('asm_tabs', s.id, s.face.index,
     $('#t-n').value.trim(), $('#t-w').value.trim(), $('#t-c').value.trim(), $('#t-s').value.trim())));
   wireScassi(s);
@@ -4778,19 +4933,35 @@ const MATE_CAMPO = { faccia: 'Distanza', distanza: 'Distanza', tangente: 'Gioco'
 // 03/11: «Allinea invece di affacciare» erano parole da CAD: a filo (le facce dalla stessa parte) o contro (una sull'altra)
 const MATE_GIRA = { faccia: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'], distanza: ['Metti a filo (facce dalla stessa parte)', 'Metti contro (faccia su faccia)'],
   asse: ['Gira dall’altra parte'], parallelo: ['Gira dall’altra parte'], angolo: ['Angolo dall’altra parte'], tangente: ['Dall’altra parte'] };
+// 04/11 (regola 2): l'accoppiamento scelto: cos'è in parole → cosa puoi fare (gira, sospendi) → la misura col cursore →
+// i due pezzi (clic = scegli il pezzo) → «Dettagli» (tipo, scarto) → in fondo «Fatto» in blu
+const MATE_COSA = { faccia: 'Una faccia contro l’altra', asse: 'I due fori sulla stessa linea', distanza: 'Due facce a una distanza',
+  angolo: 'Due facce a un angolo', tangente: 'Il tubo appoggiato sulla faccia', parallelo: 'Due facce (o tubi) paralleli',
+  perpendicolare: 'Due facce (o tubi) a squadra', centra: 'Il pezzo al centro, tra due lati', blocca: 'I due pezzi fermi uno rispetto all’altro',
+  spigolo: 'Due spigoli sulla stessa linea', spigolo_faccia: 'Lo spigolo appoggiato sulla faccia', cono: 'La testa della vite nella svasatura',
+  testa: 'Due tagli a 45° uno contro l’altro' };
 function matePanel(s) {
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
   const gira = d.da === 'appoggia' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
-  return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.rows[0][1])}</div></div>
+  const riga = k => s.rows.find(r => r[0] === k)?.[1] || '';
+  const tipo = riga('Tipo').replace(/^./, c => c.toUpperCase()), scarto = riga('Scarto');
+  const cos = `${tipo}${d.da === 'appoggia' ? ', messo da «Appoggia»' : ''}${d.off ? ': sospeso, adesso non tiene' : ''}`;
+  const campo = MATE_CAMPO[d.type] ? `<div class="ff"><label>${d.da === 'appoggia' && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field num" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
+      ${d.type === 'distanza' ? `<input type="range" class="cursore" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" title="Trascina: il pezzo si muove">` : ''}` : '';
+  const angolo = d.type === 'angolo' ? `<div class="ff"><label>Angolo<span class="inp"><input class="field num" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
+      <input type="range" class="cursore" id="m-slide" min="0" max="180" step="1" value="${d.angle}" title="Trascina: il pezzo gira">
+      <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : '';
+  const pezzo = (k, id) => `<button class="asm-mate" data-vai-pezzo="${esc(id || '')}" title="Scegli il pezzo"><img src="icons/${k === 'Fermo' ? 'c_fix' : 'move'}.svg" alt=""><span><span class="testo-2">${k === 'Fermo' ? 'Sta fermo' : 'Si muove'}:</span> ${esc(riga(k))}</span></button>`;
+  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cos)}</div></div>
       <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
-    <table class="grid">${s.rows.slice(1).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-    ${MATE_CAMPO[d.type] ? `<div class="ff" style="margin-top:10px"><label>${d.da === 'appoggia' && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
-      ${d.type === 'distanza' ? `<input type="range" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" style="width:100%" title="Trascina: il pezzo si muove">` : ''}` : ''}
-    ${d.type === 'angolo' ? `<div class="ff" style="margin-top:10px"><label>Angolo<span class="inp"><input class="field" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
-      <input type="range" id="m-slide" min="0" max="180" step="1" value="${d.angle}" style="width:100%" title="Trascina: il pezzo gira">
-      <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : ''}
-    <div class="row-btns">${gira ? `<button class="btn" id="m-flip">${gira[d.flip && gira[1] ? 1 : 0]}</button>` : ''}
-      <button class="btn" id="m-sosp">${d.off ? 'Riattiva' : 'Sospendi'}</button></div>`;
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni una">${gira ? `<button class="btn" id="m-flip" title="${esc(gira[d.flip && gira[1] ? 1 : 0])}"><img src="icons/mirror.svg" alt=""><span>${esc(gira[d.flip && gira[1] ? 1 : 0].replace(/ \(.*$/, ''))}</span></button>` : ''}
+      <button class="btn" id="m-sosp" title="${d.off ? 'Torna a tenere i due pezzi' : 'Per un momento non tiene: il pezzo resta dov’è e lo puoi spostare'}"><img src="icons/${d.off ? 'joint' : 'eye'}.svg" alt=""><span>${d.off ? 'Riattiva' : 'Sospendi'}</span></button></div>
+      <p class="hint">${MATE_COSA[d.type] ? esc(MATE_COSA[d.type]) + '.' : ''}</p></section>
+    ${campo || angolo ? `<section class="sezione"><h4>Misura</h4>${campo}${angolo}</section>` : ''}
+    <section class="sezione"><h4>I due pezzi</h4>${pezzo('Fermo', d.a)}${pezzo('Si muove', d.b)}</section>
+    <details class="fsec"><summary>Dettagli</summary><table class="grid"><tr><td>Tipo</td><td>${esc(tipo)}</td></tr><tr><td>Scarto</td><td class="num">${esc(scarto)}</td></tr></table>
+      <p class="hint">Lo scarto è quanto il risolutore non riesce a rispettare: vicino a zero va bene.</p></details>
+    <div class="asm-fondo"><button class="btn primary big" id="m-fatto">Fatto</button></div></div>`;
 }
 function wireMate(s) {
   const fai = f => inCoda(async () => { if (await apply(await call('asm_edit_mate', s.id, f))) await refreshSel(); });
@@ -4800,6 +4971,10 @@ function wireMate(s) {
   if ($('#m-slide')) cursoreMovimento($('#m-slide'), $('#m-off') || $('#m-ang'), s.id, s.def.type === 'angolo' ? 'angle' : 'offset');
   $('#m-sosp').onclick = () => fai({ off: !s.def.off });
   $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', s.id))); };
+  document.querySelectorAll('[data-vai-pezzo]').forEach(b => { if (b.dataset.vaiPezzo) b.onclick = () => inCoda(() => select(b.dataset.vaiPezzo)); });
+  $('#m-fatto').onclick = () => { document.activeElement?.blur?.(); setTimeout(clearSelection, 30); };
+  // 04/11: nel 3D, in giallo, il pezzo che questo accoppiamento muove (prima non si vedeva niente: di chi parla?)
+  if (sel && sel.id === 'mate=' + s.id && s.def.b && objs.has(s.def.b)) { sel.ids = [sel.id, s.def.b]; paint(); }
 }
 // il cursore che muove un pezzo: mentre lo trascini si spostano i pezzi già disegnati (una chiamata alla volta);
 // lasciato, la modifica si registra una volta (annulla torna a prima)
@@ -5821,7 +5996,7 @@ async function newAssemblyDialog() {
     <div class="na-testa"><div class="sub">Pezzi da mettere dentro</div><button class="btn" id="na-sfoglia">Sfoglia…</button></div>
     <div class="na-lista"><table class="grid" id="na-tab">${righe()}</table></div>
     <p class="hint">Il primo pezzo che scegli è la base e resta fermo; le copie si mettono a fianco e poi le accoppi. Nella distinta compaiono con la quantità.</p>
-    <div class="acts"><span class="hint na-tot" id="na-tot"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea l’assieme</button></div>`, close => {
+    <div class="acts"><span class="hint na-tot spingi" id="na-tot"></span><button class="btn" id="n-no">Annulla</button><button class="btn primary" id="n-ok">Crea l’assieme</button></div>`, close => {
     const tot = () => {
       const sc = scelti();
       $('#na-tab').querySelectorAll('[data-base]').forEach(s => { s.textContent = pezzi[+s.dataset.base] === sc[0] ? 'base, resta fermo' : ''; });
@@ -7194,6 +7369,7 @@ const CMDS = [
     const passo = t => { const k = Math.min(1, (t - t0) / 450); esplodi(da + (a - da) * (1 - (1 - k) ** 3)); if (k < 1) requestAnimationFrame(passo); };
     requestAnimationFrame(passo);
     document.querySelector('#ribbon [data-cmd="asm_esploso"]')?.classList.toggle('on', a > 0);
+    esplosoPannello(a > 0);
   } },
   { id: 'asm_interf', label: 'Assieme: controlla interferenze', run: () => inCoda(async () => {
     const r = await call('asm_interferences');
@@ -7202,7 +7378,7 @@ const CMDS = [
     if (!r.interferences.length) { toast(r.message); return; }
     clearSelection();                               // il rosso si vede meglio senza i pezzi scelti (e la barretta) sopra
     interfMostra(r.interferences);
-    toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, col nome dei due pezzi (clic sul nome per sceglierli).`, 'err');
+    toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, l’elenco a destra.`, 'err');
   }) },
   { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
@@ -7644,7 +7820,7 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'joint', Q
   Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'project', 'Foro su foro': 'hole',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
-  Seleziona: 'select', Costruzione: 'construction' };
+  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'joint', 'Vite nei fori': 'fastener' };
 function setHelp(t) {
   const el = $('#sk-help');
   t = String(t || '');

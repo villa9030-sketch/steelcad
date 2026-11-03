@@ -32,3 +32,14 @@ def test_accoppiamento_in_parole():
     assert _frase_mate({**m, 'off': True}, nomi).endswith('(sospeso)')
     assert all('M1' not in _frase_mate({**m, 'type': t}, nomi) for t in
                ('faccia', 'asse', 'parallelo', 'perpendicolare', 'tangente', 'centra', 'blocca', 'spigolo', 'cono', 'testa'))
+
+
+def test_accoppiamento_accordato_al_femminile():
+    """04/11: «Piastra parallelo a Telaio», «Piastra bloccato su…» non si accordavano: forme che vanno con tutti e due."""
+    nomi = {'I1': 'Telaio', 'I2': 'Piastra base'}
+    m = {'id': 'M1', 'type': 'parallelo', 'a': {'inst': 'I1'}, 'b': {'inst': 'I2'}}
+    assert _frase_mate(m, nomi) == 'Piastra base in parallelo con Telaio'
+    assert _frase_mate({**m, 'type': 'blocca'}, nomi) == 'Piastra base in blocco con Telaio'
+    # da «Appoggia»: quale coppia di lati e da quale bordo
+    assert _frase_mate({**m, 'type': 'centra', 'lato': 'sinistra/destra'}, nomi) == 'Piastra base in mezzo a Telaio (sinistra/destra)'
+    assert _frase_mate({**m, 'type': 'distanza', 'offset': 20, 'lato': 'davanti'}, nomi) == 'Piastra base a 20 mm dal bordo di Telaio (davanti)'

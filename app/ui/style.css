@@ -1510,62 +1510,6 @@ body.in-prova #sk-foot { display: none !important; }
 .ant-stato .ant-sol { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 #props .btn:disabled, #modal-box .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
 
-/* In fila (03/11): come il pannello di Appoggia */
-#ripeti { position: fixed; top: calc(var(--alt-top) + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
-#ripeti .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
-#ripeti .ap-testa b { font-size: 14px; white-space: nowrap; }
-#ripeti .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#ripeti .ap-riga { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-#ripeti .ap-lab { width: 96px; flex: none; color: var(--ink-2); font-size: 12px; }
-#ripeti .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
-#ripeti .seg button { white-space: nowrap; border: 0; border-right: 1px solid var(--line); background: none; padding: 4px 8px; font-size: 12.5px; color: var(--ink-2); }
-#ripeti .seg button:last-child { border-right: 0; }
-#ripeti .seg button:hover { background: var(--hov-bg); color: var(--ink); }
-#ripeti .seg button.on { background: var(--on-bg); color: var(--ink); font-weight: 600; }
-#ripeti .inp { display: inline-flex; align-items: center; gap: 4px; }
-#ripeti .inp input { width: 64px; }
-#ripeti .inp i { font-style: normal; color: var(--ink-3); font-size: 12px; }
-#ripeti .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
-/* Vite nei fori (03/11): come il pannello di Appoggia */
-#vitefori { position: fixed; top: calc(var(--alt-top) + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
-#vitefori .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
-#vitefori .ap-testa b { font-size: 14px; white-space: nowrap; }
-#vitefori .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#vitefori .ap-riga { display: flex; align-items: center; gap: 8px; }
-#vitefori .ap-riga select { width: auto; }
-#vitefori .ap-lab { color: var(--ink-2); font-size: 12.5px; }
-#vitefori .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
-#vitefori .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
-/* Appoggia (03/11): il pannello piccolo in alto a destra della vista */
-#appoggia { position: fixed; top: calc(var(--alt-top) + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
-#appoggia .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
-#appoggia .ap-testa b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#appoggia .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#appoggia.calcolo .ap-testa b::after { content: ''; display: inline-block; width: 9px; height: 9px; margin-left: 7px; border-radius: 50%;
-  border: 2px solid var(--hover); border-right-color: transparent; animation: giraSc .7s linear infinite; vertical-align: -1px; }
-#appoggia .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
-#appoggia .seg button { white-space: nowrap; border: 0; border-right: 1px solid var(--line); background: none; padding: 4px 9px; font-size: 12.5px; color: var(--ink-2); }
-#appoggia .seg button:last-child { border-right: 0; }
-#appoggia .seg button:hover { background: var(--hov-bg); color: var(--ink); }
-#appoggia .seg button.on { background: var(--on-bg); color: var(--ink); font-weight: 600; }
-#appoggia .ap-dove { display: flex; margin-bottom: 4px; }
-#appoggia .ap-dove button { flex: 1; }
-#appoggia .ap-riga { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-#appoggia .ap-lab { width: 96px; flex: none; color: var(--ink-2); font-size: 12px; }
-#appoggia .inp { display: inline-flex; align-items: center; gap: 4px; }
-#appoggia .inp input { width: 64px; }
-#appoggia .inp i { font-style: normal; color: var(--ink-3); font-size: 12px; }
-#appoggia .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
-#appoggia .ap-dist b { color: var(--ink); }
-#appoggia .ap-nota:empty, #appoggia .ap-prop:empty { display: none; }
-#appoggia .ap-prop { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-#appoggia .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
-#appoggia .btn.on { background: var(--on-bg); border-color: var(--on-line); }
-#appoggia .acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
-#appoggia .acts kbd { padding-left: 6px; }
 
 /* 03/11: la barretta del pezzo nell'assieme con il nome sotto le icone */
 #mini-barra.con-nomi > button { width: auto; min-width: 50px; height: 48px; padding: 4px 6px 3px; display: flex; flex-direction: column;
@@ -2341,3 +2285,83 @@ body.dark #tav-ed .te-foglio svg { box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
 .te-form .te-mm .field { flex: 1; min-width: 0; }
 .te-form .te-mm i { font-style: normal; color: var(--c-spento); }
 #tav-ed #te-sel .te-riga.te-pila { grid-template-columns: 1fr; }
+/* =====================================================================================================================
+   ASSIEMI (notte 03→04/11): pannello del pezzo e dell'accoppiamento, pannelli dei comandi (Appoggia, Vite nei fori,
+   In fila, Interferenze, Esploso) a destra come il pannello, albero. Solo token e componenti delle FONDAMENTA.
+   ===================================================================================================================== */
+#right .panel:has(.asm-pan) > h2 { display: none; }
+.asm-pan { display: flex; flex-direction: column; }
+.asm-pan .fhead { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s-2); margin-bottom: var(--s-2); }
+.asm-pan .fhead h3 { margin-bottom: 2px; overflow-wrap: anywhere; }
+.asm-pan .fsub { color: var(--c-testo-2); font-size: var(--fs-etichetta); line-height: 1.35; }
+.asm-pan .sezione { padding: var(--s-3) 0; }
+.asm-pan .sezione > h4 { margin-bottom: 2px; }
+.asm-pan .sub { margin: var(--s-2) 0 var(--s-1); }
+.asm-pan .hint { margin-top: 2px; }
+.hint.stretto { margin-top: 2px; }
+.asm-azioni { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+.asm-azioni .btn { justify-content: flex-start; gap: var(--s-2); padding: 0 var(--s-2); min-width: 0; text-align: left; }
+.asm-azioni .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asm-azioni .btn img { flex: none; }
+.asm-mate { display: flex; align-items: center; gap: var(--s-2); width: 100%; min-height: var(--h-riga); padding: 4px var(--s-2); border: 0; border-radius: var(--r-campo);
+  background: none; color: var(--c-testo); font: inherit; font-size: var(--fs-fitto); text-align: left; cursor: pointer; line-height: 1.3; }
+.asm-mate:hover { background: var(--c-sopra); }
+.asm-mate img { width: 18px; height: 18px; flex: none; opacity: .8; }
+.asm-misura { display: grid; grid-template-columns: 1fr 104px; align-items: center; gap: var(--s-1) var(--s-2); padding: 0 var(--s-2) var(--s-2) 34px; }
+.asm-misura > span:first-child { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+.cursore { width: 100%; accent-color: var(--c-blu); margin: 0; }
+.asm-misura .cursore { grid-column: 1 / -1; }
+.asm-ruota { margin-top: 2px; }
+.asm-pan .interruttore { margin-top: var(--s-1); }
+.asm-fondo { position: sticky; bottom: calc(-1 * var(--s-3)); z-index: 1; margin: var(--s-2) calc(-1 * var(--s-3)) calc(-1 * var(--s-3)); padding: var(--s-3);
+  background: var(--c-pannello); border-top: 1px solid var(--c-linea); display: flex; gap: var(--s-2); }
+.asm-fondo .btn.primary { flex: 1; }
+.asm-azioni.una { grid-template-columns: 1fr; }
+/* i pannelli dei comandi dell'assieme (Appoggia, Vite nei fori, In fila, Interferenze, Esploso): a destra, dove sta
+   il pannello del pezzo, con lo stesso ordine (titolo e cos'è, cosa puoi fare, campi, in fondo il pulsante blu) */
+.pannello-cmd, #appoggia.pannello-cmd, #ripeti.pannello-cmd, #vitefori.pannello-cmd {
+  position: fixed; top: calc(var(--alt-top) + var(--alt-rib)); right: 0; bottom: 0; width: 310px; z-index: 45; display: flex; flex-direction: column;
+  padding: 0; border: 0; border-left: 1px solid var(--c-linea); border-radius: 0; background: var(--c-pannello); box-shadow: var(--ombra-galleggia);
+  animation: pcDentro var(--t-medio) ease-out; }
+@keyframes pcDentro { from { transform: translateX(16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pannello-cmd { animation: none; } }
+body:has(.pannello-cmd) #viewcube { right: 326px; }
+.pc-testa { padding: var(--s-3) var(--s-3) var(--s-2); border-bottom: 1px solid var(--c-linea); }
+.pc-testa h3 { margin: 0 0 2px; font: 600 var(--fs-titolo)/1.3 var(--font); color: var(--c-testo); overflow-wrap: anywhere; }
+.pc-testa p { margin: 0; color: var(--c-testo-2); font-size: var(--fs-etichetta); line-height: 1.4; }
+.pannello-cmd.calcolo .pc-testa h3::after { content: ''; display: inline-block; width: 10px; height: 10px; margin-left: 8px; border-radius: 50%;
+  border: 2px solid var(--c-blu); border-right-color: transparent; animation: giraSc .7s linear infinite; vertical-align: 0; }
+.pc-corpo { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--s-3); }
+.pc-corpo > .sezione:first-child { border-top: 0; }
+.pc-fondo { display: flex; gap: var(--s-2); padding: var(--s-3); border-top: 1px solid var(--c-linea); background: var(--c-pannello); }
+.pc-fondo .btn.primary { flex: 1; }
+.pc-fondo .btn kbd, .pannello-cmd .btn kbd { margin-left: var(--s-2); padding: 0 5px; border: 1px solid currentColor; border-radius: 4px; opacity: .7;
+  font: 500 10.5px/16px var(--font); color: inherit; background: none; }
+.pannello-cmd .seg, #appoggia.pannello-cmd .seg, #ripeti.pannello-cmd .seg { display: flex; width: 100%; }
+.pannello-cmd .seg button { flex: 1; padding: 0 6px; white-space: nowrap; }
+.pannello-cmd .seg.griglia3 { display: grid; grid-template-columns: repeat(3, 1fr); }
+.pannello-cmd .ap-riga { display: flex; align-items: center; gap: var(--s-2); }
+.pannello-cmd .ap-lati { display: grid; grid-template-columns: 1fr; gap: var(--s-1); margin-top: var(--s-2); }
+.pannello-cmd .ap-lab { color: var(--c-testo-2); font-size: var(--fs-etichetta); flex: 1; }
+.pannello-cmd .inp { display: inline-flex; align-items: center; gap: var(--s-1); }
+.pannello-cmd .inp input { width: 88px; }
+.pannello-cmd .inp i { font-style: normal; color: var(--c-spento); font-size: var(--fs-etichetta); }
+.pannello-cmd .ap-dist { margin: var(--s-1) 0 0; font-size: var(--fs-etichetta); color: var(--c-testo-2); line-height: 1.45; font-variant-numeric: tabular-nums; }
+.pannello-cmd .ap-dist b { color: var(--c-testo); }
+.pannello-cmd .ap-nota:empty, .pannello-cmd .ap-prop:empty { display: none; }
+.pannello-cmd .ap-prop { margin: var(--s-2) 0 0; font-size: var(--fs-etichetta); color: var(--c-testo-2); display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.pannello-cmd .ap-err { margin: var(--s-2) 0 0; }
+.pannello-cmd .btn.on { background: var(--c-blu-tenue); border-color: var(--c-blu-linea); }
+.pannello-cmd .vf-misura select { width: auto; flex: 1; }
+.pannello-cmd .sezione > .btn { justify-content: flex-start; gap: var(--s-2); }
+.pc-corpo > .sezione:first-child { padding-top: var(--s-3); }
+#ripeti.pannello-cmd .seg.griglia3 { display: grid; grid-template-columns: repeat(3, 1fr); }
+.pannello-cmd .ap-dist .riga-dist { display: block; }
+/* albero dell'assieme: gli accoppiamenti in parole su due righe se servono, «fisso» quieto col lucchetto, quanti nel gruppo */
+#tree .node[data-kind="mate"] { padding-top: 5px; padding-bottom: 5px; line-height: 1.3; font-size: var(--fs-fitto); color: var(--c-testo-2); }
+#tree .node[data-kind="mate"].sel, #tree .node[data-kind="mate"]:hover { color: var(--c-testo); }
+#tree .node .st.fisso { display: inline-flex; align-items: center; gap: 3px; color: var(--c-testo-2); font-size: var(--fs-piccolo); }
+#tree .node .st.fisso img { width: 12px; height: 12px; opacity: .7; }
+#tree .node .n-conta { margin-left: var(--s-1); padding: 0 6px; border-radius: 9px; background: var(--c-incavo); color: var(--c-testo-2); font-size: var(--fs-piccolo);
+  line-height: 18px; font-variant-numeric: tabular-nums; }
+.acts .spingi { margin-right: auto; }
