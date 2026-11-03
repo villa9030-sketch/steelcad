@@ -408,6 +408,9 @@ class AssemblyMixin:
                 continue
             if m['type'] == 'angolo':
                 nome, val, campo = 'Gira', float(m.get('angle') or 0), 'angle'
+            elif m.get('lato'):                      # da «Appoggia»: a quanto dal bordo
+                nome = f'Da {m["lato"]} (dal bordo)'
+                val, campo = float(m.get('offset') or 0) * (m.get('segno') or 1), 'offset'
             else:
                 nome = 'Su / giù' if abs(n[2]) > 0.9 else 'Apri / chiudi'
                 val, campo = float(m.get('offset') or 0), 'offset'
@@ -497,6 +500,101 @@ class AssemblyMixin:
             return {'select': 'mate=' + mid}
         return self._asm_change(A.MATE_TYPES[kind].capitalize(), fn)
 
+    # ------------------------------------------------------------------ Appoggia (03/11)
+    def _terra(self) -> str:
+        return next((i['id'] for i in self.asm.instances if i.get('fixed')), self.asm.instances[0]['id'])
+
+    def _appoggia_conti(self, mobile: dict, fermo: dict, opz: dict | None):
+        from cad_engine.assembly_appoggia import appoggia
+        if not mobile or not fermo or mobile.get('inst') == fermo.get('inst'):
+            raise A.AssemblyError('Appoggia: clic su una faccia del pezzo da mettere, poi su una faccia di un altro pezzo.')
+        if mobile['inst'] == self._terra() and fermo['inst'] != self._terra():
+            mobile, fermo = fermo, mobile                # il pezzo fermo resta fermo: si muove l'altro
+        ia, ib = self.asm.instance(fermo['inst']), self.asm.instance(mobile['inst'])
+        pa, pb = self.asm_parts.get(ia['file']), self.asm_parts.get(ib['file'])
+        if pa is None or pb is None:
+            raise A.AssemblyError('Uno dei due pezzi non si legge.')
+        if mobile.get('face') is None or fermo.get('face') is None:
+            raise A.AssemblyError('Clicca una faccia di ciascun pezzo.')
+        r = appoggia(pa, ia['R'], ia['T'], int(fermo['face']), pb, ib['R'], ib['T'], int(mobile['face']), opz)
+        return ia, ib, int(fermo['face']), r
+
+    @staticmethod
+    def _appoggia_info(ia, ib, r) -> dict:
+        """Per il pannello: le due direzioni con i nomi dei lati, le distanze dai bordi e se resteranno legate."""
+        out = {}
+        for k, d in r['dirs'].items():
+            fermo, mobile = d['fermo'], d['mobile']
+            if d['modo'] == 'centro':
+                tiene = None not in fermo and None not in mobile
+            elif d['modo'] == 'basso':
+                tiene = fermo[0] is not None and mobile[0] is not None
+            else:
+                tiene = fermo[1] is not None and mobile[1] is not None
+            out[k] = {'modo': d['modo'], 'mm': d['mm'], 'basso': d['basso'], 'alto': d['alto'],
+                      'da_basso': round(d['da_basso'], 2), 'da_alto': round(d['da_alto'], 2),
+                      'lungo_a': round(d['lungo_a'], 2), 'lungo_b': round(d['lungo_b'], 2), 'tiene': tiene}
+        return {'fermo': ia['id'], 'mobile': ib['id'], 'nome_fermo': ia['name'], 'nome_mobile': ib['name'], 'dirs': out}
+
+    @_in_assieme
+    def asm_appoggia(self, mobile: dict, fermo: dict, opz: dict | None = None, prova: bool = False) -> dict:
+        """Appoggia (03/11): il pezzo della faccia «mobile» si appoggia sulla faccia «fermo» dell'altro, senza
+        capovolgersi né entrarci, al centro (o su un bordo, o a una misura dai bordi: opz). Con prova solo dove
+        andrebbe (per l'anteprima); se no gli accoppiamenti veri: faccia su faccia + in mezzo / distanza."""
+        if prova:
+            try:
+                ia, ib, ka, r = self._appoggia_conti(mobile, fermo, opz)
+            except SteelCADError as ex:
+                return {'ok': False, 'message': ex.message}
+            R, T = r['R'], r['T']
+            posa = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
+            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, **self._appoggia_info(ia, ib, r)}
+        esito = {}
+
+        def fn():
+            ia, ib, ka, r = self._appoggia_conti(mobile, fermo, opz)
+            esito.update(self._appoggia_info(ia, ib, r))
+            ib['R'], ib['T'] = r['R'].tolist(), r['T'].tolist()
+            coppia = {ia['id'], ib['id']}
+            self.asm.mates = [m for m in self.asm.mates if {m['a']['inst'], m['b']['inst']} != coppia]
+            usati = {m['id'] for m in self.asm.mates}
+
+            def nuovo(tipo, lato=None, **refs):
+                mid = self.asm.new_id('M', usati)
+                usati.add(mid)
+                m = {'id': mid, 'type': tipo, **refs, 'offset': 0.0, 'flip': False, 'da': 'appoggia'}
+                if lato:
+                    m['lato'] = lato
+                if tipo == 'distanza':
+                    m['offset'] = round(self._misura_mate(m), 4)
+                    if m['offset'] < 0:                 # «a 20 dal bordo» si legge e si scrive 20, non −20
+                        m['segno'] = -1
+                self.asm.mates.append(m)
+            fa = lambda k: self._asm_face(ia['id'], k)          # noqa: E731
+            fb = lambda k: self._asm_face(ib['id'], k)          # noqa: E731
+            nuovo('faccia', a=fa(ka), b=fb(r['kb2']))
+            for d in r['dirs'].values():
+                (fa0, fa1), (fb0, fb1) = d['fermo'], d['mobile']
+                if d['modo'] == 'centro' and None not in (fa0, fa1, fb0, fb1):
+                    nuovo('centra', a=fa(fa0), a2=fa(fa1), b=fb(fb0), b2=fb(fb1))
+                elif d['modo'] == 'basso' and None not in (fa0, fb0):
+                    nuovo('distanza', d['basso'], a=fa(fa0), b=fb(fb0))
+                elif d['modo'] == 'alto' and None not in (fa1, fb1):
+                    nuovo('distanza', d['alto'], a=fa(fa1), b=fb(fb1))
+            return {'select': ib['id']}
+        r = self._asm_change('Appoggia', fn)
+        if r.get('ok'):
+            dd = esito['dirs']
+            dove = ('al centro' if all(d['modo'] == 'centro' for d in dd.values()) else
+                    ', '.join(f'a {fmt_mm(round(d["da_basso"] if d["modo"] == "basso" else d["da_alto"], 1))} da {d["basso"] if d["modo"] == "basso" else d["alto"]}'
+                              if d['modo'] != 'centro' else f'al centro {d["basso"]}/{d["alto"]}' for d in dd.values()))
+            liberi = [f'{d["basso"]}/{d["alto"]}' for d in dd.values() if not d['tiene']]
+            r['message'] = (f'Fatto: «{esito["nome_mobile"]}» sta su «{esito["nome_fermo"]}», {dove}.'
+                            + (f' {", ".join(liberi).capitalize()}: non c’è un lato piano per tenerlo, resta dove l’ho messo.'
+                               if liberi else ' Se cambi un pezzo resta al suo posto.'))
+            r['appoggia'] = esito
+        return r
+
     def _gioco_teste(self, ia: str, ib: str) -> float:
         """Testa a testa senza gioco scritto: quello dei tagli di testa dei due pezzi (metà ciascuno)."""
         tot = 0.0
@@ -520,7 +618,7 @@ class AssemblyMixin:
             if m is None:
                 raise A.AssemblyError(f'Non c’è l’accoppiamento {mid}.')
             if 'offset' in fields and str(fields['offset']).strip() != '':
-                m['offset'] = _numero(fields['offset'], 'la distanza')
+                m['offset'] = _numero(fields['offset'], 'la distanza') * (m.get('segno') or 1)
             if 'angle' in fields and str(fields['angle']).strip() != '':
                 ang = _numero(fields['angle'], 'l’angolo')
                 if not 0 <= ang <= 180:
@@ -553,7 +651,7 @@ class AssemblyMixin:
         except SteelCADError as ex:
             return {'ok': False, 'message': ex.message}
         tenuti.setdefault(mid, m.get(campo) or 0)
-        m[campo] = v
+        m[campo] = v * ((m.get('segno') or 1) if campo == 'offset' else 1)
         A.solve(self.asm, self.asm_parts)
         pose = {}
         for i in self.asm.instances:
@@ -1384,7 +1482,7 @@ class AssemblyMixin:
             st = 'errore' if any(e['id'] == i['id'] for e in self.asm_errors) else ('fisso' if i.get('fixed') else None)
             figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': [], 'status': st})
         acc = [{'label': f'{m["id"]}: {A.MATE_TYPES[m["type"]]} — {nomi.get(m["a"]["inst"], "?")} / {nomi.get(m["b"]["inst"], "?")}'
-                + (f', distanza {fmt_mm(m.get("offset") or 0)}' if m['type'] in ('faccia', 'distanza', 'tangente', 'centra')
+                + (f', distanza {fmt_mm((m.get("offset") or 0) * (m.get("segno") or 1))}' if m['type'] in ('faccia', 'distanza', 'tangente', 'centra')
                    and m.get('offset') else '')
                 + (f', {fmt_mm(round(m.get("angle") or 0, 2))}°' if m['type'] == 'angolo' else '')
                 + (' (sospeso)' if m.get('off') else ''),
@@ -1562,6 +1660,45 @@ class AssemblyMixin:
                          'marks': segni, 'look': finiture.colore(part.doc.meta.get('finitura'))})
         return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
 
+    def _ingombro_mondo(self, i) -> np.ndarray | None:
+        """L'ingombro della copia nel mondo (min, max), dai punti della sua maglia."""
+        part = self.asm_parts.get(i['file'])
+        if part is None:
+            return None
+        P = np.asarray(A.part_mesh(part)['positions'], dtype=float).reshape(-1, 3)
+        if not len(P):
+            return None
+        Q = P @ np.array(i['R'], dtype=float).T + np.array(i['T'], dtype=float)
+        return np.array([Q.min(axis=0), Q.max(axis=0)])
+
+    def _dove_sta(self, iid: str) -> dict | None:
+        """Dove sta la copia (03/11, Stefano: «Sposta» diceva solo di quanto): l'angolo in basso a sinistra davanti
+        del suo ingombro e, se appoggia su un altro pezzo, quanto dista dai suoi bordi."""
+        i = self.asm.instance(iid)
+        b = self._ingombro_mondo(i)
+        if b is None:
+            return None
+        out = {'min': [round(float(v), 2) for v in b[0]], 'max': [round(float(v), 2) for v in b[1]], 'sotto': None}
+        migliore = None
+        for j in self.asm.instances:
+            if j['id'] == iid:
+                continue
+            c = self._ingombro_mondo(j)
+            if c is None or abs(c[1][2] - b[0][2]) > 0.5:
+                continue
+            sopra = min(b[1][0], c[1][0]) - max(b[0][0], c[0][0]), min(b[1][1], c[1][1]) - max(b[0][1], c[0][1])
+            if sopra[0] <= 0 or sopra[1] <= 0:
+                continue
+            area = sopra[0] * sopra[1]
+            if migliore is None or area > migliore[0]:
+                migliore = (area, j, c)
+        if migliore:
+            _, j, c = migliore
+            out['sotto'] = {'id': j['id'], 'name': j['name'],
+                            'sinistra': round(float(b[0][0] - c[0][0]), 2), 'destra': round(float(c[1][0] - b[1][0]), 2),
+                            'davanti': round(float(b[0][1] - c[0][1]), 2), 'dietro': round(float(c[1][1] - b[1][1]), 2)}
+        return out
+
     def _asm_select(self, obj_id: str, face_index=None) -> dict:
         if obj_id == 'assieme':
             return _ok(selection={'kind': 'assembly', 'id': 'assieme', 'title': self.asm.name,
@@ -1576,7 +1713,8 @@ class AssemblyMixin:
             rows = [['Tipo', A.MATE_TYPES[m['type']]], ['Fermo', nomi.get(m['a']['inst'], '?')], ['Si muove', nomi.get(m['b']['inst'], '?')],
                     ['Scarto', '—' if err is None else f'{err:.4f}']]
             return _ok(selection={'kind': 'mate', 'id': mid, 'title': f'Accoppiamento {mid}', 'rows': rows,
-                                  'def': {'type': m['type'], 'offset': m.get('offset') or 0, 'flip': bool(m.get('flip')),
+                                  'def': {'type': m['type'], 'offset': (m.get('offset') or 0) * (m.get('segno') or 1),
+                                          'flip': bool(m.get('flip')), 'da': m.get('da'),
                                           'angle': m.get('angle') or 0,
                                           'off': bool(m.get('off'))}})
         i = self.asm.instance(obj_id)
@@ -1590,7 +1728,9 @@ class AssemblyMixin:
                'acquisto': (part.doc.meta.get('acquisto') if part is not None else None),
                'finitura': (part.doc.meta.get('finitura') if part is not None else None),
                'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])],
-               'movimenti': self._movimenti(obj_id)}
+               'movimenti': self._movimenti(obj_id), 'dove': self._dove_sta(obj_id)}
+        # lo tengono gli accoppiamenti (spostarlo a mano non serve: il risolutore lo rimette lì); il pezzo fermo no
+        sel['tenuto'] = bool(sel['mates']) and obj_id != self._terra()
         if face_index is not None and part is not None:
             try:
                 f = self._asm_face(obj_id, face_index)

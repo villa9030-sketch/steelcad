@@ -244,6 +244,8 @@ details.altro summary { cursor: pointer; color: var(--ink-2); }
 .dirs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .dirs .btn { padding: 4px 0; }
 .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.xyz.xyz4 { grid-template-columns: repeat(4, 1fr); }
+.xyz input[readonly] { background: transparent; color: var(--ink-2); }
 .xyz label { display: grid; gap: 1px; font-size: 11px; color: var(--ink-3); }
 .sub { margin: 14px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
 .btn.danger { color: var(--err); }
@@ -1382,3 +1384,40 @@ body.in-prova #sk-foot { display: none !important; }
 #prova-barra .btn:disabled { opacity: .38; cursor: not-allowed; filter: grayscale(.6); }
 .ant-stato .ant-sol { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 #props .btn:disabled, #modal-box .btn:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
+
+/* Appoggia (03/11): il pannello piccolo in alto a destra della vista */
+#appoggia { position: fixed; top: calc(36px + var(--alt-rib) + 12px); right: 16px; z-index: 45; width: 440px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+#appoggia .ap-testa { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
+#appoggia .ap-testa b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#appoggia .ap-testa small { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#appoggia.calcolo .ap-testa b::after { content: ''; display: inline-block; width: 9px; height: 9px; margin-left: 7px; border-radius: 50%;
+  border: 2px solid var(--hover); border-right-color: transparent; animation: giraSc .7s linear infinite; vertical-align: -1px; }
+#appoggia .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+#appoggia .seg button { white-space: nowrap; border: 0; border-right: 1px solid var(--line); background: none; padding: 4px 9px; font-size: 12.5px; color: var(--ink-2); }
+#appoggia .seg button:last-child { border-right: 0; }
+#appoggia .seg button:hover { background: var(--hov-bg); color: var(--ink); }
+#appoggia .seg button.on { background: var(--on-bg); color: var(--ink); font-weight: 600; }
+#appoggia .ap-dove { display: flex; margin-bottom: 4px; }
+#appoggia .ap-dove button { flex: 1; }
+#appoggia .ap-riga { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+#appoggia .ap-lab { width: 96px; flex: none; color: var(--ink-2); font-size: 12px; }
+#appoggia .inp { display: inline-flex; align-items: center; gap: 4px; }
+#appoggia .inp input { width: 64px; }
+#appoggia .inp i { font-style: normal; color: var(--ink-3); font-size: 12px; }
+#appoggia .ap-dist { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-2); }
+#appoggia .ap-dist b { color: var(--ink); }
+#appoggia .ap-nota:empty { display: none; }
+#appoggia .ap-err { margin: 6px 0 0; color: var(--err); font-size: 12.5px; }
+#appoggia .btn.on { background: var(--on-bg); border-color: var(--on-line); }
+#appoggia .acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+#appoggia .acts kbd { padding-left: 6px; }
+
+/* 03/11: la barretta del pezzo nell'assieme con il nome sotto le icone */
+#mini-barra.con-nomi > button { width: auto; min-width: 50px; height: 48px; padding: 4px 6px 3px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; }
+#mini-barra.con-nomi > button img { width: 20px; height: 20px; }
+#mini-barra.con-nomi > button .lab { font-size: 11px; line-height: 1.1; color: var(--ink-2); white-space: nowrap; }
+#mini-barra.con-nomi > button:hover .lab { color: var(--ink); }
+#mini-barra.con-nomi > button.piu { font-size: 16px; }
+#mini-barra.con-nomi > button[data-t]:hover::after { display: none; }

@@ -563,6 +563,9 @@ class Api:
     def asm_add_mate(self, kind, a, b, offset=0, flip=False, a2=None, b2=None):
         return self._call(self._svc.asm_add_mate, kind, a, b, offset, flip, a2, b2)
 
+    def asm_appoggia(self, mobile, fermo, opz=None, prova=False):
+        return self._call(self._svc.asm_appoggia, mobile, fermo, opz, prova)
+
     def asm_edit_mate(self, mid, fields):
         return self._call(self._svc.asm_edit_mate, mid, fields)
 
