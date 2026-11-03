@@ -2384,28 +2384,38 @@ $('#props').addEventListener('click', ev => {
 // ------------------------------------------------------------- prepara per il laser / l'officina
 // 03/11 (collaudo): il verde «a posto» sopra il giallo «Da guardare» sembrava dire due cose opposte. Prima quello che va
 // guardato; il verde solo se non c'è niente da guardare (se no il controllo fatto resta una riga piccola sotto)
-function prepControllo(c) {
+function prepControllo(c, laserNo) {
   if (!c) return '';
   const avvisi = c.avvisi || [];
-  const grave = c.ok ? '' : `<div class="prep-ok no"><b>Attenzione:</b> ${esc(c.testo)}</div>`;
-  const guarda = avvisi.length ? `<div class="prep-ok no prep-avvisi"><b>Da guardare:</b><span>${avvisi.map(esc).join('<br>')}</span></div>` : '';
-  if (!c.ok) return grave + guarda;
-  if (avvisi.length) return guarda + '<div class="prep-nota">Per il resto: contorno chiuso, fori e pieghe controllati.</div>';
-  return '<div class="prep-ok"><b>Il pezzo è a posto per il laser.</b> Contorno chiuso, fori e pieghe controllati.</div>';
+  // notte 03/11: un riquadro solo, col colore di stato: rosso se il laser non si può fare, ambra se c'è da guardare, verde se a posto
+  if (!c.ok || avvisi.length) {
+    const titolo = !c.ok ? c.testo : 'Da guardare prima di tagliare';
+    return `<div class="prep-ok no${avvisi.length ? ' prep-avvisi' : ''}${!c.ok && laserNo ? ' err' : ''}"><div class="prep-stato">
+      <b>${!c.ok ? 'Attenzione: ' : ''}${esc(titolo)}</b>
+      ${avvisi.length ? `<span class="prep-da">${!c.ok ? 'Da guardare:' : ''}</span><ul>${avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${c.ok ? '<small>Per il resto: contorno chiuso, fori e pieghe controllati.</small>' : ''}</div></div>`;
+  }
+  return '<div class="prep-ok"><div class="prep-stato"><b>Il pezzo è a posto per il laser.</b><small>Contorno chiuso, fori e pieghe controllati.</small></div></div>';
 }
+// il tipo del file, da mettere accanto al nome (DXF, PDF, STEP…)
+const tipoFile = f => { const m = /\.([a-z0-9]+)$/i.exec(String(f || '')); return m ? m[1].toUpperCase() : ''; };
+const rigaFile = f => `<li><span class="pf-tipo">${esc(tipoFile(f))}</span><span class="pf-nome">${esc(f)}</span></li>`;
 async function preparaDialog() {
   const info = await call('prepara_info');
   if (!info.ok) { toast(info.message, 'err'); return; }
   let cartella = info.cartella;
   const c = info.controllo;
-  const voci = info.voci.map(v => `<label class="${v.si ? '' : 'no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
+  const voci = info.voci.map(v => `<label class="prep-voce${v.si ? '' : ' no'}" title="${v.si ? '' : esc('Non disponibile: ' + (v.motivo || ''))}">
       <input type="checkbox" data-voce="${v.id}" ${v.scelta ? 'checked' : ''} ${v.si ? '' : 'disabled'}>
-      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span><small>${v.si ? esc(v.file) : esc('Non disponibile: ' + (v.motivo || ''))}</small>${
-        v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span></label>`).join('');
+      <span><b>${esc(v.titolo)}</b><span>${esc(v.desc)}</span>${v.si ? (tipoFile(v.file) ? '' : `<small class="pv-no">${esc(v.file)}</small>`) : `<small class="pv-no">${esc('Non disponibile: ' + (v.motivo || ''))}</small>`}${
+        v.id === 'officina' && v.si ? '<button type="button" class="link prep-guarda" id="prep-tavole">Guarda le tavole</button>' : ''}</span>
+      ${v.si && tipoFile(v.file) ? `<small class="pv-file" title="${esc(v.file)}"><i>${esc(tipoFile(v.file))}</i>${esc(v.file)}</small>` : '<small class="pv-file"></small>'}</label>`).join('');
+  const laserNo = !info.voci.some(v => v.id === 'laser' && v.si);
   modal(`<h3>Cosa ti serve?</h3>
-    ${prepControllo(c)}
-    <div class="prep-voci">${voci}</div>
-    <div class="prep-dove">Si salvano in <b id="prep-dir">${esc(cartella)}</b> <button class="link" id="prep-cambia">Cambia cartella</button></div>
+    ${prepControllo(c, laserNo)}
+    <div class="prep-voci" role="group" aria-label="Cosa salvare">${voci}</div>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Si salvano in</span><b id="prep-dir" title="${esc(cartella)}">${esc(cartella)}</b>
+      <button class="btn piccolo" id="prep-cambia">Cambia cartella</button></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Salva i file</button></div>`, close => {
     $('#modal-box').classList.add('prepara');
     const conta = () => {
@@ -2416,7 +2426,7 @@ async function preparaDialog() {
     document.querySelectorAll('#modal-box [data-voce]').forEach(i => { i.onchange = conta; });
     conta();
     $('#m-no').onclick = close;
-    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; } });
+    $('#prep-cambia').onclick = () => inCoda(async () => { const r = await call('scegli_cartella'); if (r.ok) { cartella = r.cartella; $('#prep-dir').textContent = cartella; $('#prep-dir').title = cartella; } });
     // 03/11: le tavole si guardano da qui (prima solo da «Esporta ▾ → Tavole»): si apre l'editor delle tavole
     const tav = $('#prep-tavole');
     if (tav) tav.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); close(); runCmd('drawings'); };
@@ -2436,9 +2446,9 @@ async function preparaDialog() {
 // pulsanti per aprire la cartella o guardare le tavole. Si chiude solo con «Chiudi».
 function preparaFatto(r) {
   modal(`<h3>File pronti</h3>
-    <div class="prep-ok"><b>Salvat${r.files.length === 1 ? 'o 1 file' : `i ${r.files.length} file`}.</b></div>
-    <ul class="prep-fatti">${r.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
-    <div class="prep-dove">Nella cartella <b class="prep-percorso" id="prep-dir">${esc(r.cartella)}</b></div>
+    <div class="prep-ok"><div class="prep-stato"><b>Salvat${r.files.length === 1 ? 'o 1 file' : `i ${r.files.length} file`}.</b><small>Li trovi nella cartella qui sotto.</small></div></div>
+    <ul class="prep-fatti">${r.files.map(rigaFile).join('')}</ul>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="prep-dir">${esc(r.cartella)}</b></div>
     <div class="acts"><button class="btn" id="prep-tav">Guarda le tavole</button><button class="btn" id="prep-apri">Apri la cartella</button>
       <button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
     $('#modal-box').classList.add('prepara');
@@ -2457,12 +2467,14 @@ function fileFatto(r, titolo = 'File salvato') {
   const nome = k >= 0 ? p.slice(k + 1) : p, cartella = k >= 0 ? p.slice(0, k) : '';
   const avvisi = r.avvisi?.length;
   modal(`<h3>${esc(titolo)}</h3>
-    <div class="prep-ok${avvisi ? ' no' : ''}"><b>${esc(nome)}</b></div>
-    ${r.message ? `<p class="hint fatto-msg">${esc(r.message)}</p>` : ''}
-    <div class="prep-dove">Nella cartella <b class="prep-percorso" id="fatto-dir">${esc(cartella)}</b></div>
+    <div class="prep-ok${avvisi ? ' no' : ''}"><div class="prep-stato"><b>${avvisi ? 'Salvato, ma c’è da guardare' : 'Salvato.'}</b>
+      ${r.message ? `<small class="fatto-msg">${esc(r.message)}</small>` : ''}</div></div>
+    <ul class="prep-fatti">${rigaFile(nome)}</ul>
+    <div class="prep-dove"><img src="icons/open.svg" alt=""><span>Nella cartella</span><b class="prep-percorso" id="fatto-dir">${esc(cartella)}</b></div>
     <div class="acts"><button class="btn" id="fatto-apri">Apri la cartella</button><button class="btn primary" id="m-ok">Chiudi</button></div>`, close => {
     $('#m-ok').onclick = close;
     $('#m-ok').focus();
+    $('#modal-box').classList.add('prepara', 'fatto');
     $('#fatto-apri').onclick = () => inCoda(async () => {
       const x = await call('apri_cartella', cartella);
       if (x && x.ok === false) toast('Non riesco ad aprire la cartella: ' + (x.message || '') + '. Il percorso è scritto qui sopra.', 'err');
@@ -6497,7 +6509,7 @@ new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal
   .observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
 
 function modal(html, wire) {
-  $('#modal-box').classList.remove('wide', 'nuovo');
+  $('#modal-box').classList.remove('wide', 'nuovo', 'prepara', 'fatto');
   $('#modal').classList.remove('laterale');
   $('#modal-box').innerHTML = html;
   $('#modal').hidden = false;
