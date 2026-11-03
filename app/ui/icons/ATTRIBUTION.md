@@ -1,13 +1,15 @@
 # Icone
 
-Le icone SVG di questa cartella sono disegnate per SteelCAD (stile «acciaio»: pezzi in acciaio satinato, in blu
-quello che fa il comando; schizzo a tratto blu con maniglie bianche; vincoli in grigio col simbolo blu).
+Le icone SVG di questa cartella sono disegnate per Radius (stile «piatto», 03/11/2026): tratto da 1,75 px
+arrotondato nel colore del testo (`currentColor`) e un solo dettaglio pieno nel colore di accento
+(`var(--accento-icona)`: blu, o il colore della modalità nella barra dei comandi).
 
 Non si modificano a mano: si generano con
 
-    python tools/icone_acciaio.py
+    python tools/icone_piatte.py
 
-che scrive `app/ui/icons_nuove/acciaio/*.svg` (da copiare qui) e la pagina di controllo `app/ui/icons_nuove/acciaio.html`.
-Per un comando nuovo: aggiungere l'icona in `tools/icone_acciaio.py` con le stesse regole e rigenerare.
+che scrive questi `*.svg`, `app/ui/icone.js` (le stesse come simboli in linea: l'app le usa al posto delle
+<img>) e la tavola di controllo `app/ui/icons_nuove/tavola_piatte.html`.
+Per un comando nuovo: aggiungere l'icona in `tools/icone_piatte.py` con le stesse regole e rigenerare.
 
-Fino al 23/10/2026 qui c'erano le icone di SolidCraft (MIT / Apache-2.0); sono state tutte sostituite.
+Prima c'erano le icone «acciaio» (tools/icone_acciaio.py, 23/10) e, fino al 23/10, quelle di SolidCraft.
