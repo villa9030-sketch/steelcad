@@ -3005,12 +3005,12 @@ async function foroDialog(tipo = 'tondo', face = null) {
     if (v.disposizione === 'punti') s.punti = v.punti.map(p => [num(p[0]), num(p[1])]);
     return s;
   };
-  modal(`<h3 id="fo-tit"></h3>
+  modal(`<div id="fo-tutto"><h3 id="fo-tit"></h3>
     <p class="hint" id="fo-sotto"></p>
     <div id="fo-corpo">${corpo()}</div>
     <p class="fo-frase" id="fo-frase"></p>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div>`, close => {
-    const box = $('#modal-box');
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    const cornice = $('#modal-box'), box = $('#fo-tutto');      // gli ascoltatori sul contenuto: la cornice resta per le altre finestre
     const titolo = () => {
       $('#fo-tit').textContent = `${v.tipo === 'asola' ? 'Asola' : 'Foro'} su: ${nomeFaccia(FORO.info.label)}`;
       $('#fo-sotto').textContent = `Misure dal fuori tutto del pezzo (${virgola(Math.round(FORO.info.outer[0] * 10) / 10)} × ${virgola(Math.round(FORO.info.outer[1] * 10) / 10)}), anche dal lato della piega. Clic su un’altra faccia per cambiarla.`;
@@ -3022,7 +3022,7 @@ async function foroDialog(tipo = 'tondo', face = null) {
       $('#fo-corpo').innerHTML = corpo();
       titolo();
       const i = fuoco && box.querySelector(fuoco);
-      if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { box.tabIndex = -1; box.focus(); }   // Invio = Fatto anche dopo un clic
+      if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { cornice.tabIndex = -1; cornice.focus(); }   // Invio = Fatto anche dopo un clic
       vai();
     };
     FORO.ridisegna = ridisegna;
@@ -3060,7 +3060,7 @@ async function foroDialog(tipo = 'tondo', face = null) {
       chiudi();
       inCoda(async () => { const r = await call('fori_guidati', face, s); await apply(r, r.message); });
     };
-    box.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
     $('#modal').classList.add('laterale');
     let st = document.createElement('div'); st.className = 'ant-stato'; box.querySelector('.acts').before(st);
     anteprimaSpazio();
@@ -7565,7 +7565,7 @@ function skAction(act) {
         if (va) scostaDallaFinestra(serieMondo(SK.serieProva));
       };
       const chiudi = () => { if (SK) { SK.serieProva = null; drawRubber(); } close(); };
-      $('#modal-box').addEventListener('input', prova);
+      $('#modal-box .form').addEventListener('input', prova);     // sul contenuto: la cornice della finestra resta per le altre
       $('#m-no').onclick = chiudi;
       $('#m-ok').onclick = () => { const v = leggi(); SK.lastSerie = v; chiudi();
         inCoda(async () => { await apply(await call('sketch_pattern', sid, ids, v.c, v.px, v.r, v.py)); }); };
