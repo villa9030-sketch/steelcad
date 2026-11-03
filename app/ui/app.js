@@ -7583,7 +7583,8 @@ function fitSketch(subito = false, extra = []) {
   if (box.isEmpty()) return;
   // 04/11: un disegno appena iniziato (la prima linea da 28) non riempie la vista: almeno 200 mm attorno, così c'è
   // posto per il resto (A_collare 5-7: 40 scatti di rotella per rimpicciolire)
-  if (!SK.v.on_flat && !SK.v.on_face) {
+  const tratti = SK.v.lines.filter(l => !l.ref && !l.construction).length + (SK.v.arcs || []).length + SK.v.circles.length;
+  if (!SK.v.on_flat && !SK.v.on_face && tratti <= 1) {            // solo il primo tratto: con più cose si inquadra quello che c'è
     const c = skToLocal(box.getCenter(new THREE.Vector3())), sz = box.getSize(new THREE.Vector3());
     if (Math.max(sz.x, sz.y, sz.z) < 200) { box.expandByPoint(skToWorld([c[0] - 100, c[1] - 100])); box.expandByPoint(skToWorld([c[0] + 100, c[1] + 100])); }
   }
@@ -9443,7 +9444,7 @@ function makeDialog(kind) {
   }
   if (kind === 'cut') {
     const sid = SK.sid;
-    subitoOProva({ metodo: 'create_from_sketch', argomenti: () => [sid, 'cut', {}], frase: r => r?.frase || 'Toglie dal pezzo quello che hai disegnato',
+    subitoOProva({ metodo: 'create_from_sketch', argomenti: () => [sid, 'cut', {}], togli: true, conferma: 'Togli materiale', frase: r => r?.frase || 'Toglie dal pezzo quello che hai disegnato',
       sotto: () => 'In arancio quello che va via · nello sviluppo è il contorno che taglia il laser',
       fai: () => inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'cut', {}), 'Tagliato.')) exitSketch(); }) },
       () => call('create_from_sketch', sid, 'cut', {}), 'Tagliato.');
