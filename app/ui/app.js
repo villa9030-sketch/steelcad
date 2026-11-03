@@ -5447,7 +5447,7 @@ async function drawingsDialog() {
   box.innerHTML = `<header class="te-testa"><b class="te-titolo" title="${esc(S?.name || '')}"><i class="te-modo">Tavole</i><span>${esc(S?.name || '')}</span></b>
       <span class="te-sepv"></span>
       <button class="btn te-quieto" id="te-adatta" title="Il foglio intero (rotella: zoom; tasto centrale: sposta)"><img src="icons/fit.svg" alt="">Adatta</button>
-      <button class="btn te-quieto" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)"><img src="icons/undo.svg" alt="">Annulla</button>
+      <button class="btn te-quieto" id="te-undo" title="Annulla l’ultimo ritocco (Ctrl+Z)"><img src="icons/undo.svg" alt="">Annulla ritocco</button>
       <span class="te-spazio"></span>
       <button class="btn" id="te-dxf" title="Le tavole in DXF, per chi le apre col CAD">Esporta DXF</button><button class="btn primary" id="te-pdf" title="Le tavole in PDF, da stampare o mandare">Esporta PDF</button>
       <span class="te-sepv"></span>
@@ -9137,7 +9137,7 @@ function finestraTesto({ valori, at, nuova, ok }) {
   const u = { ...TESTO_BASE, ...(valori || {}) };
   const virg = x => esc(String(x).replace('.', ','));
   modal(`<h3>${nuova ? 'Testo' : 'Cambia il testo'}</h3>
-    <div class="form"><label class="tutta-riga">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
+    <div class="form"><label class="tutta-riga">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001, Ø10, LATO A"></label>
       <label class="tutta-riga">Come<select class="field" id="tx-c">
         <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option>
         <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>

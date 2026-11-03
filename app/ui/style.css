@@ -2619,3 +2619,7 @@ body[data-modo="tavole"] #ribbon, #tav-ed .te-strumenti { --accento-icona: var(-
 #fo-corpo [data-fo-seg="disposizione"] button { white-space: nowrap; padding: 0 6px; }
 /* nuovo assieme: tutta la riga del pezzo si clicca */
 #na-tab tr:has([data-i]) { cursor: pointer; }
+/* i messaggi sopra la barretta Inquadra / Quote / Tema, non sopra i suoi pulsanti (percorsi A, B, C, telaio) */
+body.bottom-closed #toasts { bottom: 104px; }
+/* campi di sola lettura (posizione della staffa nell'assieme): non sembrano più scrivibili (percorso D) */
+.field[readonly] { background: var(--c-incavo); color: var(--c-testo-2); border-color: transparent; box-shadow: none; cursor: default; }
