@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from .drawings import Foglio, TESTO, _cornice, _scegli_scala, _tabella, fmt, quota, scala_testo, SCALE
+from .drawings import Foglio, TESTO, _cornice, _scegli_scala, _tabella, fmt, quota, scala_testo, SCALE, SCALE_FITTE
 
 R_CERCHIO = 2.6          # mm sul foglio
 PASSO_TESTO = 3.6        # distanza minima tra due scritte impilate
@@ -73,23 +73,31 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     for num, a, b, kind, q in linee:
         if q is not None:
             quote_di.setdefault(num, f'{"↑" if kind == "h" else "→"} {fmt(q)}')
-    col = [c * u for c in (0, 9, 25, 43, 57, 69, 80, 91, 110, 130)]
-    intest = ['P', 'Flangia', 'Quota', 'Angolo', 'Verso', 'R int.', 'K', 'Lungh. est.', 'Largh.']
-    righe = [[r[0], r[1], quote_di.get(r[0], '—'), r[3], r[4], r[5], r[6], r[2], r[7]] for r in piegature]
+    intest, righe, titolo_tab = tabella_pieghe(piegature, quote_di)
+    n = len(righe)
+    h_riga = (5.0 if n <= 14 else max(3.6, min(5.0, 110 / (n + 1)))) * u
+    col = colonne(intest, righe, min(2.4 * u, h_riga * 0.55), u)
 
     area, cart = _cornice(f, {**campi, 'scala': ''})
-    n = len(righe)
-    h_riga = (6.0 if n <= 14 else max(3.6, min(6.0, 120 / (n + 1)))) * u
     larg_tab, alto_tab = col[-1], (h_riga * (n + 1) + 6 * u if n else 0)
     # margini attorno allo sviluppo: a sinistra quota totale e cerchi, a destra le quote delle pieghe, sotto la
     # quota totale (e i cerchi delle pieghe in verticale), sopra la didascalia e le quote delle pieghe in verticale
     ci_h = any(k == 'h' for _, _, _, k, _ in linee)
     ci_v = any(k == 'v' for _, _, _, k, _ in linee)
-    from .drawings import fori_e_asole, quote_fori_sviluppo
+    from .drawings import fori_e_asole, quote_fori_sviluppo, tappe_fori, catena_ci_sta, largo_progressive, MAX_TAPPE
     fori = fori_e_asole(poly)                         # 03/11: fori e asole quotati anche nello sviluppo
-    cf = 9 if fori else 0
-    m_sx, m_dx = (14 + cf + (10 if ci_h else 0)) * u, (6 + (20 if ci_h else 0)) * u
-    m_sotto, m_sopra = (14 + cf + (10 if ci_v else 0)) * u, (16 + (12 if ci_v else 0)) * u     # + la riga della legenda
+    fx, fy = tappe_fori(fori, (x0, y0, x1, y1)) if fori else ([], [])
+    m_dx = (6 + (18 if ci_h else 0)) * u
+    m_sopra = (16 + (12 if ci_v else 0)) * u          # + la riga della legenda
+
+    def margini(sc):
+        """Sotto e a sinistra: la quota totale, le quote dei fori (catena, o progressive se i fori sono fitti
+        e la catena alla scala sc non ci sta: allora più posto per i numeri) e i cerchi delle pieghe."""
+        cs = cl = 0.0
+        if fori and max(len(fx), len(fy)) <= MAX_TAPPE:     # con troppi fori niente quote (solo le note)
+            cs = 9 * u if len(fx) <= 16 and catena_ci_sta(fx, sc, u) else largo_progressive(fx, u) + 1.5 * u
+            cl = 9 * u if len(fy) <= 16 and catena_ci_sta(fy, sc, u) else largo_progressive(fy, u) + 1.5 * u
+        return (14 * u + cl + (10 * u if ci_h else 0), 14 * u + cs + (10 * u if ci_v else 0), cs, cl)
     sistemazioni = []
     if n:
         # A) tabella sopra il cartiglio
@@ -104,15 +112,22 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
         sistemazioni.append((None, [(area[0], area[1], cart[0] - 6, area[3]), (area[0], cart[3] + 4, area[2], area[3])]))
 
     def scala_zona(z):
-        aw, ah = (z[2] - z[0]) - m_sx - m_dx, (z[3] - z[1]) - m_sotto - m_sopra
-        if aw <= 0 or ah <= 0:
-            return 0.0
-        sc = _scegli_scala((x1 - x0, y1 - y0), aw, ah)
+        sc = None
+        for _ in range(3):                            # i margini dipendono dalla scala (quote dei fori): si riprova
+            m_sx, m_sotto = margini(sc if sc else SCALE[0])[:2]
+            aw, ah = (z[2] - z[0]) - m_sx - m_dx, (z[3] - z[1]) - m_sotto - m_sopra
+            if aw <= 0 or ah <= 0:
+                return 0.0
+            nuova = _scegli_scala((x1 - x0, y1 - y0), aw, ah, SCALE_FITTE)
+            if nuova == sc:
+                break
+            sc = nuova
         return sc if (x1 - x0) * sc <= aw and (y1 - y0) * sc <= ah else 0.0
     migliore = max(((scala_zona(z), (z[2] - z[0]) * (z[3] - z[1]), tab, z) for tab, zone in sistemazioni for z in zone),
                    key=lambda x: (x[0], x[1]))
     s, _, tab, zona = migliore
     s = s or SCALE[-1]
+    m_sx, m_sotto, cs, cl = margini(s)
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     campi = {**campi, 'scala': scala_testo(s), '_s': s}
     area, cart = _cornice(f, campi)
@@ -133,9 +148,8 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
             f.line('marca', *[T(q) for q in pts])
     X0, Y0 = T((x0, y0))
     X1, Y1 = T((x1, y1))
-    quota(f, (X0, Y0), (X1, Y0), (-8 - cf - (10 if ci_v else 0)) * u, x1 - x0)
-    quota(f, (X0, Y0), (X0, Y1), (8 + cf + (10 if ci_h else 0)) * u, y1 - y0)
-    quote_fori_sviluppo(f, T, (x0, y0, x1, y1), fori, (-8 - (10 if ci_v else 0)) * u, (8 + (10 if ci_h else 0)) * u, u)
+    quota(f, (X0, Y0), (X1, Y0), -8 * u - cs - (10 * u if ci_v else 0), x1 - x0)
+    quota(f, (X0, Y0), (X0, Y1), 8 * u + cl + (10 * u if ci_h else 0), y1 - y0)
 
     # pieghe orizzontali: cerchi a sinistra, quote progressive a destra (dal bordo in basso)
     oriz = sorted(((num, a, b, q) for num, a, b, k, q in linee if k == 'h'), key=lambda x: x[3])
@@ -175,6 +189,8 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
             yb = T((0, max(vert[k - 1][1][1], vert[k - 1][2][1])))[1] if k else Y1
             f.line('quote', (x, yb + 0.8 * u), (x, yq), (t, yq + 3 * u), (t, yq + 4.5 * u))
             f.text('quote', (t, yq + 5 * u), testo, 2.5 * u, 'c')
+    # i fori dopo le pieghe: le loro note si mettono dove non coprono le quote delle pieghe
+    quote_fori_sviluppo(f, T, (x0, y0, x1, y1), fori, (-8 - (10 if ci_v else 0)) * u, (8 + (10 if ci_h else 0)) * u, u)
     # pieghe oblique: solo il numero, in fondo alla linea
     for num, a, b, k, q in linee:
         if k != 'o':
@@ -190,9 +206,41 @@ def tavola_sviluppo(data, campi: dict, piegature: list, formato: str = 'A3') -> 
     if not oriz and not vert:
         didascalia = 'SVILUPPO visto dal lato dello sketch'
     cw = 1.4 * u
-    f.text('testo', (zona[0] + 2, zona[3] - 4 * u), didascalia if len(didascalia) * cw < zona[2] - zona[0] else didascalia[:int((zona[2] - zona[0]) / cw)], 2.5 * u)
+    righe_did = [didascalia]
+    if len(didascalia) * cw >= zona[2] - zona[0] and ' · quote' in didascalia:     # 03/11: a capo, non tagliata
+        a, b = didascalia.split(' · quote', 1)
+        righe_did = [a, 'quote' + b]
+    for i, riga in enumerate(righe_did):
+        f.text('testo', (zona[0] + 2, zona[3] - (4 + 3.6 * i) * u),
+               riga if len(riga) * cw < zona[2] - zona[0] else riga[:int((zona[2] - zona[0]) / cw)], 2.5 * u)
     from .drawings import legenda, voci_legenda
-    legenda(f, zona[0] + 2, zona[3] - 9.5 * u, voci_legenda(data), u)
+    legenda(f, zona[0] + 2, zona[3] - (9.5 + 3.6 * (len(righe_did) - 1)) * u, voci_legenda(data), u)
     if n and tab is not None:
         _tabella(f, tab[0], tab[1], col, [intest] + righe, 'TABELLA PIEGHE', h=h_riga, k=u)
+        if titolo_tab != 'TABELLA PIEGHE':            # raggio e K uguali per tutte: accanto al titolo
+            f.text('testo', (tab[0] + len('TABELLA PIEGHE') * 2.8 * u * 0.6 + 3 * u, tab[1] + 2 * u),
+                   titolo_tab.replace('TABELLA PIEGHE · ', ''), 2.8 * u)
     return f
+
+
+def tabella_pieghe(piegature: list, quote_di: dict) -> tuple:
+    """03/11: la tabella pieghe stretta (rubava metà foglio allo sviluppo): raggio e K, se sono gli stessi per tutte
+    le pieghe (quasi sempre), vanno nel titolo invece che in due colonne ripetute."""
+    intest = ['P', 'Flangia', 'Quota', 'Angolo', 'Verso', 'R int.', 'K', 'Lungh. est.', 'Largh.']
+    righe = [[r[0], r[1], quote_di.get(r[0], '—'), r[3], r[4], r[5], r[6], r[2], r[7]] for r in piegature]
+    titolo = 'TABELLA PIEGHE'
+    uguali = [j for j in (5, 6) if righe and len({r[j] for r in righe}) == 1]
+    if uguali:
+        titolo += ''.join(f' · {intest[j]} {righe[0][j]}' for j in uguali if righe[0][j] not in ('', None))
+        intest = [c for j, c in enumerate(intest) if j not in uguali]
+        righe = [[c for j, c in enumerate(r) if j not in uguali] for r in righe]
+    return intest, righe, titolo
+
+
+def colonne(intest: list, righe: list, th: float, u: float) -> list:
+    """Le colonne larghe quanto la scritta più lunga (non più larghe a occhio)."""
+    col = [0.0]
+    for j in range(len(intest)):
+        n = max(len(str(r[j])) for r in [intest] + righe)
+        col.append(col[-1] + max(6 * u, n * th * 0.6 + 2.6))
+    return col

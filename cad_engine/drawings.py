@@ -815,13 +815,19 @@ def etichette_fori(doc) -> dict:
 FATTORE_USCITA = 1.0
 
 
-def _scegli_scala(dims: list, area_w: float, area_h: float) -> float:
+# 03/11: per lo sviluppo anche le scale di mezzo (1:7,5 tra 1:5 e 1:10): un pannello da un metro usciva a 1:10 con
+# mezzo foglio vuoto. Le misure si leggono dalle quote, la scala serve solo a riempire il foglio.
+SCALE_FITTE = sorted(set(SCALE) | {1 / 3, 1 / 4, 1 / 7.5, 1 / 15, 1 / 30, 1 / 40, 1 / 75}, reverse=True)
+
+
+def _scegli_scala(dims: list, area_w: float, area_h: float, scale: list | None = None) -> float:
     """dims: (larghezza totale, altezza totale) in mm del pezzo, già con le viste affiancate."""
-    for s0 in SCALE:
+    scale = scale or SCALE
+    for s0 in scale:
         s = s0 / FATTORE_USCITA
         if dims[0] * s <= area_w and dims[1] * s <= area_h:
             return s
-    return SCALE[-1] / FATTORE_USCITA
+    return scale[-1] / FATTORE_USCITA
 
 
 # ------------------------------------------------------------------------------------------ le tavole
@@ -1679,11 +1685,9 @@ def _passi_uguali(tappe: list) -> list:
     return out
 
 
-def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: float, u: float = 1.0):
-    """Le catene di quote dei centri di fori e asole (sotto dal bordo sinistro, a sinistra dal bordo di sotto) e una
-    nota per tipo: «4× Ø10,5», «Asola 30 × 10». Distanze in mm sul foglio dalla linea del pezzo (negative = sotto)."""
-    if not fori:
-        return
+def tappe_fori(fori: list, bbox) -> tuple:
+    """Le posizioni dei centri di fori e asole da quotare: (x dal bordo sinistro, y dal bordo di sotto), lo zero in
+    testa, senza doppioni e senza quelle sui bordi."""
     x0, y0, x1, y1 = bbox
     xs, ys = [], []
     for o in fori:
@@ -1692,31 +1696,155 @@ def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: fl
             xs.append(cx)
         if not any(abs(cy - y) < 0.05 for y in ys):
             ys.append(cy)
+    return ([x0] + sorted(x for x in xs if x0 + 1e-6 < x < x1 - 1e-6),
+            [y0] + sorted(y for y in ys if y0 + 1e-6 < y < y1 - 1e-6))
+
+
+def catena_ci_sta(tappe: list, sc: float, u: float) -> bool:
+    """Ogni numero della catena ci sta tra le sue linee (alla scala sc, testo 2,8 u)? Se no le quote si fanno
+    progressive dal bordo (03/11: «quote corte vicino alle pieghe fitte»)."""
+    h = 2.8 * u
+    tratti = []
+    for a, b, t in _passi_uguali(tappe):
+        w = len(t if t is not None else fmt(b - a)) * h * 0.55
+        tratti.append(((b - a) * sc, w, (b - a) * sc < w + 2 * u))
+    # una quota corta scrive il numero di fianco, sul tratto dopo: va bene se è l'ultima o se il tratto dopo è
+    # lungo abbastanza per tutti e due i numeri
+    for i, (L, w, corta) in enumerate(tratti):
+        if corta and i + 1 < len(tratti) and (tratti[i + 1][2] or tratti[i + 1][0] < 2 * (w + tratti[i + 1][1]) + 4 * u):
+            return False
+    return True
+
+
+def largo_progressive(tappe: list, u: float) -> float:
+    """Quanto spazio (mm sul foglio, oltre la linea di quota) prendono i numeri delle quote progressive."""
+    n = max((len(fmt(round(t - tappe[0], 2))) for t in tappe), default=1)
+    return 4 * u + n * 2.5 * u * 0.6
+
+
+def quote_progressive(f: Foglio, T, tappe: list, P, distanza: float, u: float, sotto: bool):
+    """03/11: quote progressive dal bordo (lo zero e poi ogni posizione), come quelle delle pieghe: una linea dal
+    bordo del pezzo fino alla linea di quota e il numero; i numeri vicini si allargano con un richiamo, così non si
+    accavallano mai. sotto: posizioni lungo x, numeri in piedi sotto il pezzo; se no lungo y, numeri a sinistra."""
+    if len(tappe) < 2:
+        return
+    # lo zero è il bordo (lo dice già la quota totale, che ci passa sopra): si scrivono solo le posizioni
+    pts = [T(P(t)) for t in tappe[1:]]
+    testi = [fmt(round(t - tappe[0], 2)) for t in tappe[1:]]
+    PT = 3.6 * u
+    h = 2.5 * u
+    if sotto:
+        yb = pts[0][1] - abs(distanza)
+        xs = [p[0] for p in pts]
+        xt = _allarga(xs, PT, xs[0] - 50 * u, xs[-1] + 50 * u)
+        for (x, y), t, testo in zip(pts, xt, testi):
+            f.line('quote', (x, y - 1.5 * u), (x, yb), (t, yb - 2 * u), (t, yb - 3 * u))
+            w = len(testo) * h * 0.55
+            f.text('quote', (t + 0.35 * h, yb - 3.6 * u - w / 2), testo, h, 'cv')
+    else:
+        xb = pts[0][0] - abs(distanza)
+        ys = [p[1] for p in pts]
+        yt = _allarga(ys, PT, ys[0] - 50 * u, ys[-1] + 50 * u)
+        for (x, y), t, testo in zip(pts, yt, testi):
+            f.line('quote', (x - 1.5 * u, y), (xb, y), (xb - 2 * u, t), (xb - 3 * u, t))
+            f.text('quote', (xb - 3.6 * u, t - 0.9 * u), testo, h, 'r')
+
+
+def _allarga(pos: list, minimo: float, lo: float, hi: float) -> list:
+    """Posizioni ordinate (coordinate sul foglio) spostate il meno possibile perché distino almeno «minimo»,
+    dentro [lo, hi] se ci stanno."""
+    if not pos:
+        return []
+    out = list(pos)
+    for i in range(1, len(out)):
+        out[i] = max(out[i], out[i - 1] + minimo)
+    if out[-1] > hi:                                  # sfora in cima: si spinge tutto giù
+        out[-1] = hi
+        for i in range(len(out) - 2, -1, -1):
+            out[i] = min(out[i], out[i + 1] - minimo)
+    if out[0] < lo:                                   # e se così sfora sotto, si torna su (meglio sovrapposti fuori)
+        out[0] = lo
+        for i in range(1, len(out)):
+            out[i] = max(out[i], out[i - 1] + minimo)
+    return out
+
+
+MAX_TAPPE = 30           # più posizioni di fori di così: niente quote dei fori (solo le note «12× Ø9»)
+
+
+def quote_fori_sviluppo(f: Foglio, T, bbox, fori: list, d_sotto: float, d_sx: float, u: float = 1.0):
+    """Le catene di quote dei centri di fori e asole (sotto dal bordo sinistro, a sinistra dal bordo di sotto) e una
+    nota per tipo: «4× Ø10,5», «Asola 30 × 10». Distanze in mm sul foglio dalla linea del pezzo (negative = sotto).
+    03/11: se i numeri della catena non ci stanno (fori vicini), quote progressive dal bordo."""
+    if not fori:
+        return
+    x0, y0, x1, y1 = bbox
+    tx, ty = tappe_fori(fori, bbox)
+    sc = abs(T((1, 0))[0] - T((0, 0))[0])
     with f.oggetto('fori_sviluppo'):
-        if max(len(xs), len(ys)) <= 15:
-            catena_quote(f, T, [x0] + sorted(x for x in xs if x0 + 1e-6 < x < x1 - 1e-6), lambda x: (x, y0), d_sotto)
-            catena_quote(f, T, [y0] + sorted(y for y in ys if y0 + 1e-6 < y < y1 - 1e-6), lambda y: (x0, y), d_sx)
+        if max(len(tx), len(ty)) <= MAX_TAPPE:
+            for tappe, P, d, sotto in ((tx, lambda x: (x, y0), d_sotto, True), (ty, lambda y: (x0, y), d_sx, False)):
+                if len(tappe) < 2:
+                    continue
+                if len(tappe) <= 16 and catena_ci_sta(tappe, sc, u):
+                    catena_quote(f, T, tappe, P, d)
+                else:
+                    quote_progressive(f, T, tappe, P, d, u, sotto)
         gruppi: dict = {}
         for o in fori:
             chiave = (f'Ø{fmt(o["d"])}' if o['kind'] == 'foro' else f'Asola {fmt(o["L"])} × {fmt(o["W"])}')
             gruppi.setdefault(chiave, []).append(o)
+        cx, cy = T(((x0 + x1) / 2, (y0 + y1) / 2))
+        occupati = [_box_testo(t) for t in f.testi]
         for testo, lista in gruppi.items():
-            o = max(lista, key=lambda q: (q['c'][1], q['c'][0]))
-            r = (o['d'] / 2 if o['kind'] == 'foro' else o['W'] / 2)
-            if o['kind'] == 'asola' and o['orizzontale']:
-                p0 = (o['c'][0] + (o['L'] - o['W']) / 2, o['c'][1])
-            elif o['kind'] == 'asola':
-                p0 = (o['c'][0], o['c'][1] + (o['L'] - o['W']) / 2)
-            else:
-                p0 = o['c']
-            P = T(p0)
-            sc = T((1, 0))[0] - T((0, 0))[0]
-            q = (P[0] + r * sc * 0.7, P[1] + r * sc * 0.7)
-            e = (q[0] + 7 * u, q[1] + 7 * u)
             t = (f'{len(lista)}× ' if len(lista) > 1 else '') + testo
-            f.line('quote', q, e, (e[0] + 2 * u + len(t) * 1.6 * u, e[1]))
+            # 03/11: la nota dove non copre altre scritte (le quote delle pieghe sopra e a destra): si prova dal
+            # foro più in alto a destra (come prima), poi dagli altri angoli, poi più lontano
+            scelte = []
+            for o in sorted({id(q): q for q in (max(lista, key=lambda q: (q['c'][1], q['c'][0])),
+                                                max(lista, key=lambda q: (q['c'][1], -q['c'][0])),
+                                                min(lista, key=lambda q: (q['c'][1], -q['c'][0])),
+                                                min(lista, key=lambda q: (q['c'][1], q['c'][0])))}.values(),
+                            key=lambda q: (-q['c'][1], -q['c'][0])):
+                r = (o['d'] / 2 if o['kind'] == 'foro' else o['W'] / 2)
+                if o['kind'] == 'asola' and o['orizzontale']:
+                    p0 = (o['c'][0] + (o['L'] - o['W']) / 2, o['c'][1])
+                elif o['kind'] == 'asola':
+                    p0 = (o['c'][0], o['c'][1] + (o['L'] - o['W']) / 2)
+                else:
+                    p0 = o['c']
+                P = T(p0)
+                sc = T((1, 0))[0] - T((0, 0))[0]
+                sx, sy = (1 if P[0] >= cx else -1), (1 if P[1] >= cy else -1)
+                for lungo in (7, 12, 18):
+                    q = (P[0] + sx * r * sc * 0.7, P[1] + sy * r * sc * 0.7)
+                    e = (q[0] + sx * lungo * u, q[1] + sy * lungo * u)
+                    w = len(t) * 2.8 * u * 0.55
+                    box = (e[0] + 1 * u if sx > 0 else e[0] - 1 * u - w, e[1], e[0] + 1 * u + w if sx > 0 else e[0] - 1 * u,
+                           e[1] + 3.4 * u)
+                    # il richiamo non deve passare sopra le scritte: qualche punto lungo la linea
+                    lungo_linea = [((q[0] * (8 - k) + e[0] * k) / 8, (q[1] * (8 - k) + e[1] * k) / 8) for k in range(1, 9)]
+                    scelte.append((q, e, sx, box, [(x - 0.3, y - 0.3, x + 0.3, y + 0.3) for x, y in lungo_linea]))
+            q, e, sx, box, _ = next((c for c in scelte if not any(_tocca(x, b) for b in occupati for x in [c[3]] + c[4])),
+                                    scelte[0])
+            occupati.append(box)
+            f.line('quote', q, e, (e[0] + sx * (2 * u + len(t) * 1.6 * u), e[1]))
             _freccia(f, q, (q[0] - e[0], q[1] - e[1]), L=2.5 * u)
-            f.text('quote', (e[0] + 1 * u, e[1] + 0.8 * u), t, 2.8 * u)
+            f.text('quote', (e[0] + sx * 1 * u, e[1] + 0.8 * u), t, 2.8 * u, 'l' if sx > 0 else 'r')
+
+
+def _box_testo(t) -> tuple:
+    """Il rettangolo (circa) che occupa una scritta del foglio: (x0, y0, x1, y1)."""
+    _, (x, y), testo, h, al = t
+    w = len(testo) * h * 0.55
+    if al == 'cv':
+        return (x - h, y - w / 2, x, y + w / 2)
+    x0 = {'l': x, 'c': x - w / 2, 'r': x - w}.get(al, x)
+    return (x0, y - 0.2 * h, x0 + w, y + h)
+
+
+def _tocca(a, b) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
 def legenda(f: Foglio, x: float, y: float, voci: list, u: float = 1.0) -> float:
