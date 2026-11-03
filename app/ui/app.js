@@ -2301,7 +2301,27 @@ $('#params-panel').addEventListener('keydown', ev => {
 });
 function provaParametro(t) {
   t.dataset.tentato = t.value;
-  inCoda(async () => { if (!await apply(await call('set_parameter', t.dataset.p, t.value))) t.classList.add('bad'); });
+  inCoda(async () => { if (!await apply(await call('set_parameter', t.dataset.p, t.value))) t.classList.add('bad'); else inquadraSeServe(); });
+}
+// 04/11 notte (attriti, B 4): cambiata una misura a sinistra, il pezzo usciva dalla vista (o restava un puntino in un
+// angolo) e serviva «Inquadra». Adesso, solo in quei casi, la vista si riadatta da sola, dolcemente, dalla stessa parte
+function inquadraSeServe() {
+  requestAnimationFrame(() => {
+    if (SK || MIS || !objs.size || anim) return;
+    const box = new THREE.Box3().setFromObject(model);
+    if (box.isEmpty()) return;
+    const A = areaLibera(), W = canvas.clientWidth, H = canvas.clientHeight;
+    let fuori = false, x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const X of [box.min.x, box.max.x]) for (const Y of [box.min.y, box.max.y]) for (const Z of [box.min.z, box.max.z]) {
+      const q = new THREE.Vector3(X, Y, Z).project(camera);
+      if (q.z > 1) { fuori = true; continue; }
+      const x = (q.x + 1) / 2 * W, y = (1 - q.y) / 2 * H;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      if (x < A.l - 2 || x > A.r + 2 || y < A.t - 2 || y > A.b + 2) fuori = true;
+    }
+    const piccolo = Math.max((x1 - x0) / (A.r - A.l), (y1 - y0) / (A.b - A.t)) < 0.35;   // un terzo della vista, nei due versi
+    if (fuori || piccolo) goTo(null, true);
+  });
 }
 $('#params').addEventListener('focusout', ev => {
   const t = ev.target;
