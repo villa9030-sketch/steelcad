@@ -5156,7 +5156,7 @@ async function drawingsDialog() {
         <section id="te-sel" hidden></section>
         <details class="te-sez" open><summary>Foglio</summary>
           ${scelta('formato', 'Formato', [['A4', 'A4'], ['A3', 'A3'], ['A2', 'A2']])}
-          ${scelta('scala_fissa', 'Scala', ['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:20'].map(x => [x, x === 'auto' ? 'automatica' : x]))}
+          ${scelta('scala_fissa', 'Scala', ['auto', '2:1', '1:1', '1:2', '1:2,5', '1:5', '1:10', '1:15', '1:20', '1:25', '1:50'].map(x => [x, x === 'auto' ? 'automatica' : x]))}
           ${scelta('quote_fori', 'Quote dei fori', [['sì', 'sì'], ['no', 'no']])}
           ${scelta('fianco', 'Vista di fianco', [['sinistra', 'da sinistra'], ['destra', 'da destra']])}
           ${scelta('isometrica', 'Isometrica', [['sì', 'sì'], ['no', 'no']])}
@@ -5316,10 +5316,28 @@ async function drawingsDialog() {
       const aiuto = o.id === 'vista:fronte' ? 'Trascinala dove vuoi: le sue quote e le viste allineate (dall’alto, da sinistra) vengono con lei.'
         : figlia && !libera ? (o.id === 'vista:alto' ? 'Resta sotto la vista di fronte: si sposta solo in su e in giù.' : 'Resta accanto alla vista di fronte: si sposta solo di lato.')
         : 'Trascinala dove vuoi: le sue quote vengono con lei.';
+      // 03/11: «e le viste?»: la scala delle viste (tutte e tre insieme, il cartiglio la scrive), l'isometrica in %
+      const iso = o.id === 'vista:iso', scelta = R_.scala || '';
+      const SCALE_V = ['1:1', '1:2', '1:2,5', '1:5', '1:10', '1:15', '1:20', '1:25', '1:50'];
+      const grand = iso ? `<div class="te-riga te-pila">Grandezza<div class="fp-len"><button type="button" class="pm" id="ts-imeno" aria-label="Più piccola">−</button>
+          <span class="inp"><input class="field" id="ts-ik" value="${Math.round((R_.iso || 1) * 100)}"><i>%</i></span>
+          <button type="button" class="pm" id="ts-ipiu" aria-label="Più grande">+</button></div></div>`
+        : `<label class="te-riga">Scala<select class="field" id="ts-scala"><option value="">come il foglio${!scelta && foglio().scala ? ' (' + esc(foglio().scala) + ')' : ''}</option>
+          ${SCALE_V.map(x => `<option value="${x}"${scelta === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+          <p class="hint">Vale per tutte le viste del foglio (restano allineate); il cartiglio scrive la scala.</p>`;
       sez.innerHTML = `<h4>${esc(o.label)}</h4><p class="hint">${aiuto}</p>
+        ${grand}
         ${figlia ? `<label class="check"><input type="checkbox" id="ts-allinea"${libera ? '' : ' checked'}> allineata alla vista di fronte</label>` : ''}
         <div class="te-bott">${sp ? '<button class="btn" id="ts-rimetti">Rimetti al suo posto</button>' : ''}
           ${o.id !== 'vista:fronte' ? '<button class="btn danger" id="ts-togli">Togli questa vista</button>' : ''}</div>`;
+      if ($('#ts-scala')) $('#ts-scala').onchange = () => { const n = rit(), v = $('#ts-scala').value; if (v) n.scala = v; else delete n.scala; salva(n); };
+      if (iso) {
+        const pc = Math.round((R_.iso || 1) * 100);
+        const metti = v => { const n = rit(); v = Math.max(40, Math.min(250, Math.round(v))); if (v === 100) delete n.iso; else n.iso = v / 100; salva(n); };
+        $('#ts-imeno').onclick = () => metti(pc - 10);
+        $('#ts-ipiu').onclick = () => metti(pc + 10);
+        $('#ts-ik').onchange = () => { const v = parseFloat($('#ts-ik').value.replace(',', '.')); if (v > 0) metti(v); };
+      }
       if ($('#ts-togli')) $('#ts-togli').onclick = () => { const n = rit(); n.tolte = [...new Set([...(n.tolte || []), o.id])]; ED.sel = null; salva(n); };
       if ($('#ts-rimetti')) $('#ts-rimetti').onclick = () => { const n = rit(); delete n.viste[o.id]; salva(n); };
       if ($('#ts-allinea')) $('#ts-allinea').onchange = () => { const n = rit(); const l = new Set(n.libere || []);
@@ -5421,6 +5439,8 @@ async function drawingsDialog() {
     (R_.tolte || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} tolta`, n => { n.tolte.splice(i, 1); }]));
     (R_.libere || []).forEach((v, i) => righe.push([`${ETICHETTE_TAV[v] || v} non allineata`, n => { n.libere.splice(i, 1); }]));
     if (R_.cartiglio) righe.push([`Cartiglio al ${Math.round(R_.cartiglio * 100)}%`, n => { delete n.cartiglio; }]);
+    if (R_.scala) righe.push([`Viste in scala ${R_.scala}`, n => { delete n.scala; }]);
+    if (R_.iso) righe.push([`Isometrica al ${Math.round(R_.iso * 100)}%`, n => { delete n.iso; }]);
     if (R_.distinta) righe.push(['Distinta ritoccata', n => { delete n.distinta; }]);
     for (const [id, t] of Object.entries(R_.tabelle || {})) {
       const cosa = [t.k && t.k !== 1 ? `al ${Math.round(t.k * 100)}%` : '', t.d ? 'spostata' : ''].filter(Boolean).join(', ');

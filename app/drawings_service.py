@@ -240,16 +240,47 @@ class DrawingsMixin:
         _, base, finiti = gia
         from cad_engine.tavole_ritocchi import ritocca
         fogli = []
-        for f in base:
+        for i, f in enumerate(base):
             r = ritocchi.get(f.chiave) or {}
             k = json.dumps(r, sort_keys=True, default=str)
             if f.chiave not in finiti or finiti[f.chiave][0] != k:
+                # 03/11: la scala delle viste e la grandezza dell'isometrica di questo foglio: il foglio si rifà così
+                # (quote, cartiglio e numeri di posizione giusti), poi i ritocchi come sempre
+                f = self._foglio_rifatto(campi, tutte, i, f, r)
                 g = D.copia_foglio(f)
                 if r:
                     ritocca(g, r)
                 finiti[f.chiave] = (k, g, None)
             fogli.append(finiti[f.chiave][1])
         return fogli
+
+    def _foglio_rifatto(self, campi: dict, tutte: bool, i: int, f, r: dict):
+        """Il foglio i rifatto con la scala delle viste (r['scala'], «1:15») e la grandezza dell'isometrica (r['iso'],
+        1.2 = 120%) scelte nell'editor; senza, quello di sempre."""
+        scala = str(r.get('scala') or '').strip()
+        try:
+            iso = float(r.get('iso') or 1)
+        except (TypeError, ValueError):
+            iso = 1.0
+        if (not scala or D._scala_scelta(scala) is None) and abs(iso - 1) < 1e-6:
+            return f
+        extra = {**({'scala_fissa': scala} if scala and D._scala_scelta(scala) else {}),
+                 **({'iso_k': iso} if abs(iso - 1) > 1e-6 else {})}
+        formato = campi.get('formato') if campi.get('formato') in D.FORMATI else 'A3'
+        # rifatti una volta per scelta: spostare poi una quota sullo stesso foglio non li rifà
+        chiave = (id(getattr(self, '_tavole_base', None)), json.dumps(extra, sort_keys=True), bool(tutte))
+        rifatti = getattr(self, '_tavole_rifatte', None)
+        if rifatti is None or rifatti[0] != chiave[0]:
+            rifatti = self._tavole_rifatte = (chiave[0], {})
+        nuovi = rifatti[1].get(chiave)
+        if nuovi is None:
+            with D.uscita_su(formato):
+                nuovi = rifatti[1][chiave] = self._fogli_nuovi({**campi, 'formato': 'A2', **extra}, tutte)
+        if i >= len(nuovi):
+            return f
+        g = D.in_formato(nuovi[i], formato)
+        g.chiave = f.chiave
+        return g
 
     def _foglio_per_editor(self, f) -> dict:
         """Il foglio come lo usa l'editor (svg, oggetti cliccabili…), ricordato finché il foglio è lo stesso."""
@@ -260,6 +291,7 @@ class DrawingsMixin:
             return voce[2]
         d = {'title': f.titolo, 'svg': D.to_svg(f), 'size': f.size, 'chiave': f.chiave, 'fattore': f.fattore * f.u,
              'oggetti': oggetti(f), 'ritocchi': self._ritocchi_tavole().get(f.chiave) or {},
+             'scala': D.scala_testo(f.scala) if getattr(f, 'scala', None) else '',
              'persi': getattr(f, 'persi', None) or []}
         if voce is not None and voce[1] is f:
             finiti[f.chiave] = (voce[0], f, d)

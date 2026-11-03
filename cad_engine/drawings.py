@@ -782,6 +782,15 @@ def _catene_fori(f: Foglio, v: dict, T, xs, ys):
     catena_quote(f, T, [y0] + [y for y in ys if y0 + 1e-6 < y < y1 - 1e-6], lambda y: (x0, y), 16 * f.u)
 
 
+def _iso_k(campi) -> float:
+    """La grandezza dell'isometrica scelta nell'editor (03/11): 1.2 = 120% di quella che entra nello spazio."""
+    try:
+        k = float((campi or {}).get('iso_k') or 1)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(3.0, max(0.3, k))
+
+
 def _scala_scelta(v) -> float | None:
     """«1:2», «2:1», «1:1» → il fattore; «auto» o vuoto → None."""
     try:
@@ -1358,7 +1367,7 @@ def tavola_pezzo(shape, campi: dict, etichette: dict | None = None, formato: str
     def scala_in(r):
         return min((r[2] - r[0] - 10 - lati) / max(wi, 1e-6), (r[3] - r[1] - 15) / max(hi, 1e-6))
     xi0, yi0, xi1, yi1 = max(candidati, key=scala_in)
-    si = scala_in((xi0, yi0, xi1, yi1))
+    si = scala_in((xi0, yi0, xi1, yi1)) * _iso_k(campi)
     if si > 0 and min(wi, hi) * si > 15:              # un'isometrica minuscola non serve: meglio niente
         with f.oggetto('vista:iso'):
             TI, _, _ = _metti_vista(f, {**vi, 'nascosti': []}, si, xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - 12 * u - hi * si) / 2,
@@ -2013,6 +2022,9 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     area, cart = _cornice(f, {**campi, 'scala': ''})
     larg_viste = min((W - 40) * 0.5, cart[0] - 10 - area[0])           # a sinistra del cartiglio, sempre
     s = _scegli_scala((wF, hF + hT), larg_viste - g - 6, (area[3] - area[1]) - 2 * g - 10)
+    fissa = _scala_scelta(campi.get('scala_fissa'))
+    if fissa:                                          # 03/11: scelta a mano, anche nell'assieme
+        s = fissa / FATTORE_USCITA
     f.testi, f.linee, f.cerchi, f.pieni = [], [], [], []
     campi = {**campi, 'scala': scala_testo(s), '_s': s}
     area, cart = _cornice(f, campi)
@@ -2042,7 +2054,7 @@ def tavola_assieme(forme: list, campi: dict, distinta: list, formato: str = 'A3'
     xi1, yi1 = area[2], area[3]
     rp = 3.2 * k                                       # il cerchio del numero di posizione
     wi, hi = vI['bbox'][2] - vI['bbox'][0], vI['bbox'][3] - vI['bbox'][1]
-    si = min((xi1 - xi0 - 10 * rp) / max(wi, 1e-6), (yi1 - yi0 - 20) / max(hi, 1e-6))
+    si = min((xi1 - xi0 - 10 * rp) / max(wi, 1e-6), (yi1 - yi0 - 20) / max(hi, 1e-6)) * _iso_k(campi)
     oxi, oyi = xi0 + (xi1 - xi0 - wi * si) / 2, yi0 + (yi1 - yi0 - hi * si) / 2
     gruppo_prima = f.gruppo
     f.gruppo = 'vista:iso'                      # l'isometrica con i suoi palloncini: un oggetto solo
