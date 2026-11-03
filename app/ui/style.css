@@ -2084,6 +2084,41 @@ body:not(.senza-destra):has(#right .btn.primary:not([hidden]):not(:disabled)) #b
 body:has(#sk-foot:not([hidden])) #navbar { bottom: 76px; }
 #navbar { transition: bottom var(--t-veloce); }
 @media (prefers-reduced-motion: reduce) { #navbar { transition: none; } }
+
+/* ---- 04/11 sera (rifinitura): il colore della modalità si riconosce a colpo d'occhio, senza chiasso.
+   Dove: il nome della modalità in alto (segmento acceso), il comando in uso nella barra (fondo tenue + bordo),
+   la scheda aperta del cassetto, la barra «prossimo passo». Il pulsante principale resta blu e uno solo. */
+#top .rtabs button.on, #top .rtabs button.ctx.on, body.dark #top .rtabs button.on {
+  background: color-mix(in srgb, var(--modo) 86%, #000); color: #fff; font-weight: 600; box-shadow: var(--ombra-leggera); }
+body.dark #top .rtabs button.on, body.dark #top .rtabs button.ctx.on { background: var(--modo); color: #0E141A; }
+#top .rtabs button.on:hover { color: #fff; }
+body.dark #top .rtabs button.on:hover { color: #0E141A; }
+/* con una scheda sola il nome della modalità resta (prima spariva): è il segmento acceso da solo, non si clicca */
+body.una-scheda #top .rtabs { display: flex; padding: 0; background: none; }
+body.una-scheda #top .rtabs button.on { pointer-events: none; }
+/* il comando in uso: fondo tenue e bordo del colore di modalità */
+#ribbon .rb.on:not(.rb-m), #ribbon .ralt-btn.on {
+  background: color-mix(in srgb, var(--modo) 13%, var(--c-pannello)); border-color: color-mix(in srgb, var(--modo) 60%, transparent); color: var(--c-testo); }
+#ribbon .rb.on:not(.rb-m) span { font-weight: 600; }
+#ribbon .drop .rb.rb-m.on { background: color-mix(in srgb, var(--modo) 13%, var(--c-pannello)); }
+#ribbon .drop .rb.rb-m.on::after { color: color-mix(in srgb, var(--modo) 80%, var(--c-testo)); }
+/* i menu dei gruppi dicono cosa c'è dentro: il nome si legge come quello dei comandi */
+#ribbon .ralt-btn { color: var(--c-testo); }
+#ribbon .ralt-btn .ralt-ico { color: var(--c-testo-2); }
+/* il cassetto: la scheda aperta sottolineata col colore di modalità; chiuso, nessuna è sottolineata */
+#bottom .tabs button.on { border-bottom-color: var(--modo); }
+body.bottom-closed #bottom .tabs button.on { border-bottom-color: transparent; }
+/* la barra «prossimo passo» più presente: un velo del colore di modalità e il nome del comando colorato */
+#sk-foot, body:not(.dark) #sk-foot, #prova-barra, #sk-origine {
+  background: color-mix(in srgb, var(--modo) 6%, var(--c-pannello)) !important;
+  border-color: color-mix(in srgb, var(--modo) 30%, var(--c-linea)) !important; border-left: 5px solid var(--modo) !important; }
+#sk-cmd, body.dark #sk-cmd { border-color: color-mix(in srgb, var(--modo) 30%, var(--c-linea)); border-left: 5px solid var(--modo); }
+.sk-help .g-cmd { color: color-mix(in srgb, var(--modo) 72%, var(--c-testo)); }
+/* il nome del pezzo: «modificato» basta (il «— non salvato» si legge nel suggerimento); il nome non si taglia */
+#doctab #docname:has(.dirty) .doc-stato { display: none; }
+#doctab { max-width: 40%; }
+#doctab::after { flex: none; }
+/* ==================================================================================================================
    TAVOLE E USCITE (notte 03→04/11): l'editor delle tavole, «Prepara», le conferme, la distinta da ritoccare.
    Solo l'interfaccia: le tavole stampate (PDF/DXF) non cambiano. Colore di modalità = grafite (--modo con #tav-ed).
    ================================================================================================================== */

@@ -231,9 +231,9 @@ def main():
                 apri()
                 pg.evaluate("window.__steelcad.runCmd('view_iso')")
                 fermo()
-                if pg.evaluate("document.body.classList.contains('bottom-closed')"):
-                    pg.click('#bottom-toggle')
-                pg.click('#bottom .tabs [data-tab="bom"]')
+                # 04/11: un clic sulla scheda già aperta chiude il cassetto: si clicca la scheda solo se serve
+                pg.evaluate("""() => { const b = document.querySelector('#bottom .tabs [data-tab="bom"]');
+                    if (document.body.classList.contains('bottom-closed') || !b.classList.contains('on')) b.click(); }""")
                 time.sleep(1.0)
             foto('11_distinta_in_basso', f11)
 

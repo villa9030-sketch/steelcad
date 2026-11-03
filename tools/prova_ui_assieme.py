@@ -6,7 +6,7 @@ apri il pezzo e torna, interferenze, distinta.
 import subprocess, sys, tempfile, time, shutil
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
+from ui_barra import comando, comando_visibile, scheda  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(__file__).resolve().parents[1]; PY = ROOT / '.venv' / 'Scripts' / 'python.exe'; PORTA = 5130
 out = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else Path(tempfile.mkdtemp())
 out.mkdir(parents=True, exist_ok=True)
@@ -100,7 +100,7 @@ try:
         ok('← Assieme: di nuovo nell’assieme', pg.evaluate("window.__steelcad.objs.size") == 2)
         comando(pg, '[data-cmd="asm_interf"]'); time.sleep(1.5)
         ok('controllo interferenze risponde: ' + pg.inner_text('#toasts')[-80:].replace('\n', ' '), 'interferenz' in pg.inner_text('#toasts').lower())
-        pg.click('.tabs button[data-tab="bom"]')
+        scheda(pg, 'bom')
         ok('distinta dell’assieme: ' + pg.inner_text('#tab-bom')[:90].replace('\n', ' '), 'piastra' in pg.inner_text('#tab-bom').lower() and 'staffa' in pg.inner_text('#tab-bom').lower())
         pg.screenshot(path=str(out / '3_fine.png'))
         ok('nessun errore in pagina', not err)

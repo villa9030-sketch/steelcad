@@ -6,7 +6,7 @@ piedi e tappi dalla barra con l'anteprima, la distinta di taglio coi piedi e i t
 import os, subprocess, sys, tempfile, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
+from ui_barra import comando, comando_visibile, scheda  # noqa: F401  (comandi della barra, anche in «Altro ▾»)
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(sys.executable)
 SP = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
@@ -94,7 +94,7 @@ try:
         acc = (st.get('cutlist') or {}).get('accessori') or []
         ok('4 tappi in plastica in distinta', any(a['qty'] == 4 and a['acquisto'] for a in acc))
         # 5. distinta di taglio aperta
-        pg.evaluate("document.querySelector('.tabs button[data-tab=\"cut\"]').click()"); time.sleep(0.5)
+        scheda(pg, 'cut'); time.sleep(0.5)
         if pg.is_visible('#bottom-toggle') and 'bottom-closed' in (pg.get_attribute('body', 'class') or ''):
             pg.click('#bottom-toggle'); time.sleep(0.8)
         pg.evaluate("document.querySelector('#tab-cut h4')?.scrollIntoView()"); time.sleep(0.5)
@@ -128,7 +128,7 @@ try:
         # 8. cancello 60×40: la cut list col pezzo disegnato (45° a trapezio, angolo sul lato da 60) e Prepara
         r = api('new_project', 'cancello', {'L': 1500, 'H': 1200, 'telaio': '60x40x3', 'sbarre': '20x20x2', 'passo': 120})
         pg.evaluate("r => window.__steelcad.apply(r)", r); time.sleep(3)
-        pg.evaluate("document.querySelector('.tabs button[data-tab=\"cut\"]').click()"); time.sleep(0.8)
+        scheda(pg, 'cut'); time.sleep(0.8)
         testo = pg.inner_text('#tab-cut')
         ok('cut list: «45° / 45° a trapezio, angolo sul lato da 60»', '45° / 45° a trapezio, angolo sul lato da 60' in testo)
         ok('cut list: il pezzo disegnato', pg.locator('#tab-cut svg.forma-pezzo').count() == 2)

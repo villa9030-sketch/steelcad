@@ -45,7 +45,7 @@ try:
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8)
         ok('nella barra dell’assieme c’è «Viteria»', comando_visibile(pg, '#ribbon [data-cmd="asm_viteria"]'))
         # clic sulla parete del foro
-        foro = pg.evaluate("""() => { const S = window.__steelcad, o = S.objs.get('I1'); return o.data.faces.find(f => /foro|cerchio|C\d/i.test(f.label || f.name || ''))?.index ?? null; }""")
+        foro = pg.evaluate(r"""() => { const S = window.__steelcad, o = S.objs.get('I1'); return o.data.faces.find(f => /foro|cerchio|C\d/i.test(f.label || f.name || ''))?.index ?? null; }""")
         r = api('asm_state') if False else None
         idx = None
         for f in pg.evaluate("() => window.__steelcad.objs.get('I1').data.faces.map(f => f.index)"):
@@ -58,8 +58,15 @@ try:
         pg.select_option('#vt-t', 'vite_tcei'); pg.select_option('#vt-m', 'M6'); pg.select_option('#vt-l', '20')
         pg.click('#vt-ok')          # 04/11: la viteria è nel pannello a destra, non più in una finestra
         pg.wait_for_function("JSON.stringify(window.__steelcad.state.tree).includes('TCEI M6x20')", timeout=30000); time.sleep(1)
+        # 04/11: l'accoppiamento nell'albero si scrive in parole («TCEI M6x20 in asse con Piastra»); si aspetta che ci sia
+        try:
+            pg.wait_for_function("JSON.stringify(window.__steelcad.state.tree).includes('in asse con')", timeout=15000)
+        except Exception:
+            pass
         st = pg.evaluate('window.__steelcad.state')
-        ok('vite TCEI M6x20 nell’assieme, accoppiata al foro', 'in asse con' in str(st['tree']) and not st['warnings'])
+        mates = [c['label'] for g in st['tree'].get('children', []) if g.get('kind') == 'group' for c in g.get('children', [])]
+        ok('vite TCEI M6x20 nell’assieme, accoppiata al foro: ' + '; '.join(mates),
+           any('TCEI M6x20 in asse con Piastra' in m for m in mates) and not st['warnings'])
         ok('in distinta tra gli acquisti', any(x.get('acquisto') for x in st['bom']))
         pg.evaluate("window.__steelcad.runCmd('view_iso')"); time.sleep(0.8); pg.mouse.move(5, 895)
         pg.screenshot(path=str(SHOTS / '1_vite_nel_foro.png'))

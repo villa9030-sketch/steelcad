@@ -1407,6 +1407,8 @@ function applyLook() {
   $('#b-unfold').classList.toggle('on', flatView);
   $('#b-unfold').textContent = flatView ? 'Ripiega' : 'Spiega';
   $('#flat-bar').hidden = !(flatView && !SK);
+  // 04/11 sera: sullo sviluppo «Spiega» della barra è acceso (col colore della modalità), come gli altri comandi in uso
+  document.querySelectorAll('#ribbon .rb[data-cmd="unfold"]').forEach(b => b.classList.toggle('on', !!flatView && !SK));
   $('#flat-bar [data-cmd="flat_sketch"]')?.toggleAttribute('hidden', !!S?.sheet?.shape);   // coni e raccordi: niente disegno sullo sviluppo
   $('#sk-ghost').hidden = !solo;
   $('#sk-ghost').classList.toggle('on', !!SK?.ghost);
@@ -1892,7 +1894,7 @@ function renderTop() {
     dn.innerHTML = `${S.dirty ? '<span class="dirty">● </span>' : ''}<span class="nome">${nome}</span>` +
       (S.path ? '' : ' <span class="doc-stato">— non salvato</span>');
     dn.classList.toggle('rinomina', pezzo);
-    dn.title = (S.path || 'Non ancora salvato') + (pezzo ? '\nClic: cambia il nome del pezzo' : '');
+    dn.title = (S.name || 'Senza nome') + (S.dirty ? ' (modificato)' : '') + '\n' + (S.path || 'Non ancora salvato') + (pezzo ? '\nClic: cambia il nome del pezzo' : '');
   }
   for (const [b, k, t] of [['#b-undo', 'undo', 'Annulla'], ['#b-redo', 'redo', 'Ripeti']]) {
     const l = S[k][0];
@@ -2383,7 +2385,7 @@ function azione(id) {
     case 'incastri': inCoda(() => incastriDialog()); return;
     case 'asola': inCoda(() => foroDialog('asola')); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
-    case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
+    case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi «Pieghe e forme ▾» → Persiane o Imbutiture.')); return;
     case 'contorno': inCoda(() => disegnaSopra()); return;
     case 'linguetta': inCoda(() => disegnaSopra('Disegna la linguetta partendo da un bordo e tornando sullo stesso bordo, poi «Aggiungi materiale».')); return;
     case 'piegatrice': showTab('sheet', true); return;
@@ -6704,7 +6706,7 @@ function renderBottom() {
   $('#bottom-sum').textContent = sum.join(' · ');
 }
 // pannello in basso (il cassetto): chiuso è una barretta col riassunto; si apre col clic su una scheda (Distinta,
-// Info…) e si chiude con la freccia. 04/11: parte SEMPRE chiuso, la vista prende lo spazio (non si ricorda aperto)
+// Info…) e si chiude con la freccia o con un altro clic sulla scheda aperta. 04/11: parte SEMPRE chiuso, la vista prende lo spazio (non si ricorda aperto)
 let bassoAperto = false;
 function setBottom(aperto) {
   bassoAperto = aperto;
@@ -6728,6 +6730,8 @@ $('#tab-cut').addEventListener('click', ev => {
 document.querySelector('.tabs').addEventListener('click', ev => {
   const b = ev.target.closest('button[data-tab]');
   if (!b) return;
+  // 04/11 sera: clic sulla scheda già aperta = chiude il cassetto (come la freccia)
+  if (bassoAperto && b.classList.contains('on')) { setBottom(false); return; }
   showTab(b.dataset.tab, true);
 });
 
@@ -7690,7 +7694,7 @@ const CMDS = [
   { id: 'new_free', label: 'Nuova struttura libera…', run: () => newDialog('vuoto') },
   { id: 'flange_help', label: 'Piega i bordi', run: () => pieghePiuBordi() },
   { id: 'contour_help', label: 'Lamiera a contorno', run: () => toast(S?.sheet?.data
-    ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi Altro → «Lamiera a contorno».'
+    ? 'Lamiera a contorno: clicca la faccia di estremità (testata) da cui partire, «Disegna su questa faccia», disegna la sezione con la Linea partendo dallo spigolo del bordo (arancio), poi «Pieghe e forme ▾» → «Lamiera a contorno».'
     : 'Prima serve una lamiera: Nuova lamiera, oppure Disegna e poi Crea lamiera.', S?.sheet?.data ? '' : 'err') },
   { id: 'face_help', label: 'Disegna su una faccia', run: () => toast('Clicca una faccia piana del pezzo, poi «Disegna su questa faccia» nel pannello a destra.') },
   { id: 'member_help', label: 'Nuova asta', run: () => toast(nodes.length ? 'Clicca un nodo (pallino) del telaio: nel pannello scegli direzione e lunghezza della nuova asta.' : 'Prima serve una struttura: Telaio / tavolo o Struttura libera.', nodes.length ? '' : 'err') },
@@ -7753,7 +7757,7 @@ function fillPalette() {
       keep: true, run: () => { $('#pal-input').value = `${p.name} = `; fillPalette(); } });
   }
   for (const c of CMDS) if (c.id !== 'palette' && (nq ? norm(c.label).includes(nq) : comandoUtile(c))) palItems.push({ label: c.label, d: c.keys || '', run: c.run });
-  // 04/11: cercando si trovano anche tutti i comandi della barra, quelli dentro «Altro ▾» compresi
+  // 04/11: cercando si trovano anche tutti i comandi della barra, quelli dentro i menu dei gruppi compresi
   if (nq) {
     const visti = new Set(palItems.map(it => norm(it.label)));
     const ora = document.querySelector('#ribbon .rbody:not([hidden])');     // prima i comandi della barra che si vede
@@ -8306,7 +8310,7 @@ function statoSketch(v) {
     : 'Vuoto. Scegli Linea o Rettangolo e disegna il contorno.';
   else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`;
     if (v.sciolte?.length) { cls = 'todo'; testo += ' ⚠ ' + v.status; } }
-  else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: Altro → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
+  else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: «Pieghe e forme ▾» → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
   else { cls = 'bad'; testo = /^Il disegno (è tutto quotato|si può ancora muovere)/.test(v.status || '') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
@@ -10112,23 +10116,34 @@ document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
     `<button data-cmd="${c}">${l}</button>`).join('')}</div></div></div><div class="rname">Esporta</div>`;
 });
 // 04/11 (cornice): la barra dei comandi su UNA riga. In ogni gruppo restano grandi, con icona e nome, i comandi
-// che si usano di più (dai percorsi di lavoro veri); gli altri vanno nel menu «Altro ▾» del gruppo, coi nomi.
+// che si usano di più (dai percorsi di lavoro veri); gli altri vanno nel menu del gruppo, coi nomi.
 // Nessun comando sparisce: stessi pulsanti (stessi id, data-…, gestori), solo spostati; e si trovano anche in
 // «Cerca un comando». Un gruppo senza comandi grandi diventa un pulsante col suo nome e la tendina.
+// 04/11 sera: ogni menu dice cosa c'è dentro («Bordi e tagli ▾», «Forme ▾»…), non più quattro «Altro ▾» di fila;
+// un menu che avrebbe una voce sola non si fa: quel comando resta grande.
 const BARRA_GRANDI = {
   lamiera: ['flange_help', 'foro', 'asola', 'tipo_foro', 'taglia', 'face_help', 'unfold', 'misura'],
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
   assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
-  sketch: ['line', 'rect', 'circle', 'arc3', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
+  sketch: ['line', 'rect', 'circle', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };
+// il nome del menu di ogni gruppo (scheda:gruppo, e :id dell'insieme per «sulla faccia»): parole da officina
+const NOMI_MENU = {
+  'lamiera:Crea': 'Bordi e tagli', 'lamiera:Disegna': 'Disegna', 'lamiera:Sviluppo': 'Sviluppo', 'lamiera:Misura': 'Angolo, saldatura',
+  'strutture:Aggiungi': 'Tappi, sagoma', 'strutture:Misura': 'Misura',
+  'piastra:Crea': 'Asole, svasi', 'piastra:Disegna': 'Disegna', 'piastra:Modifica': 'Spigoli', 'piastra:Misura': 'Angolo, saldatura',
+  'assieme:Accoppiamenti': 'Accoppiamenti', 'assieme:Misura': 'Angolo, saldatura',
+  'sketch:Disegna': 'Forme', 'sketch:Modifica': 'Modifica', 'sketch:Quota': 'Seleziona', 'sketch:Vista': 'Vista',
+  'sketch:Fine': 'Crea', 'sketch:Fine:sk-face': 'Pieghe e forme',
+};
 const chiaveComando = b => b.dataset.cmd || b.dataset.azione || b.dataset.tool || b.dataset.asmTool || b.dataset.act || b.dataset.make || b.id;
-function nuovoAltro(nome, titolo) {
+function nuovoAltro(nome) {
   const m = document.createElement('div');
   m.className = 'menu-item rmenu ralt';
   m.dataset.nome = nome;
-  m.innerHTML = `<button class="ralt-btn" type="button"><i class="ralt-ico" aria-hidden="true"></i><span>${esc(titolo)}</span></button>`
+  m.innerHTML = `<button class="ralt-btn" type="button"><i class="ralt-ico" aria-hidden="true"></i><span>${esc(nome)}</span></button>`
     + `<div class="drop"><div class="drop-tit">${esc(nome)}</div></div>`;
   return m;
 }
@@ -10136,26 +10151,28 @@ function impaginaBarra() {
   for (const rb of document.querySelectorAll('#ribbon .rbody')) {
     const grandi = new Set(BARRA_GRANDI[rb.dataset.rbody] || []);
     for (const g of rb.querySelectorAll('.rgroup:not([data-esporta])')) {
-      const nome = g.querySelector('.rname')?.textContent.trim() || 'Altro';
+      const gruppo = g.querySelector('.rname')?.textContent.trim() || 'Altro';
       // ogni insieme che si accende e si spegne da solo (Fine: «crea» o «sulla faccia») ha la sua tendina
       const contenitori = [...g.querySelectorAll('.rset'), g.querySelector('.rbtns')].filter(Boolean);
       for (const c of contenitori) {
+        const nome = NOMI_MENU[`${rb.dataset.rbody}:${gruppo}:${c.id}`] || NOMI_MENU[`${rb.dataset.rbody}:${gruppo}`] || gruppo;
         const mio = e => (e.closest('.rset') || c) === c;
         const miei = [...c.querySelectorAll('.rb')].filter(b => !b.closest('.rmenu') && mio(b));
         if (!miei.length) continue;
-        const piccoli = miei.filter(b => !grandi.has(chiaveComando(b)));
-        let menu = [...c.querySelectorAll('.rmenu')].find(mio);   // c'è già un «Altro» (sulla faccia): uso quello
+        let menu = [...c.querySelectorAll('.rmenu')].find(mio);   // c'è già un menu (sulla faccia): uso quello
+        let piccoli = miei.filter(b => !grandi.has(chiaveComando(b)));
+        if (piccoli.length === 1 && !menu && miei.length > 1) piccoli = [];   // un menu con una voce sola non serve
         if (piccoli.length && !menu) {
-          menu = nuovoAltro(nome, piccoli.length === miei.length ? nome : 'Altro');
+          menu = nuovoAltro(nome);
         } else if (menu) {
           const bt = menu.querySelector(':scope > button');
-          bt.className = 'ralt-btn'; bt.innerHTML = '<i class="ralt-ico" aria-hidden="true"></i><span>Altro</span>';
+          bt.className = 'ralt-btn'; bt.innerHTML = `<i class="ralt-ico" aria-hidden="true"></i><span>${esc(nome)}</span>`;
           menu.classList.add('ralt'); menu.dataset.nome = nome;
           menu.querySelector('.drop').insertAdjacentHTML('afterbegin', `<div class="drop-tit">${esc(nome)}</div>`);
         }
         for (const b of miei) {
           b.classList.remove('rb-s');
-          if (grandi.has(chiaveComando(b))) c.appendChild(b);
+          if (!piccoli.includes(b)) c.appendChild(b);
         }
         if (menu) {
           const drop = menu.querySelector('.drop');
@@ -10163,7 +10180,7 @@ function impaginaBarra() {
           for (const b of piccoli) { b.classList.add('rb-m'); dopo.after(b); dopo = b; }
           c.appendChild(menu);
           const voci = [...drop.querySelectorAll('button')].map(b => b.textContent.trim().replace(/…$/, ''));
-          menu.querySelector('.ralt-btn').title = 'Altri comandi: ' + voci.join(', ');
+          menu.querySelector('.ralt-btn').title = nome + ': ' + voci.join(', ');
         }
         for (const col of c.querySelectorAll('.rcol')) if (!col.children.length) col.remove();
       }
@@ -10177,7 +10194,7 @@ function impaginaBarra() {
   }));
 }
 impaginaBarra();
-// «Altro» si vede solo se dentro c'è qualcosa; è acceso (azzurro) se il comando in uso sta lì dentro
+// il menu del gruppo si vede solo se dentro c'è qualcosa; è acceso se il comando in uso sta lì dentro
 function statoAltro() {
   for (const m of document.querySelectorAll('#ribbon .ralt')) {
     const voci = [...m.querySelectorAll('.drop button')];
@@ -10186,10 +10203,6 @@ function statoAltro() {
     const acceso = voci.some(b => b.classList.contains('on') && !b.hidden);
     const bt = m.querySelector('.ralt-btn');
     if (bt.classList.contains('on') !== acceso) bt.classList.toggle('on', acceso);
-    // senza comandi grandi accanto (tutti spenti per questo pezzo) il pulsante prende il nome del gruppo
-    const soli = [...m.parentElement.children].filter(e => e.classList.contains('rb')).every(b => b.hidden);
-    const testo = soli ? m.dataset.nome : 'Altro', sp = bt.querySelector('span');
-    if (sp.textContent !== testo) sp.textContent = testo;
   }
 }
 new MutationObserver(statoAltro).observe($('#ribbon'), { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
