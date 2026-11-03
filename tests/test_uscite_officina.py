@@ -76,13 +76,60 @@ def test_tavola_struttura_luci_e_posizioni(telaio):
     assert alto >= 3.0                                                 # leggibile sull'A3 (prima 1,7 mm)
 
 
+def leggi_xlsx(path) -> dict:
+    """{nome foglio: [[testo delle celle]]}: legge il file Excel come lo legge Excel (zip di XML), senza librerie."""
+    import re
+    import zipfile
+    import xml.etree.ElementTree as ET
+    ns = {'m': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+    rel = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id'
+    with zipfile.ZipFile(path) as z:
+        assert z.testzip() is None
+        wb = ET.fromstring(z.read('xl/workbook.xml'))
+        rels = {r.get('Id'): r.get('Target') for r in ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))}
+        out = {}
+        for sh in wb.find('m:sheets', ns):
+            foglio = ET.fromstring(z.read('xl/' + rels[sh.get(rel)]))
+            righe = []
+            for row in foglio.find('m:sheetData', ns):
+                riga = []
+                for c in row:
+                    col = sum((ord(ch) - 64) * 26 ** i for i, ch in enumerate(reversed(re.match(r'[A-Z]+', c.get('r')).group())))
+                    riga += [''] * (col - 1 - len(riga))
+                    v = c.find('m:v', ns)
+                    t = c.find('m:is/m:t', ns)
+                    riga.append(v.text if v is not None else (t.text if t is not None else ''))
+                righe.append(riga)
+            out[sh.get('name')] = righe
+    return out
+
+
 def test_lista_di_taglio_excel_dal_prepara(telaio, tmp_path):
     info = telaio.prepara_info()
     voce = next(v for v in info['voci'] if v['id'] == 'taglio')
     assert voce['si'] and voce['file'].endswith('_taglio.xlsx')
+    assert voce['titolo'] == 'Per la troncatrice o il laser tubo'
+    assert not any(v['file'].endswith('.csv') and 'tubi' in v['file'] for v in info['voci'])   # niente doppione CSV
     r = telaio.prepara(str(tmp_path), ['taglio', 'officina'])
     assert r['ok'], r.get('message')
     assert any(x.endswith('_taglio.xlsx') for x in r['files']) and any(x.endswith('.pdf') for x in r['files'])
+    fogli = leggi_xlsx(tmp_path / voce['file'])
+    tab = fogli['Lista di taglio']
+    assert tab[0][:6] == ['Pos.', 'Nome', 'Dove va', 'Profilo', 'Materiale', 'Lunghezza mm']
+    assert {'Taglio 1', 'Taglio 2', 'Come vengono le punte', 'Angolo sul lato da mm', 'Q.tà', 'kg tot.'} <= set(tab[0])
+    gambe = dict(zip(tab[0], tab[1]))
+    assert gambe['Nome'] == 'Gambe' and gambe['Q.tà'] == '4' and gambe['Lunghezza mm'] == '795'
+    assert gambe['Taglio 1'] == 'dritto' and 'Gamba' in gambe['Dove va']
+    assert tab[-1][1] == 'Totale' and tab[-1][10] == '17'
+    assert fogli['Barre da comprare'][1][:3] == ['30×30×2', 'S235', '17']
+
+
+def test_prepara_con_la_vecchia_scelta_tubi_da_l_excel(telaio, tmp_path):
+    """Chi chiama ancora prepara(…, ['tubi']) (il vecchio CSV) riceve il file Excel unico."""
+    r = telaio.prepara(str(tmp_path), ['tubi'])
+    assert r['ok'], r.get('message')
+    assert len(r['files']) == 1 and r['files'][0].endswith('_taglio.xlsx')
+    assert not list(tmp_path.glob('*.csv'))
 
 
 @pytest.mark.parametrize('formato,minimo', [('A3', 1.85), ('A4', 1.3)])

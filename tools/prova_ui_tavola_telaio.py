@@ -58,6 +58,9 @@ try:
         info = api('prepara_info'); log('prepara', [(v['id'], v['si'], v['file']) for v in info['voci']])
         r = api('prepara', str(tmp / 'uscita'), ['officina', 'taglio'], None); log('prepara fatto', r)
         log('file', sorted(x.name for x in (tmp / 'uscita').iterdir()) if (tmp / 'uscita').exists() else None)
+        import shutil                                   # il file Excel per la troncatrice, da aprire e guardare
+        for x in (tmp / 'uscita').glob('*_taglio.xlsx'):
+            shutil.copy(x, OUT / x.name); log('excel', OUT / x.name)
         log('errori pagina', err)
         b.close()
 finally:

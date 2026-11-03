@@ -5481,19 +5481,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
              'desc': 'I disegni quotati con il cartiglio, da stampare' + (', con la lista di taglio dei tubi.' if strutture else '.'),
              'file': f'{nome}_disegni.pdf', 'si': corpo is not None or strutture or self.asm is not None,
              'scelta': strutture or self.asm is not None, 'motivo': None},
-            # 03/11: per la troncatrice o il laser tubo (anche esterno): la lista dei tagli che si apre con Excel
-            {'id': 'tubi', 'titolo': 'Per la troncatrice o il laser tubo',
-             'desc': 'La lista dei tubi da tagliare: misura, tagli a 45° (a trapezio o a parallelogramma), quanti, dove vanno (si apre con Excel).',
-             'file': f'{nome}_taglio_tubi.csv', 'si': strutture, 'scelta': strutture,
-             'motivo': None if strutture else 'il progetto non ha tubi'},
             {'id': 'step', 'titolo': 'Per un altro programma 3D', 'desc': 'Il pezzo in 3D (STEP), per chi usa SolidWorks, Inventor e simili.',
              'file': f'{nome}.step', 'si': corpo is not None or strutture or self.asm is not None, 'scelta': False, 'motivo': None},
         ]
-        if strutture:                                  # 03/11: la lista dei tubi da tagliare, per la troncatrice
-            voci.insert(1, {'id': 'taglio', 'titolo': 'Per la troncatrice',
-                            'desc': 'La lista di taglio dei tubi: nome, profilo, lunghezza, tagli, quanti (si apre con Excel).',
+        if strutture:                                  # 03/11: UN solo file Excel per chi taglia i tubi
+            voci.insert(1, {'id': 'taglio', 'titolo': 'Per la troncatrice o il laser tubo',
+                            'desc': 'Un file Excel con i tubi da tagliare: nome e dove va, profilo, lunghezza, tagli '
+                                    '(dritto o 45°, a trapezio o a parallelogramma, su che lato), quanti, peso. '
+                                    'Negli altri fogli le barre da comprare e, se ci sono, piedi e tappi.',
                             'file': f'{nome}_taglio.xlsx', 'si': True, 'scelta': True, 'motivo': None})
-        voci = [v for v in voci if v['id'] != 'tubi' or v['si']]           # la lista dei tubi solo se ci sono tubi
         return {'ok': True, 'nome': nome, 'cartella': str(base / nome), 'voci': voci, 'controllo': controllo}
 
     def prepara(self, cartella: str, scelte: list, campi: dict | None = None) -> dict:
@@ -5503,6 +5499,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             d = Path(cartella)
             d.mkdir(parents=True, exist_ok=True)
             fatti, problemi = [], []
+            # 03/11: «tubi» (il vecchio CSV per la troncatrice) ora è dentro il file Excel della lista di taglio
+            scelte = ['taglio' if x == 'tubi' else x for x in (scelte or [])]
             for v in info['voci']:
                 if v['id'] not in scelte or not v['si']:
                     continue
@@ -5521,8 +5519,6 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     r = self.export_lista_taglio(str(p))
                 elif v['id'] == 'piegatrice':
                     r = self.export_bend_table(str(p))
-                elif v['id'] == 'tubi':
-                    r = self.export_taglio_tubi(str(p))
                 elif v['id'] == 'officina':
                     c = {**self.drawing_fields().get('fields', {}), **(campi or {})}
                     r = self.export_drawings(str(p), c, True)
@@ -5605,31 +5601,54 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 'message': f'{len(fatti)} DXF in {dest.name}' + (f'; saltati: {"; ".join(saltati)}' if saltati else '.')}
 
     def export_lista_taglio(self, path: str) -> dict:
-        """03/11: la lista di taglio dei tubi in Excel (per la troncatrice o per chi taglia i tubi al laser): una
-        riga per pezzo da tagliare, coi nomi da officina come nella tavola, e i totali per profilo."""
+        """03/11: la lista di taglio dei tubi in Excel, l'unico file per la troncatrice o il laser tubo (anche
+        esterno): una riga per misura coi nomi da officina come nella tavola (nome e dove va), profilo, lunghezza,
+        i due tagli, come vengono le punte dei 45° (a trapezio o a parallelogramma) e su che lato si vede l'angolo,
+        quanti, peso, e una colonna «Fatto» da spuntare. Negli altri fogli le barre da comprare e i piedi e tappi."""
         from cad_engine.drawings_struttura import righe_taglio
         from cad_engine.exporters import xlsx
         try:
             if self.asm is not None or not self.result.structures:
                 return {'ok': False, 'message': 'La lista di taglio si fa per una struttura in tubo.'}
-            righe = righe_taglio(self.result.structures)
             cl = cut_list(self.result.structures)
-            tab = [['Pos.', 'Nome', 'Profilo', 'Materiale', 'Lunghezza mm', 'Tagli', 'Q.tà', 'kg cad.', 'kg tot.', 'Fatto']]
-            tab += [[r['pos'], r['nome'], r['profilo'], r['materiale'], r['lunghezza'], r['tagli'], r['qty'],
-                     round(r['kg'], 2), round(r['kg_tot'], 2), ''] for r in righe]
+            if not cl['rows']:
+                return {'ok': False, 'message': 'Il progetto non ha tubi da tagliare.'}
+            righe = righe_taglio(self.result.structures, cl)
+            forme = {'trapezio': 'a trapezio (punte dallo stesso lato)',
+                     'parallelo': 'a parallelogramma (punte da lati opposti)'}
+            tab = [['Pos.', 'Nome', 'Dove va', 'Profilo', 'Materiale', 'Lunghezza mm', 'Taglio 1', 'Taglio 2',
+                    'Come vengono le punte', 'Angolo sul lato da mm', 'Q.tà', 'Lavorato', 'kg cad.', 'kg tot.', 'Fatto']]
+            for r, c in zip(righe, cl['rows']):
+                t1, t2 = (c['cuts'] + ['', ''])[:2]
+                lato = c['lato_taglio'] if c.get('lato_taglio') and c.get('quadro') is False else ''
+                dove = c.get('dove') or c['groups']
+                doppione = '; '.join(dove) == r['nome'] or dove in ([r['nome']], [f'{r["nome"]} × {r["qty"]}'])
+                dove = '' if doppione else ' · '.join(dove)   # «Sbarra» e «Sbarra × 9»: il nome basta
+                tab.append([r['pos'], r['nome'], dove, r['profilo'], r['materiale'],
+                            r['lunghezza'], t1, t2, forme.get(c.get('forma'), ''), lato, r['qty'],
+                            'sì' if c.get('lavorata') else '', round(r['kg'], 2), round(r['kg_tot'], 2), ''])
+            tab.append(['', 'Totale', '', '', '', '', '', '', '', '', cl['pieces'], '', '', round(cl['kg'], 2), ''])
             tot = [['Profilo', 'Materiale', 'Pezzi', 'Metri', 'kg']]
             tot += [[t['profile'], t['material'], t['pieces'], round(t['total_length_mm'] / 1000, 2), round(t['kg'], 2)]
                     for t in cl['totals']]
-            xlsx.scrivi(path, [('Lista di taglio', tab, [6, 50, 14, 10, 13, 14, 6, 9, 9, 8], [0]),
-                               ('Barre da comprare', tot, [14, 10, 8, 9, 9], [0])])
-            return {'ok': True, 'path': str(path), 'message': f'Lista di taglio salvata: {len(righe)} righe ({Path(path).name}).'}
+            fogli = [('Lista di taglio', tab, [6, 26, 40, 13, 10, 13, 9, 9, 38, 12, 6, 9, 9, 9, 8], [0]),
+                     ('Barre da comprare', tot, [14, 10, 8, 9, 9], [0])]
+            if cl.get('accessori'):
+                acc = [['Descrizione', 'Q.tà', 'Da acquistare', 'kg tot.']]
+                acc += [[a['description'], a['qty'], 'sì' if a['acquisto'] else '',
+                         round(a['kg_total'], 2) if a['kg_total'] else ''] for a in cl['accessori']]
+                fogli.append(('Piedi e tappi', acc, [40, 6, 14, 9], [0]))
+            xlsx.scrivi(path, fogli)
+            return {'ok': True, 'path': str(path),
+                    'message': f'Lista di taglio salvata: {cl["pieces"]} pezzi, {len(righe)} misure ({Path(path).name}).'}
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
     def export_taglio_tubi(self, path: str) -> dict:
         """La distinta di taglio dei tubi in CSV (punto e virgola, virgola decimale: si apre in Excel), per la
         troncatrice o il laser tubo: una riga per misura, coi tagli scritti per intero; sotto le barre da comprare
-        e i piedi e tappi."""
+        e i piedi e tappi. 03/11: non è più una voce di «Prepara per l'officina» (c'è il file Excel di
+        export_lista_taglio, con le stesse colonne); resta per chi la chiama dall'API."""
         try:
             cl = cut_list(self.result.structures)
             if not cl['rows']:

@@ -67,6 +67,18 @@ def test_piedino_regolabile_da_comprare():
     assert '801' not in r['message'] and 'Altezza fuori tutto coi piedi: 830' in r['message']
 
 
+def test_excel_per_la_troncatrice_con_piedi_e_tappi(tmp_path):
+    """Il file Excel unico per chi taglia i tubi ha anche il foglio dei piedi e tappi (cosa comprare)."""
+    from tests.test_uscite_officina import leggi_xlsx
+    s = _telaio()
+    assert s.set_piedi('ST1', {'tipo': 'piedino', 'misura': 'M10'})['ok']
+    assert s.export_lista_taglio(str(tmp_path / 'x.xlsx'))['ok']
+    fogli = leggi_xlsx(tmp_path / 'x.xlsx')
+    assert list(fogli) == ['Lista di taglio', 'Barre da comprare', 'Piedi e tappi']
+    piedi = {r[0]: r for r in fogli['Piedi e tappi'][1:]}
+    assert piedi['Piedino regolabile M10, base Ø40'][1:3] == ['4', 'sì']
+
+
 def test_tappi_su_tutte_le_teste_aperte():
     s = _telaio()
     assert s.piedi_info('ST1')['teste'] == 8               # 4 gambe: aperte sopra e sotto
@@ -119,9 +131,24 @@ def test_distinta_di_taglio_con_le_punte_dei_45_e_file_per_il_laser_tubo(tmp_pat
     mont = next(m for m in st.members if s.nomi_tubi(st)[m.id] == 'Montante a sinistra')
     b = mont.solid.bounding_box()
     assert round(b.size.X) == 60 and round(b.size.Y) == 40            # il 60 nel piano del cancello, come i traversi
-    # il file per la troncatrice / laser tubo, in Prepara per l'officina
+    # il file per la troncatrice / laser tubo, in Prepara per l'officina: UNA voce sola, un file Excel
     voci = {v['id']: v for v in s.prepara_info()['voci']}
-    assert voci['tubi']['si'] and voci['tubi']['file'].endswith('_taglio_tubi.csv')
+    assert 'tubi' not in voci
+    assert voci['taglio']['si'] and voci['taglio']['file'].endswith('_taglio.xlsx')
+    assert voci['taglio']['titolo'] == 'Per la troncatrice o il laser tubo'
+    assert sum('troncatrice' in v['titolo'] for v in voci.values()) == 1
+    assert s.export_lista_taglio(str(tmp_path / 't.xlsx'))['ok']
+    from tests.test_uscite_officina import leggi_xlsx
+    fogli = leggi_xlsx(tmp_path / 't.xlsx')
+    assert list(fogli) == ['Lista di taglio', 'Barre da comprare']
+    tab = fogli['Lista di taglio']
+    intest = tab[0]
+    riga = dict(zip(intest, next(x for x in tab[1:] if x[intest.index('Lunghezza mm')] == '1500')))
+    assert riga['Taglio 1'] == '45°' and riga['Taglio 2'] == '45°'
+    assert riga['Come vengono le punte'] == 'a trapezio (punte dallo stesso lato)'
+    assert riga['Angolo sul lato da mm'] == '60' and riga['Q.tà'] == '2' and riga['Profilo'] == '60×40×3'
+    assert riga['Dove va'] and riga['kg tot.']
+    # il vecchio CSV resta per chi lo chiama dall'API (e «tubi» nelle scelte di Prepara dà l'Excel)
     r = s.export_taglio_tubi(str(tmp_path / 't.csv'))
     assert r['ok'], r.get('message')
     testo = (tmp_path / 't.csv').read_text(encoding='utf-8-sig').splitlines()

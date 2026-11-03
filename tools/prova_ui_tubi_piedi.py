@@ -132,6 +132,9 @@ try:
         foto('Cut list del cancello: tagli a 45° disegnati e scritti')
         pg.click('#b-prepara'); time.sleep(2.5)
         ok('Prepara: la lista per la troncatrice o il laser tubo', 'troncatrice o il laser tubo' in pg.inner_text('body'))
+        ok('Prepara: una voce sola per la troncatrice, in Excel (niente CSV a parte)',
+           pg.inner_text('body').count('troncatrice') == 1 and '_taglio.xlsx' in pg.inner_text('body')
+           and '_taglio_tubi.csv' not in pg.inner_text('body'))
         foto('Prepara per l’officina: la lista dei tubi')
         print('errori', err)
         ok('nessun errore nella pagina', not err)
