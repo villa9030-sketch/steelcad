@@ -6812,6 +6812,9 @@ async function enterSketch(sid) {
   $('#props-panel').hidden = true;
   document.body.classList.add('sketching');
   $('#rtab-sketch').hidden = false; showRibbon('sketch');
+  // 03/11: la riga delle schede (Disegno / Lamiera) compare SUBITO, non al primo cerchio: prima la vista si
+  // abbassava di 22 px dopo il primo foro e chi cliccava dove aveva visto metteva i fori a 280/180 invece di 275/175
+  ribbonTabs();
   resize();                                   // la vista è appena cresciuta (pannello in basso chiuso)
   $('#sk-foot').hidden = false;
   drawSketch();
@@ -6852,6 +6855,7 @@ function exitSketch() {
   document.body.classList.remove('sketching');
   document.body.classList.remove('disegno-attivo');
   $('#rtab-sketch').hidden = true; showRibbon(schedaPrima);
+  ribbonTabs();
   resize();
   $('#sk-foot').hidden = true;
   $('#sk-cmd').hidden = true;
