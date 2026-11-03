@@ -110,6 +110,12 @@ def main():
             scena_pronta()
             nomi = pg.evaluate("[...window.__steelcad.objs.values()].map(o => o.data.name)")
             ok('mensola da 300 con il suo nome', any(x.startswith('Mensola') and '300' in x for x in nomi))
+            # 04/11 collaudo: il messaggio «Tubo aggiunto» copriva la riga «prossimo passo» dei tubi
+            sovrapposti = pg.evaluate("""() => { const h = document.querySelector('#trav-hint'); if (!h || h.hidden) return 'riga nascosta';
+              const a = h.getBoundingClientRect();
+              return [...document.querySelectorAll('#toasts .toast')].some(t => { const b = t.getBoundingClientRect();
+                return b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top; }); }""")
+            ok(f'il messaggio non copre la riga «prossimo passo» ({sovrapposti})', sovrapposti is False)
             foto('mensola')
 
             # 4. traverso cliccando le due gambe davanti

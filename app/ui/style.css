@@ -2760,7 +2760,7 @@ body:is([data-modo="disegno"], [data-modo="tubi"]) #top .rtabs button.on:hover {
 #asm-passo .asm-passo-x { width: 28px; height: 28px; border: 0; border-radius: var(--r-campo); background: none; color: var(--c-testo-2); font-size: 18px; line-height: 1; }
 #asm-passo .asm-passo-x:hover { background: var(--c-sopra); color: var(--c-testo); }
 /* con la riga in basso i messaggi stanno più su (non la coprono) */
-body:has(#asm-passo:not([hidden])) #toasts { bottom: 168px; }
+body:has(:is(#asm-passo, #trav-hint, #link-hint):not([hidden])) #toasts { bottom: 168px; }
 /* la barra dei tubi col consiglio «Dividi» (telaio sopra, tubo lungo): un pulsante da cliccare dentro la riga */
 #trav-hint .btn { flex: none; }
 #trav-hint .btn :is(img, .ico) { width: 16px; height: 16px; }
