@@ -6684,17 +6684,25 @@ const AIUTI = {
 };
 
 const v3 = a => new THREE.Vector3(...a);
+// gli assi dello sketch come vettori, fatti una volta per disegno (03/11: rifatti per ogni punto, migliaia di volte a
+// ogni movimento del mouse mentre si cercano gli agganci); stessi numeri di prima
+let _skAssi = null;
+function skAssi() {
+  const v = SK.v;
+  if (!_skAssi || _skAssi.v !== v) _skAssi = { v, o: v3(v.origin), x: v3(v.x_dir), y: v3(v.y_dir) };
+  return _skAssi;
+}
 function skToWorld(xy) {
-  const v = SK.v, o = v3(v.origin), x = v3(v.x_dir), y = v3(v.y_dir);
-  return o.addScaledVector(x, xy[0]).addScaledVector(y, xy[1]);
+  const a = skAssi();
+  return a.o.clone().addScaledVector(a.x, xy[0]).addScaledVector(a.y, xy[1]);
 }
 function skToLocal(p) {
   const v = SK.v, d = p.clone().sub(v3(v.origin));
   return [d.dot(v3(v.x_dir)), d.dot(v3(v.y_dir))];
 }
-function skScreen(xy) {
+function skScreen(xy, w = view.clientWidth, h = view.clientHeight) {    // w, h: la misura della vista, se già letta
   const p = skToWorld(xy).project(camera);
-  return [(p.x + 1) / 2 * view.clientWidth, (1 - p.y) / 2 * view.clientHeight];
+  return [(p.x + 1) / 2 * w, (1 - p.y) / 2 * h];
 }
 function skPick(ev) {
   const r = canvas.getBoundingClientRect();
@@ -7113,8 +7121,10 @@ function skCursor(ev) {
   if (!xy) return null;
   const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
   const cand = [];
+  // la misura della vista letta una volta: chiederla al browser per ogni punto era metà del tempo a ogni movimento
+  const W = view.clientWidth, H = view.clientHeight, skScreenQui = q => skScreen(q, W, H);
   const prendi = (q, tipo, extra = {}) => {
-    const sq = skScreen(q), d = Math.hypot(sq[0] - mx, sq[1] - my);
+    const sq = skScreenQui(q), d = Math.hypot(sq[0] - mx, sq[1] - my);
     if (d < AP) cand.push({ xy: q, tipo, d, ...extra });
   };
   const centri = new Set([...SK.v.circles, ...(SK.v.arcs || [])].map(c => c.center_id));
@@ -7122,13 +7132,9 @@ function skCursor(ev) {
   SK.pts.forEach((p, i) => { if (!p.id) prendi(p.xy, 'punto', { id: null, first: i === 0 }); });
   const L = SK.v.lines, tondi = roundsOf();
   for (const l of L) prendi([(l.xa[0] + l.xb[0]) / 2, (l.xa[1] + l.xb[1]) / 2], 'metà', { ref: { mid: l.id } });
-  for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
-    const q = segX(L[i].xa, L[i].xb, L[j].xa, L[j].xb);
-    if (q) prendi(q, 'incrocio', { ref: { cross: [L[i].id, L[j].id], xy: q } });
-  }
-  for (const c of tondi) for (const l of L) for (const q of segCircle(l.xa, l.xb, c)) prendi(q, 'incrocio', { ref: { cross: [l.id, c.id], xy: q } });
-  for (let i = 0; i < tondi.length; i++) for (let j = i + 1; j < tondi.length; j++)
-    for (const q of circleCircle(tondi[i], tondi[j])) prendi(q, 'incrocio', { ref: { cross: [tondi[i].id, tondi[j].id], xy: q } });
+  // gli incroci non dipendono dal mouse: calcolati una volta per disegno (03/11: con 600 linee erano 180 mila conti a
+  // ogni movimento del mouse), poi a ogni movimento si guarda solo quali sono vicini. Stesso ordine di prima
+  for (const [x, a, b] of incrociSketch(SK.v)) { const q = [x[0], x[1]]; prendi(q, 'incrocio', { ref: { cross: [a, b], xy: q } }); }
   for (const c of tondi) for (let k = 0; k < 4; k++) {
     const an = k * Math.PI / 2;
     if (!angIn(an, c)) continue;
@@ -7175,7 +7181,7 @@ function skCursor(ev) {
   const sm = [mx, my];
   let tx = null, ty = null;
   for (const p of SK.v.points) {
-    const sp = skScreen(p.xy);
+    const sp = skScreenQui(p.xy);
     if (Math.abs(sp[0] - sm[0]) < 7 && (!tx || Math.abs(sp[0] - sm[0]) < tx.d)) tx = { p, d: Math.abs(sp[0] - sm[0]) };
     if (Math.abs(sp[1] - sm[1]) < 7 && (!ty || Math.abs(sp[1] - sm[1]) < ty.d)) ty = { p, d: Math.abs(sp[1] - sm[1]) };
   }
@@ -7185,7 +7191,7 @@ function skCursor(ev) {
   let q = SK.grid ? [Math.round(xy[0] / st) * st, Math.round(xy[1] / st) * st] : [xy[0], xy[1]];
   let how = SK.grid ? 'griglia' : '', tipo = null, ref = null, guide = [];
   if (hvLast) {
-    const sl = skScreen(last.xy);
+    const sl = skScreenQui(last.xy);
     if (Math.abs(sl[1] - my) < 7) { q = [q[0], last.xy[1]]; how = 'orizzontale'; tipo = 'hv'; ty = null; guide.push([last.xy, null]); }
     else if (Math.abs(sl[0] - mx) < 7) { q = [last.xy[0], q[1]]; how = 'verticale'; tipo = 'hv'; tx = null; guide.push([last.xy, null]); }
   }
@@ -7201,6 +7207,21 @@ function skCursor(ev) {
   }
   guide = guide.map(([da]) => [da, q]);
   return { xy: q, id: null, ref, how, tipo, guide };
+}
+// tutti gli incroci del disegno [punto, id, id]: linea-linea, linea-cerchio, cerchio-cerchio; ricordati per la vista
+let _incroci = null;
+function incrociSketch(v) {
+  if (_incroci && _incroci.v === v) return _incroci.lista;
+  const L = v.lines, tondi = roundsOf(), lista = [];
+  for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+    const q = segX(L[i].xa, L[i].xb, L[j].xa, L[j].xb);
+    if (q) lista.push([q, L[i].id, L[j].id]);
+  }
+  for (const c of tondi) for (const l of L) for (const q of segCircle(l.xa, l.xb, c)) lista.push([q, l.id, c.id]);
+  for (let i = 0; i < tondi.length; i++) for (let j = i + 1; j < tondi.length; j++)
+    for (const q of circleCircle(tondi[i], tondi[j])) lista.push([q, tondi[i].id, tondi[j].id]);
+  _incroci = { v, lista };
+  return lista;
 }
 function circleCircle(a, b) {             // incroci tra due cerchi/archi
   const d = Math.hypot(b.xc[0] - a.xc[0], b.xc[1] - a.xc[1]);
@@ -7390,7 +7411,8 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
     const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L));
     return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
   };
-  const proj = p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * view.clientWidth, (1 - q.y) / 2 * view.clientHeight]; };
+  const W = view.clientWidth, H = view.clientHeight;          // letta una volta, non per ogni punto (03/11)
+  const proj = p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * W, (1 - q.y) / 2 * H]; };
   for (const l of SK.v.lines) { const d = segDist(m, proj(l.pa), proj(l.pb)); if (d < 7 && (!best || d < best.d)) best = { id: l.id, d }; }
   for (const c of SK.v.circles) {
     const ctr = proj(c.center), e = proj(skToWorld([...skToLocal(v3(c.center))].map((v, i) => i === 0 ? v + c.r : v)));

@@ -19,7 +19,7 @@ from ..errors import FeatureError
 from ..topology import NamedShape
 from ..topology.naming import _edges_of
 from ..units import cap, fmt_mm
-from .base import Context, check_solid, label, n_solids, volume
+from .base import Context, check_solid, label, n_solids, unisci_parti, volume
 from .measure_util import diagonal
 
 
@@ -56,7 +56,7 @@ def build(fdef: dict, ctx: Context) -> NamedShape:
     if fdef.get('symmetric'):
         shift = gp_Vec(-v.X() / 2, -v.Y() / 2, -v.Z() / 2)
 
-    tool = None
+    parti = []
     for face in prof.faces:
         src_face = face.wrapped
         entity_for = {}
@@ -86,13 +86,8 @@ def build(fdef: dict, ctx: Context) -> NamedShape:
         solid = mk.Shape()
         if volume(solid) < 0:          # estrusione contro la normale: il solido va girato
             solid = solid.Reversed()
-        part = NamedShape(solid, names)
-        if tool is None:
-            tool = part
-        else:
-            fu = BRepAlgoAPI_Fuse(tool.shape, part.shape)
-            fu.Build()
-            tool = tool.after(fu, fu.Shape(), part)
+        parti.append(NamedShape(solid, names))
+    tool = unisci_parti(parti)
 
     if op == 'new':
         check_solid(tool.shape, fdef)

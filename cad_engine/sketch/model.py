@@ -219,9 +219,11 @@ class Sketch:
         return f'il vincolo {CONSTRAINTS[c["type"]]} su {oggetti}'
 
     # --------------------------------------------------------------- JSON
-    def to_dict(self) -> dict:
+    def to_dict(self, copia: bool = True) -> dict:
+        # copia=False: senza copiare entità e vincoli, solo per farne il testo JSON (storia, impronte; 03/11)
+        cp = copy.deepcopy if copia else (lambda x: x)
         return {'id': self.id, 'type': 'sketch', 'name': self.name, 'plane': self.plane,
-                'entities': copy.deepcopy(self.entities), 'constraints': copy.deepcopy(self.constraints)}
+                'entities': cp(self.entities), 'constraints': cp(self.constraints)}
 
     @classmethod
     def from_dict(cls, d: dict) -> 'Sketch':

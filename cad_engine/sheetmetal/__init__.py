@@ -1801,9 +1801,10 @@ def _marca(fdef, body, data, ss, prof, fid):
             segni.append({'flat': [tuple(q) for q in fl], 'pezzo': [tuple(p + pl.z_dir * 0.05) for p in t]})   # appena sopra la faccia
     # i segni devono stare sulla lamiera: fuori (o sopra un foro) il laser marcherebbe il vuoto
     fuori = 0
+    dentro = _dentro_dello_sviluppo(data.flat)
     for sg in segni:
         for q in sg['flat']:
-            if not data.flat.is_inside(bd.Vector(*q), tolerance=0.05):
+            if not dentro(q):
                 fuori += 1
                 break
     if fuori:
@@ -1823,6 +1824,21 @@ def _marca(fdef, body, data, ss, prof, fid):
     nuovo.names = dict(body.names)
     nuovo.sheet = _copia_dati(body.sheet, dataclasses.replace(data, marks=list(data.marks) + segni))
     return nuovo
+
+
+def _dentro_dello_sviluppo(flat):
+    """punto → sta sulla lamiera dello sviluppo (tolleranza 0,05)? Come Face.is_inside, ma il classificatore si prepara
+    una volta sola (03/11: rifatto per ogni punto delle lettere marcate era 1,6 s sui 1,8 del traversino)."""
+    if not isinstance(flat, bd.Face):
+        return lambda q: flat.is_inside(bd.Vector(*q), tolerance=0.05)
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.gp import gp_Pnt
+    cl = BRepClass3d_SolidClassifier(flat.wrapped)
+
+    def dentro(q):
+        cl.Perform(gp_Pnt(*bd.Vector(*q)), 0.05)
+        return cl.IsOnAFace()
+    return dentro
 
 
 def _copia_dati(vecchio, nuovo):
@@ -2309,6 +2325,7 @@ def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     if fori is None:
         fori = [(cerchio, spec, ritorni[i][1]) for i, cerchio, spec in _hole_specs(ss, prof)]
+    coni = []
     for cerchio, spec, verso in fori:
         if spec.get('tipo') != 'svasato':
             continue
@@ -2332,16 +2349,28 @@ def _countersinks(ns, ss, prof, ritorni, t, fid, fori=None):
         asse = bd.Vector(*verso).normalized()
         c = cerchio.arc_center
         e = 0.05
-        cono = bd.Solid.make_cone(D / 2 + e * math.tan(ang / 2), d / 2, h + e,
-                                  plane=bd.Plane(origin=c - asse * e, z_dir=asse))
-        op = BRepAlgoAPI_Cut(ns.shape, cono.wrapped)
-        if not op.IsDone():
-            raise FeatureError('Il kernel non è riuscito a fare la svasatura.', feature=fid)
-        sheet = ns.sheet
-        ns = ns.after(op, op.Shape())
-        ns.sheet = sheet
-        for f in ns.senza_nome():
-            ns.names.setdefault(f'{fid}/svasatura', []).append(f)
+        coni.append(bd.Solid.make_cone(D / 2 + e * math.tan(ang / 2), d / 2, h + e,
+                                       plane=bd.Plane(origin=c - asse * e, z_dir=asse)))
+    if not coni:
+        return ns
+    # tutti i coni in un taglio solo (03/11: uno alla volta, le 32 svasature del porta punte erano metà
+    # della ricostruzione del pezzo)
+    from OCP.collections import List_TopoDS_Shape
+    argomenti, utensili = List_TopoDS_Shape(), List_TopoDS_Shape()
+    argomenti.Append(ns.shape)
+    for cono in coni:
+        utensili.Append(cono.wrapped)
+    op = BRepAlgoAPI_Cut()
+    op.SetArguments(argomenti)
+    op.SetTools(utensili)
+    op.Build()
+    if not op.IsDone():
+        raise FeatureError('Il kernel non è riuscito a fare la svasatura.', feature=fid)
+    sheet = ns.sheet
+    ns = ns.after(op, op.Shape())
+    ns.sheet = sheet
+    for f in ns.senza_nome():
+        ns.names.setdefault(f'{fid}/svasatura', []).append(f)
     return ns
 
 
