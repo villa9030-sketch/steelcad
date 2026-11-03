@@ -2726,21 +2726,23 @@ function mettiAccanto(m, p, r) {
 }
 // la barretta. voci: [icona, suggerimento, fai, classe, anteprima(on)]; '|' = separatore. opz.chi: chi è (stessa
 // cosa = niente animazione), opz.piu: cosa fa «⋯» (di solito il pannello completo), opz.piu === false: niente «⋯»
+// 04/11 notte (attriti): UNA barretta per tutto (lamiera, tubi, assieme): il nome sopra, al massimo 5 azioni con
+// icona e nome scritto accanto, «⋯» in fondo che apre il pannello a destra. Col pannello aperto la barretta non c'è
+// (il pannello ha le stesse azioni, coi campi), come già nei tubi; la barretta torna scegliendo un'altra cosa
 function barretta(nome, voci, opz = {}) {
   const vecchia = document.getElementById('mini-barra'), chi = opz.chi || nome;
   const uguale = vecchia?.dataset.chi === chi;
   vecchia?.remove();
   tip.style.display = 'none';
+  if (sel?.pannello && opz.piu === undefined) { document.getElementById('sc-linea')?.remove(); return; }
   const m = document.createElement('div');
   m.id = 'mini-barra'; m.dataset.chi = chi;
   if (uguale) m.classList.add('fermo');
-  if (opz.nomi) m.classList.add('con-nomi');        // 03/11: le icone con il nome scritto sotto (assieme)
-  const scritta = t => opz.nomi ? `<span class="lab">${esc(t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span>` : '';
   // 04/11 (regola 3): al massimo 5 azioni col nome, il resto sta nel pannello («⋯»)
-  if (opz.scritte) { let n = 0; voci = voci.filter(v => v[0] === '|' || ++n <= 5); while (voci.at(-1)?.[0] === '|') voci.pop(); }
+  { let n = 0; voci = voci.filter(v => v[0] === '|' || ++n <= 5); while (voci.at(-1)?.[0] === '|') voci.pop(); }
   m.innerHTML = `<span class="nome">${esc(nome)}</span>` + voci.map(([ic, t, , cls], i) => ic === '|' ? '<span class="sep"></span>'
-    : `<button data-i="${i}" ${opz.scritte ? '' : `data-t="${esc(t)}" `}aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')}${opz.scritte ? ' con-scritta' : ''}"${opz.scritte && / \(/.test(t) ? ` title="${esc(t)}"` : ''}><img src="icons/${ic}.svg" alt="">${opz.scritte ? `<span>${esc(t.replace(/ \(.*$/, ''))}</span>` : scritta(t)}</button>`).join('')
-    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni">⋯${opz.nomi ? '<span class="lab">Altro</span>' : ''}</button>` : '');
+    : `<button data-i="${i}" data-t="${esc(t)}" aria-label="${esc(t)}" class="${cls || (/^Togli/.test(t) ? 'via' : '')} con-scritta"${/ \(/.test(t) ? ` title="${esc(t)}"` : ''}><img src="icons/${ic}.svg" alt=""><span>${esc(t.replace(/ \(.*$/, ''))}</span></button>`).join('')
+    + (opz.piu !== false ? `<span class="sep"></span><button class="piu" data-t="Tutte le opzioni" aria-label="Tutte le opzioni" title="Tutte le opzioni (il pannello a destra)">⋯</button>` : '');
   if (opz.evita) m._evita = opz.evita;
   document.body.appendChild(m);
   m.querySelectorAll('[data-i]').forEach(b => {
@@ -2754,7 +2756,8 @@ function barretta(nome, voci, opz = {}) {
 function tutteLeOpzioni() {
   if (!sel) return;
   sel.pannello = true; sel.soloMini = false; aggiornaLayout();
-  if (document.querySelector('#mini-barra.scheda-foro')) nascondiMini();   // 04/11: il pannello del foro dice già tutto
+  // 04/11: il pannello dice già tutto: via la barretta (le quote sul pezzo restano)
+  document.getElementById('mini-barra')?.remove(); document.getElementById('sc-linea')?.remove();
 }   // il pannello completo, a destra
 // mentre il pezzo si ricalcola: un segno accanto al nome (non sembra bloccata)
 function schedaCalcola(on) { document.getElementById('mini-barra')?.classList.toggle('calcolo', on); }
@@ -2912,7 +2915,7 @@ function miniBarra(s) {
     // 04/11 (regola 3): al massimo 5 azioni col nome, le altre in «Altro» (il pannello a destra le ha tutte, con il
     // nome). La barretta si mette sotto il pezzo (o sopra, o di lato): prima copriva proprio il pezzo appena cliccato
     const id = sel?.id;
-    barretta(s.title, azioniPezzo(s).slice(0, 5).map(a => [a.ic, a.t, a.fai, a.cls]), { chi: 'i:' + id, nomi: true, evita: () => rettangoloPezzo(id) });
+    barretta(s.title, azioniPezzo(s).slice(0, 5).map(a => [a.ic, a.t, a.fai, a.cls]), { chi: 'i:' + id, evita: () => rettangoloPezzo(id) });
     return;
   }
   if (s.foro) { miniForo(s); return; }
@@ -7981,7 +7984,7 @@ const AIUTI = {
   rect: 'Rettangolo: clic su un angolo e sull’angolo opposto, o scrivi 100x50 · Invio conferma · Esc annulla',
   circle: 'Cerchio: clic sul centro e sul bordo, o scrivi il diametro · Invio conferma · Esc annulla',
   slot: 'Asola: clic sui due centri, poi la larghezza · Invio conferma · Esc annulla',
-  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · raggio a misura: «Arco col raggio» in Forme · Esc annulla',
+  arc3: 'Arco: clic sulla partenza, su un punto dove passa, poi sull’arrivo · col raggio scritto: «Arco col raggio», accanto · Esc annulla',
   arcr: 'Arco col raggio: parte dalla fine della linea, scrivi il raggio · Invio conferma · Esc finisce',
   polygon: 'Poligono: scrivi quanti lati, poi clic sul centro e su un vertice · Esc annulla',
   fillet: 'Raccordo: clic sullo spigolo (o sulle due linee), poi scrivi il raggio · Invio conferma · Esc finisce',
@@ -10198,7 +10201,7 @@ const BARRA_GRANDI = {
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
   assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
-  sketch: ['line', 'rect', 'circle', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
+  sketch: ['line', 'rect', 'circle', 'arcr', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };
 // il nome del menu di ogni gruppo (scheda:gruppo, e :id dell'insieme per «sulla faccia»): parole da officina
@@ -10279,6 +10282,85 @@ function statoAltro() {
 }
 new MutationObserver(statoAltro).observe($('#ribbon'), { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
 statoAltro();
+// 04/11 notte (attriti): nessuna barra esce dallo schermo. Se la barra dei comandi non ci sta (1366 px, disegno su
+// una faccia…), i comandi grandi che si usano meno passano nel menu del loro gruppo, uno alla volta, finché ci sta;
+// allargando la finestra tornano al loro posto. «Esci», i pulsanti blu e i comandi base del disegno non si spostano mai.
+// Sono gli stessi pulsanti (stessi id e data-…): li trovano le prove, «Cerca un comando» e i tasti.
+const BARRA_CEDE = {
+  sketch: ['pattern', 'sk-grid', 'tab', 'arc3', 'mark', 'fillet', 'trim', 'text', 'dim', 'circle', 'rect'],
+  lamiera: ['misura', 'unfold', 'tipo_foro', 'asola', 'taglia', 'face_help', 'foro'],
+  strutture: ['saldatura3d', 'misura', 'giunti', 'tubo', 'misure', 'piedi', 'dividi'],
+  piastra: ['misura', 'misure', 'face_help', 'taglia'],
+  assieme: ['misura', 'asm_esploso', 'asm_interf', 'angolo', 'distanza', 'asse', 'asm_viteria'],
+};
+const BARRA_FERMI = new Set(['sk-done', 'line']);
+let barraAdatto = false;
+function adattaBarra() {
+  barraAdatto = true;
+  try {
+    // prima tutto torna al suo posto…
+    for (const b of document.querySelectorAll('#ribbon .rb[data-ceduto]')) {
+      const posto = b._posto;
+      delete b.dataset.ceduto; b.classList.remove('rb-m');
+      if (posto?.parentNode) posto.replaceWith(b);
+    }
+    document.querySelectorAll('#ribbon .ralt[data-ceduti]').forEach(m => {
+      if (!m.querySelector('.drop button')) m.remove(); else delete m.dataset.ceduti;
+    });
+    const rb = document.querySelector('#ribbon .rbody:not([hidden])');
+    if (!rb || !rb.clientWidth) return;
+    // non ci sta: la barra scorre, o il suo ultimo pulsante finisce oltre il bordo della finestra
+    const troppo = () => rb.scrollWidth > rb.clientWidth + 1
+      || Math.max(0, ...[...rb.querySelectorAll('.rb, .ralt-btn')].filter(b => b.offsetParent && !b.closest('.drop'))
+        .map(b => b.getBoundingClientRect().right)) > document.documentElement.clientWidth - 2;
+    if (!troppo()) return;
+    // …poi si sposta nel menu un comando alla volta, dal meno usato
+    const visibile = b => b.offsetParent !== null && !b.closest('.drop');
+    const tutti = [...rb.querySelectorAll('.rb')].filter(b => visibile(b) && !b.classList.contains('primary')
+      && !BARRA_FERMI.has(chiaveComando(b)) && !b.closest('.rmenu'));
+    const ordine = BARRA_CEDE[rb.dataset.rbody] || [];
+    const pos = new Map(tutti.map((b, i) => [b, i]));
+    const peso = b => { const i = ordine.indexOf(chiaveComando(b)); return i < 0 ? 999 : i; };
+    tutti.sort((a, b) => peso(a) - peso(b) || pos.get(b) - pos.get(a));   // fuori elenco: da destra
+    for (const b of tutti) {
+      if (!troppo()) break;
+      const c = b.closest('.rset') || b.closest('.rbtns');
+      const gruppo = b.closest('.rgroup')?.querySelector('.rname')?.textContent.trim() || 'Altro';
+      let menu = [...c.querySelectorAll('.ralt')].find(m => (m.closest('.rset') || m.closest('.rbtns')) === c);
+      if (!menu) {
+        const nome = NOMI_MENU[`${rb.dataset.rbody}:${gruppo}:${c.id}`] || NOMI_MENU[`${rb.dataset.rbody}:${gruppo}`] || gruppo;
+        menu = nuovoAltro(nome); menu.dataset.ceduti = '1';
+        const fine = c.querySelector(':scope > #sk-done');
+        c.insertBefore(menu, fine || null);
+        menu.addEventListener('mouseenter', () => {
+          if (document.querySelector('.menu-item.open') && !menu.classList.contains('open')) {
+            document.querySelectorAll('.menu-item').forEach(x => x.classList.remove('open')); menu.classList.add('open');
+          }
+        });
+      }
+      b._posto = b._posto || document.createComment('posto');
+      b.replaceWith(b._posto);
+      b.dataset.ceduto = '1'; b.classList.add('rb-m');
+      const tit = menu.querySelector('.drop-tit');
+      tit.after(b);                                    // in cima al menu: sono i comandi «quasi grandi»
+    }
+    for (const m of rb.querySelectorAll('.ralt')) {
+      const voci = [...m.querySelectorAll('.drop button')].map(x => x.textContent.trim().replace(/…$/, ''));
+      m.querySelector('.ralt-btn').title = m.dataset.nome + ': ' + voci.join(', ');
+    }
+  } finally {
+    statoAltro();
+    osservaBarra.takeRecords();
+    barraAdatto = false;
+  }
+}
+let barraRaf = 0;
+function adattaBarraPoi() { if (!barraRaf) barraRaf = requestAnimationFrame(() => { barraRaf = 0; adattaBarra(); }); }
+const osservaBarra = new MutationObserver(() => { if (!barraAdatto) adattaBarraPoi(); });
+osservaBarra.observe($('#ribbon'), { subtree: true, attributes: true, attributeFilter: ['hidden'] });
+window.addEventListener('resize', adattaBarraPoi);
+if (document.fonts?.ready) document.fonts.ready.then(adattaBarraPoi);
+adattaBarraPoi();
 // perché un comando adesso non si può usare (null = si può)
 function motivoNo(cmd) {
   const lam = !!S?.sheet?.data, asm = S?.mode === 'assembly';

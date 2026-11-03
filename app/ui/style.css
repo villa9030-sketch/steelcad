@@ -2730,3 +2730,7 @@ body.bottom-closed:not(.sketching) #toasts { bottom: 104px; }
 /* Prepara: il nome del pezzo mai salvato, in cima (i file lo prendono) */
 .prep-nome { display: flex; align-items: center; gap: var(--s-3); margin: 0 0 var(--s-3); color: var(--c-testo-2); }
 .prep-nome .field { flex: 1; font-weight: 600; color: var(--c-testo); }
+
+/* ---------------------------------------------------------------- attriti (notte 04/11) */
+/* una barretta sola: il nome è scritto sul pulsante, il fumetto non lo ripete */
+#mini-barra > button.con-scritta[data-t]:hover::after { display: none; }

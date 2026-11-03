@@ -113,7 +113,7 @@ try:
         ok('Esc: il pannello si chiude e la staffa torna dov’era', not pg.query_selector('#appoggia') and m2 == m)
         # la barretta del pezzo: icone con il nome, Apri / Appoggia / Sposta fuori da «⋯»
         x, y = schermo('I2', 'SM1/FL1/esterno'); pg.mouse.click(x, y)
-        pg.wait_for_selector('#mini-barra.con-nomi', timeout=10000); time.sleep(0.5)
+        pg.wait_for_selector('#mini-barra button.con-scritta[data-t="Sposta"]', timeout=10000); time.sleep(0.5)   # 04/11: una barretta sola, come la lamiera
         nomi = pg.inner_text('#mini-barra')
         ok('barretta con i nomi: Apri il pezzo, Appoggia, Sposta, Pezzo nuovo qui', all(t in nomi for t in ('Apri il pezzo', 'Appoggia', 'Sposta', 'Pezzo nuovo qui')))
         pg.screenshot(path=str(out / 'ap7_barretta_con_nomi.png'))
