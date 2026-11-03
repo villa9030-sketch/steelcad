@@ -178,6 +178,9 @@ class Api:
     def sketch_hole_type(self, sid, eids, spec):
         return self._call(self._svc.sketch_hole_type, sid, eids, spec)
 
+    def incastri_possibili(self):
+        return self._call(self._svc.incastri_possibili)
+
     def auto_tabs(self, fid, flid, n, w, gioco, sporgenza=0):
         return self._call(self._svc.auto_tabs, fid, flid, n, w, gioco, sporgenza)
 

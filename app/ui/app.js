@@ -2149,6 +2149,7 @@ function azione(id) {
     case 'tipo_foro': t('Clicca un foro già fatto sul pezzo: a destra scegli svasato o filettato. Per un foro nuovo c’è «Foro».'); return;
     case 'foro': inCoda(() => foroDialog('tondo')); return;
     case 'angoli_tondi': inCoda(() => angoliSviluppo()); return;
+    case 'incastri': inCoda(() => incastriDialog()); return;
     case 'asola': inCoda(() => foroDialog('asola')); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi Altro → Persiane o Imbutiture.')); return;
@@ -3542,6 +3543,69 @@ async function angoliSviluppo() {
     anteprimaSpazio();
     segni();
     const primo = box.querySelector('#ag-valore'); primo?.focus(); primo?.select();
+    vai();
+  });
+}
+// ------------------------------------------------------------- «Incastri» dalla barra (03/11)
+// Linguette sulla punta di una piega che entrano in asole sulla parete dove appoggia (scatole chiuse, U, cassoni):
+// prima si trovavano solo aprendo la piega giusta nel pannello. Qui: quale piega, quante, larghe quanto, gioco;
+// anteprima sul pezzo; Fatto. Negli assiemi restano nel pannello della lamiera che appoggia.
+let ultimiIncastri = { n: '3', w: '15', c: '0,2', s: '0' };
+async function incastriDialog() {
+  if (SK) { toast('Stai disegnando: prima «Esci».', 'err'); return; }
+  if (S?.mode === 'assembly') { toast('Nell’assieme: clicca la lamiera che appoggia con la punta sull’altra; nel pannello a destra c’è «Incastri con …».'); return; }
+  if (!S?.sheet?.data) { toast('Prima serve una lamiera piegata.', 'err'); return; }
+  const r = await call('incastri_possibili');
+  if (!r.ok) { toast(r.message, 'err'); return; }
+  if (!r.pieghe.length) {
+    toast('Gli incastri si fanno dove la punta di una piega appoggia su un’altra parete del pezzo (una scatola chiusa, una U ripiegata). Qui nessuna piega appoggia: piega anche la punta fino a toccare.', 'err', null, 9000);
+    return;
+  }
+  if (flatView) await toggleFlat(false);
+  clearSelection(); nascondiMini();
+  const v = { ...ultimiIncastri, quale: 0 };
+  const P = r.pieghe;
+  const corto = s => String(s || '').replace(/ di "[^"]*"$/, '');
+  const riga = (l, id, unita = 'mm') => `<label class="ft-riga"><span>${l}</span><span class="ft-mm"><input class="field" id="in-${id}" value="${esc(virgola(v[id]))}" autocomplete="off"><i>${unita}</i></span></label>`;
+  const corpo = () => {
+    const p = P[v.quale];
+    return `<div class="ft-form">
+      ${P.length > 1 ? `<div class="ft-riga"><span>Quale piega</span><div class="seg" data-in-quale>${P.map((x, i) => `<button type="button" data-v="${i}" class="${i === v.quale ? 'on' : ''}">${esc(x.nome)}</button>`).join('')}</div></div>`
+        : `<div class="ft-riga"><span>Piega</span><b>${esc(p.nome)}</b></div>`}
+      <p class="hint" style="margin:0">La punta appoggia su ${esc(corto(p.contro))} (lunga ${esc(virgola(p.lunga))} mm): le linguette sulla punta entrano nelle asole di quella faccia.${p.fatti ? ' Su questa piega gli incastri ci sono già.' : ''}</p>
+      ${riga('Quante linguette', 'n', '')}
+      ${riga('Larghezza', 'w')}
+      ${riga('Gioco nell’asola', 'c')}
+      ${riga('Sporgenza oltre', 's')}</div>`;
+  };
+  const args = () => { const p = P[v.quale]; return [p.feature, p.flange, v.n, v.w, v.c, v.s]; };
+  modal(`<div id="in-tutto"><h3>Incastri linguetta e asola</h3>
+    <p class="hint">Per tenere insieme la scatola prima di saldare: le asole sono più larghe della linguetta del gioco, per lato.</p>
+    <div id="in-corpo">${corpo()}</div>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    const cornice = $('#modal-box'), box = $('#in-tutto');
+    const vai = () => anteprima('auto_tabs', args, box.querySelector('.ant-stato'), { vista: 'iso' });
+    box.addEventListener('input', ev => { const t = ev.target; if (t.id?.startsWith('in-')) { v[t.id.slice(3)] = t.value; vai(); } });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-in-quale] button');
+      if (!b) return;
+      v.quale = +b.dataset.v;
+      $('#in-corpo').innerHTML = corpo();
+      vai();
+    });
+    const chiudi = () => { close(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const a = args();
+      ultimiIncastri = { n: v.n, w: v.w, c: v.c, s: v.s };
+      chiudi();
+      inCoda(async () => { const x = await call('auto_tabs', ...a); await apply(x, x.message); });
+    };
+    cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    $('#modal').classList.add('laterale');
+    const st = document.createElement('div'); st.className = 'ant-stato'; box.querySelector('.acts').before(st);
+    anteprimaSpazio();
+    const primo = box.querySelector('#in-n'); primo?.focus(); primo?.select();
     vai();
   });
 }

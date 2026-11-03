@@ -2174,6 +2174,38 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     return centro, g.u0, g.u1, nome, bf
         return None
 
+    def incastri_possibili(self) -> dict:
+        """03/11 — il comando «Incastri» della barra: le pieghe del pezzo la cui punta appoggia su un'altra parete
+        (dove si possono fare linguette e asole), col nome che hanno nell'albero e dove appoggiano."""
+        try:
+            data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+            sm = self._sheet_def(data.feature) if data is not None else None
+            if sm is None:
+                return {'ok': True, 'pieghe': []}
+            fid = data.feature
+            nomi = {}
+
+            def giro(nodi):
+                for x in nodi or []:
+                    if x.get('ref'):
+                        nomi[x['ref']] = x['label']
+                    giro(x.get('children'))
+            giro([self._albero(self.doc, self.result)])
+            figlie = {x.get('parent') for x in sm.get('flanges') or []}
+            out = []
+            for g in data.flanges:
+                if g.fid in figlie:
+                    continue
+                c = self._tip_contact(fid, g.fid)
+                if c is None:
+                    continue
+                gia = any(not isinstance(f, Sketch) and f.get('name') == f'Linguette di {g.fid}' for f in self.doc.features)
+                out.append({'feature': fid, 'flange': g.fid, 'nome': nomi.get(f'{fid}/{g.fid}', f'Piega {g.fid}'),
+                            'contro': self.doc.describe_face(c[3]), 'lunga': round(c[2] - c[1], 1), 'fatti': gia})
+            return {'ok': True, 'pieghe': out}
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
     def auto_tabs(self, fid: str, flid: str, n, w, gioco, sporgenza=0) -> dict:
         """Incastri automatici: la punta della flangia appoggia su un'altra faccia del pezzo. Sulla punta n linguette
         larghe w che passano attraverso la lamiera di sotto (sporgono di "sporgenza"), sull'altra faccia le asole
@@ -5007,7 +5039,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
-                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi', 'angoli_sviluppo',
+                    'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi', 'auto_tabs', 'angoli_sviluppo',
                     'fori_modifica'}
 
     def anteprima(self, metodo: str, args: list) -> dict:
@@ -5286,6 +5318,24 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         nome = str(nome).replace('×', 'x')             # il segno × nei nomi dei file non piace a tutti i programmi
         return re.sub(r'[\\/:*?"<>|]+', '-', nome).strip() or 'pezzo'
 
+    def avvisi_laser(self) -> list:
+        """03/11 — misure minime per il laser sullo sviluppo (o sulla faccia della piastra): fori più piccoli dello
+        spessore, ponticelli sottili tra fori o col bordo, linguette strette. Avvisi da leggere, non blocchi."""
+        from cad_engine import laser_minimi
+        corpo = self.result.body if self.asm is None else None
+        if corpo is None:
+            return []
+        data = getattr(corpo, 'sheet', None)
+        if data is not None:
+            if data.flat is None:
+                return []
+            return laser_minimi.controlla(data.flat, data.thickness)
+        try:
+            faccia, t = laser_minimi.faccia_da_tagliare(corpo.shape)
+        except Exception:  # noqa: BLE001
+            return []
+        return laser_minimi.controlla(faccia, t)
+
     def avvisi_angoli(self) -> list:
         """03/11 (collare: «le pieghe vengono 85,14° e non 90°, il controllo verde non se ne accorge»): negli sketch dei
         profili in lamiera, gli angoli tra un tratto e l'altro che sono QUASI tondi (89,04° invece di 90°, un arco
@@ -5349,7 +5399,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if corpo is not None:
             with tempfile.TemporaryDirectory() as d:
                 r = self.export_dxf(str(Path(d) / 'prova.dxf'))
-            controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', ''), 'avvisi': self.avvisi_angoli()}
+            controllo = {'ok': bool(r.get('ok')), 'testo': r.get('message', ''),
+                         'avvisi': self.avvisi_angoli() + self.avvisi_laser()}
         laser = controllo is not None and controllo['ok']
         voci = [
             {'id': 'laser', 'titolo': 'Per il laser', 'desc': 'Lo sviluppo piano da tagliare, con i fori. Si apre in Lantek.',

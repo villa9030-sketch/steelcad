@@ -293,6 +293,7 @@ def project_tree(doc, result) -> dict:
                         v = _v(a)
                         return '' if v == 90 else f' a {fmt_mm(round(v, 2)) if v is not None else a}°'
                     dove: dict = {}
+                    livello: dict = {}
                     for fo in f.get('folds') or []:
                         verso = 'in su' if fo.get('direction', 'up') == 'up' else 'in giù'
                         dove[fo['id']] = 'in mezzo'
@@ -304,7 +305,12 @@ def project_tree(doc, result) -> dict:
                         if fl.get('parent'):
                             sopra = dove.get(fl['parent'], fl['parent'])
                             cosa = 'Orlo' if abs(_v(ang) or 0) >= 170 else 'Piega'
-                            testo = f'{cosa} su piega {sopra} {_mm(fl.get("length"))}' + ('' if cosa == 'Orlo' else f'{_ang(ang)} {verso}')
+                            # 03/11: la piega sulla punta di una piega sulla punta: «sulla 2ª piega davanti», non «FL2»
+                            n = livello.get(fl['parent'], 1)
+                            livello[fl['id']] = n + 1
+                            dove[fl['id']] = sopra
+                            su = f'su piega {sopra}' if n == 1 else f'sulla {n}ª piega {sopra}'
+                            testo = f'{cosa} {su} {_mm(fl.get("length"))}' + ('' if cosa == 'Orlo' else f'{_ang(ang)} {verso}')
                         else:
                             lato = sk.describe(fl.get('edge')) if sk else fl.get('edge')
                             nome = {'lato sotto': 'davanti', 'lato sopra': 'dietro', 'lato destro': 'a destra',
