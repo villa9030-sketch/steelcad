@@ -110,7 +110,7 @@ controls.zoomToCursor = true;
 // luce da studio (23/10, «polish»): un ambiente con pannelli di luce per i riflessi dei metalli, resa fotografica
 // dei colori, poca luce diretta (dà il verso alle facce) e un'ombra morbida a terra sotto il pezzo
 renderer.toneMapping = THREE.LinearToneMapping;     // lineare: i colori RAL restano pieni (ACES li sbiadiva)
-renderer.toneMappingExposure = 0.9;
+renderer.toneMappingExposure = 1.0;            // 04/11: tema chiaro, il pezzo grigio acciaio chiaro
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
 function ambienteStudio() {
@@ -132,7 +132,7 @@ function ambienteStudio() {
   return env;
 }
 scene.environment = ambienteStudio();
-const cielo = new THREE.HemisphereLight(0xffffff, 0x6d7780, 0.9);
+const cielo = new THREE.HemisphereLight(0xffffff, 0x8E98A3, 1.0);   // 04/11: pareti più chiare (grigio acciaio chiaro)
 cielo.position.set(0, 0, 1);   // il cielo sta sopra: l'asse Z
 scene.add(cielo);
 const sun = new THREE.DirectionalLight(0xffffff, 1.15);
@@ -193,9 +193,9 @@ const dimLines = new THREE.Group();
 scene.add(model, overlay, dimLines);
 const objs = new Map();
 const EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
-const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x1F3A5F });
+const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x3A4A5C });
 const ING_MAT = new THREE.LineDashedMaterial({ color: 0x8A6A1F, dashSize: 6, gapSize: 4 });
-const C_HOVER = new THREE.Color(0x4EA1FF), C_SEL = new THREE.Color(0xFFB000);
+const C_HOVER = new THREE.Color(0x6E9BFF), C_SEL = new THREE.Color(0xFFB21A);   // passaggio del mouse blu chiaro, selezione gialla (04/11)
 // 28/10: un pezzo giallo/arancio selezionato in ambra non si distingue: lì la selezione è blu, e i suoi spigoli si accendono
 const C_SEL_BLU = new THREE.Color(0x2F7DE1);
 const EDGE_SCELTO = new THREE.LineBasicMaterial({ color: 0x1E90FF });
@@ -336,7 +336,7 @@ function buildScene(sc) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3));
     g.setIndex(d.indices);
     g.computeVertexNormals();
-    const base = new THREE.Color(d.look?.color || (d.kind === 'body' ? 0xB7BFC8 : 0xA8B1BA));
+    const base = new THREE.Color(d.look?.color || (d.kind === 'body' ? 0xCBD1D8 : 0xBAC2CA));   // grigio acciaio chiaro
     const mat = new THREE.MeshStandardMaterial({ color: base.clone(), metalness: d.look?.metal ?? 0.15, roughness: d.look?.rough ?? 0.55,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     mat.envMapIntensity = 0.45 + 0.8 * mat.metalness;    // i riflessi dello studio: pieni sui metalli, leggeri sulle vernici
@@ -472,8 +472,8 @@ function paint() {
 let bendEdges = [], hoverEdge = null, modelRadius = 100;
 const edgeGroup = new THREE.Group();
 scene.add(edgeGroup);
-const EDGE_HOV = new THREE.MeshBasicMaterial({ color: 0xFF8C00, depthTest: false, transparent: true, opacity: 0.85 });
-const EDGE_SEL = new THREE.MeshBasicMaterial({ color: 0xFFB000, depthTest: false });
+const EDGE_HOV = new THREE.MeshBasicMaterial({ color: 0x3F7BFF, depthTest: false, transparent: true, opacity: 0.85 });
+const EDGE_SEL = new THREE.MeshBasicMaterial({ color: 0xFFB21A, depthTest: false });
 function edgeMesh(e, mat) {
   const a = v3(e.a), b = v3(e.b);
   const r = Math.max(e.thickness * 0.8, modelRadius * 0.004);
@@ -515,8 +515,8 @@ function pickEdge(ev) {
 }
 // ---- raccordo / smusso sugli spigoli del pezzo (piastre, pezzi pieni): si cliccano gli spigoli, poi Invio
 let DRESS = null;
-const DRESS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB000, depthTest: false });
-const DRESS_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF, depthTest: false });
+const DRESS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB21A, depthTest: false });
+const DRESS_HOV = new THREE.LineBasicMaterial({ color: 0x6E9BFF, depthTest: false });
 function dressTool(kind) {
   if (DRESS?.group) model.remove(DRESS.group);
   DRESS = kind ? { kind, scelti: [], hover: null, group: new THREE.Group() } : null;
@@ -963,8 +963,8 @@ function latoAcceso(rett) {
   if (rett?.length === 4) {
     const p = rett.map(v3), g = new THREE.BufferGeometry().setFromPoints([p[0], p[1], p[2], p[0], p[2], p[3]]);
     latoMesh = new THREE.Group();
-    latoMesh.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xFFB000, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })));
-    latoMesh.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(p), new THREE.LineBasicMaterial({ color: 0xFFB000 })));
+    latoMesh.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xFFB21A, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })));
+    latoMesh.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(p), new THREE.LineBasicMaterial({ color: 0xFFB21A })));
     latoMesh.renderOrder = 40;
     scene.add(latoMesh);
   }
@@ -1100,7 +1100,7 @@ function disegnaPiedi() {
 // una sagoma nuova nella struttura: si sceglie da dove la si guarda, poi si disegna
 function sagomaNuova() {
   modal(`<h3>Disegna la sagoma</h3><p class="hint">Ogni linea diventa un tubo. Poi la puoi ripetere dietro e collegare.</p>
-    <div class="form"><label style="grid-column:1/-1">Da dove la guardi mentre la disegni<select class="field" id="sg-p">
+    <div class="form"><label class="tutta-riga">Da dove la guardi mentre la disegni<select class="field" id="sg-p">
     <option value="XZ">Di fronte: fianchi, portali, cancelli</option><option value="YZ">Di fianco</option><option value="XY">Dall’alto: basamenti, telai a terra</option></select></label></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna</button></div>`, close => {
     $('#m-no').onclick = close;
@@ -1829,6 +1829,7 @@ function renderPanels() {
     VIS.nascosti.clear(); VIS.trasparenti.clear(); VIS.solo = null;
   }
   document.body.classList.toggle('assembly', assieme);
+  aggiornaModo();
   $('#b-back').hidden = !S.can_back;
   if (!assieme && ASM.tool) asmTool(null);
   if (!assieme && APP.el) appoggiaChiudi(false);     // uscito dall'assieme col pannello di Appoggia aperto
@@ -1853,7 +1854,7 @@ function renderTop() {
   const dn = $('#docname'), pezzo = S.mode !== 'assembly';
   if (!dn.querySelector('input')) {
     dn.innerHTML = `${S.dirty ? '<span class="dirty">● </span>' : ''}<span class="nome">${nome}</span>` +
-      (S.path ? '' : ' <span style="color:var(--ink-3)">— non salvato</span>');
+      (S.path ? '' : ' <span class="doc-stato">— non salvato</span>');
     dn.classList.toggle('rinomina', pezzo);
     dn.title = (S.path || 'Non ancora salvato') + (pezzo ? '\nClic: cambia il nome del pezzo' : '');
   }
@@ -1992,7 +1993,7 @@ const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', serie: 'Ripet
 async function confermaElimina(kind, ref, titolo, dip = null) {
   if (dip === null) { const m = await call('tree_menu', kind, ref); dip = m.ok ? (m.dipendenti || []) : []; }
   modal(`<h3>Elimina</h3><p>${esc(titolo)}</p>
-    ${dip.length ? `<p class="hint" style="color:var(--warn)">Spariscono anche ${dip.length === 1 ? 'questa voce, che la usa' : `queste ${dip.length} voci, che la usano`}:</p><ul class="lista-dip">${dip.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+    ${dip.length ? `<p class="hint attenzione">Spariscono anche ${dip.length === 1 ? 'questa voce, che la usa' : `queste ${dip.length} voci, che la usano`}:</p><ul class="lista-dip">${dip.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
     <p class="hint">Si può tornare indietro con Annulla (Ctrl+Z).</p>
     <div class="acts"><button class="btn" id="m-no">No</button><button class="btn danger" id="m-ok">Elimina${dip.length ? ` (${dip.length + 1})` : ''}</button></div>`, close => {
     $('#m-no').onclick = close;
@@ -2127,7 +2128,7 @@ $('#tree').addEventListener('contextmenu', ev => {
       if (v === 'modifica') { if (m.sketch) enterSketch(m.sketch); else if (m.seleziona) select(m.seleziona); return; }
       if (v === 'perche') { toast(m.errore, 'err'); return; }
       if (v === 'rinomina') {
-        modal(`<h3>Rinomina</h3><div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="rn-n" value="${esc(m.nome || '')}" placeholder="${esc(titolo)}"></label></div>
+        modal(`<h3>Rinomina</h3><div class="form"><label class="tutta-riga">Nome<input class="field" id="rn-n" value="${esc(m.nome || '')}" placeholder="${esc(titolo)}"></label></div>
           <p class="hint">Vuoto = il nome che dà il programma.</p>
           <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Rinomina</button></div>`, close => {
           $('#m-no').onclick = close;
@@ -2976,7 +2977,7 @@ async function renderProps(s) {
   togliAnteprimaForo();
   selForo = null;
   const tab = rows => `<table class="grid">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
-  const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span style="color:var(--ink-3);font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
+  const quanti = sel?.ids?.length > 1 && s.kind !== 'structure' ? ` <span class="spento" style="font-weight:400">e altre ${sel.ids.length - 1} uguali</span>` : '';
   let h = `<h3>${esc(s.title)}${quanti}</h3>${tab(s.rows)}`;
   if (!profili) profili = await call('profile_suggestions');
   if (s.kind === 'structure' && s.cosa) {
@@ -3204,7 +3205,7 @@ function pannelloLavorazioni(s) {
   if (!s.lavorabile) return s.non_lavorabile ? `<p class="hint">${esc(s.non_lavorabile)}</p>` : '';
   const n = ultimoClic?.id === s.id ? ultimoClic.normal : (s.tubo?.verticale ? [0, -1, 0] : null);   // in piedi: davanti
   const fatte = (s.lavorazioni || []).map(l => `<tr><td>${esc(l.label)}${l.through ? ' (passante)' : ''}${l.members.length > 1 ? ` · ${l.members.length} tubi` : ''}</td>
-    <td style="text-align:right"><button class="btn" data-lav-sk="${esc(l.sketch)}">Modifica</button></td></tr>`).join('');
+    <td class="destra"><button class="btn" data-lav-sk="${esc(l.sketch)}">Modifica</button></td></tr>`).join('');
   return `<div class="sub">Lavorazioni sul tubo</div>
     ${fatte ? `<table class="grid">${fatte}</table>` : ''}
     <div class="row-btns"><button class="btn primary" id="p-lav">Disegna sulla faccia ${facciaCliccata(n)}</button></div>
@@ -3226,7 +3227,7 @@ function lavorazioneTuboDialog() {
     const uguali = u.ok ? u.uguali.length : 1;
     modal(`<h3>Lavorazione sul tubo</h3>
       <p class="hint">Il disegno buca la parete del tubo. Una sagoma che esce dal bordo o dalla testa diventa un intaglio.</p>
-      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="lt-n" placeholder="es. Fori per le viti"></label></div>
+      <div class="form"><label class="tutta-riga">Nome<input class="field" id="lt-n" placeholder="es. Fori per le viti"></label></div>
       <label class="check"><input type="radio" name="lt-p" value="" checked> Solo questa parete</label>
       <label class="check"><input type="radio" name="lt-p" value="1"> Passante: anche la parete di fronte</label>
       ${uguali > 1 ? `<label class="check"><input type="checkbox" id="lt-u" checked> ${uguali - 1 === 1 ? 'Anche sull’altro tubo uguale' : `Anche sugli altri ${uguali - 1} tubi uguali`} (stessa misura, stessi tagli)</label>` : ''}
@@ -3245,7 +3246,7 @@ function lavorazioneTuboDialog() {
 // Forma da sezioni (tramoggia): i pezzi con l'ingombro e, spigolo per spigolo, piega o saldatura
 function formaPanel(f) {
   const pezzi = f.pezzi.map(p => `<tr><td><b>${esc(p.nome)}</b></td><td>${p.pieghe} pieghe</td><td>${num(p.ingombro[0], 0)} × ${num(p.ingombro[1], 0)}</td>
-    <td>${p.nel_foglio ? '✓' : '<span style="color:var(--err)">fuori foglio</span>'}</td></tr>`).join('');
+    <td>${p.nel_foglio ? '✓' : '<span class="testo-err">fuori foglio</span>'}</td></tr>`).join('');
   const nomeScelta = { piega: 'piega', saldatura: 'saldatura', taglio: 'taglio' };
   const spigoli = f.spigoli.filter(x => x.scelta !== 'taglio').map(x => `<tr><td title="${esc(x.key)}">${esc(x.nome)}</td>
     <td>${num(x.lung, 0)}</td><td>${num(x.angolo, 1)}°</td>
@@ -3353,7 +3354,7 @@ function foroPanel(fo) {
 // anteprima della svasatura sul pezzo mentre scrivi: il cono com'è, rosso se va più giù dello spessore (21/10)
 const anteprimaForo = new THREE.Group();
 scene.add(anteprimaForo);
-const SVA_OK = new THREE.MeshBasicMaterial({ color: 0xFFB000, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthTest: false });
+const SVA_OK = new THREE.MeshBasicMaterial({ color: 0xFFB21A, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthTest: false });
 const SVA_NO = new THREE.MeshBasicMaterial({ color: 0xE5484D, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthTest: false });
 // le svasature impossibili: sul pezzo il loro cono in rosso (il foro è stato fatto dritto)
 const svasatureKo = new THREE.Group();
@@ -3378,12 +3379,12 @@ function mostraAnteprimaForo(fo, tipo) {
   const D = parseFloat($('#h-D').value.replace(',', '.')), ang = parseFloat($('#h-ang').value.replace(',', '.'));
   if (!(D > fo.d) || !(ang > 0 && ang < 180)) {
     testo.textContent = !(D > fo.d) ? `Il Ø della svasatura deve essere più grande del foro (Ø${virgola(Math.round(fo.d * 100) / 100)}).` : 'Angolo tra 1 e 179°.';
-    testo.style.color = '#E5484D'; return;
+    testo.style.color = 'var(--c-err-testo)'; return;
   }
   const h = (D - fo.d) / 2 / Math.tan(ang * Math.PI / 360), t = fo.spessore;
   const troppo = t != null && h > t + 1e-6;
   testo.textContent = `Profonda ${virgola(Math.round(h * 100) / 100)} mm` + (t != null ? (troppo ? ` · più dello spessore (${virgola(t)}): riduci il Ø o apri l’angolo` : ` su ${virgola(t)} di spessore`) : '');
-  testo.style.color = troppo ? '#E5484D' : '';
+  testo.style.color = troppo ? 'var(--c-err-testo)' : '';
   const dentro = v3(fo.dentro).normalize();
   const tutti = $('#h-tutti')?.checked ? fo.uguali : [fo.cerchio];
   for (const k of tutti) {
@@ -3410,8 +3411,8 @@ async function viteDalPezzo(fo) {
   const nomeServe = !S?.path;
   modal(`<h3>Vite in questo foro</h3>
     <p class="hint">Il pezzo si salva, si apre un assieme nuovo con il pezzo e la vite già nel foro${sva ? ' (seduta nella svasatura)' : ''}.</p>
-    <div class="form">${nomeServe ? `<label style="grid-column:1/-1">Nome del pezzo (si salva in Documenti/SteelCAD)<input class="field" id="vp-n" value="${esc(S?.name || 'Pezzo')}"></label>` : ''}
-      <label style="grid-column:1/-1">Cosa<select class="field" id="vp-t">${viti.map(([k, c]) => `<option value="${k}"${k === (sva ? 'vite_tspei' : 'vite_tcei') ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
+    <div class="form">${nomeServe ? `<label class="tutta-riga">Nome del pezzo (si salva in Documenti/SteelCAD)<input class="field" id="vp-n" value="${esc(S?.name || 'Pezzo')}"></label>` : ''}
+      <label class="tutta-riga">Cosa<select class="field" id="vp-t">${viti.map(([k, c]) => `<option value="${k}"${k === (sva ? 'vite_tspei' : 'vite_tcei') ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
       <label>Misura<select class="field" id="vp-m"></select></label><label>Lunghezza<select class="field" id="vp-l"></select></label></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti la vite</button></div>`, close => {
     const rifai = () => {
@@ -4216,7 +4217,7 @@ async function viteriaDialog() {
   }
   modal(`<h3>Viteria</h3>
     <p class="hint">Dalle norme ISO: il pezzo si fa la prima volta e poi si riusa (Documenti/SteelCAD/Libreria). In distinta va tra gli acquisti.</p>
-    <div class="form"><label style="grid-column:1/-1">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
+    <div class="form"><label class="tutta-riga">Cosa<select class="field" id="vt-t">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
       <label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div>
     ${foro ? `<label class="check"><input type="checkbox" id="vt-f" checked> nel foro che hai cliccato</label>
       <label class="check" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked> <span id="vt-tutti-t">anche negli altri fori uguali del pezzo</span></label>
@@ -4618,7 +4619,7 @@ function instancePanel(s) {
     <div class="row-btns"><button class="btn primary" id="sc-go">Fai gli scassi</button></div></details>` : '';
   return `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">copia nell’assieme${s.fixed ? ' · ferma (riferimento)' : ''}</div></div>
       <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
-    <div class="ff" style="margin-bottom:6px"><label style="grid-column:1/-1">Nome del pezzo<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
+    <div class="ff" style="margin-bottom:6px"><label class="tutta-riga">Nome del pezzo<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
     ${tab}${faccia}${incastri}${scassi}
     ${(s.movimenti || []).map((m, k) => {
       const v = m.valore, lo = m.campo === 'angle' ? 0 : Math.floor(Math.min(v - 200, -2)), hi = m.campo === 'angle' ? 180 : Math.ceil(v + 200);
@@ -4637,7 +4638,7 @@ function instancePanel(s) {
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
       <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`}
     <label class="check"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}> Da acquistare (guide, viti, utensili…): in distinta, niente DXF</label>
-    ${s.acquisto ? `<div class="ff"><label style="grid-column:1/-1">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
+    ${s.acquisto ? `<div class="ff"><label class="tutta-riga">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
       <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
       <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}
     <div class="row-btns"><button class="btn primary" id="a-open">Apri il pezzo</button></div>
@@ -4720,7 +4721,7 @@ function nuovoPezzoDialog(s) {
   if (!s.face) return;
   modal(`<h3>Nuovo pezzo su questa faccia</h3>
       <p class="hint">Lo disegni sul piano della faccia, vedendo gli altri pezzi; tornando all’assieme si monta da solo.</p>
-      <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="np-nome" value="Lamiera di collegamento"></label></div>
+      <div class="form"><label class="tutta-riga">Nome<input class="field" id="np-nome" value="Lamiera di collegamento"></label></div>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#np-nome').select();
@@ -4824,8 +4825,8 @@ let MIS = null;                                    // { a: punto, cand: [...], h
 const MISURE = new Map();                          // file -> [{ a, b, tipo, testo }]
 const misGroup = new THREE.Group();
 scene.add(misGroup);
-const MIS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB000, depthTest: false });
-const MIS_RUB = new THREE.LineDashedMaterial({ color: 0xFFB000, dashSize: 4, gapSize: 3, depthTest: false });
+const MIS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB21A, depthTest: false });
+const MIS_RUB = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 4, gapSize: 3, depthTest: false });
 var misEls = [];                                   // var: placeDims la legge già prima di qui
 const misBox = document.createElement('div');
 misBox.id = 'mis-box';
@@ -5018,7 +5019,7 @@ function disegnaMisure() {
     const a = new THREE.Vector3(...q.a), b = new THREE.Vector3(...q.b), v = q.v ? new THREE.Vector3(...q.v) : null;
     const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(v ? [a, v, b] : [a, b]), MIS_MAT); l.renderOrder = 30; misGroup.add(l);
     for (const p of v ? [a, v, b] : [a, b]) {
-      const g = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.6, modelRadius * 0.004), 10, 8), new THREE.MeshBasicMaterial({ color: 0xFFB000, depthTest: false }));
+      const g = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.6, modelRadius * 0.004), 10, 8), new THREE.MeshBasicMaterial({ color: 0xFFB21A, depthTest: false }));
       g.position.copy(p); g.renderOrder = 30; misGroup.add(g);
     }
     const el = document.createElement('div');
@@ -5765,7 +5766,7 @@ async function newAssemblyDialog() {
       <td class="hint na-w">${esc(x.when || '')}</td></tr>`).join('')
     || '<tr><td colspan="5" class="hint">Nessun pezzo recente: usa «Sfoglia…» oppure crea l’assieme vuoto.</td></tr>';
   modal(`<h3>Nuovo assieme</h3>
-    <div class="form"><label style="grid-column:1/-1">Nome<input class="field" id="n-name" value="Assieme"></label></div>
+    <div class="form"><label class="tutta-riga">Nome<input class="field" id="n-name" value="Assieme"></label></div>
     <div class="na-testa"><div class="sub">Pezzi da mettere dentro</div><button class="btn" id="na-sfoglia">Sfoglia…</button></div>
     <div class="na-lista"><table class="grid" id="na-tab">${righe()}</table></div>
     <p class="hint">Il primo pezzo che scegli è la base e resta fermo; le copie si mettono a fianco e poi le accoppi. Nella distinta compaiono con la quantità.</p>
@@ -5811,18 +5812,18 @@ async function impostazioniDialog(sezione = 'piegatrice') {
   if (!r.ok) { toast(r.message, 'err'); return; }
   const n = v => (v == null || v === '' ? '' : String(v).replace('.', ','));
   const metodo = x => (x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : n(x.k));
-  const regole = r.rules.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.material || '')}</td><td style="text-align:right">${n(x.thickness)}</td>
-      <td style="text-align:right">${n(x.radius)}</td><td style="text-align:right">${metodo(x)}</td>
-      <td style="text-align:right"><button class="btn" data-rule-del="${esc(x.name)}" title="Elimina la regola">×</button></td></tr>`).join('')
+  const regole = r.rules.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.material || '')}</td><td class="destra">${n(x.thickness)}</td>
+      <td class="destra">${n(x.radius)}</td><td class="destra">${metodo(x)}</td>
+      <td class="destra"><button class="btn" data-rule-del="${esc(x.name)}" title="Elimina la regola">×</button></td></tr>`).join('')
     || '<tr><td colspan="6" class="hint">Ancora nessuna regola. Con una lamiera aperta: «Regole piega» → «Salva regola».</td></tr>';
-  const scuro = r.tema !== 'chiaro';
+  const scuro = r.tema === 'scuro';
   const corpi = {
     piegatrice: `<h4>Piegatrice</h4>
       <p class="hint">Raggio e K per ogni lamiera nuova, quando non scrivi niente.</p>
       <div class="imp-riga"><span>Raggio interno</span><span class="imp-campo"><input class="field corto" id="i-r" value="${n(r.bend_default?.radius)}"><i>mm</i></span><span></span></div>
       <div class="imp-riga"><span>Fattore K</span><span class="imp-campo"><input class="field corto" id="i-k" value="${n(r.bend_default?.k)}"></span><span></span></div>
       <h4 style="margin-top:10px">Regole salvate</h4>
-      <table class="grid imp-regole"><tr class="hint"><th style="text-align:left">Nome</th><th style="text-align:left">Materiale</th><th style="text-align:right">Spessore</th><th style="text-align:right">Raggio</th><th style="text-align:right">K</th><th></th></tr>${regole}</table>`,
+      <table class="grid imp-regole"><tr class="hint"><th style="text-align:left">Nome</th><th style="text-align:left">Materiale</th><th class="destra">Spessore</th><th class="destra">Raggio</th><th class="destra">K</th><th></th></tr>${regole}</table>`,
     materiali: `<h4>Materiali</h4>
       <p class="hint">Il materiale dei pezzi nuovi. Ogni pezzo lo cambi poi a sinistra, sotto «Misure».</p>
       <div class="imp-riga"><span>Materiale predefinito</span><select class="field medio" id="i-mat">${r.materiali.map(m =>
@@ -5861,7 +5862,7 @@ async function impostazioniDialog(sezione = 'piegatrice') {
     $('#i-logo-sc').onclick = () => inCoda(async () => logo(await call('scegli_logo')));
     $('#i-logo-via').onclick = () => inCoda(async () => logo(await call('set_logo', null)));
     $('#i-ok').onclick = () => inCoda(async () => {
-      const tema = $('#i-tema .on')?.dataset.v || 'scuro';
+      const tema = $('#i-tema .on')?.dataset.v || 'chiaro';
       const x = await call('set_impostazioni', { radius: $('#i-r').value.trim(), k: $('#i-k').value.trim(), materiale: $('#i-mat').value,
         azienda: $('#i-az').value, disegnatore: $('#i-dis').value, tema });
       if (!x.ok) { toast(x.message, 'err'); return; }
@@ -6059,7 +6060,7 @@ function nodePanel(s) {
     h += `<div class="sub">Come si saldano qui?</div><div class="angoli">${a.scelte.map(x =>
       `<button class="angolo${x.key === a.ora ? ' on' : ''}" data-angolo="${x.key}">${disegnoGiunto(x.disegno)}<span>${esc(x.label)}</span></button>`).join('')}</div>
       ${a.simili > 1 ? `<label class="check"><input type="checkbox" id="n-tutti" checked> Uguale su tutti i ${a.simili} ${a.incrocio ? 'incroci' : 'angoli'} come questo</label>` : ''}
-      <table class="grid" style="margin-top:6px">${a.righe.map(r => `<tr><td>${esc(r[0])}</td><td style="text-align:right">${esc(r[1])}</td></tr>`).join('')}</table>`;
+      <table class="grid" style="margin-top:6px">${a.righe.map(r => `<tr><td>${esc(r[0])}</td><td class="destra">${esc(r[1])}</td></tr>`).join('')}</table>`;
   }
   if (!ultimaAsta.profile) ultimaAsta.profile = s.default_profile;
   h += `<div class="sub">Tubo nuovo da qui</div>
@@ -6686,7 +6687,7 @@ async function rulesDialog() {
     <div class="row-btns"><button class="btn" id="d-save">Salva come predefinito</button></div>
     <div class="sub">Regole salvate</div>
     <table class="grid">${righe}</table>
-    ${fid ? `<div class="form" style="margin-top:12px"><label style="grid-column:1/-1">Salva i dati di piega di questa lamiera come
+    ${fid ? `<div class="form" style="margin-top:12px"><label class="tutta-riga">Salva i dati di piega di questa lamiera come
       <input class="field" id="r-name" placeholder="es. S235 sp. 2 – matrice V16"></label></div>` : '<p class="hint">Apri o crea una lamiera per usare o salvare una regola.</p>'}
     <div class="acts"><button class="btn" id="m-no">Chiudi</button>${fid ? '<button class="btn primary" id="r-save">Salva regola</button>' : ''}</div>`, close => {
     $('#m-no').onclick = close;
@@ -6746,10 +6747,10 @@ async function importDialog(percorso) {
   modal(`<div class="tav imp"><div class="tav-side"><h3>Importa ${esc(r.name)}</h3>
       <div class="imp-info" id="imp-info"></div>
       <div class="form">
-        <label style="grid-column:1/-1">Nome<input class="field" id="imp-name" value="${esc(r.name)}"></label>
+        <label class="tutta-riga">Nome<input class="field" id="imp-name" value="${esc(r.name)}"></label>
         <label>Materiale<select class="field" id="imp-mat">${r.materiali.map(m => `<option value="${esc(m.code)}"${m.code === mat ? ' selected' : ''}>${esc(m.code)}</option>`).join('')}</select></label>
         <label>Spessore<input class="field" id="imp-sp" value="${virg(r.spessore)}" placeholder="mm"></label>
-        ${regole.length ? `<label style="grid-column:1/-1">Regola di piega<select class="field" id="imp-rule"><option value="">— scrivi i dati qui sotto —</option>
+        ${regole.length ? `<label class="tutta-riga">Regola di piega<select class="field" id="imp-rule"><option value="">— scrivi i dati qui sotto —</option>
           ${regole.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}
         <label>Raggio interno<input class="field" id="imp-r" placeholder="mm" value="${virg(S?.bend_default?.radius)}"></label>
         <label>Metodo<select class="field" id="imp-met"><option value="k">K-factor</option><option value="din6935">DIN 6935</option><option value="bd90">Deduzione 90°</option></select></label>
@@ -6935,7 +6936,7 @@ function modelloDialog(m) {
       <div class="mod-piega"><b>Piegatrice</b>
         <label class="campo-mod">Raggio interno<span class="inp"><input class="field" id="mod-r" value="${esc(virgola(S?.bend_default?.radius ?? ''))}" placeholder="dalla tua piegatrice"><i>mm</i></span></label>
         <label class="campo-mod">K-factor<span class="inp"><input class="field" id="mod-k" value="${esc(virgola(S?.bend_default?.k ?? ''))}" placeholder="es. 0,33"><i></i></span></label>
-        ${S?.bend_default?.radius != null ? '<p class="hint">Dalle tue regole di piega.</p>' : '<p class="hint" style="color:var(--warn)">Scrivili tu: sono dati della tua piegatrice, Radius non li inventa. Li ricorda in «Regole piega».</p>'}</div>
+        ${S?.bend_default?.radius != null ? '<p class="hint">Dalle tue regole di piega.</p>' : '<p class="hint attenzione">Scrivili tu: sono dati della tua piegatrice, Radius non li inventa. Li ricorda in «Regole piega».</p>'}</div>
       <p class="hint">Le misure sono esterne (fuori tutto). Dopo si cambiano a sinistra, e le pieghe cliccandole.</p></div></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea il pezzo</button></div>`, close => {
     const leggi = () => { document.querySelectorAll('.mod-campi input').forEach(x => { const v = parseFloat(x.value.replace(',', '.')); if (v > 0) c[x.dataset.k] = v; }); };
@@ -7174,7 +7175,7 @@ function fillPalette() {
 }
 function drawPalette() {
   $('#pal-list').innerHTML = palItems.map((it, i) => `<li data-i="${i}" class="${i === palOn ? 'on' : ''}">${esc(it.label)}<span class="d">${esc(it.d)}</span></li>`).join('')
-    || '<li style="color:var(--ink-3)">Nessun comando con questo nome.</li>';
+    || '<li class="spento">Nessun comando con questo nome.</li>';
   $('#pal-list').querySelector('li.on')?.scrollIntoView({ block: 'nearest' });
 }
 function palRun(i) {
@@ -7242,12 +7243,12 @@ const skRubber = new THREE.Group();
 const skOver = new THREE.Group();      // sopra lo sketch: solo gli elementi selezionati o sotto il mouse
 scene.add(skGroup, skGrid, skRubber, skOver);
 let skBase = null;                     // per quale vista dello sketch è fatto il disegno di base (si rifà solo se cambia)
-const SK_LINE = new THREE.LineBasicMaterial({ color: 0x1F5FBF });
+const SK_LINE = new THREE.LineBasicMaterial({ color: 0x1F5EFF });
 const SK_SEL = new THREE.LineBasicMaterial({ color: 0xE09A00 });
 const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
-const SK_HOV = new THREE.LineBasicMaterial({ color: 0x4EA1FF });
-const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5FBF, dashSize: 6, gapSize: 4 });
-const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB000, dashSize: 5, gapSize: 3 });   // dove andrà la copia
+const SK_HOV = new THREE.LineBasicMaterial({ color: 0x6E9BFF });
+const SK_RUB = new THREE.LineDashedMaterial({ color: 0x1F5EFF, dashSize: 6, gapSize: 4 });
+const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 5, gapSize: 3 });   // dove andrà la copia
 // la griglia non scrive la profondità e si disegna per prima: dove c'è il pezzo (pieno) non si vede
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE, depthWrite: false });
 const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5, depthWrite: false });
@@ -7278,7 +7279,7 @@ const SK_TRACK = new THREE.LineDashedMaterial({ color: 0x2E9E5B, dashSize: 3, ga
 const SK_PTS = new THREE.PointsMaterial({ color: 0x1C2228, size: 6, sizeAttenuation: false });
 // tema chiaro / scuro: i colori del disegno che devono staccare dallo sfondo
 const COLORI_TEMA = {
-  chiaro: [[SK_LINE, 0x1F5FBF], [SK_GRID1, 0xD3D8DE], [SK_GRID2, 0xB4BCC5], [SK_PTS, 0x1C2228], [DIM_MAT, 0x1F3A5F], [FLAT_EDGE, 0x2B3138]],
+  chiaro: [[SK_LINE, 0x1F5EFF], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
   scuro: [[SK_LINE, 0x5AA0FF], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
 };
 function applyTheme(scuro) {
@@ -8416,7 +8417,7 @@ function scritteSottoFori(sid, cerchi) {
   modal(`<h3>Scritte sotto ${fori.length} fori</h3>
     <p class="hint">Da sinistra a destra. Ogni scritta va centrata sotto il suo foro; vuota = niente.</p>
     <div class="form" id="ss-form">${fori.map((f, i) => `<label>Foro ${i + 1} (Ø${virg(Math.round(f.r * 200) / 100)})<input class="field" data-ss="${i}" value=""></label>`).join('')}
-      <label style="grid-column:1/-1">Come<select class="field" id="ss-c">
+      <label class="tutta-riga">Come<select class="field" id="ss-c">
         <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
         <option value="allerta"${u.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option>
         <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option></select></label>
@@ -8474,14 +8475,14 @@ function finestraTesto({ valori, at, nuova, ok }) {
   const u = { ...TESTO_BASE, ...(valori || {}) };
   const virg = x => esc(String(x).replace('.', ','));
   modal(`<h3>${nuova ? 'Testo' : 'Cambia il testo'}</h3>
-    <div class="form"><label style="grid-column:1/-1">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
-      <label style="grid-column:1/-1">Come<select class="field" id="tx-c">
+    <div class="form"><label class="tutta-riga">Testo<input class="field" id="tx-t" data-c="testo" value="${esc(u.text)}" placeholder="es. PP-001 · Ø10 · LATO A"></label>
+      <label class="tutta-riga">Come<select class="field" id="tx-c">
         <option value=""${!u.come ? ' selected' : ''}>Marcato col laser (non buca, layer MARK)</option>
         <option value="saira"${u.come === 'saira' ? ' selected' : ''}>Tagliato passante, lettere grosse (Saira Stencil)</option>
         <option value="allerta"${u.come === 'allerta' ? ' selected' : ''}>Tagliato passante, lettere sottili (Allerta Stencil)</option></select></label>
       <label>Altezza delle lettere<span class="inp"><input class="field" id="tx-h" value="${virg(u.h)}"><i>mm</i></span></label>
       <label>Angolo<span class="inp"><input class="field" id="tx-a" value="${virg(u.angle)}"><i>°</i></span></label>
-      ${nuova ? `<label style="grid-column:1/-1">Il punto che hai cliccato è<select class="field" id="tx-p">
+      ${nuova ? `<label class="tutta-riga">Il punto che hai cliccato è<select class="field" id="tx-p">
         <option value="1"${u.centro ? ' selected' : ''}>il centro della scritta (clicca il centro del foro)</option>
         <option value=""${!u.centro ? ' selected' : ''}>l’angolo in basso a sinistra</option></select></label>` : ''}</div>
     <p class="hint" id="tx-hint"></p>
@@ -8879,10 +8880,10 @@ function skAction(act) {
       <div class="form" id="h-sva"><label>Ø svasatura (mm)<input class="field" id="h-D" value="${esc(String(h.D ?? Math.round(c0.r * 2 * 2 * 10) / 10).replace('.', ','))}"></label>
         <label>Angolo (°)<input class="field" id="h-ang" value="${esc(String(h.angolo ?? 90))}"></label></div>
       <div class="form" id="h-fil"><label>Filettatura<select class="field" id="h-M">${filetti.map(m => `<option${(h.M || 'M6') === m ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
-        <p class="hint" style="grid-column:1/-1">Il diametro del cerchio diventa quello del preforo (es. M6 → Ø5). La filettatura compare nell’albero.</p></div>
+        <p class="hint tutta-riga">Il diametro del cerchio diventa quello del preforo (es. M6 → Ø5). La filettatura compare nell’albero.</p></div>
       <div class="form" id="h-ins"><label>Codice inserto<input class="field" id="h-cod" value="${esc(h.codice || '')}" placeholder="es. dal catalogo del fornitore"></label>
         <label>Ø foro (mm, da catalogo)<input class="field" id="h-Di" value="${esc(h.tipo === 'inserto' ? String(h.D).replace('.', ',') : '')}"></label>
-        <p class="hint" style="grid-column:1/-1">Il cerchio prende il diametro del foro; gli inserti compaiono nell’albero col loro codice.</p></div>
+        <p class="hint tutta-riga">Il cerchio prende il diametro del foro; gli inserti compaiono nell’albero col loro codice.</p></div>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Applica</button></div>`, close => {
       let tipo = h.tipo || 'semplice';
       const mostra = () => { $('#h-sva').hidden = tipo !== 'svasato'; $('#h-fil').hidden = tipo !== 'filettato'; $('#h-ins').hidden = tipo !== 'inserto';
@@ -9537,7 +9538,18 @@ function gruppiVuoti() {
 function showRibbon(t) {
   document.querySelectorAll('.rtabs button').forEach(b => b.classList.toggle('on', b.dataset.rtab === t));
   document.querySelectorAll('.rbody').forEach(b => { b.hidden = b.dataset.rbody !== t; });
+  aggiornaModo();
 }
+// 04/11: il colore di modalità (banda sotto la barra in alto, scheda attiva, pallino del documento, striscia del
+// «prossimo passo»): body[data-modo] = lamiera | disegno | tubi | assieme | tavole. I colori stanno in style.css
+function aggiornaModo() {
+  const scheda = document.querySelector('.rtabs button.on')?.dataset.rtab;
+  const m = document.getElementById('tav-ed') ? 'tavole' : SK ? 'disegno' : S?.mode === 'assembly' ? 'assieme'
+    : ({ strutture: 'tubi', sketch: 'disegno', assieme: 'assieme' })[scheda] || 'lamiera';
+  if (document.body.dataset.modo !== m) document.body.dataset.modo = m;
+}
+// l'editor delle tavole si apre e si chiude aggiungendo e togliendo #tav-ed: basta guardare i figli di body
+new MutationObserver(() => aggiornaModo()).observe(document.body, { childList: true });
 $('#ribbon').addEventListener('click', ev => {
   const tab = ev.target.closest('.rtabs button');
   if (tab) { showRibbon(tab.dataset.rtab); if (tab.dataset.rtab !== 'sketch') schedaPrima = tab.dataset.rtab; return; }
@@ -9659,8 +9671,8 @@ async function introFine() {
 })();
 
 async function start() {
-  let tema = 'scuro';                              // scuro di partenza: pesa meno sugli occhi
-  try { tema = localStorage.getItem('steelcad.tema') || 'scuro'; } catch { /* va bene il predefinito */ }
+  let tema = 'chiaro';                             // 04/11: chiaro di partenza (lo scuro resta col pulsante Tema)
+  try { tema = localStorage.getItem('steelcad.tema') || 'chiaro'; } catch { /* va bene il predefinito */ }
   try { const imp = await call('impostazioni'); if (imp?.ok && imp.tema) tema = imp.tema; } catch { /* resta quello di prima */ }
   applyTheme(tema === 'scuro');
   introStato('Collego il motore geometrico…', 0.45);

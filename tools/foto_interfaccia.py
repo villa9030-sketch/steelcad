@@ -112,8 +112,7 @@ def main():
             api('new_project', 'telaio', {})
             api('save', True)                     # nel server di prova il file prende il nome del progetto
             nuovi = sorted(set(L.glob('*.steelcad')) - prima)
-            if nuovi:
-                nuovi[0].replace(L / 'Telaio banco.steelcad')
+            TELAIO = nuovi[0] if nuovi else L / 'Banco.steelcad'
 
             def f01():
                 apri(home=True)
@@ -179,7 +178,7 @@ def main():
             foto('06_sviluppo', f06)
 
             def f07():
-                api('open_path', str(L / 'Telaio banco.steelcad'))
+                api('open_path', str(TELAIO))
                 apri()
                 pg.evaluate("window.__steelcad.runCmd('view_iso')")
                 fermo()
@@ -228,7 +227,7 @@ def main():
             foto('10_prepara', f10)
 
             def f11():
-                api('open_path', str(L / 'Telaio banco.steelcad'))
+                api('open_path', str(TELAIO))
                 apri()
                 pg.evaluate("window.__steelcad.runCmd('view_iso')")
                 fermo()

@@ -4987,7 +4987,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         imp = _leggi_impostazioni()
         return _ok(bend_default=self.bend_default(), rules=r.get('rules', []), cartiglio=_leggi_fissi(),
                    cartelle={'lavori': str(cartella), 'libreria': str(cartella / 'Libreria')},
-                   tema=imp.get('tema', 'scuro'), materiale=imp.get('materiale', 'S235'), materiali=_materiali(),
+                   tema=imp.get('tema', 'chiaro'), materiale=imp.get('materiale', 'S235'), materiali=_materiali(),
                    logo=imp.get('logo') if imp.get('logo') and Path(imp['logo']).is_file() else None)
 
     def set_impostazioni(self, valori: dict) -> dict:

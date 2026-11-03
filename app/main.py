@@ -863,15 +863,16 @@ def _barra_titolo(window, colore: str = '#101215'):
         from ctypes import wintypes
         hwnd = wintypes.HWND(int(str(window.native.Handle)))
         dwm = ctypes.windll.dwmapi
-        uno = ctypes.c_int(1)
+        r, g, b = int(colore[1:3], 16), int(colore[3:5], 16), int(colore[5:7], 16)
+        chiara = (0.299 * r + 0.587 * g + 0.114 * b) > 150            # 04/11: col tema chiaro la barra in alto è bianca
+        uno = ctypes.c_int(0 if chiara else 1)
         for attr in (20, 19):              # DWMWA_USE_IMMERSIVE_DARK_MODE (19 sulle versioni di Windows 10 più vecchie)
             if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(uno), ctypes.sizeof(uno)) == 0:
                 break
-        r, g, b = int(colore[1:3], 16), int(colore[3:5], 16), int(colore[5:7], 16)
         rif = ctypes.c_int(r | (g << 8) | (b << 16))                   # COLORREF 0x00BBGGRR
         dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(rif), 4)      # DWMWA_CAPTION_COLOR (solo Windows 11)
-        bianco = ctypes.c_int(0x00F1EDE9)
-        dwm.DwmSetWindowAttribute(hwnd, 36, ctypes.byref(bianco), 4)   # DWMWA_TEXT_COLOR (solo Windows 11)
+        testo = ctypes.c_int(0x002B2015 if chiara else 0x00F1EDE9)    # inchiostro #15202B sul chiaro, quasi bianco sullo scuro
+        dwm.DwmSetWindowAttribute(hwnd, 36, ctypes.byref(testo), 4)   # DWMWA_TEXT_COLOR (solo Windows 11)
         # la barra si ridisegna subito (se no cambia solo al prossimo clic fuori e dentro la finestra)
         ctypes.windll.user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
     except Exception:  # noqa: BLE001 - è solo l'aspetto
