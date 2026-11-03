@@ -2648,7 +2648,9 @@ body[data-modo="tavole"] #ribbon, #tav-ed .te-strumenti { --accento-icona: var(-
 /* nelle finestre di lato (400 px) le scelte a segmenti vanno sotto l'etichetta: i pulsanti restano su una riga */
 #modal.laterale .ft-riga:has(> .seg) { grid-template-columns: 1fr; gap: var(--s-1); }
 #modal.laterale .ft-riga > .seg button { white-space: nowrap; padding: 0 var(--s-2); }
-#modal.laterale .modal-box { width: min(420px, calc(100vw - 48px)); max-height: calc(100vh - 184px); box-shadow: var(--ombra-finestra); }
+/* sotto la barra dei comandi, e sopra la barra «prossimo passo» in basso (non la copre): se non ci sta, scorre col blu in vista */
+#modal.laterale { padding-top: calc(var(--alt-top) + var(--alt-rib) + 16px); }
+#modal.laterale .modal-box { width: min(420px, calc(100vw - 48px)); max-height: calc(100vh - var(--alt-top) - var(--alt-rib) - 112px); box-shadow: var(--ombra-finestra); }
 
 /* la riga dell'anteprima sotto i campi: un messaggio di stato (blu = come verrà, rosso = non si può, grigio = aspetta) */
 .ant-stato { margin-top: var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-campo); border-left: 3px solid var(--c-linea-forte);
