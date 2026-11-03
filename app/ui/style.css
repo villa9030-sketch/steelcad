@@ -2004,3 +2004,76 @@ body.una-scheda { --alt-rib: 100px; }
   -webkit-mask: url("icons/search.svg") no-repeat center / contain; mask: url("icons/search.svg") no-repeat center / contain; }
 /* con le schede (disegno: Disegno/Lamiera) il nome dei gruppi sotto la colonna da 4 non si taglia */
 body { --alt-rib: 132px; }
+
+/* ==================================================================================================================
+   CORNICE (notte 03→04/11): barra in alto con le schede di modalità, barra dei comandi su UNA riga, cassetto in basso
+   chiuso di base. La vista 3D prende lo spazio che resta. Le regole stanno qui, in fondo: vincono su quelle sopra.
+   ================================================================================================================== */
+body, body.una-scheda { --alt-rib: 64px; }
+
+/* le schede di modalità salgono nella barra in alto, accanto al marchio: segmenti */
+#top .rtabs { display: flex; align-items: center; flex: none; gap: 2px; height: 34px; margin: 0 var(--s-2); padding: 3px;
+  border: 0; border-radius: 8px; background: var(--c-incavo); }
+#top .rtabs button { height: 28px; padding: 0 var(--s-3); border: 0; border-radius: var(--r-campo); background: none;
+  color: var(--c-testo-2); font: 500 var(--fs-fitto)/1 var(--font); white-space: nowrap; }
+#top .rtabs button:hover { color: var(--c-testo); background: color-mix(in srgb, var(--c-pannello) 60%, transparent); }
+#top .rtabs button.on, #top .rtabs button.ctx.on, body.dark #top .rtabs button.on { background: var(--c-pannello); color: var(--c-testo); font-weight: 600;
+  border: 0; box-shadow: var(--ombra-leggera), inset 0 -2px 0 var(--modo); }
+body.dark #top .rtabs button.on { background: var(--c-sopra); }
+body.una-scheda #top .rtabs { display: none; }
+body.at-home #top .rtabs { visibility: hidden; }
+/* Annulla e Rifai: solo la freccia (il nome nel suggerimento); Salva tiene il nome */
+#top #b-undo, #top #b-redo { width: 34px; padding: 0; justify-content: center; }
+#top #b-undo span, #top #b-redo span { display: none; }
+#doctab { max-width: 36%; }
+
+/* la barra dei comandi: una riga sola, pulsanti grandi col nome sotto, separati per gruppo da una linea sottile */
+#ribbon { flex-direction: row; }
+#ribbon .rbody { align-items: center; height: 100%; padding: 0 var(--s-2); gap: 0; min-width: 0; }
+#ribbon .rgroup { flex-direction: row; align-items: center; height: 48px; padding: 0 var(--s-2); border-right: 1px solid var(--c-linea); }
+#ribbon .rgroup:last-child { border-right: 0; }
+#ribbon .rname { display: none; }
+#ribbon .rbtns, #ribbon .rset { display: flex; align-items: center; gap: 2px; flex: none; }
+#ribbon .rset[hidden] { display: none; }
+#ribbon .rb:not(.rb-m) { flex-direction: column; justify-content: center; gap: 3px; width: auto; min-width: 56px; max-width: 92px; height: 56px; min-height: 0;
+  padding: 4px 8px; border: 1px solid transparent; border-radius: var(--r-campo); font: 500 12px/1.1 var(--font); }
+#ribbon .rb:not(.rb-m) img { width: 24px; height: 24px; flex: none; }
+#ribbon .rb:not(.rb-m) span { max-width: 80px; text-align: center; }
+#ribbon .rb.primary:not(.rb-m) { padding: 4px 12px; }
+#ribbon .rmenu > button.rb-export { height: 56px; }
+/* «Altro ▾»: in fondo al gruppo, apre la tendina con i comandi che si usano meno (coi nomi) */
+.ralt-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 48px; height: 56px; padding: 4px 6px;
+  border: 1px solid transparent; border-radius: var(--r-campo); background: none; color: var(--c-testo-2); font: 500 12px/1.1 var(--font); white-space: nowrap; }
+.ralt-btn span::after { content: ' ▾'; font-size: 10px; }
+.ralt-ico { display: grid; place-items: center; width: 24px; height: 24px; }
+.ralt-ico::before { content: ''; width: 18px; height: 4px; background:
+  radial-gradient(circle, currentColor 1.8px, transparent 2.2px) 0 0 / 6px 4px repeat-x; }
+.ralt-btn:hover, .ralt.open > .ralt-btn { background: var(--c-sopra); color: var(--c-testo); }
+.ralt-btn.on { background: var(--c-blu-tenue); border-color: var(--c-blu-linea); color: var(--c-testo); }
+.ralt .drop { min-width: 220px; }
+#ribbon .rbody > .rgroup:nth-last-child(-n+2) .ralt .drop { left: auto; right: 0; }
+.drop .drop-tit { padding: 6px var(--s-3) 4px; color: var(--c-spento); font: 500 var(--fs-piccolo)/1.2 var(--font); }
+#ribbon .drop .rb.rb-m { flex-direction: row; justify-content: flex-start; gap: var(--s-2); width: 100%; min-width: 0; max-width: none; height: auto;
+  min-height: var(--h-riga); padding: 0 var(--s-3) 0 var(--s-2); border: 0; border-radius: var(--r-campo); background: none; color: var(--c-testo);
+  font: var(--fs-fitto)/1.25 var(--font); white-space: nowrap; text-align: left; }
+#ribbon .drop .rb.rb-m img { width: 18px; height: 18px; flex: none; }
+#ribbon .drop .rb.rb-m span { max-width: none; text-align: left; }
+#ribbon .drop .rb.rb-m:hover { background: var(--c-sopra); }
+#ribbon .drop .rb.rb-m.on { background: var(--c-blu-tenue); }
+#ribbon .drop .rb.rb-m.on::after { content: '✓'; margin-left: auto; padding-left: var(--s-4); color: var(--c-blu); font-weight: 700; }
+#ribbon .drop .rb.rb-m:disabled { opacity: .45; background: none; }
+#ribbon .drop .rb.rb-m.primary { background: var(--c-blu-tenue); color: var(--c-testo); }
+#ribbon .drop .rb.rb-m.primary img { filter: none; }
+#ribbon .drop .rb.rb-m[hidden] { display: none; }
+/* la tendina non deve restare tagliata dalla barra: la barra non taglia quello che galleggia */
+#ribbon, #ribbon .rbody { overflow: visible; }
+/* barra in alto stretta (1366): «Cerca un comando» più corto, senza il tasto scritto; il nome del pezzo tiene il posto */
+#palette-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1500px) {
+  #palette-btn { width: 180px; }
+  #palette-btn kbd { display: none; }
+}
+@media (max-width: 1500px) {
+  #top .rtabs button { padding: 0 10px; }
+  #top .rtabs { margin: 0 var(--s-1); }
+}

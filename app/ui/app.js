@@ -6210,15 +6210,14 @@ function renderBottom() {
   if (n) sum.push(`${n} ${n === 1 ? 'avviso' : 'avvisi'}`);
   $('#bottom-sum').textContent = sum.join(' · ');
 }
-// pannello in basso: chiuso è una barretta col riassunto; si apre al clic. Si ricorda aperto/chiuso.
+// pannello in basso (il cassetto): chiuso è una barretta col riassunto; si apre col clic su una scheda (Distinta,
+// Info…) e si chiude con la freccia. 04/11: parte SEMPRE chiuso, la vista prende lo spazio (non si ricorda aperto)
 let bassoAperto = false;
-try { bassoAperto = localStorage.getItem('steelcad.pannello') === 'aperto'; } catch { /* va bene chiuso */ }
 function setBottom(aperto) {
   bassoAperto = aperto;
   document.body.classList.toggle('bottom-closed', !aperto);
   $('#bottom-arrow').textContent = aperto ? '▾' : '▴';
   $('#bottom-toggle').title = aperto ? 'Chiudi il pannello in basso (più spazio al 3D)' : 'Apri il pannello in basso';
-  try { localStorage.setItem('steelcad.pannello', aperto ? 'aperto' : 'chiuso'); } catch { /* niente */ }
 }
 function showTab(t, apri = false) {
   for (const x of document.querySelectorAll('.tabs button[data-tab]')) x.classList.toggle('on', x.dataset.tab === t);
@@ -7170,6 +7169,22 @@ function fillPalette() {
       keep: true, run: () => { $('#pal-input').value = `${p.name} = `; fillPalette(); } });
   }
   for (const c of CMDS) if (c.id !== 'palette' && (nq ? norm(c.label).includes(nq) : comandoUtile(c))) palItems.push({ label: c.label, d: c.keys || '', run: c.run });
+  // 04/11: cercando si trovano anche tutti i comandi della barra, quelli dentro «Altro ▾» compresi
+  if (nq) {
+    const visti = new Set(palItems.map(it => norm(it.label)));
+    const ora = document.querySelector('#ribbon .rbody:not([hidden])');     // prima i comandi della barra che si vede
+    const tutti = [...document.querySelectorAll('#ribbon .rb, #ribbon .rmenu .drop button')];
+    for (const b of [...tutti.filter(x => ora?.contains(x)), ...tutti.filter(x => !ora?.contains(x))]) {
+      if (b.dataset.cmd && CMDS.some(c => c.id === b.dataset.cmd)) continue;
+      const rbody = b.closest('.rbody'), tab = rbody && document.querySelector(`.rtabs [data-rtab="${rbody.dataset.rbody}"]`);
+      const nascosto = b.closest('[hidden]');
+      if (!tab || tab.hidden || b.disabled || (nascosto && nascosto !== rbody)) continue;
+      const nome = (b.querySelector('span')?.textContent || b.textContent).trim().replace(/\s*▾$/, '');
+      if (!nome || !norm(nome).includes(nq) || visti.has(norm(nome))) continue;
+      visti.add(norm(nome));
+      palItems.push({ label: nome, d: tab.textContent.trim(), run: () => { if (rbody.hidden) tab.click(); b.click(); } });
+    }
+  }
   palOn = 0;
   drawPalette();
 }
@@ -9485,6 +9500,89 @@ document.querySelectorAll('.rgroup[data-esporta]').forEach(g => {
     <img src="icons/export.svg" alt=""><span>Esporta ▾</span></button><div class="drop">${VOCI_ESPORTA.map(([c, l]) =>
     `<button data-cmd="${c}">${l}</button>`).join('')}</div></div></div><div class="rname">Esporta</div>`;
 });
+// 04/11 (cornice): la barra dei comandi su UNA riga. In ogni gruppo restano grandi, con icona e nome, i comandi
+// che si usano di più (dai percorsi di lavoro veri); gli altri vanno nel menu «Altro ▾» del gruppo, coi nomi.
+// Nessun comando sparisce: stessi pulsanti (stessi id, data-…, gestori), solo spostati; e si trovano anche in
+// «Cerca un comando». Un gruppo senza comandi grandi diventa un pulsante col suo nome e la tendina.
+const BARRA_GRANDI = {
+  lamiera: ['flange_help', 'foro', 'asola', 'tipo_foro', 'taglia', 'face_help', 'unfold', 'misura'],
+  strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
+  piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
+  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'faccia', 'asse', 'centra', 'asm_interf', 'asm_esploso', 'misura'],
+  sketch: ['line', 'rect', 'circle', 'arc3', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
+    'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
+};
+const chiaveComando = b => b.dataset.cmd || b.dataset.azione || b.dataset.tool || b.dataset.asmTool || b.dataset.act || b.dataset.make || b.id;
+function nuovoAltro(nome, titolo) {
+  const m = document.createElement('div');
+  m.className = 'menu-item rmenu ralt';
+  m.dataset.nome = nome;
+  m.innerHTML = `<button class="ralt-btn" type="button"><i class="ralt-ico" aria-hidden="true"></i><span>${esc(titolo)}</span></button>`
+    + `<div class="drop"><div class="drop-tit">${esc(nome)}</div></div>`;
+  return m;
+}
+function impaginaBarra() {
+  for (const rb of document.querySelectorAll('#ribbon .rbody')) {
+    const grandi = new Set(BARRA_GRANDI[rb.dataset.rbody] || []);
+    for (const g of rb.querySelectorAll('.rgroup:not([data-esporta])')) {
+      const nome = g.querySelector('.rname')?.textContent.trim() || 'Altro';
+      // ogni insieme che si accende e si spegne da solo (Fine: «crea» o «sulla faccia») ha la sua tendina
+      const contenitori = [...g.querySelectorAll('.rset'), g.querySelector('.rbtns')].filter(Boolean);
+      for (const c of contenitori) {
+        const mio = e => (e.closest('.rset') || c) === c;
+        const miei = [...c.querySelectorAll('.rb')].filter(b => !b.closest('.rmenu') && mio(b));
+        if (!miei.length) continue;
+        const piccoli = miei.filter(b => !grandi.has(chiaveComando(b)));
+        let menu = [...c.querySelectorAll('.rmenu')].find(mio);   // c'è già un «Altro» (sulla faccia): uso quello
+        if (piccoli.length && !menu) {
+          menu = nuovoAltro(nome, piccoli.length === miei.length ? nome : 'Altro');
+        } else if (menu) {
+          const bt = menu.querySelector(':scope > button');
+          bt.className = 'ralt-btn'; bt.innerHTML = '<i class="ralt-ico" aria-hidden="true"></i><span>Altro</span>';
+          menu.classList.add('ralt'); menu.dataset.nome = nome;
+          menu.querySelector('.drop').insertAdjacentHTML('afterbegin', `<div class="drop-tit">${esc(nome)}</div>`);
+        }
+        for (const b of miei) {
+          b.classList.remove('rb-s');
+          if (grandi.has(chiaveComando(b))) c.appendChild(b);
+        }
+        if (menu) {
+          const drop = menu.querySelector('.drop');
+          let dopo = drop.querySelector('.drop-tit');
+          for (const b of piccoli) { b.classList.add('rb-m'); dopo.after(b); dopo = b; }
+          c.appendChild(menu);
+          const voci = [...drop.querySelectorAll('button')].map(b => b.textContent.trim().replace(/…$/, ''));
+          menu.querySelector('.ralt-btn').title = 'Altri comandi: ' + voci.join(', ');
+        }
+        for (const col of c.querySelectorAll('.rcol')) if (!col.children.length) col.remove();
+      }
+    }
+  }
+  // passando su un altro menu mentre uno è aperto si apre quello (come File, Vista)
+  document.querySelectorAll('#ribbon .ralt').forEach(m => m.addEventListener('mouseenter', () => {
+    if (document.querySelector('.menu-item.open') && !m.classList.contains('open')) {
+      document.querySelectorAll('.menu-item').forEach(x => x.classList.remove('open')); m.classList.add('open');
+    }
+  }));
+}
+impaginaBarra();
+// «Altro» si vede solo se dentro c'è qualcosa; è acceso (azzurro) se il comando in uso sta lì dentro
+function statoAltro() {
+  for (const m of document.querySelectorAll('#ribbon .ralt')) {
+    const voci = [...m.querySelectorAll('.drop button')];
+    const vuoto = voci.length > 0 && voci.every(b => b.hidden);
+    if (m.hidden !== vuoto) m.hidden = vuoto;
+    const acceso = voci.some(b => b.classList.contains('on') && !b.hidden);
+    const bt = m.querySelector('.ralt-btn');
+    if (bt.classList.contains('on') !== acceso) bt.classList.toggle('on', acceso);
+    // senza comandi grandi accanto (tutti spenti per questo pezzo) il pulsante prende il nome del gruppo
+    const soli = [...m.parentElement.children].filter(e => e.classList.contains('rb')).every(b => b.hidden);
+    const testo = soli ? m.dataset.nome : 'Altro', sp = bt.querySelector('span');
+    if (sp.textContent !== testo) sp.textContent = testo;
+  }
+}
+new MutationObserver(statoAltro).observe($('#ribbon'), { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+statoAltro();
 // perché un comando adesso non si può usare (null = si può)
 function motivoNo(cmd) {
   const lam = !!S?.sheet?.data, asm = S?.mode === 'assembly';
@@ -9521,7 +9619,7 @@ function aggiornaComandi() {
     b.disabled = !S?.sheet?.data; b.title = b.disabled ? `${b.dataset.title} · Non disponibile: prima serve una lamiera` : b.dataset.title;
     if (b.hasAttribute('data-no-shape')) b.hidden = forma && !(conFacce && suForma.has(b.dataset.azione));
   });
-  document.querySelectorAll('.rmenu .drop [data-cmd]').forEach(b => { b.hidden = !!motivoNo(b.dataset.cmd); });
+  document.querySelectorAll('.rmenu:not(.ralt) .drop [data-cmd]').forEach(b => { b.hidden = !!motivoNo(b.dataset.cmd); });   // Esporta ▾ (non gli «Altro»)
   document.querySelectorAll('#top .drop [data-cmd^="export_"]').forEach(b => {
     const no = motivoNo(b.dataset.cmd);
     b.disabled = !!no; b.title = no ? 'Non disponibile: ' + no : '';
@@ -9550,9 +9648,13 @@ function aggiornaModo() {
 }
 // l'editor delle tavole si apre e si chiude aggiungendo e togliendo #tav-ed: basta guardare i figli di body
 new MutationObserver(() => aggiornaModo()).observe(document.body, { childList: true });
-$('#ribbon').addEventListener('click', ev => {
+// le schede di modalità (Lamiera, Strutture, Piastra, Assieme, Disegno) stanno nella barra in alto, come segmenti
+document.querySelector('.rtabs').addEventListener('click', ev => {
   const tab = ev.target.closest('.rtabs button');
-  if (tab) { showRibbon(tab.dataset.rtab); if (tab.dataset.rtab !== 'sketch') schedaPrima = tab.dataset.rtab; return; }
+  if (tab) { showRibbon(tab.dataset.rtab); if (tab.dataset.rtab !== 'sketch') schedaPrima = tab.dataset.rtab; }
+});
+$('#ribbon').addEventListener('click', ev => {
+  if (ev.target.closest('.ralt .drop button')) ev.target.closest('.ralt').classList.remove('open');
   const mk = ev.target.closest('[data-make]');
   if (mk) { mk.closest('.menu-item')?.classList.remove('open'); if (SK && !mk.disabled) makeDialog(mk.dataset.make); return; }
   const b = ev.target.closest('.rb');
