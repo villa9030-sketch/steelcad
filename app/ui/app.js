@@ -616,7 +616,7 @@ function dressFine() {
       <div class="form"><label>Tipo<select class="field" id="sw-tipo">${[['angolo', 'D’angolo (a gola)'], ['V', 'Di testa a V'], ['I', 'Di testa a I']].map(([v, t]) =>
         `<option value="${v}"${q.tipo === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
       <label>Misura<span class="inp"><input class="field" id="sw-a" value="${esc(q.a)}" placeholder="es. 4"><i>mm</i></span></label></div>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div>`, close => {
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Aggiungi la saldatura</button></div>`, close => {
       $('#m-no').onclick = close;
       const vai = () => {
         ultimaSaldatura = { tipo: $('#sw-tipo').value, a: $('#sw-a').value.trim() };
@@ -632,7 +632,7 @@ function dressFine() {
   const kind = DRESS.kind, punti = DRESS.scelti.map(c => c.p), ultimo = DRESS.ultimo || (kind === 'fillet' ? '5' : '1');
   modal(`<h3>${kind === 'fillet' ? 'Raccordo' : 'Smusso'} su ${punti.length} spigol${punti.length === 1 ? 'o' : 'i'}</h3>
     <div class="form"><label>${kind === 'fillet' ? 'Raggio' : 'Misura (a 45°)'}<span class="inp"><input class="field" id="dr-v" value="${esc(ultimo)}"><i>mm</i></span></label><span></span></div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">${kind === 'fillet' ? 'Raccorda' : 'Smussa'}</button></div>`, close => {
     $('#m-no').onclick = close;
     const vai = () => {
       const v = $('#dr-v').value.trim(); close();
@@ -1132,14 +1132,14 @@ function sagomaNuova() {
   modal(`<h3>Disegna la sagoma</h3><p class="hint">Ogni linea diventa un tubo. Poi la puoi ripetere dietro e collegare.</p>
     <div class="form"><label class="tutta-riga">Da dove la guardi mentre la disegni<select class="field" id="sg-p">
     <option value="XZ">Di fronte: fianchi, portali, cancelli</option><option value="YZ">Di fianco</option><option value="XY">Dall’alto: basamenti, telai a terra</option></select></label></div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Disegna la sagoma</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
       const piano = $('#sg-p').value;
       close();
       inCoda(async () => { const r = await call('sagoma_nuova', piano); if (await apply(r)) await enterSketch(r.sketch); });
     };
-  });
+  }, { stretta: true });
 }
 function faiTubiDialog() {
   const sid = SK.sid;
@@ -1932,7 +1932,7 @@ function salvaPezzo(conNome) {
   modal(`<h3>Salva il pezzo</h3>
     <div class="form"><label>Come si chiama il pezzo<input class="field" id="sv-nome" value="${esc(S.name || '')}" spellcheck="false"></label></div>
     <p class="hint">Il nome va nella distinta, nel cartiglio delle tavole e nel nome del DXF. Poi scegli la cartella.</p>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Salva</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Salva…</button></div>`, close => {
     const i = $('#sv-nome');
     i.focus(); i.select();
     $('#m-no').onclick = close;
@@ -1946,7 +1946,7 @@ function salvaPezzo(conNome) {
       });
     };
     $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') $('#m-ok').click(); if (ev.key === 'Escape') close(); };
-  });
+  }, { stretta: true });
 }
 
 const ICONE = { project: '◆', part: '▣', sketch: '✎', extrude: '▤', hole: '◯', fillet: '◜', chamfer: '◿', sheet: '▱', flange: '⌐',
@@ -2033,13 +2033,14 @@ const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', serie: 'Ripet
 // Elimina con la conferma: cosa sparisce insieme (i disegni sopra, i tagli che li usano), poi tutto in un colpo
 async function confermaElimina(kind, ref, titolo, dip = null) {
   if (dip === null) { const m = await call('tree_menu', kind, ref); dip = m.ok ? (m.dipendenti || []) : []; }
-  modal(`<h3>Elimina</h3><p>${esc(titolo)}</p>
-    ${dip.length ? `<p class="hint attenzione">Spariscono anche ${dip.length === 1 ? 'questa voce, che la usa' : `queste ${dip.length} voci, che la usano`}:</p><ul class="lista-dip">${dip.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
-    <p class="hint">Si può tornare indietro con Annulla (Ctrl+Z).</p>
-    <div class="acts"><button class="btn" id="m-no">No</button><button class="btn danger" id="m-ok">Elimina${dip.length ? ` (${dip.length + 1})` : ''}</button></div>`, close => {
+  // 04/11: la domanda col nome di cosa sparisce; il pulsante rosso dice quante voci toglie
+  modal(`<h3>Eliminare «${esc(titolo)}»?</h3>
+    ${dip.length ? `<div class="msg warn">Sparisce anche ${dip.length === 1 ? 'questa voce, che la usa' : `quello che la usa (${dip.length} voci)`}:</div><ul class="lista-dip">${dip.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+    <p class="hint">Se cambi idea: Annulla in alto (Ctrl+Z) lo rimette.</p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn danger" id="m-ok">${dip.length ? `Elimina ${dip.length + 1} voci` : 'Elimina'}</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => { close(); clearSelection(); inCoda(async () => { const r2 = await call('tree_action', kind, ref, 'elimina'); await apply(r2, r2.message); }); };
-  });
+  }, { stretta: true });
 }
 function chiudiMenuAlbero() { document.getElementById('menu-albero')?.remove(); }
 // 03/11: il nome del pezzo nell'assieme si cambia con doppio clic sulla voce (vale per le copie, la distinta, le tavole)
@@ -2176,7 +2177,7 @@ $('#tree').addEventListener('contextmenu', ev => {
           $('#m-ok').onclick = () => { const nome = $('#rn-n').value; close(); inCoda(async () => apply(await call('tree_action', kind, ref, 'rinomina', nome))); };
           $('#rn-n').focus(); $('#rn-n').select();
           $('#modal-box').onkeydown = e2 => { if (e2.key === 'Enter') $('#m-ok').click(); if (e2.key === 'Escape') close(); };
-        });
+        }, { stretta: true });
         return;
       }
       if (v === 'elimina') { confermaElimina(kind, ref, titolo, m.dipendenti || []); return; }
@@ -3692,7 +3693,7 @@ async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
       + `<div class="ft-riga"><span>Messa</span>${seg('lato', v.verso === 'x' ? [['mezzo', 'in mezzo'], ['davanti', 'dal bordo davanti'], ['dietro', 'dal bordo dietro']]
         : [['mezzo', 'in mezzo'], ['sinistra', 'dal bordo sinistro'], ['destra', 'dal bordo destro']])}</div>`
       + (v.lato !== 'mezzo' ? riga('A', 'dal', v.dal) : '');
-    if (d === 'punti') return `<p class="hint" style="margin:0">Clicca sul pezzo dove va ${v.tipo === 'asola' ? 'l’asola' : 'il foro'} (anche più volte). Le misure si correggono qui sotto.</p>`
+    if (d === 'punti') return `<p class="hint">Clicca sul pezzo dove va ${v.tipo === 'asola' ? 'l’asola' : 'il foro'} (anche più volte). Le misure si correggono qui sotto.</p>`
       + (v.punti.length ? v.punti.map((p, i) => `<div class="ft-riga fo-punto"><span>${v.punti.length > 1 ? `n. ${i + 1}: ` : ''}dal bordo sinistro / davanti</span><span class="ft-mm">
         <input class="field" data-px="${i}" value="${esc(virgola(p[0]))}"><i>/</i><input class="field" data-py="${i}" value="${esc(virgola(p[1]))}"><i>mm</i>
         <button type="button" class="link danger" data-pvia="${i}" title="Togli questo">×</button></span></div>`).join('') : '');
@@ -3824,13 +3825,13 @@ function pieghePiuBordi(primo = null) {
       ${riga('Angolo', 'angle', v.angle, '°')}
       <div class="ft-riga"><span>Verso</span>${seg('direction', [['up', 'In su'], ['down', 'In giù']])}</div>
       ${lati() > 1 ? `<div class="ft-riga"><span>Negli angoli</span>${seg('angoli', [['aperti', 'Aperti (scantonati)'], ['chiusi', 'Chiusi']])}</div>`
-        + (v.angoli === 'chiusi' ? riga('Gioco nell’angolo', 'gioco', v.gioco) + '<p class="hint" style="margin:0">Il lato lungo resta intero e copre quello corto; il gioco è lo spazio per la saldatura.</p>' : '') : ''}</div>`;
+        + (v.angoli === 'chiusi' ? riga('Gioco nell’angolo', 'gioco', v.gioco) + '<p class="hint">Il lato lungo resta intero e copre quello corto; il gioco è lo spazio per la saldatura.</p>' : '') : ''}</div>`;
   const args = () => [PIEGA.bordi[0]?.feature || S.sheet.feature, PIEGA.bordi.map(e => ({ kind: e.kind, ref: e.ref })),
     { length: v.length, angle: v.angle, direction: v.direction }, lati() > 1 ? v.angoli : 'aperti', v.gioco];
   modal(`<div id="pg-tutto"><h3>Piega i bordi</h3>
     <p class="hint">Clicca sul pezzo i bordi da piegare: si accendono in giallo. Un altro clic lo toglie. Tutte le pieghe vengono uguali.</p>
     <div id="pg-corpo">${corpo()}</div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Piega i bordi</button></div></div>`, close => {
     const cornice = $('#modal-box'), box = $('#pg-tutto');
     const vai = () => {
       paint();
@@ -3926,7 +3927,7 @@ async function angoliSviluppo() {
       <div class="ft-riga"><span>Come</span>${seg('tipo', [['raggio', 'Arrotondati (raggio)'], ['smusso', 'Smussati a 45°']])}</div>
       <label class="ft-riga"><span>${v.tipo === 'raggio' ? 'Raggio' : 'Smusso'}</span><span class="ft-mm"><input class="field" id="ag-valore" value="${esc(virgola(v.valore))}" autocomplete="off"><i>mm</i></span></label>
       <div class="ft-riga"><span>Quali</span>${seg('quali', [['tutti', `Tutti gli spigoli vivi (${n})`], ['scelti', 'Solo quelli che clicco']])}</div>
-      ${v.quali === 'scelti' ? `<p class="hint" style="margin:0">${ANGOLI.scelti.size ? `Scelti ${ANGOLI.scelti.size} di ${n}.` : 'Nessuno scelto.'} Clicca i cerchi sugli angoli dello sviluppo.</p>` : ''}</div>`;
+      ${v.quali === 'scelti' ? `<p class="hint">${ANGOLI.scelti.size ? `Scelti ${ANGOLI.scelti.size} di ${n}.` : 'Nessuno scelto.'} Clicca i cerchi sugli angoli dello sviluppo.</p>` : ''}</div>`;
   const args = () => [S.sheet.feature, v.tipo, v.valore, v.quali === 'tutti' ? null : [...ANGOLI.scelti].map(i => info.angoli[i].xy)];
   const segni = () => {
     togliQuote();
@@ -3948,7 +3949,7 @@ async function angoliSviluppo() {
   modal(`<div id="ag-tutto"><h3>Angoli dello sviluppo</h3>
     <p class="hint">Gli spigoli vivi del contorno (quelli che pungono) arrotondati o smussati in un colpo. Si vede sullo sviluppo: in arancio quello che va via.</p>
     <div id="ag-corpo">${corpo()}</div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai gli angoli</button></div></div>`, close => {
     const cornice = $('#modal-box'), box = $('#ag-tutto');
     const vai = () => {
       const st = box.querySelector('.ant-stato');
@@ -4020,7 +4021,7 @@ async function incastriDialog() {
     return `<div class="ft-form">
       ${P.length > 1 ? `<div class="ft-riga"><span>Quale piega</span><div class="seg" data-in-quale>${P.map((x, i) => `<button type="button" data-v="${i}" class="${i === v.quale ? 'on' : ''}">${esc(x.nome)}</button>`).join('')}</div></div>`
         : `<div class="ft-riga"><span>Piega</span><b>${esc(p.nome)}</b></div>`}
-      <p class="hint" style="margin:0">La punta appoggia su ${esc(corto(p.contro))} (lunga ${esc(virgola(p.lunga))} mm): le linguette sulla punta entrano nelle asole di quella faccia.${p.fatti ? ' Su questa piega gli incastri ci sono già.' : ''}</p>
+      <p class="hint">La punta appoggia su ${esc(corto(p.contro))} (lunga ${esc(virgola(p.lunga))} mm): le linguette sulla punta entrano nelle asole di quella faccia.${p.fatti ? ' Su questa piega gli incastri ci sono già.' : ''}</p>
       ${riga('Quante linguette', 'n', '')}
       ${riga('Larghezza', 'w')}
       ${riga('Gioco nell’asola', 'c')}
@@ -4030,7 +4031,7 @@ async function incastriDialog() {
   modal(`<div id="in-tutto"><h3>Incastri linguetta e asola</h3>
     <p class="hint">Per tenere insieme la scatola prima di saldare: le asole sono più larghe della linguetta del gioco, per lato.</p>
     <div id="in-corpo">${corpo()}</div>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fatto</button></div></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai gli incastri</button></div></div>`, close => {
     const cornice = $('#modal-box'), box = $('#in-tutto');
     const vai = () => anteprima('auto_tabs', args, box.querySelector('.ant-stato'), { vista: 'iso' });
     box.addEventListener('input', ev => { const t = ev.target; if (t.id?.startsWith('in-')) { v[t.id.slice(3)] = t.value; vai(); } });
@@ -4358,7 +4359,7 @@ function stepDialog() {
   const k = S?.bend_default?.k ?? 0.33;
   modal(`<h3>Apri STEP di una lamiera</h3>
     <p class="hint">Riconosco spessore e pieghe e spiego il pezzo: lo sviluppo con il K che usi tu (non quello del cliente). Se il pezzo non è una lamiera piegata (angolare, assieme, forme speciali) te lo dico invece di darti uno sviluppo sbagliato.</p>
-    <div class="form"><label>K-factor<input class="field" id="st-k" value="${esc(String(k).replace('.', ','))}"></label><span></span></div>
+    <div class="form"><label>Fattore K (il tuo, della piegatrice)<input class="field" id="st-k" value="${esc(String(k).replace('.', ','))}"></label></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Scegli il file STEP…</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
@@ -4371,7 +4372,7 @@ function stepDialog() {
         if (await apply(r, r.message)) hideHome();
       });
     };
-  });
+  }, { stretta: true });
 }
 // 28/10: lo STEP del cliente è un assieme: l'elenco dei pezzi, apri quello che serve o i DXF di tutte le lamiere
 window.__stepPezzi = r => stepPezzi(r);              // per le prove automatiche
@@ -6956,8 +6957,10 @@ function conAnteprima(metodo, argomenti, opz = {}) {
 new MutationObserver(() => { if ($('#modal').hidden) { anteprimaVia(); $('#modal').classList.remove('laterale'); if (SK) controls.enableRotate = false; } })
   .observe(document.getElementById('modal'), { attributes: true, attributeFilter: ['hidden'] });
 
-function modal(html, wire) {
-  $('#modal-box').classList.remove('wide', 'nuovo', 'prepara', 'fatto');
+// opz.stretta: una domanda breve (conferma, un nome, un campo solo) in una finestra stretta
+function modal(html, wire, opz = {}) {
+  $('#modal-box').classList.remove('wide', 'nuovo', 'prepara', 'fatto', 'stretta');
+  if (opz.stretta) $('#modal-box').classList.add('stretta');
   $('#modal').classList.remove('laterale');
   $('#modal-box').innerHTML = html;
   $('#modal').hidden = false;
@@ -7186,22 +7189,23 @@ async function rulesDialog() {
   if (!r.ok) { toast(r.message, 'err'); return; }
   const fid = S?.sheet?.feature;
   const n = v => (v == null || v === '' ? '–' : String(v).replace('.', ','));
-  const righe = r.rules.map(x => `<tr><td><b>${esc(x.name)}</b><br><span class="hint">${esc(x.material || '')} · sp. ${n(x.thickness)} · R ${n(x.radius)} ·
-    ${x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : 'K ' + n(x.k)}</span></td>
-    <td style="white-space:nowrap">${fid ? `<button class="btn primary" data-rule-apply="${esc(x.name)}">Usa</button>` : ''}
-    <button class="btn" data-rule-del="${esc(x.name)}" title="Elimina la regola">×</button></td></tr>`).join('')
-    || '<tr><td class="hint">Ancora nessuna regola. Inserisci i dati di piega nella scheda Lamiera e salvali qui con un nome.</td></tr>';
-  modal(`<h3>Regole di lamiera</h3>
+  // 04/11: tre parti come nelle Impostazioni (per ogni lamiera nuova, le regole salvate, salva questa); un blu solo in fondo
+  const righe = r.rules.map(x => `<tr><td><b>${esc(x.name)}</b><div class="hint">${esc([x.material, `sp. ${n(x.thickness)}`, `R ${n(x.radius)}`,
+    x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : 'K ' + n(x.k)].filter(Boolean).join(', '))}</div></td>
+    <td class="rg-az">${fid ? `<button class="btn" data-rule-apply="${esc(x.name)}">Usa su questa lamiera</button>` : ''}
+    <button class="btn danger" data-rule-del="${esc(x.name)}" title="Elimina la regola ${esc(x.name)}">Elimina</button></td></tr>`).join('')
+    || '<tr><td class="hint">Ancora nessuna regola. Scrivi i dati di piega nella scheda Lamiera e salvali qui sotto con un nome.</td></tr>';
+  modal(`<h3>Regole di piega</h3>
     <p class="hint">I dati della tua piegatrice (spessore, raggio interno, K o deduzione) salvati con un nome: li riusi in ogni progetto con un clic.</p>
-    <div class="sub">Predefinito per ogni lamiera nuova</div>
-    <div class="form"><label>Raggio interno (mm)<input class="field" id="d-r" value="${n(r.default?.radius).replace('–', '')}"></label>
-      <label>K-factor<input class="field" id="d-k" value="${n(r.default?.k).replace('–', '')}"></label></div>
-    <div class="row-btns"><button class="btn" id="d-save">Salva come predefinito</button></div>
-    <div class="sub">Regole salvate</div>
-    <table class="grid">${righe}</table>
-    ${fid ? `<div class="form" style="margin-top:12px"><label class="tutta-riga">Salva i dati di piega di questa lamiera come
-      <input class="field" id="r-name" placeholder="es. S235 sp. 2 – matrice V16"></label></div>` : '<p class="hint">Apri o crea una lamiera per usare o salvare una regola.</p>'}
-    <div class="acts"><button class="btn" id="m-no">Chiudi</button>${fid ? '<button class="btn primary" id="r-save">Salva regola</button>' : ''}</div>`, close => {
+    <section class="rg-sez"><h4>Per ogni lamiera nuova</h4>
+      <div class="rg-riga"><label>Raggio interno<span class="campo-unita"><input class="field" id="d-r" value="${n(r.default?.radius).replace('–', '')}" placeholder="es. 2"><i>mm</i></span></label>
+        <label>Fattore K<input class="field" id="d-k" value="${n(r.default?.k).replace('–', '')}" placeholder="es. 0,33"></label>
+        <button class="btn" id="d-save">Salva come predefinito</button></div></section>
+    <section class="rg-sez"><h4>Regole salvate</h4><table class="grid rg-tab">${righe}</table></section>
+    ${fid ? `<section class="rg-sez"><h4>Salva i dati di questa lamiera</h4>
+      <label class="rg-nome">Nome della regola<input class="field" id="r-name" placeholder="es. S235 sp. 2, matrice V16"></label></section>`
+    : '<p class="hint">Apri o crea una lamiera per usare o salvare una regola.</p>'}
+    <div class="acts"><button class="btn" id="m-no">Chiudi</button>${fid ? '<button class="btn primary" id="r-save">Salva la regola</button>' : ''}</div>`, close => {
     $('#m-no').onclick = close;
     $('#d-save').onclick = () => inCoda(async () => {
       const x = await call('set_bend_default', { radius: $('#d-r').value.trim(), method: 'k', k: $('#d-k').value.trim() });
@@ -7224,11 +7228,11 @@ window.__apriDaFuori = percorso => {
   const nome = String(percorso).split(/[\\/]/).pop();
   if (!S?.dirty) { inCoda(() => openProject(percorso)); return; }
   modal(`<h3>Aprire ${esc(nome)}?</h3><p>Il lavoro aperto adesso ha modifiche non salvate. Se apri l’altro, le modifiche restano nel salvataggio automatico.</p>
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn" id="m-salva">Salva e apri</button><button class="btn primary" id="m-ok">Apri</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn" id="m-salva">Salva e apri</button><button class="btn primary" id="m-ok">Apri senza salvare</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => { close(); inCoda(() => openProject(percorso)); };
     $('#m-salva').onclick = () => { close(); inCoda(async () => { if (await apply(await call('save', false), 'Salvato.')) await openProject(percorso); }); };
-  });
+  }, { stretta: true });
 };
 async function openProject(percorso) {
   const r = percorso ? await call('open_recent', percorso) : await call('open_dialog');
@@ -7239,7 +7243,7 @@ async function openProject(percorso) {
     close => {
       const vai = rec => { close(); primaVolta = true; clearSelection(); inCoda(async () => { if (await apply(await call('open_path', r.path, rec), rec ? 'Modifiche recuperate.' : null)) { hideHome(); fotoAnteprima(S.path); } }); };
       $('#r-no').onclick = () => vai(false); $('#r-ok').onclick = () => vai(true);
-    });
+    }, { stretta: true });
     return;
   }
   if (r.ok) { primaVolta = true; clearSelection(); }
@@ -7659,10 +7663,10 @@ const CMDS = [
     if (!S?.sheet?.data || S?.mode === 'assembly') { toast('Lo specchio si fa su un pezzo di lamiera aperto.', 'err'); return; }
     modal(`<h3>Versione specchiata</h3><p class="hint">Il pezzo rovesciato come in uno specchio (la staffa destra dalla sinistra), con il suo sviluppo per il laser.
       Si salva accanto a questo, col nome «… specchiato», e si apre. Le pieghe vengono dal 3D: per cambiarle si cambia l’originale e si rifà lo specchio.</p>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea</button></div>`, close => {
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea lo specchiato</button></div>`, close => {
       $('#m-no').onclick = close;
       $('#m-ok').onclick = () => { close(); inCoda(async () => { const r = await call('crea_specchiato'); if (await apply(r, r.message)) await loadScene(); }); };
-    });
+    }, { stretta: true });
   } },
   { id: 'saveas', label: 'Salva con nome…', keys: 'Ctrl+Maiusc+S', run: () => salvaPezzo(true) },
   { id: 'export_step', label: 'Esporta STEP…', run: () => inCoda(() => esportaFile('step')) },
@@ -9510,7 +9514,7 @@ function skAction(act) {
       <div class="form" id="h-ins"><label>Codice inserto<input class="field" id="h-cod" value="${esc(h.codice || '')}" placeholder="es. dal catalogo del fornitore"></label>
         <label>Ø foro (mm, da catalogo)<input class="field" id="h-Di" value="${esc(h.tipo === 'inserto' ? String(h.D).replace('.', ',') : '')}"></label>
         <p class="hint tutta-riga">Il cerchio prende il diametro del foro; gli inserti compaiono nell’albero col loro codice.</p></div>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Applica</button></div>`, close => {
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Usa questo tipo</button></div>`, close => {
       let tipo = h.tipo || 'semplice';
       const mostra = () => { $('#h-sva').hidden = tipo !== 'svasato'; $('#h-fil').hidden = tipo !== 'filettato'; $('#h-ins').hidden = tipo !== 'inserto';
         document.querySelectorAll('#h-tipo button').forEach(b => b.classList.toggle('on', b.dataset.k === tipo)); };
@@ -9694,7 +9698,7 @@ async function structureDialog() {
       <label>Quante volte (1 = solo questo)<input class="field" id="st-n" value="1"></label>
       <label>A distanza (mm)<input class="field" id="st-d" value="600"></label>
       <label>Verso<select class="field" id="st-s"><option value="back">${esc(versi.back)}</option><option value="front">${esc(versi.front)}</option></select></label>
-      <label class="check" style="align-self:end"><input type="checkbox" id="st-c" checked> Collega i nodi con traversi</label>
+      <label class="check"><input type="checkbox" id="st-c" checked> Collega i nodi con traversi</label>
       <label>Profilo traversi<input class="field" id="st-cp" list="dl-st" value="40x20x2"></label>
       <label>Gruppo traversi<input class="field" id="st-cg" value="Traversi"></label></div>
     <p class="hint">Esempio scaffale: disegni la spalla di fianco, «Quante volte» 2 a distanza L, collega i nodi: escono i traversi dei ripiani. La distanza diventa un parametro (D).</p>
@@ -10022,7 +10026,7 @@ function makeDialog(kind) {
       <p class="hint">${per ? 'Ogni linea disegnata è il bordo aperto di una persiana; la cappa sale verso sinistra (guardando dal primo al secondo punto).' : 'Ogni cerchio disegnato è un’imbutitura di quel diametro, verso fuori dalla faccia.'}</p>
       <div class="form">${per ? '<label>Larghezza (mm)<input class="field" id="m-w" value="8"></label><label>Altezza (mm)<input class="field" id="m-h" value="4"></label>'
         : '<label>Profondità (mm)<input class="field" id="m-h" value="3"></label>'}</div>
-      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea</button></div>`, close => {
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">${per ? 'Fai le persiane' : 'Fai le imbutiture'}</button></div>`, close => {
       $('#m-no').onclick = close;
       $('#m-ok').onclick = () => {
         const v = per ? { width: $('#m-w').value.trim(), height: $('#m-h').value.trim() } : { depth: $('#m-h').value.trim() };
@@ -10047,9 +10051,9 @@ function makeDialog(kind) {
   modal(`<h3>${lam ? 'Crea lamiera dal contorno' : 'Crea piastra dal contorno'}</h3>
     <div class="form"><label>Spessore (mm)<input class="field" id="m-sp" value="${lam ? 2 : 5}"></label>
     ${lam ? `<label>Raggio interno di piega<input class="field" id="m-r" placeholder="dato della piegatrice"></label>
-    <label>K-factor<input class="field" id="m-k" placeholder="dato della piegatrice"></label>` : ''}</div>
+    <label>Fattore K<input class="field" id="m-k" placeholder="dato della piegatrice"></label>` : ''}</div>
     ${lam ? '<p class="hint">Raggio e K servono solo quando aggiungi le flange; se li lasci vuoti te li chiederà la scheda Lamiera.</p>' : ''}
-    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea</button></div>`, close => {
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">${lam ? 'Crea la lamiera' : 'Crea la piastra'}</button></div>`, close => {
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
       const v = { thickness: $('#m-sp').value.trim() };

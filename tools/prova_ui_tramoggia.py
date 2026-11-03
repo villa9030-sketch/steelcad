@@ -23,7 +23,8 @@ try:
         api('new_project', 'tramoggia_cassone', {'raggio': 3, 'k': 0.4})
         pg.reload(); pg.wait_for_function('window.__steelcad && window.__steelcad.ready'); time.sleep(1.5)
         pg.evaluate("window.__steelcad.hideHome()"); time.sleep(0.5)
-        if pg.is_visible('[data-rtab="lamiera"]'): pg.click('[data-rtab="lamiera"]')   # 03/11: con una sola scheda le linguette non si vedono
+        # 04/11: con una sola scheda la linguetta è un'etichetta (non si clicca): basta che la scheda sia quella giusta
+        pg.evaluate("document.querySelector('[data-rtab=\"lamiera\"]')?.click()")
         time.sleep(0.4)
         vis = lambda sel: pg.evaluate("s => { const b = document.querySelector(s); return !!b && !b.hidden && !b.disabled; }", sel)
         chk('«Su una faccia» si vede', vis('#ribbon [data-cmd="face_help"]'))
