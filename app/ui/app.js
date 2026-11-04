@@ -2500,10 +2500,9 @@ function tagliaTesta() {
   });
 }
 function pannelloTesta(s) {
-  $('#props').innerHTML = `<div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(s.feature)}</div></div>
-      <button class="ibtn danger" id="tt-del" title="Elimina il taglio"><img src="icons/delete.svg" alt=""></button></div>
-    ${s.rows.length ? `<table class="grid">${s.rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>` : ''}
-    ${campiTesta(s.def, 'ff')}<div class="row-btns"><button class="btn primary" id="tt-ok">Applica</button></div>`;
+  $('#props').innerHTML = pannelloLam({ titolo: esc(s.title), cose: 'taglio di testa sulle punte della lamiera',
+    azioni: [azioneLam('delete', 'Togli questo taglio', 'id="tt-del"', 'danger', 'Toglie il taglio di testa: le punte tornano dritte')],
+    corpo: campiTesta(s.def, 'ff'), dettagli: s.rows, fine: '<button class="btn primary big" id="tt-ok">Applica</button>' });
   const vai = () => inCoda(async () => { const r = await call('edit_end_miter', s.feature, leggiTesta()); if (await apply(r) && r.select) await select(r.select); });
   $('#tt-ok').onclick = vai;
   ['#tt-ang', '#tt-gap'].forEach(q => { $(q).onkeydown = ev => { if (ev.key === 'Enter') vai(); }; });
@@ -5090,6 +5089,7 @@ function cosEPezzo(s) {
 function iconaMate(t) { return ICONA_MATE[t] || null; }
 const ICONA_MATE = { faccia: 'faccia_su_faccia', asse: 'foro_su_foro', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
   perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'testa', appoggia: 'appoggia' };
+const TOGLI_ASM = (id, nome, titolo) => `<button class="btn danger tutta-riga" id="${id}" title="${esc(titolo)}"><img src="icons/delete.svg" alt=""><span>${esc(nome)}</span></button>`;
 function instancePanel(s) {
   const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
   const faccia = s.face ? `<p class="hint">Faccia cliccata: ${esc(s.face.label)} (${esc(s.face.kind)})</p>` : '';
@@ -5106,8 +5106,10 @@ function instancePanel(s) {
     <div class="row-btns"><button class="btn" id="sc-go">Fai gli scassi</button></div></details>` : '';
   // cosa puoi fare: tutte le azioni della barretta (anche quelle che lì stanno in «Altro»), meno «Apri», che è in fondo
   const azioni = azioniPezzo(s).filter(x => x.id !== 'open' && x.cls !== 'mov');
+  // 04/11 (ritocchi): «Togli» sta in tutti i pannelli nello stesso posto: l'ultima voce di «Cosa puoi fare», rossa e quieta
   const cosa = `<section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni">${azioni.map((x, i) =>
-    `<button class="btn" data-azione-pezzo="${i}" title="${esc(x.t)}"><img src="icons/${x.ic}.svg" alt=""><span>${esc(x.t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span></button>`).join('')}</div></section>`;
+    `<button class="btn" data-azione-pezzo="${i}" title="${esc(x.t)}"><img src="icons/${x.ic}.svg" alt=""><span>${esc(x.t.replace(/ \(.*$/, '').replace(/:.*$/, ''))}</span></button>`).join('')}
+    ${TOGLI_ASM('a-del', 'Togli dall’assieme', 'Toglie questo pezzo dall’assieme (Canc); il suo file resta')}</div></section>`;
   // chi lo tiene: ogni accoppiamento in parole (clic = lo apri); quelli con una misura hanno il campo e il cursore
   const frasi = frasiMate(), mov = Object.fromEntries((s.movimenti || []).map((m, k) => [m.id, [m, k]]));
   const tiene = `<section class="sezione"><h4>Lo tengono</h4>${(s.mates || []).length ? s.mates.map(mid => {
@@ -5121,8 +5123,7 @@ function instancePanel(s) {
   const fin = s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
       <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`;
-  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div>
-      <button class="ibtn danger" id="a-del" title="Togli dall’assieme"><img src="icons/delete.svg" alt=""></button></div>
+  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div></div>
     ${cosa}${incastri}${scassi}${tiene}
     <section class="sezione"><h4>Dove sta</h4>${dovePanel(s)}
       <div class="asm-sposta"${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
@@ -5279,10 +5280,10 @@ function matePanel(s) {
       <input type="range" class="cursore" id="m-slide" min="0" max="180" step="1" value="${d.angle}" title="Trascina: il pezzo gira">
       <p class="hint">0° = una faccia contro l’altra, 90° = a squadra.</p>` : '';
   const pezzo = (k, id) => `<button class="asm-mate" data-vai-pezzo="${esc(id || '')}" title="Scegli il pezzo"><img src="icons/${k === 'Fermo' ? 'c_fix' : 'move'}.svg" alt=""><span><span class="testo-2">${k === 'Fermo' ? 'Sta fermo' : 'Si muove'}:</span> ${esc(riga(k))}</span></button>`;
-  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cos)}</div></div>
-      <button class="ibtn danger" id="m-del" title="Togli l’accoppiamento"><img src="icons/delete.svg" alt=""></button></div>
+  return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cos)}</div></div></div>
     <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni una">${gira ? `<button class="btn" id="m-flip" title="${esc(gira[d.flip && gira[1] ? 1 : 0])}"><img src="icons/mirror.svg" alt=""><span>${esc(gira[d.flip && gira[1] ? 1 : 0].replace(/ \(.*$/, ''))}</span></button>` : ''}
-      <button class="btn" id="m-sosp" title="${d.off ? 'Torna a tenere i due pezzi' : 'Per un momento non tiene: il pezzo resta dov’è e lo puoi spostare'}"><img src="icons/${d.off ? 'joint' : 'eye'}.svg" alt=""><span>${d.off ? 'Riattiva' : 'Sospendi'}</span></button></div>
+      <button class="btn" id="m-sosp" title="${d.off ? 'Torna a tenere i due pezzi' : 'Per un momento non tiene: il pezzo resta dov’è e lo puoi spostare'}"><img src="icons/${d.off ? 'joint' : 'eye'}.svg" alt=""><span>${d.off ? 'Riattiva' : 'Sospendi'}</span></button>
+      ${TOGLI_ASM('m-del', 'Togli l’accoppiamento', 'I due pezzi restano dove sono, liberi')}</div>
       <p class="hint">${MATE_COSA[d.type] ? esc(MATE_COSA[d.type]) + '.' : ''}</p></section>
     ${campo || angolo ? `<section class="sezione"><h4>Misura</h4>${campo}${angolo}</section>` : ''}
     <section class="sezione"><h4>I due pezzi</h4>${pezzo('Fermo', d.a)}${pezzo('Si muove', d.b)}</section>
@@ -6608,7 +6609,7 @@ function ricordaTubo() {
 // Sempre lo stesso ordine (regola 2): titolo e cos'è → «Cosa puoi fare adesso» → i campi → Dettagli (chiuso) → in
 // fondo il pulsante. Il pulsante di un campo diventa blu solo quando hai cambiato qualcosa: il prossimo passo si vede
 const tRighe = rows => rows.map(([k, v]) => `<div class="riga"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
-const tAzione = (attr, icona, nome, spiega = '') => `<button class="cosa-b t-az" ${attr}><img src="icons/${icona}.svg" alt=""><b>${esc(nome)}</b>${spiega ? `<span>${esc(spiega)}</span>` : ''}</button>`;
+const tAzione = (attr, icona, nome, spiega = '', cls = '') => `<button class="cosa-b t-az${cls ? ' ' + cls : ''}" ${attr}><img src="icons/${icona}.svg" alt=""><b>${esc(nome)}</b>${spiega ? `<span>${esc(spiega)}</span>` : ''}</button>`;
 const tMinuscola = t => (t ? t.charAt(0).toLowerCase() + t.slice(1) : '');
 function bluSeCambia(campi, btn) {
   campi = [...campi].filter(Boolean);
@@ -6680,6 +6681,7 @@ function pannelloTubo(s, quanti) {
         <div class="t-in-riga"><span class="campo-unita"><input class="field" id="p-punto-q" value="" placeholder="es. 265"><i>mm</i></span>
         <button class="btn primary" id="p-punto-ok">Metti il punto</button></div><p class="hint">O passa col mouse sul tubo e clicca dove vuoi.</p></div>
       ${s.lavorabile ? tAzione('id="p-lav"', 'hole', `Disegna sulla faccia ${facciaCliccata(n)}`, 'Fori, asole, intagli: prima clicca la faccia giusta') : ''}
+      ${tAzione('id="p-del" title="Canc"', 'delete', `Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}`, '', 'danger')}
     </div>${!s.lavorabile && s.non_lavorabile ? `<p class="hint">${esc(s.non_lavorabile)}</p>` : ''}
     ${fatte ? `<div class="t-righe"><div class="sub">Lavorazioni sul tubo</div>${fatte}</div>` : ''}</section>
     <section class="sezione"><h4>Tubo</h4>
@@ -6689,8 +6691,7 @@ function pannelloTubo(s, quanti) {
     <div id="p-pos"></div>
     <details class="fsec"><summary>Dettagli</summary>${tRighe(s.rows.filter(r => r[0] === 'Tubo' || r[0] === 'Peso'))}
       ${s.esterno ? '' : `<label class="lbl" for="p-anc">Linea d’asse sul profilo</label>
-      <div class="t-in-riga"><select class="field" id="p-anc">${anc}</select><button class="btn" id="p-flip">Inverti</button></div>`}</details>
-    <div class="t-piede t-libero"><button class="btn danger" id="p-del" title="Canc">Togli ${sel?.ids?.length > 1 ? sel.ids.length + ' tubi' : 'questo tubo'}</button></div></div>`;
+      <div class="t-in-riga"><select class="field" id="p-anc">${anc}</select><button class="btn" id="p-flip">Inverti</button></div>`}</details></div>`;
   const tutti = () => $('#p-all')?.checked ?? false;
   const edit = fields => inCoda(async () => apply(await call('edit_member', s.id, fields, tutti())));
   $('#p-apply').onclick = () => edit({ profile: $('#p-prof').value.trim() });

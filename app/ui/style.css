@@ -2873,3 +2873,6 @@ body:not(.dark):has(#modal:not([hidden]) .btn.primary) #ribbon .rb.primary:not(:
 .toast.warn .ti { color: var(--c-testo); }
 body.dark .toast.ok .ti, body.dark .prep-ok::before, body.dark .toast.warn .ti { color: var(--c-fondo); }
 body.dark #tav-ed .te-tabs button.on i { color: var(--c-fondo); }
+/* «Togli» uguale in tutti i pannelli (04/11, ritocchi): l'ultima voce di «Cosa puoi fare», scritta rossa quieta, fondo rosso tenue sotto il mouse */
+.asm-azioni .btn.danger, .cosa-b.t-az.danger b { color: var(--c-err-testo); }
+.asm-azioni .btn.danger:hover, .cosa-b.t-az.danger:hover { background: var(--c-err-tenue); }
