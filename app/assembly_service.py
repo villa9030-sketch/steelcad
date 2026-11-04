@@ -813,13 +813,16 @@ class AssemblyMixin:
     def _vano_info(ia, ib, r) -> dict:
         g, lati = r['giochi'], r['lati']
         return {'fermo': ia['id'], 'mobile': ib['id'], 'nome_fermo': ia['name'], 'nome_mobile': ib['name'],
-                'vani': [{k: x[k] for k in ('i', 'nome', 'ci_sta', 'rett')} | {'W': round(x['W'], 2), 'H': round(x['H'], 2)}
-                         for x in r['vani']],
+                # un lato senza parete (la scanalatura aperta da una parte): misura None, «aperto»
+                'vani': [{k: x[k] for k in ('i', 'nome', 'ci_sta', 'rett')}
+                         | {k: round(x[k], 2) if math.isfinite(x[k]) else None for k in ('W', 'H')} for x in r['vani']],
                 'vano': r['vano'], 'rett': r['rett'], 'prof': r['prof'], 'versi': r['versi'],
                 'pannello': [round(r['pannello'][0], 2), round(r['pannello'][1], 2)],
-                'giochi': [{'lato': lati[k][i], 'mm': round(g[k][i], 2)} for k in ('u', 'v') for i in (0, 1)],
+                'giochi': [{'lato': lati[k][i], 'mm': None if g[k][i] is None else round(g[k][i], 2)}
+                           for k in ('u', 'v') for i in (0, 1)],
+                'sede': None if not r.get('sede') else {k: r['sede'][k] for k in ('alta', 'giu', 'quante', 'i')},
                 'davanti': lati['f'][0], 'dietro': lati['f'][1], 'dentro': round(float(r.get('dentro') or 0), 1),
-                'tiene': all(None not in r['fermo'][k] and None not in r['mobile'][k] for k in ('u', 'v'))}
+                'tocca': round(float(r.get('tocca') or 0), 2), 'tiene': r['tiene']}
 
     @_in_assieme
     def asm_vano(self, mobile: dict, fermo: dict, opz: dict | None = None, prova: bool = False) -> dict:
@@ -840,7 +843,9 @@ class AssemblyMixin:
 
         def fn():
             ia, ib, r = self._vano_conti(mobile, fermo, opz)
-            if r['dentro'] > DENTRO:
+            # in una scanalatura lo spigolo che entra di qualche decimo nei raggi delle pieghe si mette lo stesso
+            # (lo si dice con la misura); un pannello che sbatte davvero contro il telaio no
+            if r['dentro'] > DENTRO and not (r.get('sede') and 0 < r.get('tocca', 0) <= 1.0):
                 raise A.AssemblyError(f'Così «{ib["name"]}» tocca dentro «{ia["name"]}» (qualcosa nel vano lo ferma): '
                                       'prova «Capovolgi» o l’altra profondità.')
             esito.update(self._vano_info(ia, ib, r))
@@ -858,29 +863,29 @@ class AssemblyMixin:
                 if tipo == 'distanza':
                     m['offset'] = round(self._misura_mate(m), 4)
                     m['lato'] = lato
-                    m['segno'] = -1                  # la faccia del telaio guarda fuori: dentro il vano è positivo
+                    if m.get('flip'):                # a filo della faccia del telaio che guarda fuori: dentro è positivo
+                        m['segno'] = -1
                 else:
                     m['offset'] = round(self._misura_centra(m), 4)
                 self.asm.mates.append(m)
-            for k in ('u', 'v'):
-                (a0, a1), (b0, b1) = r['fermo'][k], r['mobile'][k]
-                if None not in (a0, a1, b0, b1):
-                    nuovo('centra', a=fa(a0), a2=fa(a1), b=fb(b0), b2=fb(b1))
-            (af, ar), (bf, br) = r['fermo']['f'], r['mobile']['f']
-            if r['prof'] == 'mezzo' and None not in (af, ar, bf, br):
-                nuovo('centra', a=fa(af), a2=fa(ar), b=fb(bf), b2=fb(br))
-            elif r['prof'] == 'dietro' and None not in (ar, br):
-                nuovo('distanza', r['lati']['f'][1], a=fa(ar), b=fb(br))
-            elif None not in (af, bf):
-                nuovo('distanza', r['lati']['f'][0], a=fa(af), b=fb(bf))
+            for v in r['vincoli']:
+                if v[0] == 'centra':
+                    nuovo('centra', a=fa(v[1]), a2=fa(v[2]), b=fb(v[3]), b2=fb(v[4]))
+                else:
+                    nuovo('distanza', v[1], a=fa(v[2]), b=fb(v[3]))
             return {'select': ib['id']}
         r = self._asm_change('Metti nel vano', fn)
         if r.get('ok'):
-            g = esito['giochi']
+            g = [x for x in esito['giochi'] if x['mm'] is not None]
             gioco = (f'{fmt_mm(g[0]["mm"])} mm per lato' if len({x['mm'] for x in g}) == 1
                      else ', '.join(f'{x["lato"]} {fmt_mm(x["mm"])}' for x in g) + ' mm')
-            prof = {'davanti': f'a filo {esito["davanti"]}', 'dietro': f'a filo {esito["dietro"]}', 'mezzo': 'in mezzo'}[esito['prof']]
+            sede = esito.get('sede')
+            prof = (f'nella scanalatura da {fmt_mm(round(sede["alta"], 1))} mm' if sede else
+                    {'davanti': f'a filo {esito["davanti"]}', 'dietro': f'a filo {esito["dietro"]}', 'mezzo': 'in mezzo'}[esito['prof']])
             r['message'] = (f'Fatto: «{esito["nome_mobile"]}» è nel vano di «{esito["nome_fermo"]}», gioco {gioco}, {prof}.'
+                            + (f' Attenzione: lo spigolo entra di {fmt_mm(esito["tocca"])} mm nei raggi delle pieghe della '
+                               'scanalatura: per entrare pulito serve più gioco (almeno il raggio) o uno spessore più sottile.'
+                               if esito.get('tocca') and esito['dentro'] > DENTRO else '')
                             + (' Se cambi il telaio resta centrato.' if esito['tiene']
                                else ' Un lato del vano non è piano: lì resta dove l’ho messo.'))
             r['vano'] = esito

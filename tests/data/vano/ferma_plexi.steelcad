@@ -1,0 +1,1531 @@
+{
+ "format": "steelcad",
+ "version": 1,
+ "meta": {
+  "name": "FERMA PLEXI B",
+  "created": "2026-11-04T15:14:19",
+  "modified": "2026-11-04T15:28:51",
+  "quote": []
+ },
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "mass": "kg"
+ },
+ "parameters": {
+  "W": 918,
+  "P": 918,
+  "sp": 2,
+  "off1": 20,
+  "off2": 20,
+  "off3": 20,
+  "off4": 20,
+  "off5": 20,
+  "off6": 20,
+  "off7": 20,
+  "off8": 5,
+  "off9": 20,
+  "off10": 20,
+  "off11": 20,
+  "off12": 20
+ },
+ "material": "S235",
+ "features": [
+  {
+   "id": "S1",
+   "type": "sketch",
+   "name": "Base",
+   "plane": "XY",
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P2": {
+     "kind": "point",
+     "x": 485.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P3": {
+     "kind": "point",
+     "x": 485.0,
+     "y": 291.0,
+     "construction": false
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 291.0,
+     "construction": false
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P3",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P4",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P1",
+     "construction": false,
+     "label": "lato sinistro"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "horizontal",
+     "refs": [
+      "L1"
+     ],
+     "auto": true
+    },
+    "K2": {
+     "type": "vertical",
+     "refs": [
+      "L2"
+     ],
+     "auto": true
+    },
+    "K3": {
+     "type": "horizontal",
+     "refs": [
+      "L3"
+     ],
+     "auto": true
+    },
+    "K4": {
+     "type": "vertical",
+     "refs": [
+      "L4"
+     ],
+     "auto": true
+    },
+    "K5": {
+     "type": "coincident",
+     "refs": [
+      "P1",
+      "O"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "length",
+     "refs": [
+      "L1"
+     ],
+     "value": "W"
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L4"
+     ],
+     "value": "P"
+    }
+   }
+  },
+  {
+   "id": "SM1",
+   "type": "sheet",
+   "name": "Lamiera",
+   "sketch": "S1",
+   "thickness": "sp",
+   "radius": 1,
+   "method": "k",
+   "k": 0.21,
+   "bd90": null,
+   "flanges": [
+    {
+     "id": "FL1",
+     "edge": "L4",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL2",
+     "edge": "L1",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL3",
+     "edge": "L2",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL4",
+     "parent": "FL3",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL5",
+     "parent": "FL2",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL6",
+     "parent": "FL1",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL7",
+     "parent": "FL5",
+     "length": 20,
+     "angle": 90,
+     "direction": "down",
+     "position": "inside"
+    },
+    {
+     "id": "FL8",
+     "parent": "FL7",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL9",
+     "parent": "FL4",
+     "length": 20,
+     "angle": 90,
+     "direction": "down",
+     "position": "inside"
+    },
+    {
+     "id": "FL10",
+     "parent": "FL9",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    },
+    {
+     "id": "FL11",
+     "parent": "FL6",
+     "length": 20,
+     "angle": 90,
+     "direction": "down",
+     "position": "inside"
+    },
+    {
+     "id": "FL12",
+     "parent": "FL11",
+     "length": 20,
+     "angle": 90,
+     "direction": "up",
+     "position": "inside"
+    }
+   ],
+   "tip_corners": "miter"
+  },
+  {
+   "id": "S4",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Lamiera",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 297.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 297.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P19": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 297.0,
+     "construction": false
+    },
+    "P20": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "L25": {
+     "kind": "line",
+     "a": "P34",
+     "b": "P29",
+     "construction": false,
+     "label": "lato L25"
+    },
+    "P21": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 297.0,
+     "construction": false
+    },
+    "L26": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P21",
+     "construction": true
+    },
+    "L27": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P19",
+     "construction": true
+    },
+    "L28": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P20",
+     "construction": true
+    },
+    "P22": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P23": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 297.0,
+     "construction": false
+    },
+    "L29": {
+     "kind": "line",
+     "a": "P30",
+     "b": "P35",
+     "construction": false,
+     "label": "lato L29"
+    },
+    "P24": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 2.4492935982947065e-15,
+     "construction": false
+    },
+    "L30": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P24",
+     "construction": true
+    },
+    "L31": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P22",
+     "construction": true
+    },
+    "L32": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P23",
+     "construction": true
+    },
+    "P25": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "P27": {
+     "kind": "point",
+     "x": 1.2246467991473533e-15,
+     "y": 20.0,
+     "construction": false
+    },
+    "L34": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P27",
+     "construction": true
+    },
+    "L35": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P25",
+     "construction": true
+    },
+    "P29": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "L37": {
+     "kind": "line",
+     "a": "P29",
+     "b": "P30",
+     "construction": false,
+     "label": "lato L37"
+    },
+    "P30": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "P31": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 292.00000000000006,
+     "construction": false
+    },
+    "P32": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 292.0,
+     "construction": false
+    },
+    "L38": {
+     "kind": "line",
+     "a": "P35",
+     "b": "P34",
+     "construction": false,
+     "label": "lato L38"
+    },
+    "P33": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 292.0,
+     "construction": false
+    },
+    "L39": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P33",
+     "construction": true
+    },
+    "L40": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P31",
+     "construction": true
+    },
+    "L41": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P32",
+     "construction": true
+    },
+    "P34": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 292.00000000000006,
+     "construction": false
+    },
+    "P35": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 292.00000000000006,
+     "construction": false
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K19": {
+     "type": "parallel",
+     "refs": [
+      "L25",
+      "L3"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "angle",
+     "refs": [
+      "L3",
+      "L26"
+     ],
+     "value": 90
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L26"
+     ],
+     "value": "off5"
+    },
+    "K20": {
+     "type": "on_line",
+     "refs": [
+      "P21",
+      "L25"
+     ],
+     "auto": false
+    },
+    "K21": {
+     "type": "perpendicular",
+     "refs": [
+      "L27",
+      "L3"
+     ],
+     "auto": false
+    },
+    "K22": {
+     "type": "perpendicular",
+     "refs": [
+      "L28",
+      "L3"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "parallel",
+     "refs": [
+      "L29",
+      "L1"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "angle",
+     "refs": [
+      "L1",
+      "L30"
+     ],
+     "value": 90
+    },
+    "D4": {
+     "type": "length",
+     "refs": [
+      "L30"
+     ],
+     "value": "off6"
+    },
+    "K24": {
+     "type": "on_line",
+     "refs": [
+      "P24",
+      "L29"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "perpendicular",
+     "refs": [
+      "L31",
+      "L1"
+     ],
+     "auto": false
+    },
+    "K26": {
+     "type": "perpendicular",
+     "refs": [
+      "L32",
+      "L1"
+     ],
+     "auto": false
+    },
+    "D5": {
+     "type": "angle",
+     "refs": [
+      "L2",
+      "L34"
+     ],
+     "value": 90
+    },
+    "D6": {
+     "type": "length",
+     "refs": [
+      "L34"
+     ],
+     "value": "off7"
+    },
+    "K29": {
+     "type": "perpendicular",
+     "refs": [
+      "L35",
+      "L2"
+     ],
+     "auto": false
+    },
+    "K31": {
+     "type": "parallel",
+     "refs": [
+      "L38",
+      "L4"
+     ],
+     "auto": false
+    },
+    "D7": {
+     "type": "angle",
+     "refs": [
+      "L4",
+      "L39"
+     ],
+     "value": 90
+    },
+    "D8": {
+     "type": "length",
+     "refs": [
+      "L39"
+     ],
+     "value": "off8"
+    },
+    "K32": {
+     "type": "on_line",
+     "refs": [
+      "P33",
+      "L38"
+     ],
+     "auto": false
+    },
+    "K33": {
+     "type": "perpendicular",
+     "refs": [
+      "L40",
+      "L4"
+     ],
+     "auto": false
+    },
+    "K34": {
+     "type": "perpendicular",
+     "refs": [
+      "L41",
+      "L4"
+     ],
+     "auto": false
+    }
+   }
+  },
+  {
+   "id": "S5",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Lamiera",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 297.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 297.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    }
+   }
+  },
+  {
+   "id": "S6",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Lamiera",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 494.0,
+     "y": 297.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 297.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    }
+   }
+  },
+  {
+   "id": "TG1",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S4"
+  },
+  {
+   "id": "S7",
+   "type": "sketch",
+   "name": "Sketch: la faccia di sopra di Lamiera",
+   "plane": {
+    "face": "SM1/sopra"
+   },
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 912.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "P2": {
+     "kind": "point",
+     "x": 912.0,
+     "y": 915.0,
+     "construction": true,
+     "ref": true
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P3": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": true,
+     "ref": true
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P1",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 915.0,
+     "construction": true,
+     "ref": true
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P4",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P3",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true,
+     "piega": true
+    },
+    "P5": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 20.0,
+     "construction": true,
+     "ref": true
+    },
+    "P6": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 292.00000000000006,
+     "construction": true,
+     "ref": true
+    },
+    "L5": {
+     "kind": "line",
+     "a": "P5",
+     "b": "P6",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P7": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 20.0,
+     "construction": true,
+     "ref": true
+    },
+    "L6": {
+     "kind": "line",
+     "a": "P7",
+     "b": "P5",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P8": {
+     "kind": "point",
+     "x": 474.0,
+     "y": 292.00000000000006,
+     "construction": true,
+     "ref": true
+    },
+    "L7": {
+     "kind": "line",
+     "a": "P8",
+     "b": "P7",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "L8": {
+     "kind": "line",
+     "a": "P6",
+     "b": "P8",
+     "construction": true,
+     "label": "bordo del pezzo",
+     "ref": true
+    },
+    "P9": {
+     "kind": "point",
+     "x": 912.0,
+     "y": 895.0,
+     "construction": false
+    },
+    "P10": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 895.0,
+     "construction": false
+    },
+    "L9": {
+     "kind": "line",
+     "a": "P24",
+     "b": "P21",
+     "construction": false,
+     "label": "lato L9"
+    },
+    "P11": {
+     "kind": "point",
+     "x": 912.0,
+     "y": 895.0,
+     "construction": false
+    },
+    "L10": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P11",
+     "construction": true
+    },
+    "L11": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P9",
+     "construction": true
+    },
+    "L12": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P10",
+     "construction": true
+    },
+    "P12": {
+     "kind": "point",
+     "x": 892.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P13": {
+     "kind": "point",
+     "x": 892.0,
+     "y": 915.0,
+     "construction": false
+    },
+    "L13": {
+     "kind": "line",
+     "a": "P23",
+     "b": "P24",
+     "construction": false,
+     "label": "lato L13"
+    },
+    "P14": {
+     "kind": "point",
+     "x": 892.0,
+     "y": 2.4492935982947065e-15,
+     "construction": false
+    },
+    "L14": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P14",
+     "construction": true
+    },
+    "L15": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P12",
+     "construction": true
+    },
+    "L16": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P13",
+     "construction": true
+    },
+    "P15": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 915.0,
+     "construction": false
+    },
+    "P16": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "L17": {
+     "kind": "line",
+     "a": "P21",
+     "b": "P5",
+     "construction": false,
+     "label": "lato L17"
+    },
+    "P17": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 915.0,
+     "construction": false
+    },
+    "L18": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P17",
+     "construction": true
+    },
+    "L19": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P15",
+     "construction": true
+    },
+    "L20": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P16",
+     "construction": true
+    },
+    "P18": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "P19": {
+     "kind": "point",
+     "x": 912.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "L21": {
+     "kind": "line",
+     "a": "P22",
+     "b": "P23",
+     "construction": false,
+     "label": "lato L21"
+    },
+    "P20": {
+     "kind": "point",
+     "x": 1.2246467991473533e-15,
+     "y": 20.0,
+     "construction": false
+    },
+    "L22": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P20",
+     "construction": true
+    },
+    "L23": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P18",
+     "construction": true
+    },
+    "L24": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P19",
+     "construction": true
+    },
+    "P21": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 895.0,
+     "construction": false
+    },
+    "P22": {
+     "kind": "point",
+     "x": 20.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "P23": {
+     "kind": "point",
+     "x": 892.0,
+     "y": 20.0,
+     "construction": false
+    },
+    "P24": {
+     "kind": "point",
+     "x": 891.9999997,
+     "y": 895.0,
+     "construction": false
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "fix",
+     "refs": [
+      "P1"
+     ],
+     "auto": false
+    },
+    "K2": {
+     "type": "fix",
+     "refs": [
+      "P2"
+     ],
+     "auto": false
+    },
+    "K3": {
+     "type": "fix",
+     "refs": [
+      "P3"
+     ],
+     "auto": false
+    },
+    "K4": {
+     "type": "fix",
+     "refs": [
+      "P4"
+     ],
+     "auto": false
+    },
+    "K5": {
+     "type": "fix",
+     "refs": [
+      "P5"
+     ],
+     "auto": false
+    },
+    "K6": {
+     "type": "fix",
+     "refs": [
+      "P6"
+     ],
+     "auto": false
+    },
+    "K7": {
+     "type": "fix",
+     "refs": [
+      "P7"
+     ],
+     "auto": false
+    },
+    "K8": {
+     "type": "fix",
+     "refs": [
+      "P8"
+     ],
+     "auto": false
+    },
+    "K9": {
+     "type": "parallel",
+     "refs": [
+      "L9",
+      "L3"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "angle",
+     "refs": [
+      "L3",
+      "L10"
+     ],
+     "value": 90
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L10"
+     ],
+     "value": "off9"
+    },
+    "K10": {
+     "type": "on_line",
+     "refs": [
+      "P11",
+      "L9"
+     ],
+     "auto": false
+    },
+    "K11": {
+     "type": "perpendicular",
+     "refs": [
+      "L11",
+      "L3"
+     ],
+     "auto": false
+    },
+    "K12": {
+     "type": "perpendicular",
+     "refs": [
+      "L12",
+      "L3"
+     ],
+     "auto": false
+    },
+    "K13": {
+     "type": "parallel",
+     "refs": [
+      "L13",
+      "L1"
+     ],
+     "auto": false
+    },
+    "D3": {
+     "type": "angle",
+     "refs": [
+      "L1",
+      "L14"
+     ],
+     "value": 90
+    },
+    "D4": {
+     "type": "length",
+     "refs": [
+      "L14"
+     ],
+     "value": "off10"
+    },
+    "K14": {
+     "type": "on_line",
+     "refs": [
+      "P14",
+      "L13"
+     ],
+     "auto": false
+    },
+    "K15": {
+     "type": "perpendicular",
+     "refs": [
+      "L15",
+      "L1"
+     ],
+     "auto": false
+    },
+    "K16": {
+     "type": "perpendicular",
+     "refs": [
+      "L16",
+      "L1"
+     ],
+     "auto": false
+    },
+    "K17": {
+     "type": "parallel",
+     "refs": [
+      "L17",
+      "L4"
+     ],
+     "auto": false
+    },
+    "D5": {
+     "type": "angle",
+     "refs": [
+      "L4",
+      "L18"
+     ],
+     "value": 90
+    },
+    "D6": {
+     "type": "length",
+     "refs": [
+      "L18"
+     ],
+     "value": "off11"
+    },
+    "K19": {
+     "type": "perpendicular",
+     "refs": [
+      "L19",
+      "L4"
+     ],
+     "auto": false
+    },
+    "K20": {
+     "type": "perpendicular",
+     "refs": [
+      "L20",
+      "L4"
+     ],
+     "auto": false
+    },
+    "K21": {
+     "type": "parallel",
+     "refs": [
+      "L21",
+      "L2"
+     ],
+     "auto": false
+    },
+    "D7": {
+     "type": "angle",
+     "refs": [
+      "L2",
+      "L22"
+     ],
+     "value": 90
+    },
+    "D8": {
+     "type": "length",
+     "refs": [
+      "L22"
+     ],
+     "value": "off12"
+    },
+    "K22": {
+     "type": "on_line",
+     "refs": [
+      "P20",
+      "L21"
+     ],
+     "auto": false
+    },
+    "K23": {
+     "type": "perpendicular",
+     "refs": [
+      "L23",
+      "L2"
+     ],
+     "auto": false
+    },
+    "K24": {
+     "type": "perpendicular",
+     "refs": [
+      "L24",
+      "L2"
+     ],
+     "auto": false
+    },
+    "K25": {
+     "type": "on_line",
+     "refs": [
+      "P22",
+      "L17"
+     ],
+     "auto": false
+    }
+   }
+  },
+  {
+   "id": "TG2",
+   "type": "sheet_cut",
+   "name": "Taglio",
+   "sketch": "S7"
+  }
+ ]
+}

@@ -1,0 +1,152 @@
+{
+ "format": "steelcad",
+ "version": 1,
+ "meta": {
+  "name": "PLEXIGLASS",
+  "created": "2026-11-04T15:03:02",
+  "modified": "2026-11-04T15:32:43"
+ },
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "mass": "kg"
+ },
+ "parameters": {
+  "W": 913,
+  "P": 913,
+  "sp": 16
+ },
+ "material": "PMMA",
+ "features": [
+  {
+   "id": "S1",
+   "type": "sketch",
+   "name": "Base",
+   "plane": "XY",
+   "entities": {
+    "O": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "fixed": true
+    },
+    "P1": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P2": {
+     "kind": "point",
+     "x": 485.0,
+     "y": 0.0,
+     "construction": false
+    },
+    "P3": {
+     "kind": "point",
+     "x": 485.0,
+     "y": 291.0,
+     "construction": false
+    },
+    "P4": {
+     "kind": "point",
+     "x": 0.0,
+     "y": 291.0,
+     "construction": false
+    },
+    "L1": {
+     "kind": "line",
+     "a": "P1",
+     "b": "P2",
+     "construction": false,
+     "label": "lato sotto"
+    },
+    "L2": {
+     "kind": "line",
+     "a": "P2",
+     "b": "P3",
+     "construction": false,
+     "label": "lato destro"
+    },
+    "L3": {
+     "kind": "line",
+     "a": "P3",
+     "b": "P4",
+     "construction": false,
+     "label": "lato sopra"
+    },
+    "L4": {
+     "kind": "line",
+     "a": "P4",
+     "b": "P1",
+     "construction": false,
+     "label": "lato sinistro"
+    }
+   },
+   "constraints": {
+    "K1": {
+     "type": "horizontal",
+     "refs": [
+      "L1"
+     ],
+     "auto": true
+    },
+    "K2": {
+     "type": "vertical",
+     "refs": [
+      "L2"
+     ],
+     "auto": true
+    },
+    "K3": {
+     "type": "horizontal",
+     "refs": [
+      "L3"
+     ],
+     "auto": true
+    },
+    "K4": {
+     "type": "vertical",
+     "refs": [
+      "L4"
+     ],
+     "auto": true
+    },
+    "K5": {
+     "type": "coincident",
+     "refs": [
+      "P1",
+      "O"
+     ],
+     "auto": false
+    },
+    "D1": {
+     "type": "length",
+     "refs": [
+      "L1"
+     ],
+     "value": "W"
+    },
+    "D2": {
+     "type": "length",
+     "refs": [
+      "L4"
+     ],
+     "value": "P"
+    }
+   }
+  },
+  {
+   "id": "SM1",
+   "type": "sheet",
+   "name": "Lamiera",
+   "sketch": "S1",
+   "thickness": "sp",
+   "radius": 1,
+   "method": "k",
+   "k": 0.21,
+   "bd90": null,
+   "flanges": []
+  }
+ ]
+}

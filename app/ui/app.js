@@ -5161,25 +5161,29 @@ async function vanoProva() {
 }
 function vanoDisegna() {
   const r = VAN.info, el = VAN.el, o = VAN.opz;
-  const mis = v => `${mmTesto(v.W)} × ${mmTesto(v.H)}`;
+  const mm = x => x == null ? 'aperto' : mmTesto(x);
+  const mis = v => `${mm(v.W)} × ${mm(v.H)}`;
   const vani = r.vani.length > 1 ? `<section class="sezione"><h4>Quale vano</h4><div class="seg">${r.vani.map(v =>
     `<button data-vano="${v.i}" class="${v.i === r.vano ? 'on' : ''}"${v.ci_sta ? '' : ' disabled title="Il pannello qui non ci sta"'}>${esc(v.nome[0].toUpperCase() + v.nome.slice(1))}, ${mis(v)}</button>`).join('')}</div></section>` : '';
   const prof = (k, t) => `<button data-prof="${k}" class="${r.prof === k ? 'on' : ''}">${esc(t)}</button>`;
   const g = r.giochi;
-  el.innerHTML = `<div class="pc-testa"><h3>Metti «${esc(r.nome_mobile)}» nel vano</h3><p>di «${esc(r.nome_fermo)}»: in piedi, girato nel verso in cui entra, centrato. Ogni scelta si vede subito sul pezzo</p></div>
+  el.innerHTML = `<div class="pc-testa"><h3>Metti «${esc(r.nome_mobile)}» nel vano</h3><p>di «${esc(r.nome_fermo)}»: ${r.sede ? 'infilato nella scanalatura' : 'in piedi'}, girato nel verso in cui entra, centrato. Ogni scelta si vede subito sul pezzo</p></div>
     <div class="pc-corpo">${vani}
-    <section class="sezione"><h4>In profondità</h4><div class="seg">${prof('davanti', `A filo ${r.davanti}`)}${prof('mezzo', 'In mezzo')}${prof('dietro', `A filo ${r.dietro}`)}</div></section>
+    ${r.sede ? `<section class="sezione"><h4>Nella scanalatura</h4><p class="hint">Alta ${mmTesto(r.sede.alta)} mm: il pannello non passa nel vano, entra lì${r.sede.giu ? ' e posa sulla battuta di sotto' : ', in mezzo'}.</p>${r.sede.quante > 1 ? `<button class="btn" id="vn-sede">Nell’altra scanalatura</button>` : ''}</section>`
+      : `<section class="sezione"><h4>In profondità</h4><div class="seg">${prof('davanti', `A filo ${r.davanti}`)}${prof('mezzo', 'In mezzo')}${prof('dietro', `A filo ${r.dietro}`)}</div></section>`}
     <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni${r.versi > 1 ? '' : ' una'}">
       ${r.versi > 1 ? '<button class="btn" id="vn-gira" title="Gira il pannello nel vano: nell’altro verso in cui ci sta"><img src="icons/orbit.svg" alt=""><span>Gira</span></button>' : ''}
       <button class="btn${o.capovolgi ? ' on' : ''}" id="vn-capo" title="Il pannello rovesciato: le pieghe dall’altra parte"><img src="icons/mirror.svg" alt=""><span>Capovolgi</span></button></div></section>
-    <p class="vn-gioco">Gioco, in mm:<span>${esc(g[0].lato)} <b>${mmTesto(g[0].mm)}</b>, ${esc(g[1].lato)} <b>${mmTesto(g[1].mm)}</b></span><span>${esc(g[2].lato)} <b>${mmTesto(g[2].mm)}</b>, ${esc(g[3].lato)} <b>${mmTesto(g[3].mm)}</b></span></p>
-    ${r.dentro > 1 ? `<p class="msg err">Così tocca dentro «${esc(r.nome_fermo)}»: prova «Capovolgi» o l’altra profondità.</p>` : ''}
+    <p class="vn-gioco">Gioco, in mm:<span>${esc(g[0].lato)} <b>${mm(g[0].mm)}</b>, ${esc(g[1].lato)} <b>${mm(g[1].mm)}</b></span><span>${esc(g[2].lato)} <b>${mm(g[2].mm)}</b>, ${esc(g[3].lato)} <b>${mm(g[3].mm)}</b></span></p>
+    ${r.dentro > 1 && r.sede && r.tocca > 0 && r.tocca <= 1 ? `<p class="msg warn">Lo spigolo entra di ${String(Math.round(r.tocca * 100) / 100).replace('.', ',')} mm nei raggi delle pieghe della scanalatura: per entrare pulito serve più gioco (almeno il raggio) o uno spessore più sottile.</p>`
+      : r.dentro > 1 ? `<p class="msg err">Così tocca dentro «${esc(r.nome_fermo)}»: prova «Capovolgi» o l’altra profondità.</p>` : ''}
     ${r.tiene ? '' : '<p class="hint">Un lato del vano non è piano: lì il pannello resta dove l’ho messo, non segue il telaio se cambia.</p>'}
     <p class="msg err vn-err" hidden></p></div>
     <div class="pc-fondo"><button class="btn" id="vn-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vn-ok">Fatto <kbd>Invio</kbd></button></div>`;
   el.querySelectorAll('[data-vano]').forEach(b => { b.onclick = () => { o.vano = +b.dataset.vano; o.gira = 0; vanoProva(); }; });
   el.querySelectorAll('[data-prof]').forEach(b => { b.onclick = () => { o.prof = b.dataset.prof; vanoProva(); }; });
   if ($('#vn-gira')) $('#vn-gira').onclick = () => { o.gira = (o.gira + 1) % 4; vanoProva(); };
+  if ($('#vn-sede')) $('#vn-sede').onclick = () => { o.sede = ((o.sede || 0) + 1) % r.sede.quante; vanoProva(); };
   $('#vn-capo').onclick = () => { o.capovolgi = !o.capovolgi; vanoProva(); };
   $('#vn-no').onclick = () => vanoChiudi(true);
   $('#vn-ok').onclick = vanoFatto;

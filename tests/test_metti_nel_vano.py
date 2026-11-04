@@ -94,3 +94,47 @@ def test_se_non_ci_sta_lo_dice_con_le_misure(assieme):
     r = s2.asm_vano(_clic(s2, 'I2'), _clic(s2, 'I1'), prova=True)
     assert not r['ok']
     assert '918 × 1080' in r['message'] and '920 × 1060' in r['message'] and '20 mm' in r['message']
+
+
+# 05/11: il ferma plexi (lamiera piegata con la scanalatura alta 16 su tre lati, il quarto lato senza) e il
+# plexiglass 913 × 913 sp. 16: non passa nel vano (872), entra nella scanalatura sotto
+@pytest.fixture()
+def ferma(tmp_path):
+    for f in ('ferma_plexi', 'plexi'):
+        shutil.copy(DATI / f'{f}.steelcad', tmp_path / f'{f}.steelcad')
+    s = Service()
+    assert s.new_assembly_con_pezzi('Ferma', [{'path': str(tmp_path / 'ferma_plexi.steelcad')},
+                                              {'path': str(tmp_path / 'plexi.steelcad')}])['ok']
+    return s, tmp_path
+
+
+def test_il_plexiglass_entra_nella_scanalatura(ferma):
+    s, _ = ferma
+    r = s.asm_vano(_clic(s, 'I2'), _clic(s, 'I1'), prova=True)
+    assert r['ok'], r.get('message')
+    assert r['sede']['alta'] == 16 and r['sede']['giu'] == 1
+    assert r['vani'][0]['W'] == 914 and r['vani'][0]['H'] is None          # il lato dietro è aperto
+    assert {g['lato']: g['mm'] for g in r['giochi']} == {'sinistra': 0.5, 'destra': 0.5, 'davanti': 0.5, 'dietro': None}
+    assert 0.1 < r['tocca'] < 0.2                                           # lo spigolo nei raggi da 1 mm
+    r = s.asm_vano(_clic(s, 'I2'), _clic(s, 'I1'))
+    assert r['ok'], r.get('message')
+    # posato sulla battuta (z 2), 0,5 dalle pareti; dietro lo stesso gioco (Stefano: «b»)
+    assert _ingombro(s, 'I2') == [2.5, 2.5, 2, 915.5, 915.5, 18]
+    assert sorted((m['type'], m.get('lato')) for m in s.asm.mates) == [('centra', None), ('distanza', 'davanti'),
+                                                                        ('distanza', 'sotto')]
+    assert 'scanalatura da 16 mm' in r['message'] and '0,13 mm' in r['message']
+    assert not s.asm.warnings
+
+
+def test_la_scanalatura_segue_il_ferma_plexi_se_si_allarga(ferma):
+    s, d = ferma
+    assert s.asm_vano(_clic(s, 'I2'), _clic(s, 'I1'))['ok']
+    assert s.save(str(d / 'ferma.steelcad-asm'))['ok']
+    f = d / 'ferma_plexi.steelcad'
+    j = json.loads(f.read_text(encoding='utf-8'))
+    j['parameters']['W'] += 20                       # il ferma plexi 20 mm più largo
+    f.write_text(json.dumps(j), encoding='utf-8')
+    s2 = Service()
+    assert s2.open(str(d / 'ferma.steelcad-asm'))['ok']
+    x0, _, z0, x1, _, z1 = _ingombro(s2, 'I2')
+    assert (round(x0, 1), round(x1, 1), z0, z1) == (12.5, 925.5, 2, 18)      # ancora in mezzo, sulla battuta
