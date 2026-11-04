@@ -149,8 +149,17 @@ def build_edge_flange(fdef: dict, ctx):
     if lung is None or lung - piega.ossb <= TOL:
         raise FeatureError(f'La piega deve essere alta più di {fmt_mm(round(piega.ossb, 2))} mm.', feature=fid)
     # verso: «dentro» = dalla parte del pezzo
-    centro = bd.Vector(solido.center())
-    lato = 1 if (centro - (a + b) * 0.5).dot(dentro) > 0 else -1
+    # da che parte del bordo c'è lo spessore: si guarda proprio lì, a mezzo spessore (04/11: col baricentro, dopo tre
+    # risvolti verso il basso in una finestra il baricentro scendeva sotto la lamiera e il quarto veniva verso l'alto)
+    # Le pieghe salvate prima restano come erano (fdef senza «spessore_locale»): cambiare il verso cambierebbe il pezzo.
+    m_ = (a + b) * 0.5 + fuori * (-0.4)
+    if fdef.get('spessore_locale') and solido.is_inside(m_ + dentro * (t / 2)):
+        lato = 1
+    elif fdef.get('spessore_locale') and solido.is_inside(m_ - dentro * (t / 2)):
+        lato = -1
+    else:
+        centro = bd.Vector(solido.center())
+        lato = 1 if (centro - (a + b) * 0.5).dot(dentro) > 0 else -1
     sig = lato if fdef.get('side', 'in') != 'out' else -lato         # +1 = si piega verso «dentro» (lo spessore)
     e = (b - a).normalized()
     th = math.radians(ang)
@@ -188,43 +197,56 @@ def build_edge_flange(fdef: dict, ctx):
         if abs(volume(nv.shape) - v0 - pz.volume) > 1e-6 * max(pz.volume, 1) + 1e-3:
             return None
         return pz, nv, a_, b_, C
+    # sviluppo: oltre lo stesso bordo, la striscia della piega e il tratto dritto
+    porta = lambda p: dst.from_local_coords(src.to_local_coords(p))  # noqa: E731
+    lungo = piega.ba + dritto
+    prima = data.flat.area
+    n_prima = len(data.flat.faces()) if not isinstance(data.flat, bd.Face) else 1      # tramogge: più pezzi
+
+    def sviluppo(a_, b_):
+        """Lo sviluppo con la striscia della piega da a_ a b_: (facce, A2, B2, F2, E2) o None se si sovrappone ad altro."""
+        A2, B2 = porta(a_), porta(b_)
+        F2 = (porta(a_ + fuori) - A2).normalized()
+        E2 = (B2 - A2).normalized()
+        rett = _orienta(bd.Face(bd.Wire.make_polygon([A2, B2, B2 + F2 * lungo, A2 + F2 * lungo], close=True)), data.plane)
+        if fdef.get('_sviluppo') is not None:          # la linguetta piegata: nello sviluppo torna la sua forma esatta
+            rett = _orienta(fdef['_sviluppo'], data.plane)
+        unito = data.flat.fuse(rett)
+        unito = unito.clean() if hasattr(unito, 'clean') else unito
+        fs = unito.faces() if not isinstance(unito, bd.Face) else [unito]
+        if len(fs) != n_prima or abs(sum(f.area for f in fs) - prima - rett.area) > 1e-3:
+            return None
+        return fs, A2, B2, F2, E2
     # il gioco agli angoli: scritto dall'utente, oppure automatico (22/10): se la piega piena tocca un'altra parete
-    # si accorcia di raggio + spessore + 0,2 dalla parte che tocca, poi da tutte e due
+    # si accorcia di raggio + spessore + 0,2 dalla parte che tocca, poi da tutte e due. 04/11: e se è nello sviluppo
+    # che si sovrappone (i risvolti di una finestra, che si incrociano negli angoli) si accorcia di quanto è lunga la
+    # piega nello sviluppo, con mezzo millimetro di scarico
     scritti = [val('trim0', None, 'il gioco all’inizio'), val('trim1', None, 'il gioco alla fine')]
     if any(x is not None and x < 0 for x in scritti):
         raise FeatureError('Il gioco agli angoli non può essere negativo.', feature=fid)
-    g = r + t + 0.2
+    g, g2 = r + t + 0.2, lungo + 0.5
     if scritti[0] is not None or scritti[1] is not None:
         tentativi = [(scritti[0] or 0.0, scritti[1] or 0.0)]
     else:
-        tentativi = [(0.0, 0.0), (g, 0.0), (0.0, g), (g, g)]
-    fatto = None
+        tentativi = [(0.0, 0.0), (g, 0.0), (0.0, g), (g, g), (g2, 0.0), (0.0, g2), (g2, g2)]
+    fatto = svil = None
+    tocca_3d = True
     for t0, t1 in tentativi:
         fatto = prova(t0, t1)
-        if fatto:
+        if not fatto:
+            continue
+        tocca_3d = False
+        svil = sviluppo(fatto[2], fatto[3])
+        if svil:
             break
-    if fatto is None:
-        raise FeatureError('La piega tocca un’altra parte del pezzo: accorciala, aumenta il gioco agli angoli o cambia '
-                           'il verso.', feature=fid)
-    pezzo, nuovo, a, b, C = fatto
-    L_edge = (b - a).length
-
-    # sviluppo: oltre lo stesso bordo, la striscia della piega e il tratto dritto
-    porta = lambda p: dst.from_local_coords(src.to_local_coords(p))  # noqa: E731
-    A2, B2 = porta(a), porta(b)
-    F2 = (porta(a + fuori) - A2).normalized()
-    E2 = (B2 - A2).normalized()
-    lungo = piega.ba + dritto
-    rett = _orienta(bd.Face(bd.Wire.make_polygon([A2, B2, B2 + F2 * lungo, A2 + F2 * lungo], close=True)), data.plane)
-    if fdef.get('_sviluppo') is not None:              # la linguetta piegata: nello sviluppo torna la sua forma esatta
-        rett = _orienta(fdef['_sviluppo'], data.plane)
-    prima = data.flat.area
-    n_prima = len(data.flat.faces()) if not isinstance(data.flat, bd.Face) else 1      # tramogge: più pezzi
-    unito = data.flat.fuse(rett)
-    unito = unito.clean() if hasattr(unito, 'clean') else unito
-    fs = unito.faces() if not isinstance(unito, bd.Face) else [unito]
-    if len(fs) != n_prima or abs(sum(f.area for f in fs) - prima - rett.area) > 1e-3:
+    if fatto is None or svil is None:
+        if tocca_3d:
+            raise FeatureError('La piega tocca un’altra parte del pezzo: accorciala, aumenta il gioco agli angoli o cambia '
+                               'il verso.', feature=fid)
         raise FeatureError('Nello sviluppo la piega si sovrappone ad altro: accorciala o lascia uno scarico.', feature=fid)
+    pezzo, nuovo, a, b, C = fatto
+    fs, A2, B2, F2, E2 = svil
+    L_edge = (b - a).length
     flat = fs[0] if len(fs) == 1 else bd.Compound(children=fs)
     pl = data.plane
     m0, m1 = pl.to_local_coords(A2 + F2 * (piega.ba / 2)), pl.to_local_coords(B2 + F2 * (piega.ba / 2))

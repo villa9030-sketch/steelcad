@@ -469,7 +469,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 if F.geom_type != bd.GeomType.PLANE:
                     continue
                 n = F.normal_at()
-                for e in F.outer_wire().edges():
+                # 04/11: anche i lati dritti di una finestra o di un foro (prima solo il bordo esterno della faccia)
+                for e in [e for w in (F.outer_wire(), *F.inner_wires()) for e in w.edges()]:
                     if e.geom_type != bd.GeomType.LINE or e.length < 5:
                         continue
                     a, b = e.position_at(0), e.position_at(1)
@@ -495,7 +496,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         def fn():
             v = _edge_flange_fields(fields)
             v.setdefault('length', 20)
-            nuovo['id'] = self.doc.add_feature('sheet_edge_flange', '', face=face, a=list(ea), b=list(eb), **v)
+            nuovo['id'] = self.doc.add_feature('sheet_edge_flange', '', face=face, a=list(ea), b=list(eb), spessore_locale=True, **v)
         r = self._change('Piega su un bordo', fn)
         if r.get('ok'):
             r['select'] = f'pb={nuovo["id"]}'
