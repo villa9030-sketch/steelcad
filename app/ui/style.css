@@ -2876,3 +2876,7 @@ body.dark #tav-ed .te-tabs button.on i { color: var(--c-fondo); }
 /* «Togli» uguale in tutti i pannelli (04/11, ritocchi): l'ultima voce di «Cosa puoi fare», scritta rossa quieta, fondo rosso tenue sotto il mouse */
 .asm-azioni .btn.danger, .cosa-b.t-az.danger b { color: var(--c-err-testo); }
 .asm-azioni .btn.danger:hover, .cosa-b.t-az.danger:hover { background: var(--c-err-tenue); }
+/* pagina iniziale: il pulsante Tema, discreto come quello in basso nella vista (04/11, ritocchi) */
+#home .home-porte .home-tema { border-color: transparent; background: none; color: var(--c-testo-2); }
+#home .home-porte .home-tema:hover { background: var(--c-sopra); color: var(--c-testo); }
+#home .home-porte .home-tema b { font-size: 17px; line-height: 1; font-weight: 400; color: var(--c-testo-2); }
