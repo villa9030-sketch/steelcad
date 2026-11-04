@@ -1588,7 +1588,7 @@ function buildDims() {
     });
     dimsBox.appendChild(el);
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
-    dimEls.push({ el, d, at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
+    dimEls.push({ el, d, quota: true, a: pa.clone(), b: pb.clone(), at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
   }
   if (!SK) quoteIngombro();
   placeDims();
@@ -1628,7 +1628,7 @@ function quoteIngombro() {
     el.title = `Ingombro totale, ${nome}: ${num(Math.round(mis * 10) / 10)} mm`;
     el.addEventListener('click', ev => { ev.stopPropagation(); toast(el.title); });
     dimsBox.appendChild(el);
-    dimEls.push({ el, d: null, at: pa.clone().add(pb).multiplyScalar(0.5) });
+    dimEls.push({ el, d: null, quota: true, a: pa.clone(), b: pb.clone(), at: pa.clone().add(pb).multiplyScalar(0.5) });
   }
 }
 // 24/10: le etichette si spostano con «translate» (lo fa la scheda video, senza rifare l'impaginazione della pagina)
@@ -1653,10 +1653,11 @@ function placeDims() {
     const x = Math.round((p.x + 1) / 2 * w * 2) / 2, y = Math.round((1 - p.y) / 2 * h * 2) / 2;
     if (o.x !== x || o.y !== y) {
       if (o.x === undefined) { el.style.left = '0px'; el.style.top = '0px'; }
-      el.style.translate = `${x}px ${y}px`;
+      if (!o.quota) el.style.translate = `${x}px ${y}px`;      // le quote le mette sbrogliaQuote, qui sotto
       o.x = x; o.y = y;
     }
   }
+  sbrogliaQuote(w, h);
   // le frecce: a 70 px dal pallino, nella direzione in cui va il tubo vista sullo schermo
   for (const { el, at, v } of frecceEls) {
     const p = at.clone().project(camera), q = at.clone().add(v).project(camera);
@@ -1667,6 +1668,54 @@ function placeDims() {
     el.style.left = ((p.x + 1) / 2 * w + dx) + 'px';
     el.style.top = ((1 - p.y) / 2 * h + dy) + 'px';
     el.style.setProperty('--ang', Math.atan2(dy, dx) + 'rad');      // la punta arancio guarda dove va il tubo
+  }
+}
+// 04/11 (ritocchi): le etichette delle quote non si coprono. Due quote sulla stessa linea (180 e 200 di una catena)
+// si scostano lungo la loro linea; due quote uguali nello stesso punto (i fori simmetrici: 20 e 20) ne mostrano una;
+// una quota lunga 0 (due punti uniti) non dice niente a chi guarda e non si mostra
+const _qa = new THREE.Vector3(), _qb = new THREE.Vector3();
+function sbrogliaQuote(w, h) {
+  const fatti = [];
+  // quanto è grande ogni etichetta e dove sta rispetto al suo punto (le diametrali stanno accanto al cerchio):
+  // misurato una volta sola, tutte insieme (una sola impaginazione)
+  const nuove = dimEls.filter(o => o.quota && !o.fuori && o.x !== undefined && o.w === undefined);
+  if (nuove.length) {
+    for (const o of nuove) { o.el.style.translate = `${o.x}px ${o.y}px`; o.tx = o.x; o.ty = o.y; }
+    const vr = dimsBox.getBoundingClientRect();
+    for (const o of nuove) {
+      const r = o.el.getBoundingClientRect();
+      o.ox = r.left - vr.left - o.x; o.oy = r.top - vr.top - o.y; o.w = r.width; o.h = r.height;
+      o.dia = o.el.classList.contains('dia'); o.zero = !o.dia && o.a.distanceTo(o.b) < 1e-6;
+    }
+  }
+  const scatola = (o, x, y) => [x + o.ox, y + o.oy, x + o.ox + o.w, y + o.oy + o.h];
+  const M = 8;                       // lo spazio minimo tra due etichette: «180  200», non «180·200»
+  const tocca = (r, q) => r[0] < q[2] + M && q[0] < r[2] + M && r[1] < q[3] + 2 && q[1] < r[3] + 2;
+  for (const o of dimEls) {
+    if (!o.quota || o.fuori || o.x === undefined || o.w === undefined) continue;
+    const el = o.el;
+    if (el.classList.contains('edit')) { el.style.translate = `${o.x}px ${o.y}px`; o.tx = o.x; o.ty = o.y; continue; }
+    let nascondi = o.zero, x = o.x, y = o.y;
+    // la direzione della linea di quota sullo schermo: lì si scosta l'etichetta (le diametrali salgono)
+    let dx = 0, dy = -1;
+    if (!o.dia) {
+      _qa.copy(o.a).project(camera); _qb.copy(o.b).project(camera);
+      const vx = (_qb.x - _qa.x) * w / 2, vy = -(_qb.y - _qa.y) * h / 2, l = Math.hypot(vx, vy);
+      if (l > 1e-6) { dx = vx / l; dy = vy / l; }
+    }
+    const orizz = Math.abs(dx) >= Math.abs(dy);
+    for (let k = 0; !nascondi && k < 8; k++) {
+      const r = scatola(o, x, y), q = fatti.find(f => tocca(r, f.r));
+      if (!q) break;
+      if (Math.abs(q.o.x - o.x) < 1.5 && Math.abs(q.o.y - o.y) < 1.5 && q.o.el.textContent === el.textContent) { nascondi = true; break; }
+      // di quanto spostarsi per uscire dall'altra, lungo la linea (in avanti se si sta già più avanti)
+      if (orizz) { const avanti = (r[0] + r[2]) >= (q.r[0] + q.r[2]); const t = avanti ? q.r[2] - r[0] + M + 1 : -(r[2] - q.r[0] + M + 1); x += t; y += dy / (dx || 1) * t * (dx ? 1 : 0); }
+      else { const avanti = (r[1] + r[3]) >= (q.r[1] + q.r[3]); const t = avanti ? q.r[3] - r[1] + 3 : -(r[3] - q.r[1] + 3); y += t; x += dx / (dy || 1) * t; }
+    }
+    if (o.via !== nascondi) { el.style.visibility = nascondi ? 'hidden' : ''; o.via = nascondi; }
+    if (nascondi) continue;
+    if (o.tx !== x || o.ty !== y) { el.style.translate = `${x}px ${y}px`; o.tx = x; o.ty = y; }
+    fatti.push({ o, r: scatola(o, x, y) });
   }
 }
 function editDim(el, d) {
