@@ -224,6 +224,7 @@ class Document:
         st_hash: dict[str, str] = {}          # impronta di ogni struttura (con le sue lavorazioni fin qui)
         ctx_sketches: dict = {}
         blocked_by: str | None = None
+        lamiera_persa: str | None = None
         nuova_cache: dict[str, object] = {}
         usi = self._usi_degli_sketch()
         for f in self.features:
@@ -346,6 +347,8 @@ class Document:
             h = _hash(f, self._used(f, params), body_hash, sketch_hash.get(f.get('sketch'), ''))
             cached = self._dalla_cache(h)
             if cached is not None:
+                if getattr(body, 'sheet', None) is not None and getattr(cached, 'sheet', None) is None                         and lamiera_persa is None:
+                    lamiera_persa = f.get('name') or fid
                 body = cached
                 res.cached += 1
                 nuova_cache[h] = cached
@@ -353,8 +356,11 @@ class Document:
                 res.features.append(FeatureResult(fid, ftype, True, '', True))
                 continue
             try:
-                ctx = Context(params, body, ctx_sketches, self.describe_face)
+                ctx = Context(params, body, ctx_sketches, self.describe_face, lamiera_persa)
+                era_lamiera = getattr(body, 'sheet', None) is not None
                 body = BUILDERS[ftype](f, ctx)
+                if era_lamiera and getattr(body, 'sheet', None) is None and lamiera_persa is None:
+                    lamiera_persa = f.get('name') or fid
             except SteelCADError as ex:
                 blocked_by = fid
                 res.features.append(FeatureResult(fid, ftype, False, ex.message))

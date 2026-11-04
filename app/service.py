@@ -4491,6 +4491,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 su = f_ if not isinstance(f_, Sketch) and f_.get('type') in ('sheet_shape', 'step_lamiera') else None
             except SteelCADError:
                 su = None
+        if su is None:          # anche la faccia di una piega su un bordo (PB…/interno): taglio di lamiera (04/11)
+            from cad_engine.project_io import su_faccia_di_lamiera
+            su = sk.plane if su_faccia_di_lamiera(self.doc, sk.plane) else None
 
         def fn():
             nuovi = {}

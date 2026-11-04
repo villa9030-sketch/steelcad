@@ -21,6 +21,7 @@ class Context:
     body: NamedShape | None          # il solido prima di questa feature
     sketches: dict = field(default_factory=dict)   # id sketch -> (SolvedSketch, Profile)
     describe: object = None                        # nome faccia -> testo per l'utente
+    lamiera_persa: str | None = None              # la lavorazione dopo cui il pezzo non è più lamiera (04/11)
 
     def __post_init__(self):
         if self.describe is None:

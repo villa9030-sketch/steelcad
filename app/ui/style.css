@@ -2880,3 +2880,8 @@ body.dark #tav-ed .te-tabs button.on i { color: var(--c-fondo); }
 #home .home-porte .home-tema { border-color: transparent; background: none; color: var(--c-testo-2); }
 #home .home-porte .home-tema:hover { background: var(--c-sopra); color: var(--c-testo); }
 #home .home-porte .home-tema b { font-size: 17px; line-height: 1; font-weight: 400; color: var(--c-testo-2); }
+/* 04/11: il «perché no» della barra di prova si legge tutto (andava a capo tagliato a metà con «…») */
+#prova-barra.no .frase small { white-space: normal; overflow: visible; text-overflow: clip; max-width: 560px; line-height: 1.35; }
+/* 04/11: i campi delle Misure prendono lo spazio della colonna «= risultato» quando è vuota (14,325 si leggeva «14,32!») */
+#params td.res:empty { width: 0; padding: 0; }
+#params td input.field { width: 100%; min-width: 64px; }

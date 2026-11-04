@@ -86,13 +86,15 @@ def su_faccia_di_lamiera(doc: Document, plane) -> bool:
 
 def ripara_raccordi(doc: Document) -> int:
     """I raccordi/smussi degli spigoli fatti prima del 02/11 sulle facce di un profilo in lamiera (o da STEP, o di una
-    piega su bordo): erano tagli di un pezzo pieno, diventano tagli della lamiera. Ritorna quanti ne ha cambiati."""
+    piega su bordo): erano tagli di un pezzo pieno, diventano tagli della lamiera. Lo stesso per i tagli passanti
+    (04/11, porta ugelli: la tasca passante su una piega faceva smettere il pezzo di essere lamiera, e ogni «Togli
+    materiale» dopo dava errore). Ritorna quanti ne ha cambiati."""
     piani = {x.id: x.plane for x in doc.features if hasattr(x, 'entities')}
     n = 0
     for f in doc.features:
         if hasattr(f, 'entities') or f.get('type') != 'extrude' or f.get('operation') != 'cut':
             continue
-        if not str(f.get('name', '')).startswith(('Raccordo spigolo', 'Smusso spigolo')):
+        if not (f.get('through_all') or str(f.get('name', '')).startswith(('Raccordo spigolo', 'Smusso spigolo'))):
             continue
         if not su_faccia_di_lamiera(doc, piani.get(f.get('sketch'))):
             continue

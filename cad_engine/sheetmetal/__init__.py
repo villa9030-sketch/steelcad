@@ -1691,6 +1691,10 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
     body = ctx.body
     data = getattr(body, 'sheet', None) if body is not None else None
     if data is None:
+        if ctx.lamiera_persa:           # 04/11: dire quale lavorazione ha tolto la lamiera, non un indovinello
+            raise FeatureError(f'Dopo «{ctx.lamiera_persa}» il pezzo non è più una lamiera: quella lavorazione è '
+                               'di un pezzo pieno. Rifalla con Togli materiale, oppure sposta questo taglio prima '
+                               'di lei.', feature=fid)
         raise FeatureError('Il taglio di lamiera va disegnato su una faccia di una lamiera (e prima di altre '
                            'lavorazioni non di lamiera).', feature=fid)
     ss, prof = ctx.sketch(fdef)
