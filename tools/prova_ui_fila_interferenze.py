@@ -58,7 +58,9 @@ try:
         pg.wait_for_function("window.__steelcad.objs.size === 2", timeout=20000)
         time.sleep(0.8)
         pg.screenshot(path=str(out / 'r1_assieme_creato.png'))
-        ok('il messaggio dell’assieme dice «Appoggia»', 'Appoggia' in (r.get('message') or ''))
+        # 04/11: «Appoggia» lo dice la riga «prossimo passo» in basso; il messaggio dice solo chi è fermo
+        ok('la riga in basso dice «Appoggia», il messaggio chi è fermo', 'fermo' in (r.get('message') or '')
+           and 'Appoggia' in (pg.evaluate("(document.querySelector('#asm-passo:not([hidden])') || {}).innerText") or ''))
 
         def faccia(iid, nome):
             return {'inst': iid, 'face': pg.evaluate("([i, n]) => window.__steelcad.objs.get(i).data.faces.find(f => f.name === n).index", [iid, nome])}

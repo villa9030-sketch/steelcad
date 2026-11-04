@@ -3411,8 +3411,7 @@ async function renderProps(s) {
     await pannelloPiedi(s.structure, s.cosa, `<h3>${esc(s.title)}</h3><section class="sezione t-misure">${tRighe(s.rows)}</section>`);
     return;
   } else if (s.kind === 'instance') {
-    $('#props').innerHTML = instancePanel(s);
-    wireInstance(s);
+    tieniScritto(() => { $('#props').innerHTML = instancePanel(s); wireInstance(s); });
     return;
   } else if (s.kind === 'assembly') {
     // 04/11 (regola 2): l'assieme intero, come il pannello del pezzo: cos'è, cosa puoi fare, ruota tutto, dettagli
@@ -3430,8 +3429,7 @@ async function renderProps(s) {
     });
     return;
   } else if (s.kind === 'mate') {
-    $('#props').innerHTML = matePanel(s);
-    wireMate(s);
+    tieniScritto(() => { $('#props').innerHTML = matePanel(s); wireMate(s); });
     return;
   } else if (s.kind === 'fold') {
     $('#props').innerHTML = foldPanel(s);
@@ -5268,6 +5266,16 @@ const MATE_COSA = { faccia: 'Una faccia contro l’altra', asse: 'I due fori sul
   perpendicolare: 'Due facce (o tubi) a squadra', centra: 'Il pezzo al centro, tra due lati', blocca: 'I due pezzi fermi uno rispetto all’altro',
   spigolo: 'Due spigoli sulla stessa linea', spigolo_faccia: 'Lo spigolo appoggiato sulla faccia', cono: 'La testa della vite nella svasatura',
   testa: 'Due tagli a 45° uno contro l’altro' };
+// 04/11 (ritocchi): se il pannello si ridisegna mentre stai scrivendo in un suo campo (il motore che risponde tardi
+// a un clic di prima), quello che hai scritto resta lì, col cursore: non torna al valore vecchio
+function tieniScritto(disegna) {
+  const a = document.activeElement;
+  const scritto = a && a.id && $('#props').contains(a) && a.tagName === 'INPUT' && a.value !== a.defaultValue ? [a.id, a.value] : null;
+  disegna();
+  if (!scritto) return;
+  const n = document.getElementById(scritto[0]);
+  if (n && $('#props').contains(n)) { n.value = scritto[1]; n.focus(); }
+}
 function matePanel(s) {
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
   const gira = d.da === 'appoggia' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
