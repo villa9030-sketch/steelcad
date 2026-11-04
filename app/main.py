@@ -49,6 +49,7 @@ from app.service import Service  # noqa: E402
 UI = Path(__file__).resolve().parent / 'ui' / 'index.html'
 FILTRO_PROGETTO = ('Progetto Radius (*.steelcad;*.steelcad-asm)', 'Pezzo (*.steelcad)', 'Assieme (*.steelcad-asm)')
 FILTRO_PEZZO = ('Pezzo Radius (*.steelcad)',)
+FILTRO_INSERISCI = ('Pezzo o assieme Radius (*.steelcad;*.steelcad-asm)', 'Pezzo (*.steelcad)', 'Assieme (*.steelcad-asm)')
 FILTRO_ASSIEME = ('Assieme Radius (*.steelcad-asm)',)
 FILTRO_DISEGNO = ('Disegno (*.dxf;*.dwg)', 'DXF (*.dxf)', 'DWG (*.dwg)')
 
@@ -616,7 +617,7 @@ class Api:
         return self._call(self._svc.set_cartiglio, valori)
 
     def asm_insert_dialog(self):
-        p = self._dialog(webview.OPEN_DIALOG, FILTRO_PEZZO)
+        p = self._dialog(webview.OPEN_DIALOG, FILTRO_INSERISCI)
         if not p:
             return {'ok': False, 'cancelled': True}
         return self._call(self._svc.asm_insert, p)

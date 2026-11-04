@@ -105,7 +105,7 @@ class AssemblyMixin:
             if i['file'] in parti:
                 continue
             try:
-                parti[i['file']] = A.load_part(i['file'])
+                parti[i['file']] = A.load_part(i['file'], self._pila())
             except SteelCADError as ex:
                 self.asm_errors.append({'id': i['id'], 'message': ex.message})
         self.asm_parts = parti
@@ -151,9 +151,14 @@ class AssemblyMixin:
             return {'ok': False, 'message': ex.message}
         f = Path(i['file'])
         try:
-            doc = project_io.load(f)
-            doc.meta['name'] = nome
-            project_io.save(doc, f)
+            if f.name.endswith(A.EXT):                  # un sottoassieme: il nome sta nel suo file d'assieme
+                sotto = A.load(f)
+                sotto.name = nome
+                A.save(sotto, f)
+            else:
+                doc = project_io.load(f)
+                doc.meta['name'] = nome
+                project_io.save(doc, f)
         except Exception as ex:  # noqa: BLE001
             return {'ok': False, 'message': f'Il pezzo non si rinomina: {getattr(ex, "message", ex)}'}
 
@@ -286,13 +291,23 @@ class AssemblyMixin:
         return _ok(state=self.state())
 
     # ------------------------------------------------------------------ istanze
+    def _pila(self) -> tuple:
+        """Gli assiemi che stanno leggendo questo (per non mettere un assieme dentro se stesso)."""
+        return (str(Path(self.asm.path).resolve()),) if self.asm is not None and self.asm.path else ()
+
+    def _non_sotto(self, i: dict, cosa: str):
+        if str(i['file']).endswith(A.EXT):
+            raise A.AssemblyError(f'«{i["name"]}» è un sottoassieme: {cosa} si fa sui suoi pezzi. Aprilo («Apri il '
+                                  'sottoassieme»), cambia il pezzo e torna qui.')
+
     @_in_assieme
     def asm_insert(self, path: str) -> dict:
-        """Mette nell'assieme una copia del pezzo (file .steelcad), a destra di quello che c'è già."""
+        """Mette nell'assieme una copia del pezzo (file .steelcad) o di un altro assieme (.steelcad-asm, un
+        sottoassieme: un blocco solo), a destra di quello che c'è già."""
         p = Path(path).resolve()
 
         def fn():
-            part = A.load_part(p)
+            part = A.load_part(p, self._pila())
             dx = 0.0
             if self.asm.instances:
                 xs = []
@@ -1084,6 +1099,8 @@ class AssemblyMixin:
             est = bd.Face(pa.result.body.face(nome_est)[0])
             ne, oe = est.normal_at(), est.center()
             sul_est = lambda p: p - ne * (p - oe).dot(ne)  # noqa: E731
+            self._non_sotto(ia, 'l’incastro')
+            self._non_sotto(ib, 'l’incastro')
             doc_a, doc_b = project_io.load(ia['file']), project_io.load(ib['file'])
             body_a, body_b = doc_a.rebuild().body, doc_b.rebuild().body
             # linguette nel pezzo A
@@ -1213,6 +1230,7 @@ class AssemblyMixin:
                             a = ('poli', [(x + r * np.cos(t), y + r * np.sin(t)) for t in np.linspace(0, 2 * np.pi, 48, endpoint=False)])
                         anelli.append([(R @ np.array(tuple(piano.from_local_coords((x, y)))) + T).tolist() for x, y in a[1]])
                 return _ok(anelli=anelli, n=len(trovate), message=self._frase_scassi(trovate, c))
+            self._non_sotto(i, 'lo scasso')
             doc = project_io.load(i['file'])
             r0 = doc.rebuild()
             body, prima = r0.body, {e.message for e in r0.errors}        # gli avvisi che il pezzo aveva già
@@ -1745,6 +1763,7 @@ class AssemblyMixin:
         if tipo == 'verniciato' and not ral:
             return {'ok': False, 'message': 'Scrivi il colore RAL (es. 7035).'}
         try:
+            self._non_sotto(i, 'la finitura')
             doc = project_io.load(i['file'])
             if tipo == 'grezzo':
                 doc.meta.pop('finitura', None)
@@ -1766,6 +1785,7 @@ class AssemblyMixin:
         from cad_engine import project_io
         try:
             i = self.asm.instance(iid)
+            self._non_sotto(i, '«da acquistare»')
             doc = project_io.load(i['file'])
             if campi is None:
                 doc.meta.pop('acquisto', None)
@@ -1849,7 +1869,8 @@ class AssemblyMixin:
         ok = bd.export_step(bd.Compound(children=forme), path)
         if ok is False or not Path(path).is_file() or Path(path).stat().st_size == 0:
             return {'ok': False, 'message': 'Il file STEP non si è scritto: forse è aperto in un altro programma.'}
-        return _ok(message=f'STEP dell’assieme salvato: {len(forme)} pezzi.', path=path)
+        n = sum(1 for _ in A.foglie(self.asm, self.asm_parts))
+        return _ok(message=f'STEP dell’assieme salvato: {n} pezzi.', path=path)
 
     # ------------------------------------------------------------------ aprire un pezzo e tornare
     def asm_open_part(self, iid: str) -> dict:
@@ -1950,6 +1971,18 @@ class AssemblyMixin:
             return {'ok': False, 'message': 'Non c’è un assieme da cui sei arrivato.'}
         nuovo = getattr(self, '_asm_nuovo', None)
         salvato = None
+        if self.asm is not None:                       # era aperto un sottoassieme: si salva e si torna
+            if self.asm_dirty:
+                r = self.save()
+                if not r.get('ok'):
+                    return r
+                salvato = Path(self.path).stem if self.path else None
+            self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty = rit
+            self._asm_ritorno = None
+            self._contesto = None
+            self._asm_reload()
+            self.scene_version += 1
+            return _ok(state=self.state(), **({'message': f'Salvato «{salvato}»: l’assieme ha la modifica.'} if salvato else {}))
         if self.history.dirty and (nuovo or self.path):
             # il pezzo cambiato si salva da solo, come quello nato nell'assieme (02/11: «Salva prima» era un errore
             # rosso proprio dove uno si aspetta di tornare indietro e vedere la modifica)
@@ -1991,7 +2024,11 @@ class AssemblyMixin:
         figli = []
         for i in asm.instances:
             st = 'errore' if any(e['id'] == i['id'] for e in self.asm_errors) else ('fisso' if i.get('fixed') else None)
-            figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': [], 'status': st})
+            part = self.asm_parts.get(i['file'])
+            dentro = [] if part is None or part.sotto is None else [
+                {'label': n, 'kind': 'sottopezzo', 'ref': i['id'], 'children': [], 'status': None} for _, _, _, _, n in part.figli]
+            figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': dentro, 'status': st,
+                          **({'sotto': True, 'chiuso': True} if dentro else {})})
         acc = [{'label': _frase_mate(m, nomi),
                 'kind': 'mate', 'ref': m['id'], 'tipo': m['type'], 'children': [], 'status': None} for m in asm.mates]
         if acc:
@@ -2007,6 +2044,14 @@ class AssemblyMixin:
                 'thickness_mm': None if r.get('acquisto') else r['thickness'], 'acquisto': bool(r.get('acquisto')),
                 'kg_each': r['mass_kg'], 'kg_total': r['mass_tot'], 'file': r['file']} for k, r in enumerate(righe)]
         totale = sum(r['kg_total'] for r in bom)
+        gruppi = None
+        if any(str(i['file']).endswith(A.EXT) for i in asm.instances):
+            def riga(r, k):
+                return {'code': k, 'description': r['name'], 'qty': r['qty'], 'material': '' if r.get('sottoassieme') else r['material'],
+                        'thickness_mm': r['thickness'], 'kg_each': r['mass_kg'], 'kg_total': r['mass_tot'],
+                        'sottoassieme': bool(r.get('sottoassieme')),
+                        'figli': [riga(f, f'{k}.{j + 1}') for j, f in enumerate(r.get('figli') or [])]}
+            gruppi = [riga(r, f'{"S" if r.get("sottoassieme") else "P"}{k + 1}') for k, r in enumerate(A.bom(asm, self.asm_parts, gruppi=True))]
         nome_pezzo = {r['file']: r['name'] for r in righe}         # il gruppo delle copie nell'albero si chiama come il pezzo
         avvisi = list(getattr(asm, 'warnings', []) or [])
         for f, p in self.asm_parts.items():
@@ -2017,13 +2062,14 @@ class AssemblyMixin:
         pose = {i['id']: [i['R'][0][0], i['R'][0][1], i['R'][0][2], i['T'][0], i['R'][1][0], i['R'][1][1], i['R'][1][2], i['T'][1],
                           i['R'][2][0], i['R'][2][1], i['R'][2][2], i['T'][2], 0, 0, 0, 1] for i in asm.instances}
         return {'mode': 'assembly', 'name': asm.name, 'path': str(self.path) if self.path else None,
+                'can_back': bool(getattr(self, '_asm_ritorno', None)),
                 'geo': forma, 'poses': pose,
                 'dirty': self.asm_dirty, 'undo': [x[0] for x in self.asm_undo[-1:]], 'redo': [x[0] for x in self.asm_redo[-1:]],
                 'tree': tree, 'parameters': [], 'errors': self.asm_errors, 'warnings': avvisi,
                 'mancanti': [{'file': f, 'name': Path(f).stem, 'n': sum(1 for i in asm.instances if i['file'] == f)}
                              for f in dict.fromkeys(i['file'] for i in asm.instances) if f not in self.asm_parts],
                 'ritrovati': list(getattr(self, 'asm_ritrovati', [])),
-                'bom': bom, 'bom_kg': totale, 'cutlist': {'rows': [], 'totals': [], 'pieces': 0, 'kg': 0},
+                'bom': bom, 'bom_kg': totale, 'bom_gruppi': gruppi, 'cutlist': {'rows': [], 'totals': [], 'pieces': 0, 'kg': 0},
                 'saldature': self._asm_saldature(),
                 'storia': {'passi': [x[0] for x in self.asm_undo] + [x[0] for x in reversed(self.asm_redo)], 'qui': len(self.asm_undo)},
                 'info': {'rebuild_ms': round(getattr(self, 'asm_ms', 0), 1), 'rebuilt': len(self.asm_parts), 'cached': 0,
@@ -2031,7 +2077,7 @@ class AssemblyMixin:
                 'scene_version': self.scene_version, 'dimensions': [], 'sheet': None,
                 'instances': [{'id': i['id'], 'name': i['name'], 'file': i['file'], 'fixed': bool(i.get('fixed')),
                                'pezzo': nome_pezzo.get(i['file'])} for i in asm.instances],
-                'mate_types': A.MATE_TYPES, 'can_back': False}
+                'mate_types': A.MATE_TYPES}
 
     # ------------------------------------------------------------ saldature nell'assieme (28/10)
     # «ovunque schiaccio mi da solo errori»: nell'assieme lo strumento cercava gli spigoli di un pezzo solo. Qui si
@@ -2166,7 +2212,8 @@ class AssemblyMixin:
             from cad_engine import finiture
             objs.append({'id': i['id'], 'kind': 'instance', 'name': i['name'], 'matrix': mat,
                          'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges'],
-                         'marks': segni, 'look': finiture.aspetto(part.doc.material, part.doc.meta.get('finitura'))})
+                         'marks': segni, 'look': finiture.aspetto(part.doc.material, part.doc.meta.get('finitura')),
+                         **({'gruppi': m['gruppi']} if m.get('gruppi') else {})})
         return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
 
     def _ingombro_mondo(self, i) -> np.ndarray | None:
@@ -2229,13 +2276,16 @@ class AssemblyMixin:
         i = self.asm.instance(obj_id)
         part = self.asm_parts.get(i['file'])
         rows = [['File', Path(i['file']).name]]
+        if part is not None and part.sotto is not None:
+            rows += [['Pezzi dentro', str(sum(1 for _ in A.foglie(part.sotto, {str(c[0].path): c[0] for c in part.figli})))]]
         if part is not None:
             pr = A.part_props(part)
-            rows += [['Materiale', part.doc.material], ['Peso', fmt_kg(pr["mass_kg"])],
+            rows += [['Materiale', part.doc.material or '—'], ['Peso', fmt_kg(pr["mass_kg"])],
                      ['Ingombro', ' × '.join(fmt_mm(round(v, 1)) for v in pr['bbox_mm']['size']) + ' mm']]
         sel = {'kind': 'instance', 'id': obj_id, 'title': i['name'], 'rows': rows, 'fixed': bool(i.get('fixed')),
                'acquisto': (part.doc.meta.get('acquisto') if part is not None else None),
                'finitura': (part.doc.meta.get('finitura') if part is not None else None),
+               'sottoassieme': bool(part is not None and part.sotto is not None),
                'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])],
                'movimenti': self._movimenti(obj_id), 'dove': self._dove_sta(obj_id)}
         # lo tengono gli accoppiamenti (spostarlo a mano non serve: il risolutore lo rimette lì); il pezzo fermo no

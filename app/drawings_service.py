@@ -349,8 +349,13 @@ class DrawingsMixin:
         from cad_engine import assembly as A
         righe = A.bom(self.asm, self.asm_parts)
         pos = {r['file']: k + 1 for k, r in enumerate(righe)}
-        forme = [(pos[i['file']], A.placed_shape(self.asm_parts[i['file']], i['R'], i['T']))
-                 for i in self.asm.instances if i['file'] in self.asm_parts]
+        # 05/11: un sottoassieme si disegna coi suoi pezzi (ognuno col suo numero di posizione); nell'esploso i pezzi
+        # dentro vanno insieme al primo, come un blocco
+        ist = [i for i in self.asm.instances if i['file'] in self.asm_parts]
+        forme, primo = [], {}
+        for part, R, T, chi in A.foglie(self.asm, self.asm_parts):
+            primo.setdefault(chi[0], len(forme))
+            forme.append((pos[str(part.path)], A.placed_shape(part, R.tolist(), T.tolist())))
         if not forme:
             raise SteelCADError('L’assieme è vuoto.')
         from cad_engine import finiture
@@ -376,8 +381,19 @@ class DrawingsMixin:
         fogli = [D.tavola_assieme(forme, ca, distinta, formato)]
         if esploso:
             ce = {**ca, 'titolo': f'{self.asm.name} — esploso', 'foglio': f'2/{tot}'}
-            fogli.append(D.tavola_esploso(forme, ce, distinta, self._ordine_montaggio(pos), formato,
-                                          figli=self._viti_esploso()))
+            viti = self._viti_esploso()
+            figli = [None] * len(forme)
+            for k, i in enumerate(ist):
+                f0 = primo.get(i['id'])
+                if f0 is None:
+                    continue
+                v = viti[k]
+                figli[f0] = None if v is None else (primo.get(ist[v[0]]['id'], v[0]), v[1], v[2])
+                for j in range(f0 + 1, len(forme)):
+                    if j in primo.values():
+                        break
+                    figli[j] = (f0, [0.0, 0.0, 0.0], 0.0)
+            fogli.append(D.tavola_esploso(forme, ce, distinta, self._ordine_montaggio(pos), formato, figli=figli))
         if tutte:
             n = 2 + int(esploso)
             quanti = quanti_pezzi(righe)

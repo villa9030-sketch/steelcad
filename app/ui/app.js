@@ -202,6 +202,9 @@ function vetro(mat, look) {
   return true;
 }
 const opacitaPiena = m => m.userData?.vetro ?? 1;
+// 05/11: un sottoassieme ha un materiale per ogni pezzo dentro (il plexiglass trasparente, il ferro grigio): tutti i
+// materiali veri della copia (non quello che nasconde le pareti dei fori)
+const matsOf = o => (Array.isArray(o.mesh.material) ? o.mesh.material : [o.mesh.material]).filter(m => m !== HIDE_MAT);
 const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x3A4A5C });
 // 04/11: l'ingombro col colore delle quote (l'ambra è solo «da guardare»); si riconosce dal tratteggio e da ⤢
 const ING_MAT = new THREE.LineDashedMaterial({ color: 0x3A4A5C, dashSize: 6, gapSize: 4 });
@@ -324,7 +327,7 @@ const CTX_MAT = new THREE.MeshStandardMaterial({ color: 0x8FA3B8, metalness: 0.1
 const CTX_EDGE = new THREE.LineBasicMaterial({ color: 0x8FA3B8, transparent: true, opacity: 0.45 });
 let ctxGeo = [];
 function buildScene(sc) {
-  for (const o of objs.values()) { o.mesh.geometry.dispose(); matOf(o).dispose(); o.lines.geometry.dispose(); }
+  for (const o of objs.values()) { o.mesh.geometry.dispose(); matsOf(o).forEach(m => m.dispose()); o.lines.geometry.dispose(); }
   for (const g of ctxGeo) g.dispose();
   ctxGeo = [];
   model.clear(); objs.clear();
@@ -360,7 +363,20 @@ function buildScene(sc) {
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     mat.envMapIntensity = 0.45 + 0.8 * mat.metalness;    // i riflessi dello studio: pieni sui metalli, leggeri sulle vernici
     const lastra = vetro(mat, d.look);
-    const mesh = new THREE.Mesh(g, mat);
+    let materiali = mat;
+    if (d.gruppi?.length) {                            // sottoassieme: un materiale per pezzo dentro
+      materiali = d.gruppi.map(gr => {
+        const m = mat.clone();
+        m.userData = {};
+        m.color.set(gr.look?.color || base); m.metalness = gr.look?.metal ?? 0.15; m.roughness = gr.look?.rough ?? 0.55;
+        m.envMapIntensity = 0.45 + 0.8 * m.metalness;
+        vetro(m, gr.look);
+        m.userData.base = m.color.clone();
+        return m;
+      });
+      d.gruppi.forEach((gr, k) => g.addGroup(gr.start, gr.count, k));
+    }
+    const mesh = new THREE.Mesh(g, materiali);
     mesh.castShadow = !lastra;                         // il vetro non fa l'ombra piena
     mesh.userData.id = d.id;
     const pos = d.matrix ? new THREE.Matrix4().set(...d.matrix) : null;      // istanza di un assieme: dove sta
@@ -487,8 +503,10 @@ function paint() {
     const scelto = selIds.has(id) && (intero || sel.face == null || (sel.ids && sel.ids.length > 1));
     if (scelto) c = comeSel(o.base) ? C_SEL_BLU : C_SEL;
     else if (hover && hover.id === id && (intero || hover.face == null)) c = C_HOVER;
-    matOf(o).color.copy(c);
-    matOf(o).emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, c === C_SEL_BLU ? 0.12 : 0);
+    for (const m of matsOf(o)) {                     // ogni pezzo di un sottoassieme torna al suo colore
+      m.color.copy(c === o.base && m.userData.base ? m.userData.base : c);
+      m.emissive.setRGB(c === o.base ? 0 : 0.08, c === o.base ? 0 : 0.06, c === C_SEL_BLU ? 0.12 : 0);
+    }
     if (o.lines) {                                 // gli spigoli del pezzo scelto, accesi: si vede anche se è dello stesso colore
       if (!o.lineeMat) o.lineeMat = o.lines.material;
       o.lines.material = scelto && S?.mode === 'assembly' ? EDGE_SCELTO : o.lineeMat;
@@ -1421,8 +1439,10 @@ function applyLook() {
   const fantasma = !SK ? 1 : solo ? (SK.ghost ? 0.15 : 0) : 0.18;
   model.visible = !piatto || (SK && SK.ghost) ? fantasma > 0 : false;
   for (const o of objs.values()) {
-    const m = matOf(o), pieno = opacitaPiena(m);       // il vetro resta trasparente anche fuori dal disegno
-    m.transparent = fantasma < 1 || pieno < 1; m.opacity = fantasma * pieno; m.depthWrite = fantasma >= 1 && pieno >= 1;
+    for (const m of matsOf(o)) {                       // il vetro resta trasparente anche fuori dal disegno
+      const pieno = opacitaPiena(m);
+      m.transparent = fantasma < 1 || pieno < 1; m.opacity = fantasma * pieno; m.depthWrite = fantasma >= 1 && pieno >= 1;
+    }
   }
   dimLines.visible = SK ? true : !piatto;
   edgeGroup.visible = !SK && !piatto;
@@ -2100,7 +2120,7 @@ function renderTree() {
     const ids = n.kind === 'members' ? n.ref : n.kind === 'structure' ? ['struct=' + n.ref]
       : n.kind === 'flange' ? ['flange=' + n.ref] : n.kind === 'sheet_edge_flange' ? ['pb=' + n.ref] : n.kind === 'sheet_miter' ? ['tt=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
-      : n.kind === 'instance' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref] : n.kind === 'assembly' ? ['assieme']
+      : n.kind === 'instance' || n.kind === 'sottopezzo' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref] : n.kind === 'assembly' ? ['assieme']
       : ['part', 'extrude', 'hole', 'fillet', 'chamfer', 'sheet'].includes(n.kind) ? ['body'] : null;
     const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '', n.status === 'disattivata' ? 'spenta' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
@@ -2115,7 +2135,7 @@ function renderTree() {
     let freccia = '';
     if (n.chiuso && figli) {
       const aperto = APERTI.has(chiaveNodo(n)) || (SK && contieneSketch(n, SK.sid));
-      freccia = `<button class="freccia" data-apri="${esc(chiaveNodo(n))}" title="${aperto ? 'Chiudi' : 'Apri: il suo disegno'}">${aperto ? '▾' : '▸'}</button>`;
+      freccia = `<button class="freccia" data-apri="${esc(chiaveNodo(n))}" title="${aperto ? 'Chiudi' : n.sotto ? 'Apri: i suoi pezzi' : 'Apri: il suo disegno'}">${aperto ? '▾' : '▸'}</button>`;
       if (!aperto) figli = '';
       cls.push('apribile');
     }
@@ -2127,7 +2147,7 @@ function renderTree() {
       occhio = `<button class="occhio${vede ? '' : ' via'}" data-occhio="${esc(n.ref)}" title="${vede ? 'Nascondi' : 'Mostra'} (tasto destro: altre scelte)">👁</button>`;
     }
     const q = n.qta > 1 ? `<span class="n-q">× ${n.qta}</span>` : '';
-    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.kind)}</span><span class="lb">${etichettaAlbero(n.label)}</span>${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
+    return `<li><div class="${cls.filter(Boolean).join(' ')}"${data} title="${esc(n.label)}"><span class="k">${n.kind === 'mate' && iconaMate(n.tipo) ? `<img src="icons/${iconaMate(n.tipo)}.svg" alt="">` : iconImg(n.sotto ? 'assembly' : n.kind)}</span><span class="lb">${etichettaAlbero(n.label)}</span>${q}${conta}${st}${occhio}${freccia}</div>${figli}</li>`;
   };
   // 28/10: nell'assieme le copie dello stesso pezzo (3 o più) stanno in un gruppo «Nome × n» che si apre
   let albero = S.tree;
@@ -2223,10 +2243,12 @@ function applicaVisibilita() {
     if (o.data.kind !== 'instance') continue;
     const id = o.data.id, vede = VIS.solo ? VIS.solo.has(id) : !VIS.nascosti.has(id);
     for (const x of [o.mesh, o.lines, ...(o.extra || [])]) if (x) x.visible = vede;
-    const m = matOf(o), tr = VIS.trasparenti.has(id), pieno = opacitaPiena(m);
-    const voluta = tr ? Math.min(0.22, pieno) : pieno;
-    if (m.transparent !== voluta < 1 || m.opacity !== voluta) {
-      m.transparent = voluta < 1; m.opacity = voluta; m.depthWrite = voluta >= 1; m.needsUpdate = true;
+    const tr = VIS.trasparenti.has(id);
+    for (const m of matsOf(o)) {
+      const pieno = opacitaPiena(m), voluta = tr ? Math.min(0.22, pieno) : pieno;
+      if (m.transparent !== voluta < 1 || m.opacity !== voluta) {
+        m.transparent = voluta < 1; m.opacity = voluta; m.depthWrite = voluta >= 1; m.needsUpdate = true;
+      }
     }
   }
   ridisegna();
@@ -2238,7 +2260,7 @@ function menuPezzoAssieme(id, x, y) {
   if (!ist) return;
   const nascosto = VIS.solo ? !VIS.solo.has(id) : VIS.nascosti.has(id), tr = VIS.trasparenti.has(id);
   const qualcosa = VIS.nascosti.size || VIS.trasparenti.size || VIS.solo;
-  const voci = [['apri', 'Apri il pezzo'], [nascosto ? 'mostra' : 'nascondi', nascosto ? 'Mostra' : 'Nascondi'],
+  const voci = [['apri', /\.steelcad-asm$/i.test(ist.file || '') ? 'Apri il sottoassieme' : 'Apri il pezzo'], [nascosto ? 'mostra' : 'nascondi', nascosto ? 'Mostra' : 'Nascondi'],
     ['solo', 'Mostra solo questo'], [tr ? 'opaco' : 'trasparente', tr ? 'Non più trasparente' : 'Trasparente'],
     ...(qualcosa ? [['tutti', 'Mostra tutti i pezzi']] : [])];
   const box = document.createElement('div');
@@ -3037,7 +3059,7 @@ function azioniPezzo(s) {
     ...(s.movimenti || []).slice(0, 1).map((mv, k) => ({ ic: 'dimension', cls: 'mov',
       t: `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
       fai: () => { tutteLeOpzioni(); setTimeout(() => { const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 60); } })),
-    { ic: 'open', t: 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
+    { ic: 'open', t: s.sottoassieme ? 'Apri il sottoassieme' : 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
     { ic: 'appoggia', t: piana ? 'Appoggia (da questa faccia)' : 'Appoggia', fai: () => appoggiaDa(id, piana ? faccia : null) },
     ...(foro ? [{ ic: 'fastener', t: 'Viti nei fori', fai: () => runCmd('asm_viteria') }] : []),
     { ic: 'move', t: 'Sposta', fai: () => spostaDa() },
@@ -5215,6 +5237,7 @@ function frasiMate() {                              // M1 → «Staffa su Piastr
 const senzaNome = (frase, nome) => frase.startsWith(nome + ' ') ? frase.slice(nome.length + 1) : frase;
 function cosEPezzo(s) {
   const n = (s.mates || []).length;
+  if (s.sottoassieme) return `Sottoassieme: un blocco che si muove tutto insieme${s.fixed ? ', fermo' : n ? `, tenuto da ${n === 1 ? 'un accoppiamento' : n + ' accoppiamenti'}` : ''}`;
   if (s.fixed) return 'Pezzo dell’assieme, fermo: gli altri si appoggiano a lui';
   if (s.acquisto) return 'Da acquistare: va in distinta, niente DXF';
   return n ? `Pezzo dell’assieme, tenuto da ${n === 1 ? 'un accoppiamento' : n + ' accoppiamenti'}` : 'Pezzo dell’assieme, libero: si sposta come vuoi';
@@ -5254,7 +5277,7 @@ function instancePanel(s) {
     return riga + `<div class="asm-misura"><span>${esc(m.nome)}</span><span class="campo-unita"><input class="field num" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}" aria-label="${esc(m.nome)}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span>
       <input type="range" class="cursore" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" title="Trascina: il pezzo si muove"></div>`;
   }).join('') : '<p class="hint">Nessun accoppiamento: si sposta liberamente. Per metterlo su un altro pezzo: «Appoggia».</p>'}</section>`;
-  const fin = s.acquisto ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+  const fin = s.acquisto || s.sottoassieme ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
       <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`;
   return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div></div>
@@ -5269,12 +5292,12 @@ function instancePanel(s) {
       <div class="ff"><label class="tutta-riga">Nome<input class="field" id="a-nome" value="${esc(nomeSenzaCopia(s.title))}" title="Vale per tutte le copie, la distinta e le tavole (anche doppio clic sulla voce a sinistra)"></label></div>
       <label class="interruttore"><input type="checkbox" id="a-fixed"${s.fixed ? ' checked' : ''}><i></i>Fermo: gli altri pezzi si appoggiano a lui</label>
       ${fin}
-      <label class="interruttore"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}><i></i>Da acquistare (guide, viti…): in distinta, niente DXF</label>
+      ${s.sottoassieme ? '<p class="hint">Finitura e «da acquistare» si danno ai suoi pezzi: «Apri il sottoassieme».</p>' : `<label class="interruttore"><input type="checkbox" id="a-acq"${s.acquisto ? ' checked' : ''}><i></i>Da acquistare (guide, viti…): in distinta, niente DXF</label>`}
       ${s.acquisto ? `<div class="ff"><label class="tutta-riga">Descrizione<input class="field" id="a-acq-d" value="${esc(s.acquisto.descrizione || '')}"></label>
         <label>Codice<input class="field" id="a-acq-c" value="${esc(s.acquisto.codice || '')}"></label>
         <label>Fornitore<input class="field" id="a-acq-f" value="${esc(s.acquisto.fornitore || '')}"></label></div>` : ''}</section>
     <details class="fsec"><summary>Dettagli</summary>${tab}${faccia}</details>
-    <div class="asm-fondo"><button class="btn primary big" id="a-open">Apri il pezzo</button></div></div>`;
+    <div class="asm-fondo"><button class="btn primary big" id="a-open">${s.sottoassieme ? 'Apri il sottoassieme' : 'Apri il pezzo'}</button></div></div>`;
 }
 // 03/11: «Sposta» diceva solo «di quanto», non dove sta il pezzo. Qui dove sta (l'angolo in basso a sinistra davanti) e,
 // se appoggia su un altro pezzo, quanto manca ai suoi bordi: si scrive dove lo vuoi e Invio, il conto lo fa Radius
@@ -5321,7 +5344,7 @@ function wireInstance(s) {
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
   (s.movimenti || []).forEach((m, k) => cursoreMovimento($('#mv-s' + k), $('#mv-v' + k), m.id, m.campo));
   const acq = () => ({ descrizione: $('#a-acq-d')?.value || '', codice: $('#a-acq-c')?.value || '', fornitore: $('#a-acq-f')?.value || '' });
-  $('#a-acq').onchange = () => fai('asm_set_acquisto', s.id, $('#a-acq').checked ? acq() : null);
+  if ($('#a-acq')) $('#a-acq').onchange = () => fai('asm_set_acquisto', s.id, $('#a-acq').checked ? acq() : null);
   if ($('#a-fin')) {
     const fin = () => ({ tipo: $('#a-fin').value, ral: $('#a-ral').value.trim() });
     $('#a-fin').onchange = () => { $('#a-ral-w').hidden = $('#a-fin').value !== 'verniciato';
@@ -7044,17 +7067,24 @@ function formaPezzo(r) {
     : [[o(a0), 0], [W - o(a1), 0], [W, h], [0, h]];
   return `<svg class="forma-pezzo" width="${W + 2}" height="${h + 2}" viewBox="-1 -1 ${W + 2} ${h + 2}" aria-hidden="true"><polygon points="${pts.map(p => p.join(',')).join(' ')}"/></svg>`;
 }
+let DISTINTA_GRUPPI = false;
 function renderBottom() {
   renderMancanti();
   disegnaSaldature();
   const b = S.bom;
-  $('#tab-bom').innerHTML = b.length ? `<table class="grid"><thead><tr><th>Codice</th><th>Descrizione</th><th class="n">Q.tà</th>
+  // 05/11: con dei sottoassiemi, «per pezzi» (tutti i pezzi contati: per tagliare e comprare) o «per sottoassiemi»
+  // (il blocco con i suoi pezzi sotto: per montare)
+  const perGruppi = !!S.bom_gruppi && DISTINTA_GRUPPI;
+  const righe = perGruppi ? S.bom_gruppi.flatMap(r => [r, ...r.figli.map(f => ({ ...f, dentro: true }))]) : b;
+  const scelta = S.bom_gruppi ? `<div class="seg distinta-modo"><button data-dist="pezzi" class="${perGruppi ? '' : 'on'}">Per pezzi</button><button data-dist="gruppi" class="${perGruppi ? 'on' : ''}">Per sottoassiemi</button></div>` : '';
+  $('#tab-bom').innerHTML = b.length ? `${scelta}<table class="grid"><thead><tr><th>Codice</th><th>Descrizione</th><th class="n">Q.tà</th>
     <th>Materiale</th><th>Profilo / spessore</th><th class="n">Peso cad. kg</th><th class="n">Peso tot. kg</th></tr></thead><tbody>
-    ${b.map(r => `<tr><td>${esc(r.code)}</td><td>${esc(r.description)}</td><td class="n">${r.qty}</td><td>${esc(r.material)}</td>
+    ${righe.map(r => `<tr${r.dentro ? ' class="dentro"' : r.sottoassieme ? ' class="blocco"' : ''}><td>${esc(r.code)}</td><td>${esc(r.description)}</td><td class="n">${r.dentro ? `${r.qty} cad.` : r.qty}</td><td>${esc(r.material || '')}</td>
       <td>${esc(r.profile || (r.thickness_mm != null ? 'sp. ' + num(r.thickness_mm) + ' mm' : ''))}</td>
-      <td class="n">${kg(r.kg_each)}</td><td class="n">${kg(r.kg_total)}</td></tr>`).join('')}
+      <td class="n">${kg(r.kg_each)}</td><td class="n">${r.dentro ? '' : kg(r.kg_total)}</td></tr>`).join('')}
     <tr class="tot"><td colspan="6">Totale</td><td class="n">${kg(S.bom_kg)}</td></tr></tbody></table>`
     : '<p class="empty">Il progetto è vuoto.</p>';
+  $('#tab-bom').querySelectorAll('[data-dist]').forEach(x => { x.onclick = () => { DISTINTA_GRUPPI = x.dataset.dist === 'gruppi'; renderBottom(); }; });
   const sw = S.saldature || [];
   if (sw.length) {                                 // le saldature: per tipo e misura, coi metri
     const nome = w => w.tipo === 'angolo' ? `d’angolo${w.a ? ' a' + w.a : ''}` : `di testa a ${w.tipo}${w.a ? ' s' + w.a : ''}`;

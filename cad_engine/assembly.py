@@ -13,6 +13,12 @@ Accoppiamenti (come in officina):
 - **in mezzo**: due facce di un pezzo centrate tra due facce dell'altro (un piatto in un U);
 - **blocca**: il pezzo resta attaccato all'altro così com'è.
 
+Sottoassiemi (05/11, Stefano: «in un assieme posso mettere un altro assieme?»): un'istanza può richiamare un altro
+`.steelcad-asm`. Si legge come un pezzo solo (Part con `sotto` = il suo assieme e `figli` = i suoi pezzi messi): la
+forma è l'insieme dei suoi pezzi al loro posto, le facce si chiamano «istanza:nome» e si accoppiano come quelle di un
+pezzo. Si muove tutto insieme; la distinta di base conta i pezzi dentro (foglie()), quella per sottoassiemi tiene il
+blocco con i suoi pezzi sotto. Un assieme non può stare dentro se stesso.
+
 Il risolutore muove ogni istanza (tranne quella ferma) partendo da dov'è: un punto di partenza a formula (le
 direzioni delle facce e degli assi, poi la traslazione minima), poi i minimi quadrati su tutti gli accoppiamenti
 insieme, spostando il meno possibile. I gradi di libertà che restano liberi non si toccano: si spostano a mano.
@@ -54,6 +60,34 @@ class Part:
     mesh: dict | None = None
     props: dict | None = None
     errors: list = field(default_factory=list)
+    sotto: object = None                # sottoassieme: il suo Assembly (None per un pezzo)
+    figli: list = field(default_factory=list)   # sottoassieme: (Part, R, T, id dell'istanza, nome), nelle sue coordinate
+    gruppi: list = field(default_factory=list)  # sottoassieme: (prima faccia, quante, Part) per l'aspetto di ogni pezzo
+
+
+class _DocAssieme:
+    """Quello che chi usa un pezzo chiede al suo documento, per un sottoassieme."""
+    material = ''
+    features: list = []
+    parameters: dict = {}
+
+    def __init__(self, nome):
+        self.meta = {'name': nome}
+        self.figli = []
+
+    def describe_face(self, nome) -> str:
+        """«istanza:nome» → «Plexiglass, la faccia di sopra»: il pezzo dentro e la sua faccia."""
+        iid, _, resto = str(nome or '').partition(':')
+        for cp, _, _, fid, fnome in self.figli:
+            if fid == iid:
+                return f'{fnome}, {cp.doc.describe_face(resto) if resto else "faccia"}'
+        return 'faccia'
+
+
+class _RisAssieme:
+    body = None
+    structures: list = []
+    errors: list = []
 
 
 _PEZZI: dict = {}
@@ -77,15 +111,104 @@ def nome_visibile(doc, path) -> str:
     return n or 'Pezzo'
 
 
-def load_part(path) -> Part:
-    """Legge (e ricostruisce) un pezzo; lo ricorda finché il file non cambia."""
+def _firma(p: Path, pila=()):
+    """Quando rileggere: la data del file e, per un sottoassieme, quelle di tutti i suoi pezzi (anche dentro)."""
+    try:
+        mt = p.stat().st_mtime
+    except OSError:
+        return (str(p), None)
+    if not p.name.endswith(EXT) or str(p) in pila:
+        return (str(p), mt)
+    try:
+        d = json.loads(p.read_text(encoding='utf-8'))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return (str(p), mt)
+    figli = []
+    for f in dict.fromkeys(str(i.get('file')) for i in d.get('instances') or []):
+        q = Path(f) if Path(f).is_absolute() else (p.parent / f)
+        figli.append(_firma(q.resolve(), pila + (str(p),)))
+    return (str(p), mt, tuple(figli))
+
+
+def _compound(solidi):
     from OCP.BRep import BRep_Builder
     from OCP.TopoDS import TopoDS_Compound
+    forma = TopoDS_Compound()
+    b = BRep_Builder()
+    b.MakeCompound(forma)
+    for s in solidi:
+        b.Add(forma, s)
+    return forma
 
+
+def _load_sotto(p: Path, pila) -> Part:
+    """Un sottoassieme letto come un pezzo solo: i suoi pezzi al loro posto in una forma, le facce coi nomi."""
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp
+    from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as TopTools_IndexedMapOfShape
+
+    from .topology.naming import _faces_of
+    if str(p) in pila:
+        raise AssemblyError(f'«{p.stem}» finirebbe dentro se stesso: un assieme non può contenere sé stesso, '
+                            'nemmeno passando da un altro.')
+    firma = _firma(p, pila)
+    vecchio = _PEZZI.get(str(p))
+    if vecchio is not None and vecchio.mtime == firma:
+        return vecchio
+    asm = load(p)
+    parti, errori = {}, []
+    for i in asm.instances:
+        if i['file'] in parti:
+            continue
+        try:
+            parti[i['file']] = load_part(i['file'], pila + (str(p),))
+        except AssemblyError as ex:
+            if 'dentro se stesso' in ex.message:
+                raise
+            errori.append(f'In «{p.stem}»: {ex.message}')
+    asm.instances = [i for i in asm.instances if i['file'] in parti]
+    if not asm.instances:
+        raise AssemblyError(f'Il sottoassieme {p.name} è vuoto: non c’è niente da mettere nell’assieme.')
+    asm.mates = [m for m in asm.mates if m['a']['inst'] in {i['id'] for i in asm.instances}
+                 and m['b']['inst'] in {i['id'] for i in asm.instances}]
+    solve(asm, parti)
+    figli, solidi, nomi, gruppi, off = [], [], {}, [], 0
+    for i in asm.instances:
+        part = parti[i['file']]
+        R, T = _R(i), _T(i)
+        figli.append((part, R, T, i['id'], i.get('name') or part.doc.meta.get('name') or i['id']))
+        solidi.append(placed_shape(part, R.tolist(), T.tolist()).wrapped)
+        m = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(part.shape, TopAbs_FACE, m)
+        n = len(_faces_of(part.shape))
+        gruppi.append((off, n, part))
+        for nome, fs in (part.names or {}).items():
+            for f in fs:
+                k = m.FindIndex(f)
+                if k:
+                    nomi.setdefault(f'{i["id"]}:{nome}', []).append(off + k - 1)
+        off += n
+    forma = _compound(solidi)
+    facce = _faces_of(forma)
+    nomi = {k: [facce[j] for j in v] for k, v in nomi.items()}
+    nome = asm.name if asm.name and asm.name != 'Assieme' else p.stem
+    doc = _DocAssieme(nome)
+    doc.figli = figli
+    part = Part(p, firma, doc, _RisAssieme(), forma, nomi, errors=errori + [str(w) for w in asm.warnings],
+                sotto=asm, figli=figli, gruppi=gruppi)
+    _PEZZI[str(p)] = part
+    return part
+
+
+def load_part(path, pila=()) -> Part:
+    """Legge (e ricostruisce) un pezzo, o un sottoassieme (.steelcad-asm); lo ricorda finché il file non cambia.
+    pila: gli assiemi che lo stanno già leggendo (un assieme non può stare dentro se stesso)."""
     from . import project_io
     p = Path(path).resolve()
     if not p.exists():
         raise AssemblyError(f'Il pezzo {p.name} non si trova più ({p}).')
+    if p.name.endswith(EXT):
+        return _load_sotto(p, tuple(str(Path(x).resolve()) for x in pila))
     mt = p.stat().st_mtime
     vecchio = _PEZZI.get(str(p))
     if vecchio is not None and vecchio.mtime == mt:
@@ -103,28 +226,43 @@ def load_part(path) -> Part:
         solidi += [a.solid.wrapped for a in getattr(st, 'accessori', None) or []]      # piedi e tappi
     if not solidi:
         raise AssemblyError(f'Il pezzo {p.name} è vuoto: non c’è niente da mettere nell’assieme.')
-    if len(solidi) == 1:
-        forma = solidi[0]
-    else:
-        forma = TopoDS_Compound()
-        b = BRep_Builder()
-        b.MakeCompound(forma)
-        for s in solidi:
-            b.Add(forma, s)
+    forma = solidi[0] if len(solidi) == 1 else _compound(solidi)
     part = Part(p, mt, doc, res, forma, nomi, errors=[e.message for e in res.errors])
     _PEZZI[str(p)] = part
     return part
+
+
+def _gruppi_di(part: Part, off: int = 0) -> list:
+    """Le facce di ogni pezzo vero dentro un sottoassieme (anche dentro un altro): (prima, quante, Part)."""
+    out = []
+    for o, n, cp in part.gruppi:
+        out += _gruppi_di(cp, off + o) if cp.sotto is not None else [(off + o, n, cp)]
+    return out
 
 
 def part_mesh(part: Part) -> dict:
     from .mesh import tessellate
     if part.mesh is None:
         part.mesh = tessellate(part.shape, part.names)
+        if part.sotto is not None:
+            # ogni pezzo col suo aspetto (il plexiglass trasparente, il verniciato col suo RAL): i triangoli per pezzo
+            from . import finiture
+            gr = []
+            for o, n, cp in _gruppi_di(part):
+                fs = [f for f in part.mesh['faces'] if o <= f['index'] < o + n]
+                if fs:
+                    a = min(f['start'] for f in fs)
+                    gr.append({'start': a, 'count': max(f['start'] + f['count'] for f in fs) - a,
+                               'look': finiture.aspetto(cp.doc.material, cp.doc.meta.get('finitura'))})
+            part.mesh['gruppi'] = gr
     return part.mesh
 
 
 def part_props(part: Part) -> dict:
     from .analysis import properties
+    if part.props is None and part.sotto is not None:
+        base = properties(part.shape, 'S235')          # volume e ingombro; il peso è la somma dei suoi pezzi
+        part.props = {**base, 'material': '', 'mass_kg': sum(part_props(c[0])['mass_kg'] for c in part.figli)}
     if part.props is None:
         part.props = properties(part.shape, part.doc.material)
         strutture = getattr(part.result, 'structures', None)
@@ -688,24 +826,58 @@ def mate_error(m, pose, parts, asm) -> float | None:
 
 
 # ------------------------------------------------------------------------------------------- distinta, interferenze
-def bom(asm: Assembly, parts: dict) -> list:
-    """Una riga per file di pezzo: quante copie, peso, spessore e sviluppo della lamiera."""
-    righe: dict = {}
+def foglie(asm: Assembly, parts: dict):
+    """I pezzi veri dell'assieme, anche quelli dentro i sottoassiemi, al loro posto nel mondo: (Part, R, T, chi),
+    chi = gli id delle istanze dalla più esterna."""
+    def giu(part, R, T, chi):
+        if part.sotto is None:
+            yield part, R, T, chi
+            return
+        for cp, r, t, iid, _ in part.figli:
+            yield from giu(cp, R @ r, R @ t + T, chi + (iid,))
     for i in asm.instances:
         part = parts.get(i['file'])
-        if part is None:
-            continue
-        r = righe.get(i['file'])
-        if r is None:
-            pr = part_props(part)
-            sheet = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
-            r = righe[i['file']] = {'file': i['file'], 'name': part.doc.meta.get('name') or part.path.stem, 'qty': 0,
-                                    'material': part.doc.material, 'mass_kg': pr['mass_kg'],
-                                    'thickness': sheet.thickness if sheet else None,
-                                    'flat': list(sheet.flat_size) if sheet else None,
-                                    'acquisto': part.doc.meta.get('acquisto') or None,
-                                    'finitura': part.doc.meta.get('finitura') or None}
-        r['qty'] += 1
+        if part is not None:
+            yield from giu(part, _R(i), _T(i), (i['id'],))
+
+
+def _riga(part: Part) -> dict:
+    pr = part_props(part)
+    sheet = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
+    return {'file': str(part.path), 'name': part.doc.meta.get('name') or part.path.stem, 'qty': 0,
+            'material': part.doc.material, 'mass_kg': pr['mass_kg'],
+            'thickness': sheet.thickness if sheet else None,
+            'flat': list(sheet.flat_size) if sheet else None,
+            'acquisto': part.doc.meta.get('acquisto') or None,
+            'finitura': part.doc.meta.get('finitura') or None}
+
+
+def bom(asm: Assembly, parts: dict, gruppi: bool = False) -> list:
+    """Una riga per file di pezzo: quante copie, peso, spessore e sviluppo della lamiera. I pezzi dentro i
+    sottoassiemi si contano coi loro (e finiscono anche in parts, per chi cerca il pezzo di una riga); con gruppi il
+    sottoassieme resta una riga sola ('sottoassieme': True) con i suoi pezzi in 'figli'."""
+    righe: dict = {}
+    if gruppi:
+        for i in asm.instances:
+            part = parts.get(i['file'])
+            if part is None:
+                continue
+            r = righe.get(i['file'])
+            if r is None:
+                r = righe[i['file']] = _riga(part)
+                if part.sotto is not None:
+                    sotto = {str(c[0].path): c[0] for c in part.figli}
+                    r.update(sottoassieme=True, figli=bom(part.sotto, sotto, gruppi=True))
+                    parts.update({k: v for k, v in sotto.items() if k not in parts})
+            r['qty'] += 1
+    else:
+        for part, _, _, _ in foglie(asm, parts):
+            k = str(part.path)
+            parts.setdefault(k, part)
+            r = righe.get(k)
+            if r is None:
+                r = righe[k] = _riga(part)
+            r['qty'] += 1
     out = list(righe.values())
     for r in out:
         r['mass_tot'] = r['mass_kg'] * r['qty']
