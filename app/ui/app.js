@@ -731,11 +731,11 @@ function selectEdge(e) {
     { chi: 'edge=' + e.id, scritte: true, piu: () => { nascondiMini(); MINI.dove = null; selectEdge(e); } });
     return;                                        // il pannello completo solo con «⋯»
   }
-  $('#props').innerHTML = pannelloLam({ titolo: 'Flangia su questo bordo', cose: `bordo: ${esc(e.label)}`,
+  $('#props').innerHTML = pannelloLam({ titolo: 'Flangia su questo bordo', cose: `bordo: ${esc(pieghePerNome(e.label, e.feature))}`,
     azioni: [azioneLam('pattern_rect', 'Piega anche altri bordi', 'id="f-piu-bordi"', '', 'Più bordi insieme, tutti uguali (una vaschetta)')],
     corpo: `<p class="hint">${punta ? 'Piega sul bordo libero della flangia: la sua lunghezza resta la quota esterna fino allo spigolo della nuova piega.' : 'Lunghezza dallo spigolo esterno alla punta.'}</p>
     ${flangeFields(d, punta ? VERSI_PUNTA : VERSI_UI, POS_UI)}`,
-    fine: `<button class="btn primary big" id="f-add">Aggiungi flangia su ${esc(e.label)}</button>` });
+    fine: `<button class="btn primary big" id="f-add">Aggiungi flangia su ${esc(pieghePerNome(e.label, e.feature))}</button>` });
   $('#f-piu-bordi').onclick = () => { anteprimaVia(); pieghePiuBordi(e); };
   const vai = () => {
     const f = readFlange();
@@ -855,7 +855,7 @@ canvas.addEventListener('pointermove', ev => {
   if (he !== hoverEdge) { hoverEdge = he; paint(); }
   if (he) {
     if (hover) { hover = null; paint(); }
-    tip.textContent = `Bordo ${latoOfficina(he.label)}: clic per piegare qui`;
+    tip.textContent = `Bordo ${pieghePerNome(latoOfficina(he.label), he.feature)}: clic per piegare qui`;
     const r = view.getBoundingClientRect();
     tip.style.left = (ev.clientX - r.left + 14) + 'px';
     tip.style.top = (ev.clientY - r.top + 14) + 'px';
@@ -4369,31 +4369,44 @@ function titoloFlangia(s) {
   if (s.parent) return Math.abs(+s.def?.angle) >= 170 ? 'Orlo' : 'Piega sulla punta';
   return lato ? `Piega ${LATI[lato] || lato}` : s.title;
 }
+// 04/11 (ritocchi): nel pannello le pieghe si chiamano come nell'albero («la piega davanti»), mai con la sigla FL3
+function nomePiegaAlbero(feature, flid) {
+  let trovato = '';
+  const giu = n => { if (trovato || !n) return; if (n.kind === 'flange' && n.ref === `${feature}/${flid}`) trovato = n.label || ''; (n.children || []).forEach(giu); };
+  [].concat(S?.tree || []).forEach(giu);
+  const nome = trovato.replace(/\s+\d+(?:[.,]\d+)?°?(?:\s+(?:su|giù))?$/, '').trim()
+    .replace(/^Piega su (piega .+)$/i, 'bordo sulla $1');     // piega sulla punta di un'altra: «bordo sulla piega a destra»
+  return nome ? nome.charAt(0).toLowerCase() + nome.slice(1) : 'l’altra piega';
+}
+// e nei nomi dei bordi che vengono dal motore: «punta di FL1» → «punta della piega davanti»
+const pieghePerNome = (label, feature) => String(label || '').replace(/punta di (FL\d+)/g, (m, id) => 'punta della ' + nomePiegaAlbero(feature, id))
+  .replace(/FL\d+/g, id => nomePiegaAlbero(feature, id));
 function flangePanel(s) {
   const riga = k => (s.rows.find(r => r[0] === k) || [])[1];
-  const dove = s.parent ? `sulla punta di ${s.parent}` : (riga('Lato') || '');
+  const np = flid => nomePiegaAlbero(s.feature, flid);
+  const questa = 'questa piega';
   const angoli = [];
-  if (s.tip_corners) angoli.push(`<label class="lbl">Con ${esc(s.tip_corners.others.join(', '))} <span class="hint">(vale per tutti i bordi)</span>
+  if (s.tip_corners) angoli.push(`<label class="lbl">Con ${esc(s.tip_corners.others.map(np).join(', '))} <span class="hint">(vale per tutti i bordi)</span>
     <select class="field" id="f-tipc">${opts(s.tip_corners.modes, s.tip_corners.mode)}</select></label>`);
   for (const c of s.corners) angoli.push(`<div class="corner" data-other="${esc(c.other)}">
-      <label class="lbl">Con ${esc(c.other)}<select class="field" data-corner>
+      <label class="lbl">Con ${esc(np(c.other))}<select class="field" data-corner>
         <option value="open"${c.mode === 'open' ? ' selected' : ''}>aperto</option>
-        <option value="over"${c.mode === 'over' ? ' selected' : ''}>chiuso, ${esc(s.flange)} copre ${esc(c.other)}</option>
-        <option value="under"${c.mode === 'under' ? ' selected' : ''}>chiuso, ${esc(c.other)} copre ${esc(s.flange)}</option></select></label>
+        <option value="over"${c.mode === 'over' ? ' selected' : ''}>chiuso, ${questa} copre ${esc(np(c.other))}</option>
+        <option value="under"${c.mode === 'under' ? ' selected' : ''}>chiuso, ${esc(np(c.other))} copre ${questa}</option></select></label>
       <label class="lbl"${c.mode === 'open' ? ' hidden' : ''}>Fessura (mm, 0 = a contatto)<input class="field" data-cgap value="${esc(String(c.gap).replace('.', ','))}"></label></div>`);
   const sezAngoli = angoli.length ? `<details class="fsec"${s.tip_corners || s.corners.some(c => c.mode !== 'open') ? ' open' : ''}><summary>Angoli</summary>
     ${angoli.join('')}
     <label class="lbl">Fessura d’angolo (mm)<input class="field" id="f-gap" value="${esc(String(s.def.gap ?? 0).replace('.', ','))}"></label></details>` : '';
-  const sezLinguetta = s.can_extend ? `<div class="fnote">Sulla punta di ${esc(s.parent)} c’è una linguetta: ${esc(s.flange)} può continuare sopra di lei.
+  const sezLinguetta = s.can_extend ? `<div class="fnote">Sulla punta della ${esc(np(s.parent))} c’è una linguetta: questa piega può continuare sopra di lei.
     <button class="btn" id="f-ext">Prolunga sopra la linguetta</button></div>` : '';
   const sezPunta = s.tip_child ? '' : `<details class="fsec"${s.tip_form ? ' open' : ''} id="f-punta"><summary>Piega sulla punta</summary>
-    <p class="hint">Una flangia sul bordo libero di ${esc(s.flange)}: bordo di scatola, omega, Z…</p>
+    <p class="hint">Una flangia sul bordo libero di questa piega: bordo di scatola, omega, Z…</p>
     ${flangeFields(ultimaPunta, VERSI_PUNTA, POS_UI, 't')}
     <div class="row-btns"><button class="btn" id="t-add">Aggiungi sulla punta</button>
       <button class="btn" id="t-orlo" title="Risvolto a 180° (orlo): la parete resta lunga fino al bordo esterno della piega">Orlo 180°</button>
       <button class="btn" id="t-gradino" title="Gradino (joggle): la parete si sposta di poco e continua parallela, per sovrapporre due lamiere a filo">Gradino…</button></div></details>`;
   const sezIncastri = s.tip_contact ? `<details class="fsec" open id="f-incastri"><summary>Incastri sulla punta</summary>
-    <p class="hint">La punta di ${esc(s.flange)} appoggia su ${esc(s.tip_contact)}: linguette sulla punta e asole sull’altra faccia.</p>
+    <p class="hint">La punta di questa piega appoggia su ${esc(/^FL\d+$/.test(s.tip_contact) ? np(s.tip_contact) : s.tip_contact)}: linguette sulla punta e asole sull’altra faccia.</p>
     <div class="ff"><label>Quante<span class="inp"><input class="field" id="i-n" value="3"></span></label>
       <label>Larghezza<span class="inp"><input class="field" id="i-w" value="15"><i>mm</i></span></label>
       <label>Gioco<span class="inp"><input class="field" id="i-c" value="0,2"><i>mm</i></span></label>
@@ -4401,11 +4414,11 @@ function flangePanel(s) {
     <div class="row-btns"><button class="btn" id="i-add">Crea gli incastri</button></div></details>` : '';
   const dati = s.rows.filter(r => !['Lato', 'Piegata sulla punta di'].includes(r[0]));
   const titolo = titoloFlangia(s);
-  const sotto = s.parent ? `sulla piega ${s.parent}` : (riga('Larghezza') ? `bordo da ${riga('Larghezza')}` : '');
+  const sotto = s.parent ? `sulla ${np(s.parent)}` : (riga('Larghezza') ? `bordo da ${riga('Larghezza')}` : '');
   // 04/11 (regola 2): cos'è, cosa puoi fare, quanto è alta / angolo / verso / misura, le sezioni che si aprono,
   // Dettagli chiusi, «Fatto» in fondo
   const faccia = azioniFaccia(s).slice(0, 3);
-  return pannelloLam({ titolo: esc(titolo), cose: `${esc(sotto)} <span class="fid">${esc(s.flange)}</span>`, testa: ` data-flangia="${esc(s.flange)}"`,
+  return pannelloLam({ titolo: esc(titolo), cose: esc(sotto), testa: ` data-flangia="${esc(s.flange)}"`,
     azioni: [s.tip_child ? '' : azioneLam('flange', 'Piega sulla punta', 'data-apri="f-punta"', '', 'Una piega sul bordo libero: bordo di scatola, omega, Z, orlo'),
       ...faccia, azioneLam('delete', 'Togli questa piega', 'id="f-del"', 'danger', 'Canc')],
     corpo: `${flangeFields(s.def, s.parent ? VERSI_PUNTA : (s.directions?.up ? VERSI_UI : s.directions), POS_UI)}${sezLinguetta}${sezAngoli}${sezIncastri}${sezPunta}`,
@@ -6403,7 +6416,7 @@ function wireFlange(s) {
     $('#t-orlo').onclick = () => { $('#t-ang').value = '180'; if (!$('#t-len').value.trim() || $('#t-len').value === '20') $('#t-len').value = '10'; punta(); };
     $('#t-gradino').onclick = () => {
       const sp = String(S?.sheet?.data?.thickness ?? 2).replace('.', ',');
-      modal(`<h3>Gradino sulla punta di ${esc(s.flange)}</h3>
+      modal(`<h3>Gradino sulla punta della ${esc(nomePiegaAlbero(s.feature, s.flange))}</h3>
         <p class="hint">La parete si sposta di poco e continua parallela: due lamiere si sovrappongono a filo (di solito il gradino è lo spessore).</p>
         <div class="form"><label>Di quanto si sposta<span class="inp"><input class="field" id="g-h" value="${sp}"><i>mm</i></span></label>
           <label>Verso<select class="field" id="g-v"><option value="dentro">verso dentro</option><option value="fuori">verso fuori</option></select></label>

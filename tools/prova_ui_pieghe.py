@@ -6,6 +6,7 @@ r"""Prova dell'interfaccia per le pieghe: flange sulla punta (scatola bordata), 
 --chrome usa il Chrome installato invece del Chromium di Playwright.
 """
 import math
+import re
 import subprocess
 import sys
 import tempfile
@@ -116,7 +117,7 @@ def main():
                 prima = (sx, sy); time.sleep(0.2)
             pg.mouse.move(box['x'] + sx, box['y'] + sy)
             time.sleep(0.3)
-            ok(f'bordo acceso col mouse: {pg.inner_text("#hover-tip")!r}', 'punta di FL1' in pg.inner_text('#hover-tip'))
+            ok(f'bordo acceso col mouse: {pg.inner_text("#hover-tip")!r}', (lambda t: 'punta della piega' in t and not re.search(r'FL\d', t))(pg.inner_text('#hover-tip')))
             pg.mouse.click(box['x'] + sx, box['y'] + sy)
             # 03/11: il clic sul bordo apre la barretta (piega su / giù); «⋯» il pannello completo
             pg.wait_for_selector('#mini-barra[data-chi="edge=tip:FL1"]', timeout=15000)
@@ -124,7 +125,7 @@ def main():
             pg.screenshot(path=str(SHOTS / '0a_barretta_bordo.png'))
             pg.click('#mini-barra button.piu')
             pg.wait_for_function("document.querySelector('#props h3')?.innerText === 'Flangia su questo bordo'")
-            ok('pannello del solo bordo cliccato', 'punta di FL1' in pg.inner_text('#props'))
+            ok('pannello del solo bordo cliccato', (lambda t: 'punta della piega' in t and not re.search(r'FL\d', t))(pg.inner_text('#props')))
             pg.screenshot(path=str(SHOTS / '0b_bordo.png'))
             pg.keyboard.press('Escape')
             # 1) piega sulla punta: dal pannello della flangia
@@ -140,7 +141,7 @@ def main():
             pg.wait_for_function("window.__steelcad.state.sheet.data.bends.some(b => b.parent === 'FL1')")
             ok('flangia FL5 sulla punta di FL1', True)
             pg.wait_for_function("!!document.querySelector('#props [data-flangia=FL5]')")
-            ok('selezionata la nuova flangia', 'sulla piega FL1' in pg.inner_text('#props'))
+            ok('selezionata la nuova flangia', (lambda t: 'sulla piega ' in t and not re.search(r'FL\d', t))(pg.inner_text('#props')))
             # ... e cliccando la punta di FL2
             for madre in ('FL2', 'FL3', 'FL4'):
                 faccia(pg, f'SM1/{madre}/punta')          # subito, senza aspettare che il pezzo sia ricostruito
