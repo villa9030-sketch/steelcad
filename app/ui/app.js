@@ -1792,6 +1792,39 @@ function buildFrecce() {
     frecceEls.push({ el, at: new THREE.Vector3(...n.xyz), v: new THREE.Vector3(...v).multiplyScalar(10) });
   }
   placeDims();
+  frecceLibere();
+}
+// 04/11 (ritocchi): le frecce non finiscono sotto le barre in basso (Inquadra/Quote/Tema, la riga «prossimo passo»,
+// col cassetto aperto la vista è bassa): se toccano, la vista sale quel tanto che basta, con lo stesso movimento di Inquadra
+const BARRE_BASSE = '#navbar, #trav-hint, #link-hint, #asm-passo, #prova-barra, #sk-foot';
+function frecceLibere(prove = 0) {
+  if (!frecceEls.length || SK) return;
+  if (anim) { if (prove < 6) setTimeout(() => frecceLibere(prove + 1), 300); return; }
+  const vr = view.getBoundingClientRect();
+  let fondo = vr.bottom;
+  for (const el of document.querySelectorAll(BARRE_BASSE)) {
+    if (el.hidden || !el.offsetHeight) continue;
+    const r = el.getBoundingClientRect();
+    if (r.top > vr.top + vr.height / 2 && r.top < fondo && r.left < vr.right && r.right > vr.left) fondo = r.top;
+  }
+  let giu = -Infinity, su = Infinity;
+  for (const { el } of frecceEls) {
+    if (el.style.display === 'none') continue;
+    const r = el.getBoundingClientRect();
+    giu = Math.max(giu, r.bottom); su = Math.min(su, r.top);
+  }
+  if (giu === -Infinity) return;
+  let dy = giu - (fondo - 8);                             // di quanto le frecce devono salire
+  if (dy <= 0) return;
+  dy = Math.min(dy, Math.max(0, su - (vr.top + 8)));     // senza farne uscire altre di sopra
+  if (dy < 2) return;
+  const at = frecceEls[0].at;
+  const dietro = new THREE.Vector3().subVectors(at, camera.position).dot(camera.getWorldDirection(new THREE.Vector3()));
+  const mmPerPx = 2 * Math.max(dietro, 1) * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / vr.height;
+  const sposta = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).multiplyScalar(-dy * mmPerPx);
+  const to = { pos: camera.position.clone().add(sposta), target: controls.target.clone().add(sposta) };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { camera.position.copy(to.pos); controls.target.copy(to.target); controls.update(); ridisegna(); return; }
+  anim = { t0: performance.now(), from: { pos: camera.position.clone(), target: controls.target.clone() }, to };
 }
 function tuboDaFreccia(n, dir) {
   ricordaTubo();
