@@ -43,6 +43,7 @@ try:
         pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
         pg.click('#top .brand')
         pg.wait_for_selector('#home:not([hidden])')
+        pg.click('#home [data-cat="file"]')            # 04/11: STEP e DXF stanno in «Dal file del cliente»
         pg.click('#home [data-altro="importa"]')
         pg.wait_for_selector('#imp-view svg', timeout=30000)
         n_giri = pg.locator('#imp-view path.giro').count()

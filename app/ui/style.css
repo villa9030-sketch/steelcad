@@ -2885,3 +2885,75 @@ body.dark #tav-ed .te-tabs button.on i { color: var(--c-fondo); }
 /* 04/11: i campi delle Misure prendono lo spazio della colonna «= risultato» quando è vuota (14,325 si leggeva «14,32!») */
 #params td.res:empty { width: 0; padding: 0; }
 #params td input.field { width: 100%; min-width: 64px; }
+
+/* ============================================================ pagina iniziale A «Prima riprendi» (04/11, scelta di Stefano)
+   in alto, grande, l'ultimo lavoro con «Continua»; a destra gli altri recenti con filtro e ricerca; sotto una riga «Nuovo» */
+#home .home-pagina { gap: var(--s-5); }
+#home .home-titolo { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#home .home-testa { min-height: 36px; }
+#home .home-riprendi { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--s-5); height: 360px; }
+/* l'ultimo lavoro: la foto grande, il nome grande, un pulsante solo */
+#home .home-ultimo { display: flex; height: 100%; overflow: hidden; border: 1px solid var(--c-linea); border-radius: 12px; background: var(--c-pannello); }
+#home .home-ultimo .pic { flex: 1 1 58%; min-width: 0; display: grid; place-items: center; position: relative; cursor: pointer;
+  background: linear-gradient(var(--vista-alto), var(--vista-basso)); border-right: 1px solid var(--c-linea); }
+#home .home-ultimo .pic :is(img, .ico) { max-width: 92%; max-height: 92%; object-fit: contain; }
+#home .home-ultimo .pic :is(img, .ico).icona { width: 56px; height: 56px; opacity: .35; }
+#home .home-ultimo .pic .in-arrivo { position: absolute; bottom: var(--s-3); font-style: normal; font-size: var(--fs-piccolo); color: var(--c-testo-3); }
+#home .home-ultimo .testo { flex: 1 1 42%; min-width: 0; display: flex; flex-direction: column; gap: var(--s-1); padding: var(--s-6); }
+#home .home-ultimo .testo small { color: var(--c-testo-2); font-size: var(--fs-etichetta); }
+#home .home-ultimo .testo b { font: 650 28px/1.15 var(--font); letter-spacing: -.01em; overflow-wrap: anywhere; margin-bottom: var(--s-3); }
+#home .home-ultimo .dati { color: var(--c-testo-2); line-height: 1.45; }
+#home .home-ultimo #home-continua { min-height: 48px; font-size: 16px; }
+#home .home-ultimo.asm .testo b { color: var(--c-testo); }
+#home .home-ultimo.vuoto { align-items: center; border-style: dashed; background: none; }
+#home .home-ultimo.vuoto .testo { max-width: 520px; }
+#home .home-ultimo.vuoto .testo b { font-size: 22px; }
+/* gli altri recenti: una colonna di righe, con filtro e ricerca in cima */
+#home .home-recenti { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; padding: var(--s-4); border: 1px solid var(--c-linea);
+  border-radius: 12px; background: var(--c-pannello); }
+#home .home-recenti .home-rec-testa { flex-wrap: nowrap; gap: var(--s-2); }
+#home .home-recenti h2 { font-size: var(--fs-testo); }
+#home .home-recenti .home-cerca { width: 100%; }
+#home-recent { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: auto; margin: 0 calc(-1 * var(--s-2)); }
+#home .home-recenti .home-rec { display: grid; grid-template-columns: 64px minmax(0, 1fr) 28px; align-items: center; gap: var(--s-3);
+  padding: var(--s-2); border-radius: var(--r-campo); background: none; }
+#home .home-recenti .home-rec:hover, #home .home-recenti .home-rec:focus-visible { background: var(--c-sopra); }
+#home .home-recenti .home-rec .pic { height: 48px; border-radius: 6px; }
+#home .home-recenti .home-rec .pic :is(img, .ico) { max-width: 94%; max-height: 44px; }
+#home .home-recenti .home-rec .pic :is(img, .ico).icona { width: 22px; height: 22px; }
+#home .home-recenti .home-rec .pic .in-arrivo { display: none; }
+#home .home-recenti .home-rec:hover .pic, #home .home-recenti .home-rec:focus-visible .pic { box-shadow: none; border-color: var(--c-linea); }
+#home .home-recenti .home-rec small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#home .home-recenti .home-rec .tipo { position: static; display: inline-block; margin-right: 6px; padding: 0 6px; }
+#home .home-recenti .home-rec .x { position: static; visibility: hidden; }
+#home .home-recenti .home-rec.manca { grid-template-columns: 64px minmax(0, 1fr); }
+#home .home-recenti .home-vuoto { padding: var(--s-4); font-size: var(--fs-etichetta); }
+/* «Nuovo»: una riga sola di sei partenze, la foto piccola accanto al nome */
+#home .home-nuovi { display: flex; flex-direction: column; gap: var(--s-3); }
+#home .home-nuovi-testa { display: flex; align-items: baseline; gap: var(--s-4); }
+#home .home-nuovi-testa .link.on { text-decoration: underline; }
+#home .home-partenze { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+#home .m-file { --m: var(--modo-tavole); }
+#home .home-nuovo { flex-direction: row; align-items: center; min-height: 84px; border-top-width: 3px; }
+#home .home-nuovo .pic { flex: none; width: 76px; height: 100%; min-height: 81px; padding: var(--s-2); }
+#home .home-nuovo :is(img, .ico), #home .home-nuovo .pic :is(img, .ico) { height: 56px; }
+#home .home-nuovo .testo { padding: var(--s-2) var(--s-3); min-width: 0; }
+#home .home-nuovo b { font-size: var(--fs-testo); }
+#home .home-nuovo small { font-size: var(--fs-piccolo); }
+#home .home-file-grid .pic :is(img, .ico) { width: 56px; height: 56px; }
+#home .home-modelli { gap: 0; }
+@media (max-width: 1320px) {
+  #home .home-riprendi { grid-template-columns: minmax(0, 1fr) 330px; }
+  #home .home-partenze { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-height: 800px) {
+  #home .home-riprendi { height: 300px; }
+  #home .home-ultimo .testo { padding: var(--s-5); }
+  #home .home-ultimo .testo b { font-size: 24px; }
+  #home .home-nuovo { min-height: 72px; }
+  #home .home-nuovo .pic { min-height: 69px; } #home .home-nuovo :is(img, .ico), #home .home-nuovo .pic :is(img, .ico) { height: 48px; }
+}
+#home .home-riprendi.solo { grid-template-columns: minmax(0, 1fr); height: 220px; }
+#home .home-riprendi.solo .home-recenti { display: none; }
+#home .home-nuovo.m-file .pic :is(img, .ico) { width: 40px; height: 40px; opacity: .6; }
+body.dark #home .home-nuovo.m-file .pic :is(img, .ico) { filter: invert(1); }

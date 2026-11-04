@@ -7635,25 +7635,44 @@ async function showHome(info) {
   info = info || await call('home_info');
   if (!info.ok) return;
   if (SK) exitSketch();
-  // i lavori recenti con l'anteprima vera (scattata dall'app quando il lavoro è stato aperto o salvato); filtro e ricerca
+  // 04/11 (A. «Prima riprendi»): in alto, grande, l'ultimo lavoro con «Continua»; a destra gli altri, col filtro e la ricerca
   const tutti = info.recent;
-  const conta = { tutti: tutti.length, pezzi: tutti.filter(x => !x.assembly).length, assiemi: tutti.filter(x => x.assembly).length };
+  const ultimo = tutti.find(x => !x.manca) || null;
+  const altri = tutti.filter(x => x !== ultimo);
+  const conta = { tutti: altri.length, pezzi: altri.filter(x => !x.assembly).length, assiemi: altri.filter(x => x.assembly).length };
   const foto = x => (x.thumb ? `<img src="${x.thumb}" alt="">`
     : `<img class="icona" src="icons/${x.assembly ? 'assieme' : 'box'}.svg" alt="">${anteprimeProvate.has(x.path) ? '' : '<i class="in-arrivo">Preparo l’anteprima…</i>'}`);
+  const cartella = x => (x.folder || '').split(/[\\/]/).filter(Boolean).pop() || '';
+  // il pulsante blu è uno solo: «Riprendilo» se c'è un lavoro non salvato, se no «Torna al lavoro» se ce n'è uno aperto, se no «Continua»
+  const blu = info.unsaved ? 'recupera' : !info.show ? 'torna' : 'continua';
+  const aperto = !info.show && ultimo && S?.path && ultimo.path === S.path;      // l'ultimo è quello che hai già aperto
+  $('#home-ultimo').innerHTML = ultimo ? `<div class="home-ultimo${ultimo.assembly ? ' asm' : ''}" data-path="${esc(ultimo.path)}" title="${esc(ultimo.path)}">
+      <span class="pic">${foto(ultimo)}</span>
+      <div class="testo">
+        <small>${aperto ? 'Il lavoro aperto' : 'Il tuo ultimo lavoro'}</small>
+        <b>${esc(ultimo.name)}</b>
+        <span class="dati">${ultimo.assembly ? 'Assieme, ' : ''}salvato ${esc(ultimo.when)}</span>
+        <span class="dati">nella cartella ${esc(cartella(ultimo))}</span>
+        <span class="home-spazio"></span>
+        <button class="btn big${blu === 'continua' ? ' primary' : ''}" id="home-continua">Continua</button>
+      </div></div>`
+    : `<div class="home-ultimo vuoto"><div class="testo"><b>Qui ritrovi il tuo ultimo lavoro</b>
+      <span class="dati">Quando apri o salvi un pezzo, qui c'è la sua foto e «Continua» per riprenderlo. Per cominciare scegli da «Nuovo», qui sotto.</span></div></div>`;
   const disegnaRecenti = () => {
     const q = norm($('#home-cerca').value.trim());
-    const lst = tutti.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
+    // cercando, si cerca in tutti (anche l'ultimo); se no la colonna ha gli altri
+    const base = q ? tutti : altri;
+    const lst = base.filter(x => (homeFiltro === 'tutti' || (homeFiltro === 'assiemi') === !!x.assembly) && (!q || norm(x.name).includes(q)));
     $('#home-recent').innerHTML = lst.map(x => x.manca ? `<div class="home-rec manca" title="${esc(x.path)}">
         <span class="pic">${x.thumb ? `<img src="${x.thumb}" alt="">` : `<img class="icona" src="icons/${x.assembly ? 'assieme' : 'box'}.svg" alt="">`}</span>
         <div class="testo"><b>${esc(x.name)}</b><small>Spostato o cancellato: non è più in ${esc(x.folder)}</small>
           <span class="rec-azioni"><button class="btn piccolo" data-ritrova="${esc(x.path)}">Cerca…</button><button class="btn piccolo" data-forget="${esc(x.path)}">Togli</button></span></div></div>`
       : `<div class="home-rec${x.assembly ? ' asm' : ''}" data-path="${esc(x.path)}" title="${esc(x.path)}" tabindex="0">
         <span class="pic">${foto(x)}</span>
-        ${x.assembly ? '<span class="tipo">Assieme</span>' : ''}
-        <div class="testo"><b>${esc(x.name)}</b><small>${esc(x.when)}</small></div>
+        <div class="testo"><b>${esc(x.name)}</b><small>${x.assembly ? '<span class="tipo">Assieme</span>' : ''}${esc(x.when)}${cartella(x) ? `, ${esc(cartella(x))}` : ''}</small></div>
         <button class="x" data-forget="${esc(x.path)}" title="Togli dai recenti (il file resta)" aria-label="Togli dai recenti">×</button></div>`).join('')
-      || `<p class="home-vuoto">${tutti.length ? `Nessun lavoro si chiama così. <button class="link" id="home-cerca-via">Mostra tutti</button>`
-        : 'Qui compaiono i lavori che apri o salvi, con la loro anteprima. Comincia da una scelta qui sopra.'}</p>`;
+      || `<p class="home-vuoto">${q ? `Nessun lavoro si chiama così. <button class="link" id="home-cerca-via">Mostra tutti</button>`
+        : altri.length ? 'Nessun lavoro di questo tipo.' : tutti.length ? 'Gli altri lavori che apri o salvi compaiono qui.' : 'Qui compaiono i lavori che apri o salvi.'}</p>`;
     $('#home').querySelectorAll('.home-rec:not(.manca)').forEach(d => {
       d.onclick = ev => { if (!ev.target.closest('.x')) inCoda(() => openProject(d.dataset.path)); };
       d.onkeydown = ev => { if (ev.key === 'Enter' && ev.target === d) d.click(); };
@@ -7670,25 +7689,33 @@ async function showHome(info) {
   $('#home-filtro').querySelectorAll('button').forEach(b => { b.onclick = () => { homeFiltro = b.dataset.filtro; showHome(info); }; });
   $('#home-cerca').oninput = disegnaRecenti;
   disegnaRecenti();
+  $('#home .home-riprendi').classList.toggle('solo', !tutti.length);      // ancora nessun lavoro: niente colonna vuota
+  if ($('#home-continua')) $('#home-continua').onclick = () => (aperto ? hideHome() : inCoda(() => openProject(ultimo.path)));
+  const fotoUltimo = $('#home-ultimo .home-ultimo .pic');
+  if (fotoUltimo) fotoUltimo.onclick = () => $('#home-continua').click();
   $('#home-unsaved').innerHTML = info.unsaved ? `<div class="home-unsaved"><div><b>Hai un lavoro non salvato</b>
       <span>lasciato ${esc(info.unsaved.when)}: riprendilo e salvalo con un nome.</span></div>
       <button class="btn primary" id="home-recover">Riprendilo</button></div>` : '';
   $('#home-close').hidden = !!info.show;              // all'avvio non c'è un lavoro a cui tornare
-  $('#home-close').classList.toggle('primary', !info.unsaved);   // un solo pulsante blu: «Riprendilo» se c'è
+  $('#home-close').classList.toggle('primary', blu === 'torna');
   $('#home').hidden = false;
   document.body.classList.add('at-home');
-  // le anteprime che mancano arrivano una alla volta, al loro posto
+  // le anteprime che mancano arrivano una alla volta, al loro posto (anche nella foto grande dell'ultimo)
   setTimeout(() => anteprimeMancanti(tutti, x => {
-    const d = [...document.querySelectorAll('#home-recent .home-rec[data-path]')].find(e => e.dataset.path === x.path);
-    const pic = d?.querySelector('.pic');
-    if (pic) pic.innerHTML = `<img src="${x.thumb}" alt="">`;
+    document.querySelectorAll('#home .home-rec[data-path], #home .home-ultimo[data-path]').forEach(e => {
+      if (e.dataset.path !== x.path) return;
+      const pic = e.querySelector('.pic');
+      if (pic) pic.innerHTML = `<img src="${x.thumb}" alt="">`;
+    });
   }), 1200);                                          // dopo un attimo: un clic svelto su «Lamiera» passa prima
   // Cono e Tubi: sopra i recenti si apre la scelta del tipo, con le foto; la lamiera si apre subito
   const scegli = cat => {
-    $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
+    $('#home').querySelectorAll('[data-cat]').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
     $('#home').querySelectorAll('.home-tipi').forEach(s => { s.hidden = s.dataset.of !== cat; });
+    const aperta = cat && $(`#home .home-tipi[data-of="${cat}"]`);
+    if (aperta) aperta.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
-  $('#home').querySelectorAll('.home-nuovo[data-cat]').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
+  $('#home').querySelectorAll('[data-cat]').forEach(b => { b.onclick = () => scegli(b.classList.contains('on') ? null : b.dataset.cat); });
   $('#home').querySelectorAll('[data-chiudi-tipi]').forEach(b => { b.onclick = () => scegli(null); });
   scegli(null);
   renderModelli();
