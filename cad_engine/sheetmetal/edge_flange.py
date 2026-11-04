@@ -216,6 +216,14 @@ def build_edge_flange(fdef: dict, ctx):
         fs = unito.faces() if not isinstance(unito, bd.Face) else [unito]
         if len(fs) != n_prima or abs(sum(f.area for f in fs) - prima - rett.area) > 1e-3:
             return None
+        # 04/11: la striscia dev'essere attaccata solo sulla linea di piega. Negli angoli di una finestra il fianco
+        # della striscia toccava il lato vicino e nello sviluppo restava unita alla lamiera: senza il taglio di
+        # scarico non si piega. Qui si guarda appena fuori dai due fianchi, a metà altezza della striscia.
+        if fdef.get('spessore_locale') and fdef.get('_sviluppo') is None:
+            for fianco, verso in ((A2, -E2), (B2, E2)):
+                q = fianco + verso * 0.05 + F2 * (lungo / 2)
+                if data.flat.distance_to(q) < 1e-6:
+                    return None
         return fs, A2, B2, F2, E2
     # il gioco agli angoli: scritto dall'utente, oppure automatico (22/10): se la piega piena tocca un'altra parete
     # si accorcia di raggio + spessore + 0,2 dalla parte che tocca, poi da tutte e due. 04/11: e se è nello sviluppo
@@ -228,7 +236,7 @@ def build_edge_flange(fdef: dict, ctx):
     if scritti[0] is not None or scritti[1] is not None:
         tentativi = [(scritti[0] or 0.0, scritti[1] or 0.0)]
     else:
-        tentativi = [(0.0, 0.0), (g, 0.0), (0.0, g), (g, g), (g2, 0.0), (0.0, g2), (g2, g2)]
+        tentativi = [(0.0, 0.0), (g, 0.0), (0.0, g), (g, g), (g2, 0.0), (0.0, g2), (g2, g), (g, g2), (g2, g2)]
     fatto = svil = None
     tocca_3d = True
     for t0, t1 in tentativi:

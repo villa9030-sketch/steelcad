@@ -45,3 +45,16 @@ def test_bordi_esterni_come_prima():
     assert s.new_project('lamiera', {'name': 'Piatto', 'larghezza': 300, 'profondita': 200, 'spessore': 2,
                                      'raggio': 1, 'k': 0.4})['ok']
     assert not [e for e in s.scene()['bend_edges'] if e['kind'] == 'libero']
+
+
+def test_scarico_negli_angoli_della_finestra():
+    """04/11 (Stefano, «dove dovrebbero esserci dei tagli, altrimenti non si piega la lamiera»): nessun risvolto della
+    finestra arriva fino all'angolo, ognuno si ferma almeno a raggio + spessore dal lato vicino (il taglio di scarico)."""
+    s = _pannello_con_finestra()
+    for lato in (240, 400, 240, 400):
+        e = max((x for x in s.scene()['bend_edges'] if x['kind'] == 'libero' and x['face'] == 'SM1/sopra'
+                 and abs(x['length'] - lato) < 25), key=lambda x: x['length'])
+        assert s.add_edge_flange(e['face'], e['ea'], e['eb'], {'length': '20', 'angle': '90', 'direction': 'down'})['ok']
+    larghe = sorted(round(b['width'], 1) for b in s.result.body.sheet.extra_bends)
+    g = 1 + 2 + 0.2
+    assert larghe[0] <= 240 - 2 * g + 0.01 and larghe[-1] <= 400 - 2 * g + 0.01, larghe
