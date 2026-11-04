@@ -909,7 +909,7 @@ canvas.addEventListener('pointerup', ev => {
   if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) { puntoPreso(h.point); return; }
   if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; passoTubi(null); ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
   if (DIVSCEGLI) { DIVSCEGLI = false; passoTubi(null); }
-  MINI.dove = { p: h?.point ?? null, t: performance.now() };      // la barretta compare qui
+  MINI.dove = { p: h?.point ?? null, t: performance.now(), id: h?.id };      // la barretta compare qui
   // secondo clic sulla stessa flangia: la sua faccia (disegna, fora, taglia lì)
   if (h && sel && sel.id === h.id && sel.face === h.face && MINI.s?.kind === 'flange' && !MINI.faccia && document.getElementById('mini-barra')) {
     MINI.faccia = true; miniBarra(MINI.s); return;
@@ -3054,10 +3054,15 @@ function miniBarra(s) {
   if (SK || DRESS || MIS) { if (!(sel?.soloMini)) nascondiMini(); return; }
   const d = MINI.dove;
   MINI.dove = null;
-  if (d && performance.now() - d.t < 2500) MINI.ancora = d.p ? d.p.clone() : null;
+  // 04/11 (ritocchi): «viene da un clic nel 3D» non scade dopo 2,5 s: se il motore è lento a rispondere, il clic su
+  // quel pezzo apre lo stesso la barretta (prima apriva il pannello). Vale il pezzo cliccato; il tempo solo per i clic
+  // che non sanno su cosa sono caduti (e mezzo minuto al massimo)
+  const passati = d ? performance.now() - d.t : Infinity;
+  const daClic = !!d && (d.id && sel?.id ? d.id === sel.id && passati < 30000 : passati < 2500);
+  if (daClic) MINI.ancora = d.p ? d.p.clone() : null;
   else if (!MINI.stessa) MINI.ancora = null;
   const assieme = S.mode === 'assembly' && s.kind === 'instance';
-  if (s.kind === 'member' && S.mode !== 'assembly') { miniTubo(s, !!(d && performance.now() - d.t < 2500)); return; }
+  if (s.kind === 'member' && S.mode !== 'assembly') { miniTubo(s, daClic); return; }
   if (!assieme && (S.mode === 'assembly' || !['body', 'flange', 'fold', 'sidebend', 'edgeflange', 'endmiter'].includes(s.kind) || s.flange_form)) { nascondiMini(); return; }
   MINI.s = s;
   if (!MINI.ancora) MINI.ancora = ancoraDi(s);
