@@ -2,7 +2,7 @@
 
 Densità nominali (g/cm³): acciai al carbonio EN 10025 7,85; inox austenitici
 EN 10088-1 (1.4301 = AISI 304: 7,90; 1.4404 = AISI 316L: 8,00); alluminio
-EN 573 (6082: 2,70; 5754: 2,67). Il catalogo si estende senza toccare il codice
+EN 573 (6082: 2,70; 5754: 2,67); plexiglass (PMMA, 04/11 per le pareti dell'ufficio): 1,19. Il catalogo si estende senza toccare il codice
 passando un dizionario a `Material.catalog_from`.
 """
 from __future__ import annotations
@@ -33,6 +33,7 @@ CATALOG: dict[str, Material] = {m.code: m for m in (
     Material('AISI316L', 'Inox 1.4404 (AISI 316L)', 8.00),
     Material('AL6082', 'Alluminio EN AW-6082', 2.70),
     Material('AL5754', 'Alluminio EN AW-5754', 2.67),
+    Material('PMMA', 'Plexiglass (PMMA)', 1.19),
 )}
 
 

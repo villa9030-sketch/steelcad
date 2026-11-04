@@ -29,6 +29,18 @@ def colore(fin: dict | None) -> dict | None:
     return None
 
 
+# 04/11 (Stefano, l'ufficio): il plexiglass si vede come un vetro, azzurro chiarissimo e trasparente. Non si
+# vernicia né si zinca: vince il materiale, qualunque finitura abbia
+VETRO = {'color': '#DCEFF8', 'metal': 0.0, 'rough': 0.05, 'opacity': 0.35}
+TRASPARENTI = {'PMMA': VETRO}
+
+
+def aspetto(materiale: str | None, fin: dict | None) -> dict | None:
+    """Colore e lucentezza per il 3D dal materiale (il plexiglass è trasparente) e se no dalla finitura."""
+    m = TRASPARENTI.get(str(materiale or ''))
+    return dict(m) if m else colore(fin)
+
+
 def testo(fin: dict | None) -> str:
     if not fin or fin.get('tipo') in (None, '', 'grezzo'):
         return 'Grezzo'

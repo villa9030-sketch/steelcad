@@ -38,6 +38,8 @@ def controlla(data, materiale: str = '') -> list[str]:
 
 
 def _controlla(data, materiale: str) -> list[str]:
+    if str(materiale or '').upper() == 'PMMA':       # plexiglass: le regole della piegatrice per il metallo non valgono
+        return []
     t = data.thickness
     out = []
     pieghe = [g for g in data.flanges if hasattr(g, 'F0') and getattr(g.bend, 'angle', 0) and g.bend.ba > 1e-6]

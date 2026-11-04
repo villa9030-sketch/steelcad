@@ -193,6 +193,15 @@ const dimLines = new THREE.Group();
 scene.add(model, overlay, dimLines);
 const objs = new Map();
 const EDGE = new THREE.LineBasicMaterial({ color: 0x2B3138 });
+// 04/11: il plexiglass (look.opacity dal servizio) si vede come un vetro: trasparente, lucido, spigoli più leggeri
+const EDGE_VETRO = new THREE.LineBasicMaterial({ color: 0x6F93AD, transparent: true, opacity: 0.7 });
+function vetro(mat, look) {
+  if (look?.opacity == null) return false;
+  mat.transparent = true; mat.opacity = look.opacity; mat.depthWrite = false; mat.userData.vetro = look.opacity;
+  mat.envMapIntensity = 1.4;                      // il riflesso dello studio sulla lastra
+  return true;
+}
+const opacitaPiena = m => m.userData?.vetro ?? 1;
 const DIM_MAT = new THREE.LineBasicMaterial({ color: 0x3A4A5C });
 // 04/11: l'ingombro col colore delle quote (l'ambra è solo «da guardare»); si riconosce dal tratteggio e da ⤢
 const ING_MAT = new THREE.LineDashedMaterial({ color: 0x3A4A5C, dashSize: 6, gapSize: 4 });
@@ -350,15 +359,16 @@ function buildScene(sc) {
     const mat = new THREE.MeshStandardMaterial({ color: base.clone(), metalness: d.look?.metal ?? 0.15, roughness: d.look?.rough ?? 0.55,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     mat.envMapIntensity = 0.45 + 0.8 * mat.metalness;    // i riflessi dello studio: pieni sui metalli, leggeri sulle vernici
+    const lastra = vetro(mat, d.look);
     const mesh = new THREE.Mesh(g, mat);
-    mesh.castShadow = true;
+    mesh.castShadow = !lastra;                         // il vetro non fa l'ombra piena
     mesh.userData.id = d.id;
     const pos = d.matrix ? new THREE.Matrix4().set(...d.matrix) : null;      // istanza di un assieme: dove sta
     const seg = [];
     for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
-    const lines = new THREE.LineSegments(lg, EDGE);
+    const lines = new THREE.LineSegments(lg, lastra ? EDGE_VETRO : EDGE);
     const extra = [];
     if (d.marks?.length) {                            // marcature laser: chiare sui pezzi scuri, scure sui chiari
       const sm = [];
@@ -1411,7 +1421,8 @@ function applyLook() {
   const fantasma = !SK ? 1 : solo ? (SK.ghost ? 0.15 : 0) : 0.18;
   model.visible = !piatto || (SK && SK.ghost) ? fantasma > 0 : false;
   for (const o of objs.values()) {
-    matOf(o).transparent = fantasma < 1; matOf(o).opacity = fantasma; matOf(o).depthWrite = fantasma >= 1;
+    const m = matOf(o), pieno = opacitaPiena(m);       // il vetro resta trasparente anche fuori dal disegno
+    m.transparent = fantasma < 1 || pieno < 1; m.opacity = fantasma * pieno; m.depthWrite = fantasma >= 1 && pieno >= 1;
   }
   dimLines.visible = SK ? true : !piatto;
   edgeGroup.visible = !SK && !piatto;
@@ -1983,15 +1994,17 @@ const ASM_PASSO_CHIUSO = new Set();
 function passoAssieme() {
   let b = document.getElementById('asm-passo');
   const chi = S?.path || S?.name || '', ist = S?.instances || [];
-  const mostra = S?.mode === 'assembly' && ist.length >= 2 && ist.some(i => !i.fixed) && !SK && !ASM.tool && !APP.el
+  const mostra = S?.mode === 'assembly' && ist.length >= 2 && ist.some(i => !i.fixed) && !SK && !ASM.tool && !APP.el && !VAN.el
     && !JSON.stringify(S.tree || {}).includes('"kind":"mate"') && !ASM_PASSO_CHIUSO.has(chi);
   if (!mostra) { if (b) b.hidden = true; return; }
   if (!b) {
     b = document.createElement('div'); b.id = 'asm-passo';
     b.innerHTML = `<span class="t-passo">Metti i pezzi al loro posto:</span><button type="button" class="btn piccolo" id="asm-passo-ok"><img src="icons/appoggia.svg" alt="">Appoggia</button>`
-      + `<span class="t-poi">poi clic sul pezzo e sulla faccia dove va</span><button type="button" class="asm-passo-x" title="Chiudi" aria-label="Chiudi">×</button>`;
+      + `<button type="button" class="btn piccolo" id="asm-passo-vano"><img src="icons/vano.svg" alt="">Metti nel vano</button>`
+      + `<span class="t-poi">poi clic sul pezzo e su dove va</span><button type="button" class="asm-passo-x" title="Chiudi" aria-label="Chiudi">×</button>`;
     $('#trav-hint').after(b);
     b.querySelector('#asm-passo-ok').onclick = () => asmTool('appoggia');
+    b.querySelector('#asm-passo-vano').onclick = () => asmTool('vano');
     b.querySelector('.asm-passo-x').onclick = () => { ASM_PASSO_CHIUSO.add(S?.path || S?.name || ''); b.hidden = true; };
   }
   b.hidden = false;
@@ -2210,9 +2223,10 @@ function applicaVisibilita() {
     if (o.data.kind !== 'instance') continue;
     const id = o.data.id, vede = VIS.solo ? VIS.solo.has(id) : !VIS.nascosti.has(id);
     for (const x of [o.mesh, o.lines, ...(o.extra || [])]) if (x) x.visible = vede;
-    const m = matOf(o), tr = VIS.trasparenti.has(id);
-    if (m.transparent !== tr || (tr && m.opacity !== 0.22)) {
-      m.transparent = tr; m.opacity = tr ? 0.22 : 1; m.depthWrite = !tr; m.needsUpdate = true;
+    const m = matOf(o), tr = VIS.trasparenti.has(id), pieno = opacitaPiena(m);
+    const voluta = tr ? Math.min(0.22, pieno) : pieno;
+    if (m.transparent !== voluta < 1 || m.opacity !== voluta) {
+      m.transparent = voluta < 1; m.opacity = voluta; m.depthWrite = voluta >= 1; m.needsUpdate = true;
     }
   }
   ridisegna();
@@ -3028,6 +3042,7 @@ function azioniPezzo(s) {
     ...(foro ? [{ ic: 'fastener', t: 'Viti nei fori', fai: () => runCmd('asm_viteria') }] : []),
     { ic: 'move', t: 'Sposta', fai: () => spostaDa() },
     ...(piana ? [{ ic: 'sketch', t: 'Pezzo nuovo qui (su questa faccia)', fai: () => nuovoPezzoDialog(s) }] : []),
+    { ic: 'vano', t: 'Metti nel vano di un telaio', fai: () => vanoDa(id) },
     ...(s.scassi ? [{ ic: 'cut', t: `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, fai: () => tutteLeOpzioni() }] : []),
     { ic: 'pattern_rect', t: 'In fila', fai: () => ripetiApri(id) },
     ...(foro ? [] : [{ ic: 'fastener', t: 'Viteria', fai: () => runCmd('asm_viteria') }]),
@@ -4549,6 +4564,7 @@ const MATE_UI = {
   spigolo: { nome: 'Spigolo su spigolo', clic: ['uno spigolo dritto del pezzo che sta fermo', 'lo spigolo dell’altro pezzo'], val: 0, spigoli: [true, true] },
   spigolo_faccia: { nome: 'Spigolo su faccia', clic: ['la faccia del pezzo che sta fermo', 'lo spigolo dritto dell’altro pezzo'], val: 0, spigoli: [false, true] },
   cono: { nome: 'Cono su cono', clic: ['la svasatura del foro', 'la testa conica della vite'], val: 0 },
+  vano: { nome: 'Metti nel vano', clic: ['il pannello da mettere', 'il telaio, vicino al vano dove va'], val: 0 },
   appoggia: { nome: 'Appoggia', clic: ['una faccia del pezzo da mettere (va bene quella che vedi)', 'la faccia del pezzo fermo, dove appoggiarlo'], val: 0 },
   testa: { nome: 'Testa a testa', clic: ['la faccia a 45° del pezzo che sta fermo', 'la faccia a 45° dell’altro pezzo (la stessa parete)'], val: null },
 };
@@ -4712,6 +4728,7 @@ function pickInstEdge(ev) {                          // lo spigolo di una copia 
 }
 function asmClick(ev) {
   if (ASM.tool === 'appoggia') { appoggiaClick(ev); return; }
+  if (ASM.tool === 'vano') { vanoClick(ev); return; }
   const u0 = MATE_UI[ASM.tool], k0 = ASM.clic.length;
   let h, c;
   if (u0.spigoli?.[k0 < u0.clic.length / 2 ? 0 : 1]) {
@@ -5068,6 +5085,121 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); appoggiaFatto(); }
 }, true);
 window.__appoggia = { apri: appoggiaApri, stato: () => APP };      // per le prove automatiche
+// ===================================================================== Metti nel vano (04/11)
+// Stefano: «accoppiare il pannello dentro il telaio è difficile, deve essere facile». Clic sul pannello, poi sul
+// telaio: Radius trova i vani (in azzurro), sceglie quello dove ci sta (il più vicino al clic), lo mette in piedi,
+// girato e centrato con lo stesso gioco tutto intorno. Nel pannello: quale vano, a filo davanti / in mezzo / dietro,
+// Gira e Capovolgi; ogni scelta si vede subito. «Fatto» crea gli accoppiamenti veri (resta centrato se il telaio cambia).
+const VAN = { el: null, mobile: null, fermo: null, opz: null, info: null, prima: null, n: 0, ghost: new THREE.Group() };
+scene.add(VAN.ghost);
+const VAN_LINEA = new THREE.LineBasicMaterial({ color: 0x1F5EFF, depthTest: false, transparent: true, opacity: 0.9 });
+const VAN_SPENTO = new THREE.LineBasicMaterial({ color: 0x8A94A0, depthTest: false, transparent: true, opacity: 0.7 });
+const VAN_FONDO = new THREE.MeshBasicMaterial({ color: 0x5B9BFF, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+function vanoClick(ev) {
+  const h = pick(ev);
+  if (!h) { toast('Clicca un pezzo.', 'err'); return; }
+  if (!ASM.clic.length) { ASM.clic.push({ inst: h.id, face: h.face }); sel = { id: h.id, face: h.face }; paint(); asmHelp(); return; }
+  if (h.id === ASM.clic[0].inst) { toast('Ora clic sul telaio, vicino al vano dove va il pannello.', 'err'); return; }
+  const mobile = ASM.clic[0], fermo = { inst: h.id, face: h.face, point: [h.point.x, h.point.y, h.point.z] };
+  asmTool(null);
+  sel = null; nascondiMini(); paint();
+  vanoApri(mobile, fermo);
+}
+function vanoDa(id) { asmTool('vano'); ASM.clic = [{ inst: id, face: null }]; sel = { id }; paint(); asmHelp(); }
+function vanoApri(mobile, fermo) {
+  vanoChiudi(true);
+  VAN.mobile = mobile; VAN.fermo = fermo; VAN.info = null;
+  VAN.opz = { vano: null, gira: 0, capovolgi: false, prof: 'davanti' };
+  VAN.prima = {};
+  for (const o of objs.values()) if (o.data.kind === 'instance') VAN.prima[o.data.id] = [...o.data.matrix];
+  const el = document.createElement('div');
+  el.id = 'vano'; el.className = 'pannello-cmd';
+  el.innerHTML = '<div class="pc-testa"><h3>Metti nel vano</h3><p>Cerco i vani del telaio…</p></div>';
+  document.body.appendChild(el);
+  VAN.el = el;
+  passoAssieme();                                   // la riga «metti i pezzi al loro posto» lascia il posto
+  vanoProva();
+}
+function vanoChiudi(ripristina) {
+  VAN.n++;
+  if (ripristina && VAN.prima) spostaPezzi(VAN.prima);
+  VAN.el?.remove();
+  VAN.el = null; VAN.prima = null;
+  if (S) passoAssieme();
+  VAN.ghost.traverse(o => o.geometry?.dispose()); VAN.ghost.clear();
+  paint();
+}
+function vanoRettangoli(r) {
+  VAN.ghost.traverse(o => o.geometry?.dispose()); VAN.ghost.clear();
+  for (const v of r.vani) {
+    const p = v.rett.map(q => new THREE.Vector3(...q));
+    const g = new THREE.BufferGeometry().setFromPoints([...p, p[0]]);
+    const l = new THREE.Line(g, v.i === r.vano ? VAN_LINEA : VAN_SPENTO); l.renderOrder = 5; VAN.ghost.add(l);
+    if (v.i === r.vano) {
+      const f = new THREE.BufferGeometry().setFromPoints([p[0], p[1], p[2], p[0], p[2], p[3]]);
+      VAN.ghost.add(new THREE.Mesh(f, VAN_FONDO));
+    }
+  }
+}
+async function vanoProva() {
+  const n = ++VAN.n;
+  VAN.el?.classList.add('calcolo');
+  const r = await call('asm_vano', VAN.mobile, VAN.fermo, VAN.opz, true);
+  if (n !== VAN.n || !VAN.el) return;
+  VAN.el.classList.remove('calcolo');
+  if (!r.ok) {
+    if (!VAN.info) { vanoChiudi(true); toast(r.message, 'err', null, 9000); return; }
+    const e = VAN.el.querySelector('.vn-err'); e.textContent = r.message; e.hidden = false;
+    return;
+  }
+  VAN.opz.vano = r.vano;
+  spostaPezzi({ ...VAN.prima, ...r.pose });
+  VAN.info = r;
+  vanoRettangoli(r);
+  vanoDisegna();
+  paint();
+}
+function vanoDisegna() {
+  const r = VAN.info, el = VAN.el, o = VAN.opz;
+  const mis = v => `${mmTesto(v.W)} × ${mmTesto(v.H)}`;
+  const vani = r.vani.length > 1 ? `<section class="sezione"><h4>Quale vano</h4><div class="seg">${r.vani.map(v =>
+    `<button data-vano="${v.i}" class="${v.i === r.vano ? 'on' : ''}"${v.ci_sta ? '' : ' disabled title="Il pannello qui non ci sta"'}>${esc(v.nome[0].toUpperCase() + v.nome.slice(1))}, ${mis(v)}</button>`).join('')}</div></section>` : '';
+  const prof = (k, t) => `<button data-prof="${k}" class="${r.prof === k ? 'on' : ''}">${esc(t)}</button>`;
+  const g = r.giochi;
+  el.innerHTML = `<div class="pc-testa"><h3>Metti «${esc(r.nome_mobile)}» nel vano</h3><p>di «${esc(r.nome_fermo)}»: in piedi, girato nel verso in cui entra, centrato. Ogni scelta si vede subito sul pezzo</p></div>
+    <div class="pc-corpo">${vani}
+    <section class="sezione"><h4>In profondità</h4><div class="seg">${prof('davanti', `A filo ${r.davanti}`)}${prof('mezzo', 'In mezzo')}${prof('dietro', `A filo ${r.dietro}`)}</div></section>
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni${r.versi > 1 ? '' : ' una'}">
+      ${r.versi > 1 ? '<button class="btn" id="vn-gira" title="Gira il pannello nel vano: nell’altro verso in cui ci sta"><img src="icons/orbit.svg" alt=""><span>Gira</span></button>' : ''}
+      <button class="btn${o.capovolgi ? ' on' : ''}" id="vn-capo" title="Il pannello rovesciato: le pieghe dall’altra parte"><img src="icons/mirror.svg" alt=""><span>Capovolgi</span></button></div></section>
+    <p class="vn-gioco">Gioco, in mm:<span>${esc(g[0].lato)} <b>${mmTesto(g[0].mm)}</b>, ${esc(g[1].lato)} <b>${mmTesto(g[1].mm)}</b></span><span>${esc(g[2].lato)} <b>${mmTesto(g[2].mm)}</b>, ${esc(g[3].lato)} <b>${mmTesto(g[3].mm)}</b></span></p>
+    ${r.dentro > 1 ? `<p class="msg err">Così tocca dentro «${esc(r.nome_fermo)}»: prova «Capovolgi» o l’altra profondità.</p>` : ''}
+    ${r.tiene ? '' : '<p class="hint">Un lato del vano non è piano: lì il pannello resta dove l’ho messo, non segue il telaio se cambia.</p>'}
+    <p class="msg err vn-err" hidden></p></div>
+    <div class="pc-fondo"><button class="btn" id="vn-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vn-ok">Fatto <kbd>Invio</kbd></button></div>`;
+  el.querySelectorAll('[data-vano]').forEach(b => { b.onclick = () => { o.vano = +b.dataset.vano; o.gira = 0; vanoProva(); }; });
+  el.querySelectorAll('[data-prof]').forEach(b => { b.onclick = () => { o.prof = b.dataset.prof; vanoProva(); }; });
+  if ($('#vn-gira')) $('#vn-gira').onclick = () => { o.gira = (o.gira + 1) % 4; vanoProva(); };
+  $('#vn-capo').onclick = () => { o.capovolgi = !o.capovolgi; vanoProva(); };
+  $('#vn-no').onclick = () => vanoChiudi(true);
+  $('#vn-ok').onclick = vanoFatto;
+}
+function vanoFatto() {
+  if (!VAN.el || !VAN.info) return;
+  const mobile = VAN.mobile, fermo = VAN.fermo, opz = JSON.parse(JSON.stringify(VAN.opz)), prima = VAN.prima;
+  vanoChiudi(false);
+  inCoda(async () => {
+    const r = await call('asm_vano', mobile, fermo, opz, false);
+    if (!r.ok && prima) spostaPezzi(prima);
+    if (await apply(r, r.message) && r.select) await select(r.select);
+  });
+}
+window.addEventListener('keydown', e => {
+  if (!VAN.el) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); vanoChiudi(true); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); vanoFatto(); }
+}, true);
+window.__vano = { apri: vanoApri, stato: () => VAN };      // per le prove automatiche
 // 04/11 (regola 2): il pannello del pezzo sempre nello stesso ordine: chi è → cosa puoi fare (tutte le azioni, col
 // nome) → chi lo tiene (gli accoppiamenti, con la misura e il cursore) → dove sta, sposta, ruota → il pezzo (nome,
 // fermo, finitura, da acquistare) → «Dettagli» chiuso (file, peso, ingombro) → in fondo, fermo, «Apri il pezzo» in blu
@@ -5278,11 +5410,11 @@ function tieniScritto(disegna) {
 }
 function matePanel(s) {
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
-  const gira = d.da === 'appoggia' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
+  const gira = d.da === 'appoggia' || d.da === 'vano' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
   const riga = k => s.rows.find(r => r[0] === k)?.[1] || '';
   const tipo = riga('Tipo').replace(/^./, c => c.toUpperCase()), scarto = riga('Scarto');
-  const cos = `${tipo}${d.da === 'appoggia' ? ', messo da «Appoggia»' : ''}${d.off ? ': sospeso, adesso non tiene' : ''}`;
-  const campo = MATE_CAMPO[d.type] ? `<div class="ff"><label>${d.da === 'appoggia' && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field num" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
+  const cos = `${tipo}${d.da === 'appoggia' ? ', messo da «Appoggia»' : d.da === 'vano' ? ', messo da «Metti nel vano»' : ''}${d.off ? ': sospeso, adesso non tiene' : ''}`;
+  const campo = MATE_CAMPO[d.type] ? `<div class="ff"><label>${(d.da === 'appoggia' || d.da === 'vano') && d.type === 'distanza' ? 'Dal bordo' : MATE_CAMPO[d.type]}<span class="inp"><input class="field num" id="m-off" value="${v(d.offset)}"><i>mm</i></span></label><span></span></div>
       ${d.type === 'distanza' ? `<input type="range" class="cursore" id="m-slide" min="${Math.floor(Math.min(0, d.offset - 200))}" max="${Math.ceil(d.offset + 200)}" step="1" value="${d.offset}" title="Trascina: il pezzo si muove">` : ''}` : '';
   const angolo = d.type === 'angolo' ? `<div class="ff"><label>Angolo<span class="inp"><input class="field num" id="m-ang" value="${v(d.angle)}"><i>°</i></span></label><span></span></div>
       <input type="range" class="cursore" id="m-slide" min="0" max="180" step="1" value="${d.angle}" title="Trascina: il pezzo gira">
@@ -7907,11 +8039,12 @@ async function anteprimeMancanti(lista, fatta) {
         const ma = new THREE.MeshStandardMaterial({ color: new THREE.Color(d.look?.color || 0xCBD1D8), metalness: d.look?.metal ?? 0.15,
           roughness: d.look?.rough ?? 0.55, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
         ma.envMapIntensity = 0.45 + 0.8 * ma.metalness;
+        const lastra = vetro(ma, d.look);
         const seg = [];
         for (const e of d.edges) for (let i = 0; i + 5 < e.length; i += 3) seg.push(e[i], e[i + 1], e[i + 2], e[i + 3], e[i + 4], e[i + 5]);
         const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
-        const mesh = new THREE.Mesh(g, ma), linee = new THREE.LineSegments(lg, EDGE);
-        mesh.castShadow = true;
+        const mesh = new THREE.Mesh(g, ma), linee = new THREE.LineSegments(lg, lastra ? EDGE_VETRO : EDGE);
+        mesh.castShadow = !lastra;
         if (d.matrix) for (const o of [mesh, linee]) { o.matrixAutoUpdate = false; o.matrix.set(...d.matrix); }
         gruppo.add(mesh, linee); geo.push(g, lg); mat.push(ma);
       }
@@ -8422,7 +8555,7 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura
   Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
-  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Vite nei fori': 'fastener' };
+  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Metti nel vano': 'vano', 'Vite nei fori': 'fastener' };
 let misuraSkFoot = () => {};
 // 04/11: la casella di comando (#sk-cmd) sta sopra la barra d'aiuto anche quando la barra va su due righe (avviso del
 // profilo aperto): l'altezza della barra in una variabile CSS
@@ -10463,7 +10596,7 @@ const BARRA_GRANDI = {
   lamiera: ['flange_help', 'foro', 'asola', 'tipo_foro', 'taglia', 'face_help', 'unfold', 'misura'],
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
-  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
+  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'vano', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
   sketch: ['line', 'rect', 'circle', 'arcr', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };

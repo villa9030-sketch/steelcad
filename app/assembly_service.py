@@ -795,6 +795,97 @@ class AssemblyMixin:
             r['appoggia'] = esito
         return r
 
+    # ------------------------------------------------------------------ Metti nel vano (04/11)
+    def _vano_conti(self, mobile: dict, fermo: dict, opz: dict | None):
+        from cad_engine.assembly_vano import metti_senza_entrare
+        if not mobile or not fermo or mobile.get('inst') == fermo.get('inst'):
+            raise A.AssemblyError('Metti nel vano: clic sul pannello da mettere, poi sul telaio.')
+        if mobile['inst'] == self._terra() and fermo['inst'] != self._terra():
+            mobile, fermo = fermo, mobile                # il pezzo fermo resta fermo: si muove l'altro
+        ia, ib = self.asm.instance(fermo['inst']), self.asm.instance(mobile['inst'])
+        pa, pb = self.asm_parts.get(ia['file']), self.asm_parts.get(ib['file'])
+        if pa is None or pb is None:
+            raise A.AssemblyError('Uno dei due pezzi non si legge.')
+        r = metti_senza_entrare(pa, ia['R'], ia['T'], pb, ib['R'], opz, fermo.get('point'))
+        return ia, ib, r
+
+    @staticmethod
+    def _vano_info(ia, ib, r) -> dict:
+        g, lati = r['giochi'], r['lati']
+        return {'fermo': ia['id'], 'mobile': ib['id'], 'nome_fermo': ia['name'], 'nome_mobile': ib['name'],
+                'vani': [{k: x[k] for k in ('i', 'nome', 'ci_sta', 'rett')} | {'W': round(x['W'], 2), 'H': round(x['H'], 2)}
+                         for x in r['vani']],
+                'vano': r['vano'], 'rett': r['rett'], 'prof': r['prof'], 'versi': r['versi'],
+                'pannello': [round(r['pannello'][0], 2), round(r['pannello'][1], 2)],
+                'giochi': [{'lato': lati[k][i], 'mm': round(g[k][i], 2)} for k in ('u', 'v') for i in (0, 1)],
+                'davanti': lati['f'][0], 'dietro': lati['f'][1], 'dentro': round(float(r.get('dentro') or 0), 1),
+                'tiene': all(None not in r['fermo'][k] and None not in r['mobile'][k] for k in ('u', 'v'))}
+
+    @_in_assieme
+    def asm_vano(self, mobile: dict, fermo: dict, opz: dict | None = None, prova: bool = False) -> dict:
+        """Metti nel vano (04/11): il pannello (mobile) entra nel vano del telaio (fermo), girato nel verso in cui ci
+        sta, centrato con lo stesso gioco tutto intorno, a filo davanti / in mezzo / a filo dietro (opz). Con prova
+        solo dove andrebbe (l'anteprima); se no gli accoppiamenti veri: in mezzo sui due lati del vano, e in
+        profondità distanza dal davanti (o dal dietro) o in mezzo."""
+        from cad_engine.assembly_appoggia import DENTRO
+        if prova:
+            try:
+                ia, ib, r = self._vano_conti(mobile, fermo, opz)
+            except SteelCADError as ex:
+                return {'ok': False, 'message': ex.message}
+            R, T = r['R'], r['T']
+            posa = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
+            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, **self._vano_info(ia, ib, r)}
+        esito = {}
+
+        def fn():
+            ia, ib, r = self._vano_conti(mobile, fermo, opz)
+            if r['dentro'] > DENTRO:
+                raise A.AssemblyError(f'Così «{ib["name"]}» tocca dentro «{ia["name"]}» (qualcosa nel vano lo ferma): '
+                                      'prova «Capovolgi» o l’altra profondità.')
+            esito.update(self._vano_info(ia, ib, r))
+            ib['R'], ib['T'] = r['R'].tolist(), r['T'].tolist()
+            coppia = {ia['id'], ib['id']}
+            self.asm.mates = [m for m in self.asm.mates if {m['a']['inst'], m['b']['inst']} != coppia]
+            usati = {m['id'] for m in self.asm.mates}
+            fa = lambda k: self._asm_face(ia['id'], k)          # noqa: E731
+            fb = lambda k: self._asm_face(ib['id'], k)          # noqa: E731
+
+            def nuovo(tipo, lato=None, **refs):
+                mid = self.asm.new_id('M', usati)
+                usati.add(mid)
+                m = {'id': mid, 'type': tipo, **refs, 'offset': 0.0, 'flip': False, 'da': 'vano'}
+                if tipo == 'distanza':
+                    m['offset'] = round(self._misura_mate(m), 4)
+                    m['lato'] = lato
+                    m['segno'] = -1                  # la faccia del telaio guarda fuori: dentro il vano è positivo
+                else:
+                    m['offset'] = round(self._misura_centra(m), 4)
+                self.asm.mates.append(m)
+            for k in ('u', 'v'):
+                (a0, a1), (b0, b1) = r['fermo'][k], r['mobile'][k]
+                if None not in (a0, a1, b0, b1):
+                    nuovo('centra', a=fa(a0), a2=fa(a1), b=fb(b0), b2=fb(b1))
+            (af, ar), (bf, br) = r['fermo']['f'], r['mobile']['f']
+            if r['prof'] == 'mezzo' and None not in (af, ar, bf, br):
+                nuovo('centra', a=fa(af), a2=fa(ar), b=fb(bf), b2=fb(br))
+            elif r['prof'] == 'dietro' and None not in (ar, br):
+                nuovo('distanza', r['lati']['f'][1], a=fa(ar), b=fb(br))
+            elif None not in (af, bf):
+                nuovo('distanza', r['lati']['f'][0], a=fa(af), b=fb(bf))
+            return {'select': ib['id']}
+        r = self._asm_change('Metti nel vano', fn)
+        if r.get('ok'):
+            g = esito['giochi']
+            gioco = (f'{fmt_mm(g[0]["mm"])} mm per lato' if len({x['mm'] for x in g}) == 1
+                     else ', '.join(f'{x["lato"]} {fmt_mm(x["mm"])}' for x in g) + ' mm')
+            prof = {'davanti': f'a filo {esito["davanti"]}', 'dietro': f'a filo {esito["dietro"]}', 'mezzo': 'in mezzo'}[esito['prof']]
+            r['message'] = (f'Fatto: «{esito["nome_mobile"]}» è nel vano di «{esito["nome_fermo"]}», gioco {gioco}, {prof}.'
+                            + (' Se cambi il telaio resta centrato.' if esito['tiene']
+                               else ' Un lato del vano non è piano: lì resta dove l’ho messo.'))
+            r['vano'] = esito
+        return r
+
     def _gioco_teste(self, ia: str, ib: str) -> float:
         """Testa a testa senza gioco scritto: quello dei tagli di testa dei due pezzi (metà ciascuno)."""
         tot = 0.0
@@ -2070,7 +2161,7 @@ class AssemblyMixin:
             from cad_engine import finiture
             objs.append({'id': i['id'], 'kind': 'instance', 'name': i['name'], 'matrix': mat,
                          'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges'],
-                         'marks': segni, 'look': finiture.colore(part.doc.meta.get('finitura'))})
+                         'marks': segni, 'look': finiture.aspetto(part.doc.material, part.doc.meta.get('finitura'))})
         return {'version': self.scene_version, 'objects': objs, 'nodes': [], 'bend_edges': []}
 
     def _ingombro_mondo(self, i) -> np.ndarray | None:

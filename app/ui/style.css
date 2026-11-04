@@ -1645,9 +1645,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-blu); }
 .seg button.on, .seg .btn.on { background: var(--c-pannello); color: var(--c-testo); font-weight: 600; box-shadow: var(--ombra-leggera), 0 0 0 1px var(--c-linea); }
 body.dark .seg button.on, body.dark .seg .btn.on { background: var(--c-sopra); }
 .seg.big button { min-height: 40px; }
-#ripeti .seg, #appoggia .seg { display: inline-flex; border: 1px solid var(--c-linea); background: var(--c-incavo); }
-#ripeti .seg button, #appoggia .seg button { border-right: 0; padding: 0 9px; }
-#ripeti .seg button.on, #appoggia .seg button.on { background: var(--c-pannello); }
+#ripeti .seg, #appoggia .seg, #vano .seg { display: inline-flex; border: 1px solid var(--c-linea); background: var(--c-incavo); }
+#ripeti .seg button, #appoggia .seg button, #vano .seg button { border-right: 0; padding: 0 9px; }
+#ripeti .seg button.on, #appoggia .seg button.on, #vano .seg button.on { background: var(--c-pannello); }
 
 /* ---------------------------------------------------------------- barra in alto */
 #top {
@@ -1875,7 +1875,7 @@ body.bottom-closed .tabs button.on { font-weight: 500; }
 #mini-barra.con-nomi > button .lab { font: 500 11.5px/1.1 var(--font); color: var(--c-testo-2); }
 #mini-barra > button[data-t]:hover::after { background: var(--c-suggerimento); color: #fff; border: 0; border-radius: var(--r-campo); font: 12px var(--font); }
 #mini-barra .sep { background: var(--c-linea); }
-#pop-pannello, #appoggia, #ripeti, #vitefori { border: 1px solid var(--c-linea); border-radius: var(--r-galleggia); background: var(--c-pannello); box-shadow: var(--ombra-galleggia); }
+#pop-pannello, #appoggia, #vano, #ripeti, #vitefori { border: 1px solid var(--c-linea); border-radius: var(--r-galleggia); background: var(--c-pannello); box-shadow: var(--ombra-galleggia); }
 /* le quote sul pezzo da cliccare o tirare: il giallo della selezione */
 .quota { background: var(--c-sel); color: #1A1305; border-radius: var(--r-campo); font: 700 13.5px var(--font); box-shadow: 0 2px 8px rgba(21, 32, 43, .25); }
 .quota:hover { background: #FFC24A; }
@@ -2957,3 +2957,8 @@ body.dark #tav-ed .te-tabs button.on i { color: var(--c-fondo); }
 #home .home-riprendi.solo .home-recenti { display: none; }
 #home .home-nuovo.m-file .pic :is(img, .ico) { width: 40px; height: 40px; opacity: .6; }
 body.dark #home .home-nuovo.m-file .pic :is(img, .ico) { filter: invert(1); }
+/* Metti nel vano (04/11): i vani dove il pannello non ci sta restano spenti; le misure del gioco in colonna */
+#vano .seg button:disabled { color: var(--c-testo-3); cursor: not-allowed; }
+#vano .vn-gioco { margin: var(--s-1) 0 0; font-size: var(--fs-etichetta); color: var(--c-testo-2); line-height: 1.45; font-variant-numeric: tabular-nums; }
+#vano .vn-gioco b { color: var(--c-testo); }
+#vano .vn-gioco span { display: block; }

@@ -376,7 +376,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 f['label'] = self.doc.describe_face(f['name']) if f['name'] else 'faccia'
             from cad_engine import finiture
             objs.append({'id': 'body', 'kind': 'body', 'name': self.doc.meta.get('name'), **m,
-                         'look': finiture.colore(self.doc.meta.get('finitura'))})
+                         'look': finiture.aspetto(self.doc.material, self.doc.meta.get('finitura'))})
         for st in r.structures:
             nomi = self.nomi_tubi(st)
             for mem in st.members:
@@ -5226,7 +5226,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             for part, R, T in pezzi:
                 m = A.part_mesh(part)
                 o = {'positions': m['positions'], 'indices': m['indices'], 'edges': m['edges'],
-                     'look': finiture.colore(part.doc.meta.get('finitura'))}
+                     'look': finiture.aspetto(part.doc.material, part.doc.meta.get('finitura'))}
                 if R is not None:
                     o['matrix'] = [float(v) for v in (R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1],
                                                       R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1)]
@@ -5928,7 +5928,7 @@ def _read_recent() -> list:
 # i nomi dei materiali come si dicono in officina (23/10: ogni pezzo nasceva S235 e non si poteva cambiare)
 NOMI_MATERIALI = {'S235': 'Ferro S235', 'S275': 'Ferro S275', 'S355': 'Ferro S355', 'DC01': 'Ferro DC01 (laminato a freddo)',
                   'DX51D': 'Zincato DX51D', 'AISI304': 'Inox 304', 'AISI316L': 'Inox 316L', 'AL6082': 'Alluminio 6082',
-                  'AL5754': 'Alluminio 5754'}
+                  'AL5754': 'Alluminio 5754', 'PMMA': 'Plexiglass'}
 
 
 def _materiali() -> list:

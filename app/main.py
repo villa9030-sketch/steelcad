@@ -651,6 +651,9 @@ class Api:
     def asm_appoggia(self, mobile, fermo, opz=None, prova=False):
         return self._call(self._svc.asm_appoggia, mobile, fermo, opz, prova)
 
+    def asm_vano(self, mobile, fermo, opz=None, prova=False):
+        return self._call(self._svc.asm_vano, mobile, fermo, opz, prova)
+
     def asm_edit_mate(self, mid, fields):
         return self._call(self._svc.asm_edit_mate, mid, fields)
 
