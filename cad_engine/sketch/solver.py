@@ -154,6 +154,8 @@ def misura(ss: 'SolvedSketch', c: dict) -> float:
     if t in ('diameter', 'radius'):
         r = ss.circles[refs[0]][1] if refs[0] in ss.circles else ss.arcs[refs[0]][3]
         return 2 * r if t == 'diameter' else r
+    if t == 'arclength':
+        return sviluppo_arco(ss, refs[0])
     if t == 'distance':
         return math.dist(P[refs[0]], P[refs[1]])
     if t == 'hdistance':
@@ -170,6 +172,16 @@ def misura(ss: 'SolvedSketch', c: dict) -> float:
         g = abs(math.degrees(u)) % 180
         return min(g, 180 - g) if c.get('value', 0) <= 90 else max(g, 180 - g)
     raise KeyError(t)
+
+
+def sviluppo_arco(ss: 'SolvedSketch', aid: str) -> float:
+    """Quanto è lungo l'arco misurato lungo l'arco (raggio × angolo, in senso antiorario dalla partenza)."""
+    c, a, b, r = ss.arcs[aid]
+    (cx, cy), (ax, ay), (bx, by) = ss.points[c], ss.points[a], ss.points[b]
+    t = math.atan2(by - cy, bx - cx) - math.atan2(ay - cy, ax - cx)
+    while t <= 0:
+        t += 2 * math.pi
+    return r * t
 
 
 # ============================================================================ a blocchi
@@ -655,7 +667,7 @@ def _build(sk: Sketch, params: dict, jitter: bool):
             elif t in DIMENSIONS:
                 v = _value(sk, kid, c, params)
                 values[kid] = v
-                if t in ('distance', 'length', 'diameter', 'radius', 'pldistance') and v <= 0:
+                if t in ('distance', 'length', 'diameter', 'radius', 'pldistance', 'arclength') and v <= 0:
                     raise SketchError(f'{cap(sk.describe_constraint(kid, v))} deve essere maggiore di zero.',
                                       code='quota_non_valida')
                 if t == 'distance':
@@ -681,6 +693,11 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                         add(s.arc_radius(g, s.add_param(r, fixed=True)), kid)
                     else:
                         raise SketchError(f'{cap(DIMENSIONS[t])} si mette su un cerchio o un arco.')
+                elif t == 'arclength':
+                    k, g = curve(refs[0])
+                    if k != 'arc':
+                        raise SketchError('Lo sviluppo si mette su un arco.')
+                    add(s.arc_length(g, s.add_param(v, fixed=True)), kid)
         except KeyError as ex:
             raise SketchError(f'{sk.describe_constraint(kid)} usa un elemento che non va bene ({ex}).',
                               code='vincolo_non_valido') from None

@@ -1591,7 +1591,7 @@ function buildDims(anteprima = null, tieni = null) {
   for (const d of lista) {
     const a = new THREE.Vector3(...d.a), b = new THREE.Vector3(...d.b);
     let pa = a, pb = b;
-    if (d.type !== 'diameter' && d.type !== 'radius') {
+    if (!quotaTonda(d)) {
       const v = b.clone().sub(a);
       let n = new THREE.Vector3(0, 0, 1);
       if (Math.abs(v.clone().normalize().dot(n)) > 0.9) n = new THREE.Vector3(0, 1, 0);
@@ -1604,15 +1604,15 @@ function buildDims(anteprima = null, tieni = null) {
       dimLines.add(new THREE.LineSegments(g, DIM_MAT));
     }
     if (tenuto && d.dim === tieni) {
-      dimEls.push({ el: tenuto, d, quota: true, a: pa.clone(), b: pb.clone(), at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
+      dimEls.push({ el: tenuto, d, quota: true, a: pa.clone(), b: pb.clone(), at: quotaTonda(d) ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
       continue;
     }
     const el = document.createElement('div');
-    el.className = 'dim' + (d.type === 'diameter' || d.type === 'radius' ? ' dia' : '') + (d.driven ? ' rif' : '');
+    el.className = 'dim' + (quotaTonda(d) ? ' dia' : '') + (d.driven ? ' rif' : '');
     // 03/11: il passo della Serie si chiama «passo» (non «px1»); le misure con nome (W, P…) restano col loro nome
     const sigla = !d.param ? '' : /^p[xy]\d+$/.test(d.param) ? 'passo' : /^off\d+$/.test(d.param) ? 'distanza' : d.param;
     el.innerHTML = (d.param ? `<span class="p">${esc(sigla)}</span>` : '') + esc(d.label) + (d.gruppo ? `<span class="n">×${d.gruppo.length}</span>` : '');
-    el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
+    el.title = d.driven ? 'Quota di riferimento (tra parentesi): mostra la misura, non la comanda (si aggiorna da sola)'
       : d.param ? `Quota legata a «${d.param_label || d.param}»: clicca per cambiarla`
       : d.gruppo ? `La stessa quota su ${d.gruppo.length} elementi uguali: cambiandola si cambiano tutti` : 'Clicca per cambiare la quota';
     if (!d.driven) el.title += ' · trascinala di lato per cambiarla col mouse';
@@ -1620,7 +1620,8 @@ function buildDims(anteprima = null, tieni = null) {
     el.addEventListener('click', ev => {
       ev.stopPropagation();
       if (el._trascinata) { el._trascinata = false; return; }       // era un trascinamento, non un clic
-      if (d.driven) { toast(el.title); return; }
+      // 05/11: la quota di riferimento si può far tornare normale da qui (se la misura non la decide già altro)
+      if (d.driven) { toast(el.title, '', { label: 'Falla comandare', fn: () => quotaRiferimento(d, false) }); return; }
       if (SK && !['select', 'dim'].includes(SK.tool)) setTool('select');    // cambi la quota: il comando si chiude
       editDim(el, d);
     });
@@ -1632,7 +1633,7 @@ function buildDims(anteprima = null, tieni = null) {
     });
     dimsBox.appendChild(el);
     // il diametro va sul bordo del cerchio, non al centro: se no la scritta copre il foro
-    dimEls.push({ el, d, quota: true, a: pa.clone(), b: pb.clone(), at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
+    dimEls.push({ el, d, quota: true, a: pa.clone(), b: pb.clone(), at: quotaTonda(d) ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
   }
   if (!SK) quoteIngombro();
   placeDims();
@@ -1657,7 +1658,7 @@ function quoteIngombro() {
   // un ingombro uguale a una quota del pezzo già a video (W 500 e 500) è la stessa misura due volte: resta quella che si cambia
   const assi = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
   const doppia = (k, mis) => (S?.dimensions || []).some(d => {
-    if (d.local || d.type === 'diameter' || d.type === 'radius') return false;
+    if (d.local || quotaTonda(d)) return false;
     const v = new THREE.Vector3(...d.b).sub(new THREE.Vector3(...d.a));
     return Math.abs(v.length() - mis) < 0.05 && Math.abs(Math.abs(v.normalize().dot(assi[k])) - 1) < 1e-3;
   });
@@ -1816,7 +1817,8 @@ function editDim(el, d) {
   el.classList.add('edit');
   el.innerHTML = (d.param ? `<span class="p">${esc(d.param_label || d.param)} =</span>` : '') + '<input>'
     + '<span class="dim-frecce"><button type="button" class="su" tabindex="-1" title="Più 1 mm (Maiusc: più 10) · anche col tasto ↑">▲</button>'
-    + '<button type="button" class="giu" tabindex="-1" title="Meno 1 mm (Maiusc: meno 10) · anche col tasto ↓">▼</button></span>';
+    + '<button type="button" class="giu" tabindex="-1" title="Meno 1 mm (Maiusc: meno 10) · anche col tasto ↓">▼</button></span>'
+    + tipiQuota(d);
   const inp = el.querySelector('input');
   const mostrato = d.shown ?? d.value;
   inp.value = typeof d.expr === 'number' ? String(mostrato).replace('.', ',') : (d.param ? String(mostrato).replace('.', ',') : d.expr);
@@ -1844,7 +1846,43 @@ function editDim(el, d) {
     b.addEventListener('mousedown', ev => { ev.preventDefault(); ev.stopPropagation(); });    // il campo resta attivo
     b.addEventListener('click', ev => { ev.stopPropagation(); passo(verso, ev.shiftKey); inp.focus(); });
   }
+  // 05/11: raggio ↔ diametro ↔ sviluppo, e «di riferimento», con un clic accanto al numero
+  for (const b of el.querySelectorAll('.dim-tipi button')) {
+    b.addEventListener('pointerdown', ev => { ev.stopPropagation(); });
+    b.addEventListener('mousedown', ev => { ev.preventDefault(); ev.stopPropagation(); });
+    b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      fatto = true; fineAnteprima(true);
+      if (b.dataset.tipo === 'rif') quotaRiferimento(d, true); else quotaTipo(d, b.dataset.tipo);
+    });
+  }
   inp.addEventListener('blur', chiudi);
+}
+// 05/11 (idee da SolidCraft): le quote tonde cambiano tipo con un clic; ogni quota può diventare di riferimento
+const quotaTonda = d => d.type === 'diameter' || d.type === 'radius' || d.type === 'arclength';
+function tipiQuota(d) {
+  const b = (tipo, testo, title) => `<button type="button" tabindex="-1" data-tipo="${tipo}" title="${esc(title)}">${esc(testo)}</button>`;
+  let h = '';
+  if (d.type === 'diameter') h += b('radius', 'R', 'Passa al raggio (stessa misura, il disegno non si muove)');
+  if (d.type === 'radius' || d.type === 'arclength') h += b('diameter', 'Ø', 'Passa al diametro (stessa misura, il disegno non si muove)');
+  if (d.type === 'arclength') h += b('radius', 'R', 'Passa al raggio');
+  if (d.arco && d.type !== 'arclength') h += b('arclength', '⌒', 'Sviluppo dell’arco: la lunghezza misurata lungo l’arco (da calandrare)');
+  h += b('rif', '( )', 'Di riferimento: la quota mostra la misura tra parentesi, non la comanda');
+  return `<span class="dim-tipi">${h}</span>`;
+}
+function quotaTipo(d, tipo) {
+  inCoda(async () => {
+    const r = await call('sketch_dimension_kind', d.sketch, d.dim, tipo), msg = r?.ok ? r.message : null;
+    if (msg) delete r.message;                       // il messaggio lo diamo noi, con «Annulla»
+    if (await apply(r) && msg) toast(msg, 'ok', { label: 'Annulla', fn: () => runCmd('undo') });
+  });
+}
+function quotaRiferimento(d, rif) {
+  inCoda(async () => {
+    const r = await call('sketch_dimension_reference', d.sketch, d.dim, rif), msg = r?.ok ? r.message : null;
+    if (msg) delete r.message;                       // il messaggio lo diamo noi, con «Annulla»
+    if (await apply(r) && msg) toast(msg, 'ok', { label: 'Annulla', fn: () => runCmd('undo') });
+  });
 }
 // trascinare la quota di lato: a destra cresce, a sinistra cala, a passi di 1 mm (Maiusc: 10); lasciando si conferma,
 // Esc mentre trascini torna com'era. Solo un numero: una quota scritta come formula non si trascina
@@ -1857,7 +1895,7 @@ function trascinaQuota(ev, el, d) {
   const x0 = ev.clientX, testoPrima = el.innerHTML;
   let attivo = false, valore = inizio;
   const etichetta = v => (d.param ? `<span class="p">${esc(el.querySelector('.p')?.textContent || d.param)}</span>` : '')
-    + esc((d.type === 'diameter' ? 'Ø' : d.type === 'radius' ? 'R' : '') + testoQuota(v));
+    + esc((d.type === 'diameter' ? 'Ø' : d.type === 'radius' ? 'R' : d.type === 'arclength' ? '⌒' : '') + testoQuota(v));
   const finisci = () => {
     window.removeEventListener('pointermove', muovi, true);
     window.removeEventListener('pointerup', su, true);
@@ -9127,6 +9165,7 @@ function setTool(t) {
   if (!SK) return;
   SK.tool = t; SK.pts = []; SK.buf = ''; SK.pick = null; SK.dimPick = []; SK.angs = {}; SK.cutPrev = null; SK.cutAt = null; SK.cutMsg = null;
   if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); }
+  if (SK.gd) guidaReset(false);
   // con un comando di disegno in mano i clic passano attraverso le caselle delle quote (prima la casella sotto al
   // mouse si prendeva il clic e il punto «non veniva preso», 21/10); con Seleziona e Quota si cliccano
   document.body.classList.toggle('disegno-attivo', !['select', 'dim'].includes(t));
@@ -9145,7 +9184,7 @@ const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura
   Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Spezza: 'break', Scala: 'scale', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
-  Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Metti nel vano': 'vano', 'Vite nei fori': 'fastener' };
+  Seleziona: 'select', Costruzione: 'construction', 'Linea guida': 'guida', Appoggia: 'appoggia', 'Metti nel vano': 'vano', 'Vite nei fori': 'fastener' };
 let misuraSkFoot = () => {};
 // 04/11: la casella di comando (#sk-cmd) sta sopra la barra d'aiuto anche quando la barra va su due righe (avviso del
 // profilo aperto): l'altezza della barra in una variabile CSS
@@ -9875,6 +9914,8 @@ function drawRubber() {
     for (let i = 0; i <= 24; i++) { const t = ang + Math.PI / 2 + Math.PI * i / 24; pts.push([a[0] + r * Math.cos(t), a[1] + r * Math.sin(t)]); }
     for (let i = 0; i <= 24; i++) { const t = ang - Math.PI / 2 + Math.PI * i / 24; pts.push([b[0] + r * Math.cos(t), b[1] + r * Math.sin(t)]); }
     pts.push(pts[0]); add(pts); testo = `larghezza ${num(2 * r, 2)} mm`;
+  } else if (SK.tool === 'guide') {
+    testo = guidaDisegna(add);
   } else if (tangente()) {
     const pv = tanProva(), L = SK.tanL || [];
     if (pv) {
@@ -9985,6 +10026,7 @@ function skMove(ev) {
     if (hl !== SK.hover) { SK.hover = hl; drawSketch(); }
     drawRubber(); return;
   }
+  if (SK.tool === 'guide') { guidaMove(ev); return; }
   if (tangente()) {                                           // cerchio tangente: si puntano le linee
     const h = skHit(ev), hl = h && SK.v.lines.some(l => l.id === h) ? h : null;
     if (hl !== SK.hover) { SK.hover = hl; drawSketch(); }
@@ -10113,9 +10155,10 @@ const VARIANTI = {
   rect: [['angoli', 'due angoli'], ['centro', 'dal centro'], ['tre', 'a 3 punti'], ['raccordato', 'raccordato']],
   circle: [['centro', 'centro e bordo'], ['tre', 'per 3 punti'], ['tan2', 'tangente a 2 linee'], ['tan3', 'tangente a 3 linee']],
 };
-const varianteDi = t => t === 'rect' ? ultimoRett.come : t === 'circle' ? ultimoCerchio.come : null;
+const varianteDi = t => t === 'rect' ? ultimoRett.come : t === 'circle' ? ultimoCerchio.come : t === 'guide' ? ultimaGuida.come : null;
 const tangente = () => SK?.tool === 'circle' && /^tan/.test(ultimoCerchio.come);
 function scelteVarianti(t) {
+  if (t === 'guide') return scelteGuida();
   const u = t === 'rect' ? ultimoRett : ultimoCerchio;
   const b = VARIANTI[t].map(([k, testo]) => `<button type="button" data-var="${k}" class="${u.come === k ? 'on' : ''}">${testo}</button>`).join('');
   const r = t === 'rect' && u.come === 'raccordato'
@@ -10123,6 +10166,7 @@ function scelteVarianti(t) {
   return `<span class="arcr varianti">${b}${r}</span>`;
 }
 function aiutoStrumento(t = SK?.tool) {
+  if (t === 'guide') return aiutoGuida();
   const v = varianteDi(t), n = SK?.pts?.length || 0, L = SK?.tanL?.length || 0;
   const terzi = ['prima', 'seconda', 'terza'];
   if (t === 'rect' && v === 'centro') return n ? 'Rettangolo dal centro (2 di 2): clic su un angolo, o scrivi 100x50 · Invio conferma · Esc annulla'
@@ -10141,9 +10185,10 @@ document.addEventListener('mousedown', ev => { if (ev.target.closest('[data-var]
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-var]');
   if (!b || !SK) return;
-  const u = SK.tool === 'rect' ? ultimoRett : ultimoCerchio;
+  const u = SK.tool === 'rect' ? ultimoRett : SK.tool === 'guide' ? ultimaGuida : ultimoCerchio;
   u.come = b.dataset.var;
   SK.pts = []; SK.buf = '';
+  if (SK.tool === 'guide') guidaReset();
   if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); }
   setHelp(aiutoStrumento() + AIUTI_VISTA);
   drawRubber();
@@ -10155,6 +10200,160 @@ document.addEventListener('input', ev => {
   drawRubber();
 });
 document.addEventListener('keydown', ev => { if (ev.target.id === 'sk-var-r' && (ev.key === 'Enter' || ev.key === 'Escape')) { ev.stopPropagation(); ev.target.blur(); } }, true);
+
+// ------------------------------------------------------------- linea guida (05/11, idee da SolidCraft)
+// Un comando solo, coi modi dentro la barretta «Come:» (come Rettangolo e Cerchio). La guida è una linea di
+// costruzione (tratteggiata, non si taglia) legata a quello da cui parte: se quello si sposta, la guida segue.
+// I passi di ogni modo: linea, cerchio, punto, oppure «lato» (il mouse sceglie tra le guide possibili, clic per farla).
+let ultimaGuida = { come: 'hv', dist: '20', ang: '45' };
+const GUIDE = [['hv', 'orizzontale / verticale'], ['parallela', 'parallela'], ['perpendicolare', 'perpendicolare'],
+  ['angolo', 'ad angolo'], ['bisettrice', 'bisettrice'], ['tangente', 'tangente da un punto'], ['tangente2', 'tangente a 2 cerchi']];
+const PASSI_GUIDA = { hv: ['punto', 'lato'], parallela: ['linea'], perpendicolare: ['linea', 'punto'], angolo: ['linea', 'punto', 'lato'],
+  bisettrice: ['linea', 'linea', 'lato'], tangente: ['punto', 'cerchio'], tangente2: ['cerchio', 'cerchio'] };
+const numGuida = v => parseFloat(String(v ?? '').replace(',', '.'));
+function scelteGuida() {
+  const u = ultimaGuida;
+  const b = GUIDE.map(([k, testo]) => `<button type="button" data-var="${k}" class="${u.come === k ? 'on' : ''}">${testo}</button>`).join('');
+  const campo = u.come === 'parallela' ? `<span>a</span><input id="sk-var-g" data-campo="dist" value="${esc(virgola(u.dist))}" title="Distanza dalla linea"><i>mm</i>`
+    : u.come === 'angolo' ? `<span>angolo</span><input id="sk-var-g" data-campo="ang" value="${esc(virgola(u.ang))}" title="Angolo dalla linea"><i>°</i>` : '';
+  return `<span class="arcr varianti">${b}${campo}</span>`;
+}
+const guidaInCorso = () => !!(SK?.gd && (SK.gd.linee.length || SK.gd.cerchi.length || SK.gd.punto));
+function guidaReset(ridisegna = true) {
+  if (!SK) return;
+  const aveva = SK.gd && (SK.gd.linee.length || SK.gd.cerchi.length);
+  SK.gd = { linee: [], cerchi: [], punto: null };
+  SK.gdPrev = null; SK.gdMsg = null; SK.hover = null;
+  if (aveva) SK.sel.clear();
+  if (!ridisegna) return;
+  drawSketch();
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+}
+function guidaPasso() {
+  const g = SK?.gd || { linee: [], cerchi: [], punto: null }, passi = PASSI_GUIDA[ultimaGuida.come];
+  const n = g.linee.length + g.cerchi.length + (g.punto ? 1 : 0);
+  return { n, passi, cosa: passi[Math.min(n, passi.length - 1)] };
+}
+function aiutoGuida() {
+  const { n, passi } = guidaPasso(), come = ultimaGuida.come, tot = passi.length, i = Math.min(n, tot - 1);
+  const passo = tot > 1 ? ` (${i + 1} di ${tot})` : '';
+  const frasi = {
+    hv: ['clic sul punto da cui passa (anche il centro di un foro)', 'muovi il mouse: orizzontale o verticale, clic per farla'],
+    parallela: ['scrivi la distanza qui sopra, poi clic sulla linea dalla parte dove va'],
+    perpendicolare: ['clic sulla linea', 'clic sul punto da cui passa'],
+    angolo: ['scrivi l’angolo qui sopra, poi clic sulla linea di partenza', 'clic sul punto da cui passa', 'il mouse sceglie da che parte, clic per farla'],
+    bisettrice: ['clic sulla prima linea', 'clic sulla seconda linea', 'il mouse sceglie quale delle due, clic per farla'],
+    tangente: ['clic sul punto da cui parte', 'clic sul cerchio, vicino a dove la vuoi'],
+    tangente2: ['clic sul primo cerchio', 'clic sul secondo cerchio, vicino a dove la vuoi'],
+  }[come];
+  return `Linea guida${passo}: ${frasi[i]} · Esc ${n ? 'ricomincia' : 'finisce'}`;
+}
+// i dati per il motore: quello già scelto, più quello sotto il mouse per il passo in corso
+function guidaDati(conMouse) {
+  const g = SK.gd || { linee: [], cerchi: [], punto: null }, { cosa } = guidaPasso(), come = ultimaGuida.come;
+  const linee = [...g.linee], cerchi = [...g.cerchi];
+  let punto = g.punto;
+  if (conMouse) {
+    if (cosa === 'linea' && linee.length < (come === 'bisettrice' ? 2 : 1)) { if (SK.hover && SK.v.lines.some(l => l.id === SK.hover)) linee.push(SK.hover); }
+    if (cosa === 'cerchio') { if (SK.hover && tondoGuida(SK.hover)) cerchi.push(SK.hover); }
+    if (cosa === 'punto' && !punto && SK.cursor) punto = ptArg(SK.cursor);
+  }
+  const mouse = SK.cursor?.xy || null;
+  const d = { mouse };
+  if (come === 'hv') { if (!punto) return null; d.punto = punto; }
+  if (come === 'parallela') { if (!linee[0]) return null; d.linea = linee[0]; d.distanza = numGuida(ultimaGuida.dist); }
+  if (come === 'perpendicolare') { if (!linee[0] || !punto) return null; d.linea = linee[0]; d.punto = punto; }
+  if (come === 'angolo') { if (!linee[0] || !punto) return null; d.linea = linee[0]; d.punto = punto; d.angolo = numGuida(ultimaGuida.ang); }
+  if (come === 'bisettrice') { if (linee.length < 2) return null; d.linee = linee.slice(0, 2); }
+  if (come === 'tangente') { if (!punto || !cerchi[0]) return null; d.punto = punto; d.cerchio = cerchi[0]; }
+  if (come === 'tangente2') { if (cerchi.length < 2) return null; d.cerchi = cerchi.slice(0, 2); }
+  return d;
+}
+const tondoGuida = id => SK.v.circles.some(c => c.id === id) || (SK.v.arcs || []).some(a => a.id === id);
+let guidaOccupata = false, guidaAncora = false;
+async function guidaAnteprima() {
+  if (guidaOccupata) { guidaAncora = true; return; }
+  const dati = SK && guidaDati(true);
+  if (!dati) { if (SK) { SK.gdPrev = null; SK.gdMsg = null; drawRubber(); } return; }
+  guidaOccupata = true;
+  try {
+    const r = await call('sketch_guide_preview', SK.sid, ultimaGuida.come, dati);
+    if (SK && SK.tool === 'guide') { SK.gdPrev = r?.ok ? r : null; SK.gdMsg = r?.ok ? null : r?.message; }
+  } finally { guidaOccupata = false; }
+  if (guidaAncora) { guidaAncora = false; guidaAnteprima(); } else if (SK) drawRubber();
+}
+function guidaMove(ev) {
+  if (!SK.gd) SK.gd = { linee: [], cerchi: [], punto: null };
+  const { cosa } = guidaPasso();
+  let h = null;
+  if (cosa === 'linea' || cosa === 'cerchio') {
+    const x = skHit(ev);
+    h = x && (cosa === 'linea' ? SK.v.lines.some(l => l.id === x) : tondoGuida(x)) ? x : null;
+  }
+  if (h !== SK.hover) { SK.hover = h; drawSketch(); }
+  if (cosa === 'punto') SK.cursor = skCursor(ev);
+  else { const xy = skPick(ev); SK.cursor = xy ? { xy } : null; }
+  drawRubber();
+  guidaAnteprima();
+}
+function guidaClick(ev) {
+  if (!SK.gd) SK.gd = { linee: [], cerchi: [], punto: null };
+  const g = SK.gd, { cosa, n, passi } = guidaPasso(), come = ultimaGuida.come;
+  const xy = skPick(ev);
+  if (cosa === 'linea') {
+    const h = skHit(ev);
+    if (!h || !SK.v.lines.some(l => l.id === h)) { toast('Clicca una linea.', 'err'); return; }
+    if (g.linee.includes(h)) { toast('Questa linea l’hai già scelta: clicca un’altra.', 'err'); return; }
+    g.linee.push(h);
+  } else if (cosa === 'cerchio') {
+    const h = skHit(ev);
+    if (!h || !tondoGuida(h)) { toast('Clicca un cerchio o un arco.', 'err'); return; }
+    if (g.cerchi.includes(h)) { toast('Questo cerchio l’hai già scelto: clicca un altro.', 'err'); return; }
+    g.cerchi.push(h);
+  } else if (cosa === 'punto') {
+    const c = SK.cursor || skCursor(ev);
+    if (!c) return;
+    g.punto = ptArg(c);
+  }
+  SK.sel = new Set([...g.linee, ...g.cerchi]); drawSketch();
+  if (cosa !== 'lato' && n + 1 < passi.length) {               // manca ancora un passo
+    SK.cursor = xy ? { xy } : SK.cursor;
+    setHelp(aiutoGuida() + AIUTI_VISTA); drawRubber(); guidaAnteprima(); return;
+  }
+  const dati = guidaDati(false);
+  if (!dati) return;
+  dati.mouse = xy || dati.mouse;
+  if (come === 'parallela' && !(dati.distanza > 0)) { toast('Scrivi la distanza qui sopra (in mm).', 'err'); g.linee = []; SK.sel.clear(); drawSketch(); return; }
+  if (come === 'angolo' && !(dati.angolo > 0 && dati.angolo < 180)) { toast('Scrivi l’angolo qui sopra (tra 0 e 180 gradi).', 'err'); return; }
+  const sid = SK.sid;
+  guidaReset();
+  inCoda(async () => { await apply(await call('sketch_add_guide', sid, come, dati)); });
+}
+function guidaDisegna(add) {
+  const pv = SK.gdPrev;
+  if (!pv) return SK.gdMsg || '';
+  add([pv.a, pv.b]);
+  const come = ultimaGuida.come, dx = pv.b[0] - pv.a[0], dy = pv.b[1] - pv.a[1];
+  if (come === 'parallela') return `a ${num(numGuida(ultimaGuida.dist), 2)} mm`;
+  if (come === 'angolo') return `${num(numGuida(ultimaGuida.ang), 2)}°`;
+  if (come === 'hv') return Math.abs(dy) < 1e-9 ? 'orizzontale' : 'verticale';
+  const ang = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 180;
+  return `${num(ang, 1)}°`;
+}
+// un numero scritto col comando acceso va nella casella della distanza (o dell'angolo)
+function guidaTasto(k) {
+  const inp = $('#sk-var-g');
+  if (!inp || !/^[0-9.,]$/.test(k)) return false;
+  inp.focus(); inp.value = k; inp.dispatchEvent(new Event('input'));
+  return true;
+}
+document.addEventListener('input', ev => {
+  if (ev.target.id !== 'sk-var-g') return;
+  ultimaGuida[ev.target.dataset.campo] = ev.target.value.trim();
+  if (SK) guidaAnteprima();
+});
+document.addEventListener('keydown', ev => { if (ev.target.id === 'sk-var-g' && (ev.key === 'Enter' || ev.key === 'Escape')) { ev.stopPropagation(); ev.target.blur(); } }, true);
 const raggioRacc = () => parseFloat(String(ultimoRett.r).replace(',', '.'));
 // i punti del rettangolo raccordato da a a b (coordinate dello sketch), per l'anteprima
 function rettRaccordato(a, b, r) {
@@ -10375,6 +10574,7 @@ function skClick(ev) {
     drawSketch();
     return;
   }
+  if (SK.tool === 'guide') { guidaClick(ev); return; }
   if (tangente()) { tanClick(ev); return; }
   const c = SK.cursor || skCursor(ev);
   if (!c) return;
@@ -10692,6 +10892,7 @@ function skKey(ev) {
   }
   if (ev.ctrlKey || ev.altKey) return false;
   const k = ev.key;
+  if (SK.tool === 'guide' && guidaTasto(k)) return true;
   if ((/^[0-9.,]$/.test(k) || (SK.tool === 'line' && /^[<\-]$/.test(k)) || (SK.tool === 'rect' && SK.buf && /^[xX*]$/.test(k)))
       && SK.tool !== 'select' && (SK.pts.length || (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2))) { SK.buf += k; drawRubber(); return true; }
   if (k === 'Backspace' && SK.buf) { SK.buf = SK.buf.slice(0, -1); drawRubber(); return true; }
@@ -10708,6 +10909,7 @@ function skKey(ev) {
     if (SK.tool === 'line' && SK.pts.length >= 2) { skFinish(false); return true; }
     if (SK.pts.length) { SK.pts = []; if (SK.tool === 'rect' || SK.tool === 'circle') setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return true; }
     if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return true; }
+    if (SK.tool === 'guide' && guidaInCorso()) { guidaReset(); return true; }
     if (SK.sel.size) { SK.sel.clear(); drawSketch(); return true; }
     // come negli altri CAD: il primo Esc spegne lo strumento (quota, linea, cerchio…), il secondo esce dallo sketch
     if (SK.tool && SK.tool !== 'select') { setTool('select'); return true; }
@@ -10777,7 +10979,7 @@ function updateCmd() {
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', !off && SK?.tool === b.dataset.tool));
   document.querySelectorAll('#sk-panel [data-act="offset"], #ribbon [data-act="offset"]').forEach(b => b.classList.toggle('on', off));
   // 05/11: con Rettangolo e Cerchio la casella c'è sempre, con le scelte di come farli (la parte da scrivere solo se serve)
-  const vari = SK && !SK.pick && (SK.tool === 'rect' || SK.tool === 'circle') ? SK.tool : '';
+  const vari = SK && !SK.pick && (SK.tool === 'rect' || SK.tool === 'circle' || SK.tool === 'guide') ? SK.tool : '';
   box.hidden = !testo && !vari;
   const extra = $('#sk-cmd-extra'), vuole = testo && SK?.tool === 'arcr' && !SK.pick ? 'arcr' : vari ? `${vari}:${varianteDi(vari)}` : '';
   if (extra && extra.dataset.cosa !== vuole) { extra.dataset.cosa = vuole; extra.innerHTML = vuole === 'arcr' ? arcrScelte() : vari ? scelteVarianti(vari) : ''; }
@@ -11670,7 +11872,7 @@ const NOMI_MENU = {
   'strutture:Aggiungi': 'Tappi, sagoma', 'strutture:Misura': 'Misura',
   'piastra:Crea': 'Asole, svasi', 'piastra:Disegna': 'Disegna', 'piastra:Modifica': 'Spigoli', 'piastra:Misura': 'Angolo, saldatura',
   'assieme:Accoppiamenti': 'Accoppiamenti', 'assieme:Misura': 'Angolo, saldatura',
-  'sketch:Disegna': 'Forme', 'sketch:Modifica': 'Modifica', 'sketch:Quota': 'Seleziona', 'sketch:Vista': 'Vista',
+  'sketch:Disegna': 'Forme', 'sketch:Modifica': 'Modifica', 'sketch:Quota': 'Seleziona, guide', 'sketch:Vista': 'Vista',
   'sketch:Fine': 'Crea', 'sketch:Fine:sk-face': 'Pieghe e forme',
 };
 const chiaveComando = b => b.dataset.cmd || b.dataset.azione || b.dataset.tool || b.dataset.asmTool || b.dataset.act || b.dataset.make || b.id;

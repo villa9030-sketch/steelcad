@@ -276,7 +276,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             visti = set()
             linee_di = _linee_per_punto(f)
             for did, c in f.constraints.items():
-                if c['type'] not in ('length', 'distance', 'diameter', 'radius', 'hdistance', 'vdistance', 'pldistance'):
+                if c['type'] not in ('length', 'distance', 'diameter', 'radius', 'hdistance', 'vdistance', 'pldistance',
+                                     'arclength'):
                     continue
                 if not c.get('driven') and _guida_secondaria(f, c, linee_di):
                     continue                    # delle linee di costruzione si mostra solo la distanza che conta
@@ -295,6 +296,18 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 if c['type'] == 'length':
                     a, b = ss.lines[c['refs'][0]]
                     pa, pb = ss.points[a], ss.points[b]
+                elif c['type'] == 'diameter' and c['refs'][0] in ss.arcs:
+                    # 05/11: il diametro di un arco (dal raggio con un clic): la scritta a metà dell'arco
+                    centro, a_, b_, r = ss.arcs[c['refs'][0]]
+                    (cx, cy), tm = ss.points[centro], _meta_arco(ss, c['refs'][0])
+                    pa, pb = (cx - r * math.cos(tm), cy - r * math.sin(tm)), (cx + r * math.cos(tm), cy + r * math.sin(tm))
+                elif c['type'] == 'arclength':
+                    # 05/11: lo sviluppo dell'arco, scritto su un terzo dell'arco (a metà c'è di solito il raggio)
+                    if c['refs'][0] not in ss.arcs:
+                        continue
+                    centro, a_, b_, r = ss.arcs[c['refs'][0]]
+                    (cx, cy), tm = ss.points[centro], _meta_arco(ss, c['refs'][0], 0.3)
+                    pa, pb = (cx, cy), (cx + r * math.cos(tm), cy + r * math.sin(tm))
                 elif c['type'] == 'diameter':
                     centro, r = ss.circles.get(c['refs'][0], (None, None))
                     if centro is None:
@@ -341,13 +354,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 out.append({'_gruppo': (c['type'], str(c['value']), rif, verso) if not param else None,
                             'sketch': f.id, 'dim': did, 'type': c['type'], 'expr': c['value'], 'driven': rif,
                             'local': not isinstance(f.plane, str),
+                            # 05/11: su un arco (si può passare anche allo sviluppo)
+                            'arco': c['type'] in ('radius', 'diameter', 'arclength') and c['refs'][0] in ss.arcs,
                             'param': param,
                             # 03/11: il nome da officina del parametro (non «px1»), per la quota che si sta scrivendo
                             'param_label': self._nome_parametro(param) if param else None,
                             # le distanze orizzontali/verticali "all'indietro" si leggono senza il meno: il verso
                             # lo dice la quota stessa
                             'value': v, 'shown': abs(v) if v is not None and c['type'] in ('hdistance', 'vdistance') else v,
-                            'label': ('(' if rif else '') + ({'diameter': 'Ø', 'radius': 'R'}.get(c['type'], ''))
+                            'label': ('(' if rif else '') + ({'diameter': 'Ø', 'radius': 'R', 'arclength': '⌒'}.get(c['type'], ''))
                             + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0)) + (')' if rif else ''),
                             'a': ga, 'b': gb})
         # 24/10: la stessa quota ripetuta (le copie di una serie: 300 quadrati da 10 × 10 = 600 quote «10» che
@@ -3203,6 +3218,71 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 r['message'] = ('Questa misura la decide già il pezzo: la quota resta di riferimento, tra parentesi. '
                                 'Per cambiarla cambia la misura del pezzo (fuori dallo sketch, clic sulla sua quota).')
         return r
+
+    # ------------------------------------------------------------ quote: cambiare tipo con un clic (05/11)
+    def sketch_dimension_kind(self, sid: str, did: str, kind: str) -> dict:
+        """Raggio ↔ diametro, o lo sviluppo dell'arco: la stessa quota, misurata in un altro modo. Il disegno resta
+        com'è."""
+        from app import sketch_quote
+        info = {}
+        nomi = {'radius': 'raggio', 'diameter': 'diametro', 'arclength': 'sviluppo dell’arco'}
+        if kind not in nomi:
+            return _err(SteelCADError('Si passa solo a raggio, diametro o sviluppo dell’arco.', code='quota'))
+        r = self._sketch_change(f'Quota a {nomi[kind]}', lambda: sketch_quote.change_kind(self.doc, sid, did, kind, info))
+        if r.get('ok'):
+            r['dim'] = did
+            r['message'] = (f'Ora è il {nomi[kind]}' if kind != 'arclength' else 'Ora è lo sviluppo dell’arco') + (
+                ', di riferimento (tra parentesi): la misura la decidono già le altre quote.'
+                if info.get('riferimento') else '.')
+        return r
+
+    def sketch_dimension_reference(self, sid: str, did: str, rif: bool) -> dict:
+        """Quota di riferimento (tra parentesi: mostra la misura, non comanda) o normale."""
+        from app import sketch_quote
+        r = self._sketch_change('Quota di riferimento' if rif else 'Quota normale',
+                                lambda: sketch_quote.set_reference(self.doc, sid, did, bool(rif)))
+        if r.get('ok'):
+            r['dim'] = did
+            r['message'] = ('Quota di riferimento: mostra la misura, non la comanda.' if rif
+                            else 'Ora la quota comanda: cambiala e il disegno segue.')
+        return r
+
+    # ------------------------------------------------------------ linee guida pronte (05/11)
+    def sketch_add_guide(self, sid: str, come: str, dati: dict) -> dict:
+        """Linea guida (di costruzione) orizzontale/verticale, parallela, perpendicolare, ad angolo, bisettrice,
+        tangente: legata a quello da cui parte."""
+        from app import sketch_guide
+        nomi = {'hv': 'orizzontale o verticale', 'parallela': 'parallela', 'perpendicolare': 'perpendicolare',
+                'angolo': 'ad angolo', 'bisettrice': 'bisettrice', 'tangente': 'tangente', 'tangente2': 'tangente comune'}
+        if come not in nomi or not isinstance(dati, dict):
+            return _err(SteelCADError('Modo di linea guida sconosciuto.', code='guida'))
+        try:
+            dati = dict(dati)
+            campi = {'distanza': 'la distanza', 'angolo': 'l’angolo', 'lunghezza': 'la lunghezza'}
+            for k, nome in campi.items():
+                if dati.get(k) not in (None, ''):
+                    dati[k] = _numero(dati[k], nome)
+            if 'punto' in dati:
+                dati['punto'] = _punto(dati['punto'], 'il punto')
+            if dati.get('mouse') is not None:
+                dati['mouse'] = _punto(dati['mouse'])
+        except SteelCADError as ex:
+            return _err(ex)
+        out = {}
+        r = self._sketch_change(f'Linea guida {nomi[come]}',
+                                lambda: out.update(id=sketch_guide.add_guide(self.doc, sid, come, dati)))
+        if r.get('ok'):
+            r['guida'] = out.get('id')
+        return r
+
+    def sketch_guide_preview(self, sid: str, come: str, dati: dict) -> dict:
+        """Dove andrebbe la guida, per l'anteprima: non cambia niente."""
+        from app import sketch_guide
+        try:
+            g = sketch_guide.geometria(self.doc, sid, come, dict(dati or {}))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+        return _ok(a=list(g['a']), b=list(g['b']))
 
     # ------------------------------------------------------------ bordi arancio: da quale taglio vengono (24/10)
     def origine_bordi(self, sid: str, eids: list) -> dict:
@@ -6115,6 +6195,17 @@ def _linee_per_punto(sk) -> dict:
                     if not lst or lst[-1] is not e:
                         lst.append(e)
     return out
+
+
+def _meta_arco(ss, aid, k=0.5) -> float:
+    """L'angolo del punto dell'arco a k della sua lunghezza (0,5 = a metà)."""
+    centro, a_, b_, _r = ss.arcs[aid]
+    (cx, cy), (ax, ay), (bx, by) = ss.points[centro], ss.points[a_], ss.points[b_]
+    t0 = math.atan2(ay - cy, ax - cx)
+    t1 = math.atan2(by - cy, bx - cx)
+    while t1 <= t0:
+        t1 += 2 * math.pi
+    return t0 + (t1 - t0) * k
 
 
 def _guida_secondaria(sk, c, linee_di: dict | None = None) -> bool:
