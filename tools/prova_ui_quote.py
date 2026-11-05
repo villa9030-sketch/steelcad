@@ -1,6 +1,6 @@
 """Prova dell'interfaccia: lo strumento Quota nello sketch, cliccando come l'utente.
 
-    python tools/prova_ui_quote.py [cartella]
+    python tools/prova_ui_quote.py [cartella] [porta]
 
 Rettangolo 100 × 60: Quota → clic sul lato di sotto → scrivo 150 → Invio (il lato diventa 150); clic sulla quota
 che c'è → la cambio; cerchio → diametro; due punti → distanza orizzontale.
@@ -18,6 +18,9 @@ from ui_barra import comando, comando_visibile  # noqa: F401  (comandi della bar
 QUI = Path(__file__).resolve().parents[1]
 CART = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp())
 SHOTS = CART / 'shots'; SHOTS.mkdir(parents=True, exist_ok=True)
+PORTA = int(sys.argv[2]) if len(sys.argv) > 2 else 5148
+PY = QUI / '.venv/Scripts/python.exe' if (QUI / '.venv/Scripts/python.exe').exists() else Path(sys.executable)
+CHROME = 'C:/Users/Stefano/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 risultati = []
 
 
@@ -26,18 +29,19 @@ def ok(cosa, esito):
     print(('OK   ' if esito else 'NO   ') + cosa, flush=True)
 
 
-srv = subprocess.Popen([str(QUI / '.venv/Scripts/python.exe'), str(QUI / 'app/dev_server.py'), '--porta', '5148', '--cartella', str(CART)],
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000, env=dict(os.environ, STEELCAD_HOME=str(CART)))
+srv = subprocess.Popen([str(PY), str(QUI / 'app/dev_server.py'), '--porta', str(PORTA), '--cartella', str(CART)], cwd=str(QUI),
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000,
+                       env=dict(os.environ, STEELCAD_HOME=str(CART / '.sc'), USERPROFILE=str(CART)))
 while not srv.stdout.readline().startswith(b'http'):
     pass
 SCHERMO = """(xy) => { const [x, y] = window.__steelcad.skScreen(xy), r = document.querySelector('#c3d').getBoundingClientRect(); return [r.left + x, r.top + y]; }"""
 try:
     with sync_playwright() as p:
-        b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = p.chromium.launch(executable_path=CHROME if Path(CHROME).exists() else None, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
         pg = b.new_page(viewport={'width': 1440, 'height': 900})
         errori = []
         pg.on('pageerror', lambda e: errori.append(str(e)))
-        pg.goto('http://127.0.0.1:5148/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
+        pg.goto(f'http://127.0.0.1:{PORTA}/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)
         api = lambda n, *a: pg.evaluate("async ([n, a]) => (await (await fetch('/api/' + n, {method: 'POST', body: JSON.stringify(a)})).json())", [n, list(a)])  # noqa: E731
         api('new_project', 'zero', {'name': 'Quote'})
         sid = 'S1'

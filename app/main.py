@@ -392,6 +392,9 @@ class Api:
     def sketch_construction(self, sid, eids, flag):
         return self._call(self._svc.sketch_construction, sid, eids, flag)
 
+    def sketch_dimension_preview(self, sketch_id, dim_id, value):
+        return self._call(self._svc.sketch_dimension_preview, sketch_id, dim_id, value)
+
     def sketch_offset_preview(self, sid, eids, dist, side):
         return self._call(self._svc.sketch_offset_preview, sid, eids, dist, side)
 

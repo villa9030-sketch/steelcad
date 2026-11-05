@@ -256,11 +256,11 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return [f['template'] for f in self.doc.features if not isinstance(f, Sketch)
                 and (f.get('template') or {}).get('kind') in self.MODELLI_ST]
 
-    def _dimensions(self):
-        """Le quote degli sketch da mostrare sul modello: clic, scrivi, Invio."""
+    def _dimensions(self, solo: str | None = None):
+        """Le quote degli sketch da mostrare sul modello: clic, scrivi, Invio. solo = le quote di uno sketch solo."""
         out = []
         for f in self.doc.features:
-            if not isinstance(f, Sketch):
+            if not isinstance(f, Sketch) or (solo is not None and f.id != solo):
                 continue
             try:
                 ss = self.doc.solved_sketch(f.id)
@@ -4638,7 +4638,64 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if r.get('ok'):
                 r['message'] = f'Cambiate tutte le {len(d["gruppo"])} quote uguali.'
             return r
-        return self._change(f'Quota {value}', lambda: self.doc.sketch(sketch_id).set_value(dim_id, v))
+        def una():
+            sk = self.doc.sketch(sketch_id)
+            prima = self.doc.solved_sketch(sketch_id)
+            sk.set_value(dim_id, v)
+            # 05/11: una lunghezza cambiata tiene fermo il suo primo punto (il lato cresce dal suo primo angolo)
+            sketch_edit.tieni_il_primo_punto(sk, dim_id, prima, self.doc.resolved_parameters())
+        return self._change(f'Quota {value}', una)
+
+    def sketch_dimension_preview(self, sketch_id: str, dim_id: str, value) -> dict:
+        """05/11 (idea da SolidCraft): mentre scrivi il numero di una quota, lo sketch com'è con quel numero. Non
+        cambia niente: niente ricostruzione del pezzo, niente passo nell'annulla. sketch=None se non c'è niente da
+        mostrare (un numero che non va, una quota di riferimento): l'interfaccia tiene l'ultima anteprima buona."""
+        try:
+            if self.asm is not None:
+                return _ok(sketch=None)
+            d = next((x for x in self._dimensions(sketch_id) if x['dim'] == dim_id), None)
+            if d is None or d.get('driven'):
+                return _ok(sketch=None)
+            try:
+                v = _number(value)
+            except SteelCADError:
+                return _ok(sketch=None)                 # mentre scrivi «1,» o «W/»: si tiene l'ultima buona
+            if d['type'] in ('hdistance', 'vdistance') and (d['value'] or 0) < 0 and isinstance(v, (int, float)) and v > 0:
+                v = -v
+            from cad_engine.sketch import solve
+            vero = self.doc.sketch(sketch_id)
+            prova = copy.deepcopy(vero)
+            parametri = dict(self.doc.parameters)
+            try:
+                if d['param']:
+                    self.doc.parameters[d['param']] = v
+                params = self.doc.resolved_parameters()
+                if not d['param']:
+                    for did in d.get('gruppo') or [dim_id]:
+                        prova.set_value(did, v)
+                    if not d.get('gruppo'):
+                        sketch_edit.tieni_il_primo_punto(prova, dim_id, self.doc.solved_sketch(sketch_id), params)
+                ss = solve(prova, params)
+                if not ss.status.ok_for_features:
+                    return _ok(sketch=None, message=ss.status.message)
+                i = next(k for k, f in enumerate(self.doc.features) if f is vero)
+                fatto = self.doc._sketch_results.get(sketch_id)
+                self.doc.features[i] = prova
+                self.doc._sketch_results[sketch_id] = (ss, fatto[1] if fatto else None)
+                try:
+                    vista = sketch_ops.view(self.doc, sketch_id, self.result.body)
+                    quote = self._dimensions(sketch_id)
+                finally:
+                    self.doc.features[i] = vero
+                    if fatto is None:
+                        self.doc._sketch_results.pop(sketch_id, None)
+                    else:
+                        self.doc._sketch_results[sketch_id] = fatto
+            finally:
+                self.doc.parameters = parametri
+            return _ok(sketch=vista, dimensions=quote)
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
 
     def edit_member(self, obj_id: str, fields: dict, whole_group: bool = False) -> dict:
         st_id, mid = obj_id.split('/')
