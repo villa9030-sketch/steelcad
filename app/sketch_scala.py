@@ -16,7 +16,7 @@ import math
 
 from cad_engine.errors import SketchError
 from cad_engine.sketch import solve
-from cad_engine.sketch.model import DIMENSIONS, ORIGIN
+from cad_engine.sketch.model import DIMENSIONS, ORIGIN, punti_entita
 
 from . import sketch_ops
 from .sketch_edit import _check, _points_of, _sync
@@ -68,6 +68,9 @@ def _misura(sk, c):
         e = sk.entities[refs[1]]
         (ax, ay), (bx, by), (px, py) = P(e['a']), P(e['b']), P(refs[0])
         return abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / math.hypot(bx - ax, by - ay)
+    if t in ('major_axis', 'minor_axis'):
+        e = sk.entities[refs[0]]
+        return 2 * math.dist(P(e['center']), P(e['major' if t == 'major_axis' else 'minor']))
     raise KeyError(t)
 
 
@@ -93,7 +96,7 @@ def _scala_su(doc, sk, eids, base, f):
     # le entità che stanno tutte dentro (anche una linea non scelta ma con tutte e due le estremità scelte, o un cerchio
     # col centro scelto): si scalano intere, raggio e altezza del testo compresi
     dentro = set(pts) | {k for k, e in sk.entities.items() if e['kind'] != 'point' and
-                         all(e[x] in pts for x in ('a', 'b', 'center', 'start', 'end') if x in e)}
+                         all(p in pts for p in punti_entita(e))}
     for k in dentro:
         e = sk.entities[k]
         if e['kind'] == 'circle':
@@ -108,7 +111,7 @@ def _scala_su(doc, sk, eids, base, f):
         if r in dentro:
             return 'in'
         e = sk.entities.get(r, {})
-        return 'mezzo' if any(e.get(x) in mosso for x in ('a', 'b', 'center', 'start', 'end')) else 'fuori'
+        return 'mezzo' if any(p in mosso for p in punti_entita(e)) else 'fuori'
 
     legami = []                       # vincoli tra la selezione e il resto: se il disegno non torna, colpa loro
     for cid, c in sk.constraints.items():
@@ -126,8 +129,8 @@ def _scala_su(doc, sk, eids, base, f):
             if not tutta:
                 legami.append(cid)
             continue
-        if c['type'] == 'angle' or c.get('driven'):
-            if not tutta and c['type'] == 'angle':
+        if c['type'] in ('angle', 'tilt') or c.get('driven'):
+            if not tutta and c['type'] in ('angle', 'tilt'):
                 legami.append(cid)
             continue
         v = c['value']
@@ -318,10 +321,19 @@ def geometria_dxf(doc, sid) -> dict:
     sk = doc.sketch(sid)
     ss = solve(sk, doc.resolved_parameters())
     P = ss.points
-    out = {'lines': [], 'arcs': [], 'circles': [], 'marks': [], 'cut_texts': [], 'skipped': 0}
+    out = {'lines': [], 'arcs': [], 'circles': [], 'marks': [], 'cut_texts': [], 'curves': [], 'skipped': 0}
+    from cad_engine.sketch import curve as cv
     for k, e in sk.entities.items():
         kind = e['kind']
-        if kind not in ('line', 'circle', 'arc', 'text'):
+        if kind not in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline'):
+            continue
+        if kind in ('ellipse', 'spline') and not (e.get('ref') or e.get('xray') or e.get('construction')):
+            # 05/11: ellissi e curve libere come archi tangenti (il laser vuole linee e archi)
+            if kind == 'ellipse':
+                s_, f_ = (P[e['start']], P[e['end']]) if 'start' in e else (None, None)
+                out['curves'].append(cv.ellisse_in_archi(P[e['center']], P[e['major']], P[e['minor']], s_, f_))
+            else:
+                out['curves'].append(cv.spline_in_archi([P[p] for p in e['points']], bool(e.get('closed'))))
             continue
         if e.get('ref') or e.get('xray') or e.get('construction'):
             out['skipped'] += 1

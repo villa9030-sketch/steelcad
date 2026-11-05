@@ -371,6 +371,16 @@ class Api:
     def sketch_add_arc3(self, sid, p1, p2, p3, construction=False):
         return self._call(self._svc.sketch_add_arc3, sid, p1, p2, p3, construction)
 
+    # 05/11: ellissi e curve libere
+    def sketch_add_ellipse(self, sid, center, major, b, start=None, end=None, construction=False):
+        return self._call(self._svc.sketch_add_ellipse, sid, center, major, b, start, end, construction)
+
+    def sketch_add_spline(self, sid, pts, closed=False, construction=False):
+        return self._call(self._svc.sketch_add_spline, sid, pts, closed, construction)
+
+    def sketch_move_point(self, sid, pid, xy):
+        return self._call(self._svc.sketch_move_point, sid, pid, xy)
+
     def sketch_add_arc_raggio(self, sid, linea, punto, r, giro, partenza='tangente', lato=1, construction=False):
         return self._call(self._svc.sketch_add_arc_raggio, sid, linea, punto, r, giro, partenza, lato, construction)
 

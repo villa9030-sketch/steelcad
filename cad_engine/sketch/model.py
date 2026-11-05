@@ -3,8 +3,11 @@
 Le coordinate salvate sono quelle disegnate dall'utente: il risolutore parte
 da lì ogni volta e non le riscrive (niente deriva, undo pulito).
 
-Id stabili: punti P1.., linee L1.., cerchi C1.., archi A1.., vincoli K1..,
+Id stabili: punti P1.., linee L1.., cerchi C1.., archi A1.., ellissi EL1.., curve libere SP1.., vincoli K1..,
 quote D1... Il punto "O" è l'origine, sempre presente e fissa.
+
+05/11: ellissi (centro, fine dell'asse grande, fine dell'asse piccolo; anche archi di ellisse) e curve libere che
+passano per i punti cliccati. Tutti i loro punti sono punti normali dello sketch (ci si aggancia, si quotano).
 """
 from __future__ import annotations
 
@@ -31,7 +34,28 @@ DIMENSIONS = {
     'vdistance': 'distanza verticale', 'angle': 'angolo', 'diameter': 'diametro', 'radius': 'raggio',
     'pldistance': 'distanza dalla linea',
     'arclength': 'sviluppo dell’arco',       # 05/11: la lunghezza misurata lungo l'arco (il pezzo da calandrare)
+    'major_axis': 'asse grande', 'minor_axis': 'asse piccolo',     # di un'ellisse: tutto l'asse, da parte a parte
+    'tilt': 'inclinazione',                                          # dell'asse grande di un'ellisse, dall'orizzontale
 }
+
+# le chiavi con cui un'entità usa i punti (più 'points', la lista dei punti di una curva libera)
+CHIAVI_PUNTI = ('a', 'b', 'center', 'start', 'end', 'major', 'minor')
+
+
+def punti_entita(e: dict) -> list:
+    """Tutti i punti usati da un'entità (linea, arco, cerchio, ellisse, curva libera, testo)."""
+    out = [e[k] for k in CHIAVI_PUNTI if k in e]
+    return out + list(e.get('points') or [])
+
+
+def rimappa_punti(e: dict, mappa) -> None:
+    """Cambia i punti di un'entità secondo la mappa (dizionario o funzione), sul posto."""
+    f = mappa if callable(mappa) else (lambda p: mappa.get(p, p))
+    for k in CHIAVI_PUNTI:
+        if k in e:
+            e[k] = f(e[k])
+    if 'points' in e:
+        e['points'] = [f(p) for p in e['points']]
 
 
 @dataclass
@@ -72,7 +96,8 @@ class Sketch:
         e = self.entities.get(eid, {})
         if e.get('label'):
             return e['label']
-        nomi = {'point': 'punto', 'line': 'linea', 'circle': 'cerchio', 'arc': 'arco', 'text': 'testo'}
+        nomi = {'point': 'punto', 'line': 'linea', 'circle': 'cerchio', 'arc': 'arco', 'text': 'testo',
+                'ellipse': 'ellisse', 'spline': 'curva libera'}
         if eid == ORIGIN:
             return "l'origine"
         # 05/11: niente nomi interni («punto P6»): dove sta o quanto è lungo, come lo vede l'officina
@@ -87,6 +112,13 @@ class Sketch:
                 return f"cerchio Ø{fmt_mm(2 * e['r'])}"
             if k == 'arc' and isinstance(e.get('r'), (int, float)):
                 return f"arco R{fmt_mm(e['r'])}"
+            if k == 'ellipse':
+                c, m, n = (self.entities[e[x]] for x in ('center', 'major', 'minor'))
+                a2 = 2 * math.hypot(m['x'] - c['x'], m['y'] - c['y'])
+                b2 = 2 * math.hypot(n['x'] - c['x'], n['y'] - c['y'])
+                return f"{'arco di ellisse' if 'start' in e else 'ellisse'} {fmt_mm(a2)}×{fmt_mm(b2)}"
+            if k == 'spline':
+                return f"curva libera per {len(e['points'])} punti"
         except (KeyError, TypeError):
             pass
         return f"{nomi.get(e.get('kind'), 'elemento')} {eid}"
@@ -162,6 +194,61 @@ class Sketch:
         self.entities[aid] = {'kind': 'arc', 'center': self._pt(center), 'start': self._pt(start),
                               'end': self._pt(end), 'construction': construction}
         return aid
+
+    def ellipse(self, center, major, b: float, *, start=None, end=None, construction: bool = False) -> str:
+        """Ellisse: centro, fine di un asse (punto o [x, y]) e metà dell'altro asse. Il più lungo diventa l'asse
+        grande. Con start e end (punti o [x, y], portati sull'ellisse) è l'arco di ellisse in senso antiorario."""
+        pc = self._pt(center)
+        cx, cy = self.entities[pc]['x'], self.entities[pc]['y']
+        if isinstance(major, str):
+            mx, my = self.entities[self._pt(major)]['x'], self.entities[self._pt(major)]['y']
+        else:
+            mx, my = float(major[0]), float(major[1])
+        a = math.hypot(mx - cx, my - cy)
+        b = float(b)
+        if a <= 0 or b <= 0:
+            raise SketchError('Un’ellisse ha bisogno di due assi più lunghi di zero.')
+        if abs(a - b) < 1e-6 * max(a, b):
+            raise SketchError('Con i due assi uguali è un cerchio: usa Cerchio.')
+        ux, uy = (mx - cx) / a, (my - cy) / a
+        if b > a:                                  # l'asse dato è il piccolo: il grande sta a 90°
+            if isinstance(major, str):
+                raise SketchError('Il punto scelto deve stare sull’asse grande dell’ellisse.')
+            ux, uy, a, b = -uy, ux, b, a
+            pm = self.point(cx + a * ux, cy + a * uy)
+        else:
+            pm = major if isinstance(major, str) else self.point(mx, my)
+        pn = self.point(cx - b * uy, cy + b * ux)
+        eid = self._new_id('EL', self.entities)
+        ent = {'kind': 'ellipse', 'center': pc, 'major': pm, 'minor': pn, 'construction': construction}
+        if (start is None) != (end is None):
+            raise SketchError('Per un arco di ellisse servono il punto di partenza e quello di arrivo.')
+        if start is not None:
+            from .curve import ellisse_parametro, ellisse_punto
+            ang = math.atan2(uy, ux)
+
+            def sull_ellisse(p):
+                if isinstance(p, str):
+                    return self._pt(p)
+                u = ellisse_parametro((cx, cy), a, b, ang, (float(p[0]), float(p[1])))
+                return self.point(*ellisse_punto((cx, cy), a, b, ang, u))
+            ent['start'], ent['end'] = sull_ellisse(start), sull_ellisse(end)
+            if ent['start'] == ent['end']:
+                raise SketchError('L’arco di ellisse ha bisogno di due punti diversi.')
+        self.entities[eid] = ent
+        return eid
+
+    def spline(self, pts, *, closed: bool = False, construction: bool = False) -> str:
+        """Curva libera che passa per i punti (punti esistenti o [x, y]), aperta o chiusa."""
+        ids = [self._pt(p) for p in pts]
+        ids = [p for i, p in enumerate(ids) if i == 0 or p != ids[i - 1]]
+        if closed and len(ids) > 1 and ids[0] == ids[-1]:
+            ids.pop()
+        if len(ids) < (3 if closed else 2):
+            raise SketchError('Una curva libera ha bisogno di almeno ' + ('tre punti per chiudersi.' if closed else 'due punti.'))
+        sid = self._new_id('SP', self.entities)
+        self.entities[sid] = {'kind': 'spline', 'points': ids, 'closed': bool(closed), 'construction': construction}
+        return sid
 
     def slot(self, c1, c2, r: float) -> dict:
         """Asola: due semicerchi di raggio r con centri c1, c2 e due tratti tangenti."""

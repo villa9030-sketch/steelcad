@@ -14,7 +14,7 @@ import math
 
 from cad_engine.errors import SketchError, SteelCADError
 from cad_engine.sketch import solve
-from cad_engine.sketch.model import DIMENSIONS, ORIGIN
+from cad_engine.sketch.model import DIMENSIONS, ORIGIN, punti_entita, rimappa_punti
 
 from .sketch_ops import _r, guarded
 
@@ -43,9 +43,9 @@ def _points_of(sk, eids) -> list[str]:
     out = []
     for e in eids:
         ent = sk.entities[e]
-        for key in ('a', 'b', 'center', 'start', 'end'):
-            if key in ent and ent[key] not in out:
-                out.append(ent[key])
+        for p in punti_entita(ent):
+            if p not in out:
+                out.append(p)
         if ent['kind'] == 'point' and e not in out:
             out.append(e)
     return out
@@ -73,7 +73,7 @@ def set_construction(doc, sid, eids, flag: bool):
     _check(sk, eids)
     eids = [e for e in eids if not sk.entities[e].get('ref')]
     for e in eids:
-        if sk.entities[e]['kind'] in ('line', 'circle', 'arc'):
+        if sk.entities[e]['kind'] in ('line', 'circle', 'arc', 'ellipse', 'spline'):
             sk.entities[e]['construction'] = bool(flag)
 
 
@@ -163,6 +163,8 @@ def offset_preview(doc, sid, eids, dist, side) -> dict:
     dist = float(dist)
     linee = [e for e in eids if sk.entities[e]['kind'] == 'line']
     cerchi = [e for e in eids if sk.entities[e]['kind'] == 'circle']
+    if not linee and not cerchi and any(sk.entities[e]['kind'] in ('ellipse', 'spline') for e in eids):
+        raise SketchError('L’offset si fa di linee e cerchi: per ellissi e curve libere disegnane un’altra accanto.')
     out = {'lines': [], 'circles': [], 'closed': None}
     if linee:
         _, _, chiusa, nuovi = _offset_geometry(sk, linee, dist, side)
@@ -216,6 +218,8 @@ def offset(doc, sid, eids, dist, side):
     d = float(dist)
     if d <= 0:
         raise SketchError('La distanza dell’offset deve essere maggiore di zero.')
+    if not any(sk.entities[e]['kind'] in ('line', 'circle') for e in eids) and             any(sk.entities[e]['kind'] in ('ellipse', 'spline') for e in eids):
+        raise SketchError('L’offset si fa di linee e cerchi: per ellissi e curve libere disegnane un’altra accanto.')
     par = _new_param(doc, 'off', _r(d))
     linee = [e for e in eids if sk.entities[e]['kind'] == 'line']
     cerchi = [e for e in eids if sk.entities[e]['kind'] == 'circle']
@@ -320,7 +324,13 @@ def mirror(doc, sid, eids, axis):
         return (2 * fx - p[0], 2 * fy - p[1]), math.hypot(p[0] - fx, p[1] - fy)
 
     mappa = {}
+    # il punto dell'asse piccolo di un'ellisse non si specchia: nell'ellisse specchiata sta dall'altra parte (sempre a
+    # +90° dall'asse grande), lo mette lei
+    minori = {sk.entities[e]['minor'] for e in eids if sk.entities[e]['kind'] == 'ellipse'}
     for p in _points_of(sk, eids):
+        if p in minori and not any(p in punti_entita(sk.entities[e]) for e in eids
+                                   if sk.entities[e]['kind'] != 'ellipse'):
+            continue
         if p in (ax['a'], ax['b']):
             mappa[p] = p
             continue
@@ -349,6 +359,17 @@ def mirror(doc, sid, eids, axis):
             a = sk.arc(mappa[ent['center']], mappa[ent['end']], mappa[ent['start']],
                        construction=bool(ent.get('construction')) and not ent.get('ref') and not ent.get('xray'))
             nuove.append(a)
+        elif ent['kind'] == 'ellipse':
+            c_, m_ = _xy(sk, ent['center']), _xy(sk, ent['minor'])
+            b = math.dist(c_, m_)
+            # anche qui il verso si gira: l'arco specchiato va dalla fine all'inizio
+            arco = {'start': mappa[ent['end']], 'end': mappa[ent['start']]} if 'start' in ent else {}
+            el = sk.ellipse(mappa[ent['center']], mappa[ent['major']], b, construction=bool(ent.get('construction')), **arco)
+            sk.dimension('minor_axis', el, value=_r(2 * b))
+            nuove.append(el)
+        elif ent['kind'] == 'spline':
+            nuove.append(sk.spline([mappa[p] for p in ent['points']], closed=bool(ent.get('closed')),
+                                   construction=bool(ent.get('construction'))))
     return nuove
 
 
@@ -372,10 +393,8 @@ def _duplicate(sk, eids, dx, dy):
                 ent.pop(k, None)
             if str(ent.get('label', '')).startswith('bordo'):
                 ent.pop('label')
-        for key in ('a', 'b', 'center', 'start', 'end'):
-            if key in ent:
-                ent[key] = mappa[ent[key]]
-        k = {'line': 'L', 'circle': 'C', 'arc': 'A'}.get(ent['kind'], 'P')
+        rimappa_punti(ent, lambda p: mappa[p])
+        k = {'line': 'L', 'circle': 'C', 'arc': 'A', 'ellipse': 'EL', 'spline': 'SP'}.get(ent['kind'], 'P')
         nid = sk._new_id(k, sk.entities)
         if ent['kind'] == 'line' and ent.get('label', '').startswith('lato '):
             ent['label'] = f'lato {nid}'
@@ -511,6 +530,13 @@ def pattern_circular(doc, sid, eids, center, n, total=360):
                 nuove.append(c)
             elif ent['kind'] == 'arc':
                 nuove.append(sk.arc(mappa[ent['center']], mappa[ent['start']], mappa[ent['end']], construction=guida))
+            elif ent['kind'] in ('ellipse', 'spline'):
+                x = {k: v for k, v in ent.items() if k not in ('ref', 'xray', 'label')}
+                rimappa_punti(x, lambda p: mappa[p])
+                x['construction'] = guida
+                nid = sk._new_id('EL' if ent['kind'] == 'ellipse' else 'SP', sk.entities)
+                sk.entities[nid] = x
+                nuove.append(nid)
             elif ent['kind'] == 'text':
                 t = sk.text(mappa[ent['center']], ent['text'], ent['h'], (ent.get('angle') or 0) + g, ent.get('stencil'))
                 if ent.get('centrato'):
@@ -565,15 +591,22 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
     # che cosa vuole ogni quota: tipo di elemento per ogni riferimento
     vuole = {'length': ('line',), 'diameter': ('circle',), 'radius': ('arc',), 'arclength': ('arc!',),
              'distance': ('point', 'point'),
-             'hdistance': ('point', 'point'), 'vdistance': ('point', 'point'), 'pldistance': ('point', 'line')}.get(kind)
-    nomi = {'line': 'una linea', 'circle': 'un cerchio', 'arc': 'un arco', 'arc!': 'un arco', 'point': 'un punto'}
+             'hdistance': ('point', 'point'), 'vdistance': ('point', 'point'), 'pldistance': ('point', 'line'),
+             'major_axis': ('ellipse',), 'minor_axis': ('ellipse',), 'tilt': ('ellipse',)}.get(kind)
+    nomi = {'line': 'una linea', 'circle': 'un cerchio', 'arc': 'un arco', 'arc!': 'un arco', 'point': 'un punto', 'ellipse': 'un’ellisse'}
     if vuole is not None:
         tipi = [sk.entities[r]['kind'] for r in refs]
         # 'arc!' = solo un arco (lo sviluppo); 'circle' vale anche per un arco
         if len(refs) != len(vuole) or any(t != v.rstrip('!') and not (v == 'circle' and t == 'arc')
                                           for t, v in zip(tipi, vuole)):
             raise SketchError('Per questa quota scegli ' + ' e '.join(nomi[v] for v in vuole) + '.')
-    simmetrica = kind in ('distance', 'length', 'diameter', 'radius', 'arclength')
+    if kind == 'tilt':
+        # l'inclinazione scritta prende il posto di «dritta» (orizzontale/verticale dell'asse grande)
+        e = sk.entities[refs[0]]
+        for cid in [k for k, c in sk.constraints.items() if c['type'] in ('horizontal', 'vertical')
+                    and len(c['refs']) == 2 and set(c['refs']) == {e['center'], e['major']}]:
+            del sk.constraints[cid]
+    simmetrica = kind in ('distance', 'length', 'diameter', 'radius', 'arclength', 'major_axis', 'minor_axis', 'tilt')
     for cid, c in sk.constraints.items():
         if c['type'] == kind and (list(c['refs']) == list(refs) or (simmetrica and sorted(c['refs']) == sorted(refs))
                                   or (kind in ('hdistance', 'vdistance') and sorted(c['refs']) == sorted(refs))):
@@ -602,12 +635,17 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
             e = sk.entities[refs[1]]
             (ax, ay), (bx, by), (px, py) = pts[e['a']], pts[e['b']], pts[refs[0]]
             value = abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / math.hypot(bx - ax, by - ay)
+        elif kind in ('major_axis', 'minor_axis', 'tilt'):
+            e = sk.entities[refs[0]]
+            c_, q_ = pts[e['center']], pts[e['minor' if kind == 'minor_axis' else 'major']]
+            value = (math.degrees(math.atan2(q_[1] - c_[1], q_[0] - c_[0])) if kind == 'tilt'
+                     else 2 * math.dist(c_, q_))
         else:
             raise SketchError('Per questa quota serve il valore.')
     if kind in ('hdistance', 'vdistance') and value < 0:
         refs = [refs[1], refs[0]]
         value = -value
-    if kind in ('distance', 'length', 'diameter', 'pldistance', 'arclength') and value <= 1e-9:
+    if kind in ('distance', 'length', 'diameter', 'pldistance', 'arclength', 'major_axis', 'minor_axis') and value <= 1e-9:
         raise SketchError('La misura è zero: i due elementi coincidono.')
     did = sk.dimension(kind, *refs, value=_r(value))
     par = doc.resolved_parameters()

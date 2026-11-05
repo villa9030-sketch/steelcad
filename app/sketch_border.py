@@ -15,6 +15,7 @@ from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 
 from cad_engine.errors import SketchError
+from cad_engine.sketch.model import punti_entita
 from cad_engine.topology.naming import _faces_of
 
 TOL = 1e-4
@@ -217,7 +218,7 @@ def remove_xray(sk) -> None:
         del sk.entities[k]
     usati = set()
     for e in sk.entities.values():
-        usati |= {e.get(x) for x in ('a', 'b', 'center', 'start', 'end')}
+        usati |= set(punti_entita(e))
     for k, c in sk.constraints.items():
         if c['type'] not in ('fix',):
             usati |= set(c['refs'])

@@ -121,6 +121,28 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
         e = _ricorda(_LATI, (chiave_piano, 'A', ss.points[a], ss.points[b], ss.points[c], r), lambda: bd.Edge.make_three_point_arc(
             g(a), plane.from_local_coords((cx + r * math.cos(tm), cy + r * math.sin(tm))), g(b)))
         open_edges.append((eid, e, ss.points[a], ss.points[b]))
+    # 05/11: ellissi (intere o archi) e curve libere: curve vere nel 3D (ellisse e B-spline esatte)
+    for eid, (c, m, n, s, f) in ss.ellipses.items():
+        if sk.entities[eid].get('construction'):
+            continue
+        P = ss.points
+        chiave = (chiave_piano, 'E', P[c], P[m], P[n], P.get(s), P.get(f))
+        e = _ricorda(_LATI, chiave, lambda: lato_ellisse(plane, P[c], P[m], P[n], P.get(s), P.get(f)))
+        if s is None:
+            circles.append((eid, e))
+        else:
+            open_edges.append((eid, e, P[s], P[f]))
+    for eid, (pts, chiusa) in ss.splines.items():
+        if sk.entities[eid].get('construction'):
+            continue
+        xy = [ss.points[p] for p in pts]
+        e = _ricorda(_LATI, (chiave_piano, 'S', tuple(xy), chiusa), lambda: lato_spline(plane, xy, chiusa))
+        if e is None:
+            continue
+        if chiusa:
+            circles.append((eid, e))
+        else:
+            open_edges.append((eid, e, xy[0], xy[-1]))
     for eid, (c, r) in ss.circles.items():
         if sk.entities[eid].get('construction'):
             continue
@@ -129,7 +151,7 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
     for eid, e, *_ in open_edges:
         sources.append(SourceEdge(eid, e, sk.entities[eid]['kind'], _key(e)))
     for eid, e in circles:
-        sources.append(SourceEdge(eid, e, 'circle', _key(e)))
+        sources.append(SourceEdge(eid, e, sk.entities[eid]['kind'], _key(e)))
 
     chiusi, sciolte = _loops(sk, open_edges)
     loops = [bd.Wire([e]) for _, e in circles] + chiusi
@@ -154,6 +176,51 @@ def build(ss: SolvedSketch, plane: bd.Plane) -> Profile:
                           code='profilo_aperto')
     # uno sketch di soli punti (posizioni di fori) è valido: non ha facce
     return Profile(plane, _faces(loops, plane) if loops else [], sources, sciolte=[e for e, _ in sciolte])
+
+
+def lato_ellisse(plane: bd.Plane, c, m, n, s=None, f=None) -> bd.Edge:
+    """L'ellisse (o l'arco di ellisse, antiorario da s a f) sul piano dello sketch, come curva vera."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Elips, gp_Pnt
+    from .curve import ellisse_intervallo
+    a, b, ang, u0, u1 = ellisse_intervallo(c, m, n, s, f)
+    o = plane.from_local_coords(c)
+    x = plane.from_local_coords((c[0] + math.cos(ang), c[1] + math.sin(ang))) - o
+    z = plane.z_dir
+    el = gp_Elips(gp_Ax2(gp_Pnt(o.X, o.Y, o.Z), gp_Dir(z.X, z.Y, z.Z), gp_Dir(x.X, x.Y, x.Z)), a, b)
+    if s is None:
+        return bd.Edge(BRepBuilderAPI_MakeEdge(el).Edge())
+    return bd.Edge(BRepBuilderAPI_MakeEdge(el, u0, u1).Edge())
+
+
+def lato_spline(plane: bd.Plane, xy: list, chiusa: bool):
+    """La curva libera per i punti come B-spline cubica esatta (gli stessi tratti di Bézier dello schermo e del
+    DXF), C2 come la curva disegnata. None se i punti sono meno di due."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
+    from OCP.Geom import Geom_BSplineCurve
+    from OCP.gp import gp_Pnt
+    from OCP.collections import Array1_double, Array1_gp_Pnt, Array1_int
+    from .curve import spline_bezier
+    tratti = spline_bezier(xy, chiusa)
+    if not tratti:
+        return None
+    poli = [tratti[0][0]] + [q for t in tratti for q in t[1:4]]
+    pp = Array1_gp_Pnt(1, len(poli))
+    for i, q in enumerate(poli):
+        v = plane.from_local_coords(q)
+        pp.SetValue(i + 1, gp_Pnt(v.X, v.Y, v.Z))
+    nodi = [0.0]
+    for t in tratti:
+        nodi.append(nodi[-1] + t[4])
+    kk = Array1_double(1, len(nodi))
+    mm = Array1_int(1, len(nodi))
+    for i, u in enumerate(nodi):
+        kk.SetValue(i + 1, u)
+        mm.SetValue(i + 1, 4 if i in (0, len(nodi) - 1) else 3)
+    curva = Geom_BSplineCurve(pp, kk, mm, 3)
+    for i in range(len(nodi) - 1, 1, -1):          # i nodi interni: la curva è C2, ne basta uno
+        curva.RemoveKnot(i, 1, 1e-7)
+    return bd.Edge(BRepBuilderAPI_MakeEdge(curva).Edge())
 
 
 def _loops(sk, open_edges) -> tuple[list, list]:
@@ -289,8 +356,8 @@ def _faces(loops: list, plane: bd.Plane) -> list:
         holes = [info[j][0] for j in range(len(info)) if parent[j] == i and depth[j] == depth[i] + 1]
         try:
             face = bd.Face(w, holes) if holes else f
-            if holes and abs(face.area - (f.area - sum(info[j][1].area for j in range(len(info))
-                                                         if parent[j] == i and depth[j] == depth[i] + 1))) > TOL:
+            if holes and abs(_area(face) - (_area(f) - sum(_area(info[j][1]) for j in range(len(info))
+                                                           if parent[j] == i and depth[j] == depth[i] + 1))) > TOL:
                 raise ValueError
         except Exception:  # noqa: BLE001 - un contorno interno che esce da quello esterno
             err = SketchError('Due contorni dello sketch si sovrappongono (uno esce dall’altro): il profilo non è '
@@ -314,6 +381,18 @@ def _faces(loops: list, plane: bd.Plane) -> list:
                 err.contorni = [info[a_][0], info[b_][0]]     # 03/11: quali sono, per farli vedere in rosso
                 raise err
     return faces
+
+
+def _area(f: bd.Face) -> float:
+    """L'area; con ellissi e curve libere calcolata fine (05/11: quella di serie sbagliava di qualche mm² su una curva
+    libera e il foro sembrava uscire dal contorno)."""
+    if all(e.geom_type in (bd.GeomType.LINE, bd.GeomType.CIRCLE) for e in f.edges()):
+        return f.area
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    g = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(f.wrapped, g, 1e-9)
+    return g.Mass()
 
 
 def _inside(face: bd.Face, p: bd.Vector) -> bool:

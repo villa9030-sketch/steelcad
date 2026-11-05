@@ -39,6 +39,9 @@ def catena(ss, fid) -> list:
         while a1 <= a0:
             a1 += 2 * math.pi
         pezzi.append({'k': 'A', 'p': [pa, pb], 'c': (cx, cy), 'r': r, 'a0': a0, 'sweep': a1 - a0})
+    if any(e['kind'] in ('ellipse', 'spline') and not e.get('construction') for e in sk.entities.values()):
+        raise FeatureError('La lamiera piegata si fa con linee e archi: ellissi e curve libere non si piegano. '
+                           'Per una sagoma piana usa «Crea lamiera» o «Crea piastra».', feature=fid)
     if not pezzi:
         raise FeatureError('Disegna il profilo con linee e archi (le linee di costruzione non contano).', feature=fid)
     if any(e['kind'] == 'circle' and not e.get('construction') for e in sk.entities.values()):

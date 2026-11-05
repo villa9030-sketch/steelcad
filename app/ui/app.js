@@ -824,8 +824,11 @@ canvas.addEventListener('contextmenu', ev => {
 canvas.addEventListener('pointerdown', ev => {
   premuto = { x: ev.clientX, y: ev.clientY };
   if (document.activeElement?.id === 'sk-cmd-in') document.activeElement.blur();
+  if (SK && ev.button === 0 && SK.tool === 'select' && !SK.pick && maniglia(ev)) return;     // 05/11: un punto di una curva
   if (SK && ev.button === 0 && ((SK.tool === 'select' && !SK.pick) || SK.pick?.stage === 'sel')) SK.box = { x: ev.clientX, y: ev.clientY };
 });
+window.addEventListener('pointermove', ev => { if (SK?.drag && (ev.buttons & 1)) trascinaManiglia(ev); });
+window.addEventListener('pointerup', ev => { if (SK?.drag) lasciaManiglia(ev); });
 window.addEventListener('pointermove', ev => {
   if (!SK?.box || !(ev.buttons & 1)) return;
   const r = view.getBoundingClientRect(), b = $('#sk-box');
@@ -871,6 +874,7 @@ window.addEventListener('pointerup', ev => {
   for (const c of SK.v.circles) prendi(c.id, giro(c.center, c.r, 0, 2 * Math.PI, 32));
   // archi: i mezzi tondi delle asole e i raccordi (prima la finestra non li prendeva mai)
   for (const a of SK.v.arcs) prendi(a.id, giro(a.center, a.r, a.a0, a.a1, 16));
+  for (const cu of SK.v.curves || []) prendi(cu.id, cu.p3.filter((_, i) => i % 3 === 0 || i === cu.p3.length - 1).map(scr));
   drawSketch();
 });
 canvas.addEventListener('pointermove', ev => {
@@ -1860,7 +1864,7 @@ function editDim(el, d) {
   inp.addEventListener('blur', chiudi);
 }
 // 05/11 (idee da SolidCraft): le quote tonde cambiano tipo con un clic; ogni quota può diventare di riferimento
-const quotaTonda = d => d.type === 'diameter' || d.type === 'radius' || d.type === 'arclength';
+const quotaTonda = d => d.type === 'diameter' || d.type === 'radius' || d.type === 'arclength' || d.type === 'tilt';
 function tipiQuota(d) {
   const b = (tipo, testo, title) => `<button type="button" tabindex="-1" data-tipo="${tipo}" title="${esc(title)}">${esc(testo)}</button>`;
   let h = '';
@@ -9298,6 +9302,7 @@ const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 5
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE, depthWrite: false });
 const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5, depthWrite: false });
 const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', slot: 'Asola', arc3: 'Arco', polygon: 'Poligono', select: 'Seleziona',
+  ellipse: 'Ellisse', spline: 'Curva libera',
   dim: 'Quota', trim: 'Accorcia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso', break: 'Spezza' };
 const SK_CUT_FILL = new THREE.MeshBasicMaterial({ color: 0xD92D20, side: THREE.DoubleSide, depthTest: false });   // il pezzo che il Taglia toglie
 // una linea spessa px pixel (in WebGL le linee sono sempre da 1 pixel): una striscia nel piano dello sketch
@@ -9358,12 +9363,14 @@ const AIUTI = {
   polygon: 'Poligono: scrivi quanti lati, poi clic sul centro e su un vertice · Esc annulla',
   fillet: 'Raccordo: clic sullo spigolo (o sulle due linee), poi scrivi il raggio · Invio conferma · Esc finisce',
   chamfer: 'Smusso: clic sullo spigolo (o sulle due linee), poi scrivi la misura · Invio conferma · Esc finisce',
-  select: 'Seleziona: clic su linee e cerchi, poi un comando · Maiusc aggiunge · doppio clic il contorno · Canc toglie',
+  select: 'Seleziona: clic su linee e cerchi, poi un comando · i punti di ellissi e curve libere si trascinano · Maiusc aggiunge · doppio clic il contorno · Canc toglie',
   dim: 'Quota: clic su una linea, un cerchio, o due punti · Esc finisce',
   trim: 'Accorcia: clic sul pezzo di linea da togliere (diventa rosso) · Esc finisce',
   extend: 'Allunga: clic vicino alla fine della linea da allungare · Esc finisce',
   break: 'Spezza: clic dove dividere in due la linea, l’arco o il cerchio (non toglie niente) · Esc finisce',
   text: 'Testo: clic dove va la scritta (sul centro del foro per centrarla) · doppio clic con Seleziona la cambia · Esc finisce',
+  ellipse: 'Ellisse (1 di 3): clic sul centro, o scrivi i due assi (400x250) · Esc annulla',
+  spline: 'Curva libera: clic sui punti dove passa · torna sul primo punto per chiuderla · Invio finisce · Esc finisce',
 };
 const AIUTI_VISTA = ' · destro sposta · rotella zoom';
 
@@ -9483,6 +9490,7 @@ function fitSketch(subito = false, extra = []) {
   // 03/11: anche la pancia degli archi (il collare: la cima dell'arco R55 restava fuori) e l'anteprima in corso
   for (const a of SK.v.arcs || []) for (let i = 0; i <= 8; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 8; box.expandByPoint(skToWorld([a.xc[0] + a.r * Math.cos(t), a.xc[1] + a.r * Math.sin(t)])); }
   extra.forEach(p => box.expandByPoint(p));
+  for (const c of SK.v.curves || []) for (let i = 0; i < c.pts.length; i += 4) box.expandByPoint(skToWorld(c.pts[i]));
   SK.v.circles.forEach(c => { box.expandByPoint(v3(c.center).addScalar(c.r)); box.expandByPoint(v3(c.center).addScalar(-c.r)); });
   // sullo sviluppo o su una faccia si inquadra sempre anche quella: si disegna sopra di lei
   if (SK.v.on_flat && flatGroup.children.length) box.union(flatBox());
@@ -9491,7 +9499,7 @@ function fitSketch(subito = false, extra = []) {
   if (box.isEmpty()) return;
   // 04/11: un disegno appena iniziato (la prima linea da 28) non riempie la vista: almeno 200 mm attorno, così c'è
   // posto per il resto (A_collare 5-7: 40 scatti di rotella per rimpicciolire)
-  const tratti = SK.v.lines.filter(l => !l.ref && !l.construction).length + (SK.v.arcs || []).length + SK.v.circles.length;
+  const tratti = SK.v.lines.filter(l => !l.ref && !l.construction).length + (SK.v.arcs || []).length + SK.v.circles.length + (SK.v.curves || []).length;
   if (!SK.v.on_flat && !SK.v.on_face && tratti <= 1) {            // solo il primo tratto: con più cose si inquadra quello che c'è
     const c = skToLocal(box.getCenter(new THREE.Vector3())), sz = box.getSize(new THREE.Vector3());
     if (Math.max(sz.x, sz.y, sz.z) < 200) { box.expandByPoint(skToWorld([c[0] - 100, c[1] - 100])); box.expandByPoint(skToWorld([c[0] + 100, c[1] + 100])); }
@@ -9520,7 +9528,8 @@ async function refreshSketch() {
   // il primo disegno si inquadra da solo, di colpo: con lo scorrimento il clic dopo (l'inizio della forma seguente)
   // cadeva a vista in movimento e andava perso o altrove (21/10, «il primo clic non viene preso»)
   if (eraVuoto && (SK.v.points.length > 1 || SK.v.circles.length)) { fitSketch(true); SK.cursor = null; }
-  for (const id of [...SK.sel]) if (!SK.v.lines.some(l => l.id === id) && !SK.v.circles.some(c => c.id === id) && !(SK.v.texts || []).some(t => t.id === id)) SK.sel.delete(id);
+  for (const id of [...SK.sel]) if (!SK.v.lines.some(l => l.id === id) && !SK.v.circles.some(c => c.id === id) && !(SK.v.texts || []).some(t => t.id === id)
+    && !(SK.v.curves || []).some(t => t.id === id) && !(SK.v.arcs || []).some(t => t.id === id)) SK.sel.delete(id);
   drawSketch();
 }
 function setTool(t) {
@@ -9543,7 +9552,7 @@ function setTool(t) {
 // annulla»); qui diventa: il comando con la sua icona, i passi (2 di 3), cosa fare, e i tasti disegnati
 const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura', Quota: 'dimension', Angolo: 'plane_angle', Offset: 'offset',
   Specchia: 'mirror', Copia: 'copy', Sposta: 'move', Poligono: 'polygon', Linea: 'line', Rettangolo: 'rect', Cerchio: 'circle', Arco: 'arc3',
-  Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Spezza: 'break', Scala: 'scale', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
+  Asola: 'slot', Testo: 'text', Ellisse: 'ellipse', 'Arco di ellisse': 'ellipse', 'Curva libera': 'spline', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Spezza: 'break', Scala: 'scale', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
   Seleziona: 'select', Costruzione: 'construction', 'Linea guida': 'linea_guida', Appoggia: 'appoggia', 'Metti nel vano': 'vano', 'Vite nei fori': 'fastener' };
@@ -9653,6 +9662,7 @@ function ingrossa(gruppo) {
 // i punti di un elemento dello sketch, come polilinee 3D
 function skPolilinee(tipo, e, v) {
   if (tipo === 'line') return [[v3(e.pa), v3(e.pb)]];
+  if (tipo === 'curve') return [e.p3.map(q => v3(q))];          // ellissi e curve libere: i punti li dà il motore
   if (tipo === 'text') return e.strokes.map(s => s.map(q => v3(q)));
   const ctr = v3(e.center), x = v3(v.x_dir), y = v3(v.y_dir), pts = [];
   if (tipo === 'circle') for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push(ctr.clone().addScaledVector(x, e.r * Math.cos(a)).addScaledVector(y, e.r * Math.sin(a))); }
@@ -9682,6 +9692,7 @@ function disegnaBaseSketch(v, w, h) {
   let ext = 300;
   for (const p of v.points) ext = Math.max(ext, Math.abs(p.xy[0]), Math.abs(p.xy[1]));
   for (const c of v.circles) ext = Math.max(ext, Math.abs(c.xc[0]) + c.r, Math.abs(c.xc[1]) + c.r);
+  for (const c of v.curves || []) for (const q of c.pts) ext = Math.max(ext, Math.abs(q[0]), Math.abs(q[1]));
   const lim = Math.min(5000, Math.ceil(ext * 1.6 / 100) * 100), segs1 = [], segs2 = [];
   for (let k = -lim; k <= lim; k += 10) {
     const arr = k % 100 === 0 ? segs2 : segs1;
@@ -9715,6 +9726,10 @@ function disegnaBaseSketch(v, w, h) {
   for (const a of v.arcs || []) {
     idx.set(a.id, ['arc', a]);
     tratti.push([skPolilinee('arc', a, v)[0], a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : sciolte.has(a.id) ? SK_SCIOLTA : liberi.has(a.id) ? SK_LIBERA : SK_LINE]);
+  }
+  for (const a of v.curves || []) {               // 05/11: ellissi e curve libere
+    idx.set(a.id, ['curve', a]);
+    tratti.push([skPolilinee('curve', a, v)[0], a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : sciolte.has(a.id) ? SK_SCIOLTA : SK_LINE]);
   }
   lineeInBlocco(skGroup, tratti);
   const pg = new THREE.BufferGeometry().setFromPoints(v.points.map(p => v3(p.xyz)));
@@ -9910,6 +9925,12 @@ function skCursor(ev) {
     const d = Math.hypot(xy[0] - c.xc[0], xy[1] - c.xc[1]) || 1;
     const q = [c.xc[0] + (xy[0] - c.xc[0]) / d * c.r, c.xc[1] + (xy[1] - c.xc[1]) / d * c.r];
     if (angIn(Math.atan2(q[1] - c.xc[1], q[0] - c.xc[0]), c)) prendi(q, 'sul', { ref: { on: c.id, xy: q }, nota: 'sul cerchio' });
+  }
+  for (const cu of SK.v.curves || []) {             // 05/11: sull'ellisse (resta sull'ellisse se cambia)
+    if (cu.kind !== 'ellipse') continue;
+    let bq = null, bd = Infinity;
+    for (const q of cu.pts) { const d = Math.hypot(q[0] - xy[0], q[1] - xy[1]); if (d < bd) { bd = d; bq = q; } }
+    if (bq) prendi(bq, 'sul', { ref: { on: cu.id, xy: bq }, nota: 'sull’ellisse' });
   }
   if (cand.length) {
     const b = cand.reduce((m, c) => (c.d - (VANTAGGIO[c.tipo] || 0) < m.d - (VANTAGGIO[m.tipo] || 0) ? c : m));
@@ -10300,6 +10321,13 @@ function drawRubber() {
     const r = Math.hypot(c[0] - last.xy[0], c[1] - last.xy[1]), pts = [];
     for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push([last.xy[0] + r * Math.cos(a), last.xy[1] + r * Math.sin(a)]); }
     add(pts); testo = `Ø ${num(2 * r, 2)}`;
+  } else if (SK.tool === 'ellipse' && last) {
+    testo = ellisseAnteprima(c, add);
+  } else if (SK.tool === 'spline' && last) {
+    const pts = SK.pts.map(p => p.xy), chiude = SK.pts.length >= 3 && (SK.cursor.first || (SK.cursor.id && SK.cursor.id === SK.pts[0].id));
+    if (!chiude) pts.push(c);
+    add(splineCampioni(pts, chiude));
+    testo = chiude ? 'chiudi la curva' : `${SK.pts.length + 1}° punto`;
   }
   // 04/11: dopo Esc il punto scritto non è più sotto il mouse: niente «28 ; 0 · scritto» lasciato lì (percorso A)
   if (SK.cursor.how === 'scritto' && !SK.pts.length) { tip.style.display = 'none'; ridisegna(); return; }
@@ -10341,6 +10369,12 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
     for (const s of t.strokes) for (let i = 1; i < s.length; i++) {
       const d = segDist(m, proj(s[i - 1]), proj(s[i]));
       if (d < 6 && (!best || d < best.d)) best = { id: t.id, d };
+    }
+  }
+  for (const cu of SK.v.curves || []) {           // ellissi e curve libere: vicino alla spezzata
+    for (let i = 1; i < cu.p3.length; i++) {
+      const d = segDist(m, proj(cu.p3[i - 1]), proj(cu.p3[i]));
+      if (d < 7 && (!best || d < best.d)) best = { id: cu.id, d };
     }
   }
   const xy = skPick(ev);
@@ -10520,16 +10554,18 @@ document.addEventListener('input', ev => {
 // ------------------------------------------------------------- rettangolo e cerchio: i modi di farli (05/11)
 // Dentro lo strumento (non pulsanti nuovi nella barra): sopra la barra d'aiuto si sceglie come. Restano scelti per la
 // volta dopo. Idee da SolidCraft (rettangolo dal centro, a 3 punti, raccordato; cerchio per 3 punti, tangente).
-let ultimoRett = { come: 'angoli', r: '5' }, ultimoCerchio = { come: 'centro', r: '10' };
+let ultimoRett = { come: 'angoli', r: '5' }, ultimoCerchio = { come: 'centro', r: '10' }, ultimoEllisse = { come: 'intera' };
 const VARIANTI = {
+  ellipse: [['intera', 'intera'], ['arco', 'arco di ellisse']],
   rect: [['angoli', 'due angoli'], ['centro', 'dal centro'], ['tre', 'a 3 punti'], ['raccordato', 'raccordato']],
   circle: [['centro', 'centro e bordo'], ['tre', 'per 3 punti'], ['tan2', 'tangente a 2 linee'], ['tan3', 'tangente a 3 linee']],
 };
-const varianteDi = t => t === 'rect' ? ultimoRett.come : t === 'circle' ? ultimoCerchio.come : t === 'guide' ? ultimaGuida.come : null;
+const varianteDi = t => t === 'rect' ? ultimoRett.come : t === 'circle' ? ultimoCerchio.come : t === 'guide' ? ultimaGuida.come : t === 'ellipse' ? ultimoEllisse.come : null;
+const ultimoDi = t => t === 'rect' ? ultimoRett : t === 'ellipse' ? ultimoEllisse : t === 'guide' ? ultimaGuida : ultimoCerchio;
 const tangente = () => SK?.tool === 'circle' && /^tan/.test(ultimoCerchio.come);
 function scelteVarianti(t) {
   if (t === 'guide') return scelteGuida();
-  const u = t === 'rect' ? ultimoRett : ultimoCerchio;
+  const u = ultimoDi(t);
   const b = VARIANTI[t].map(([k, testo]) => `<button type="button" data-var="${k}" class="${u.come === k ? 'on' : ''}">${testo}</button>`).join('');
   const r = t === 'rect' && u.come === 'raccordato'
     ? `<span>raggio</span><input id="sk-var-r" value="${esc(virgola(u.r))}" title="Raggio dei quattro raccordi"><i>mm</i>` : '';
@@ -10549,13 +10585,22 @@ function aiutoStrumento(t = SK?.tool) {
   if (t === 'circle' && v === 'tan2') return L < 2 ? `Cerchio tangente (${L + 1} di 3): clic sulla ${terzi[L]} linea · Esc annulla`
     : 'Cerchio tangente (3 di 3): scrivi il raggio, il mouse sceglie l’angolo · Invio conferma · Esc annulla';
   if (t === 'circle' && v === 'tan3') return `Cerchio tangente (${Math.min(L + 1, 3)} di 3): clic sulla ${terzi[Math.min(L, 2)]} linea, vicino a dove la tocca · Esc annulla`;
+  if (t === 'ellipse') {                          // 05/11: ellisse e arco di ellisse, un passo alla volta
+    const arco = v === 'arco', tot = arco ? 5 : 3, nome = arco ? 'Arco di ellisse' : 'Ellisse';
+    return [`${nome} (1 di ${tot}): clic sul centro, o scrivi i due assi (400x250) · Esc annulla`,
+      `${nome} (2 di ${tot}): clic sulla fine di un asse, o scrivi quanto è lungo tutto l’asse · Invio conferma · Esc annulla`,
+      `${nome} (3 di ${tot}): muovi il mouse per la larghezza dall’altra parte e clicca, o scrivi l’altro asse · Invio conferma · Esc annulla`,
+      `${nome} (4 di ${tot}): clic sull’ellisse dove comincia l’arco (gira in senso antiorario) · Esc annulla`,
+      `${nome} (5 di ${tot}): clic dove finisce l’arco · Esc annulla`][Math.min(n, tot - 1)];
+  }
+  if (t === 'spline' && n) return `Curva libera (${n} ${n === 1 ? 'punto' : 'punti'}): clic sul punto dopo · sul primo punto la chiudi · Invio la finisce aperta · Esc finisce`;
   return AIUTI[t];
 }
 document.addEventListener('mousedown', ev => { if (ev.target.closest('[data-var]')) ev.preventDefault(); });
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-var]');
   if (!b || !SK) return;
-  const u = SK.tool === 'rect' ? ultimoRett : SK.tool === 'guide' ? ultimaGuida : ultimoCerchio;
+  const u = ultimoDi(SK.tool);
   u.come = b.dataset.var;
   SK.pts = []; SK.buf = '';
   if (SK.tool === 'guide') guidaReset();
@@ -10820,6 +10865,230 @@ function tanFai(scritto) {
   setHelp(aiutoStrumento() + AIUTI_VISTA);
   drawRubber();
 }
+// ------------------------------------------------------------- ellisse e curva libera (05/11, idee da SolidCraft)
+// Ellisse: centro, fine di un asse, poi la larghezza dall'altra parte (il mouse o scritta); l'arco di ellisse ha in più
+// partenza e arrivo, in senso antiorario. Curva libera: passa per i punti cliccati, aperta o chiusa. Gli stessi conti
+// del motore (cad_engine/sketch/curve.py): quello che vedi mentre disegni è quello che viene.
+function splineBezier(pts, chiusa) {
+  const q = [];
+  for (const p of pts) if (!q.length || Math.hypot(p[0] - q[q.length - 1][0], p[1] - q[q.length - 1][1]) > 1e-9) q.push(p);
+  if (chiusa && q.length > 2 && Math.hypot(q[0][0] - q[q.length - 1][0], q[0][1] - q[q.length - 1][1]) <= 1e-9) q.pop();
+  if (q.length < 2) return [];
+  if (chiusa && q.length < 3) chiusa = false;
+  if (chiusa) q.push(q[0]);
+  const n = q.length - 1, h = [];
+  for (let i = 0; i < n; i++) h.push(Math.max(Math.hypot(q[i + 1][0] - q[i][0], q[i + 1][1] - q[i][1]), 1e-9));
+  const risolvi = (A, r) => {                     // Gauss col pivot: sistemi piccoli
+    const N = r.length, M = A.map((row, i) => [...row, r[i]]);
+    for (let c = 0; c < N; c++) {
+      let piv = c; for (let i = c + 1; i < N; i++) if (Math.abs(M[i][c]) > Math.abs(M[piv][c])) piv = i;
+      [M[c], M[piv]] = [M[piv], M[c]];
+      if (Math.abs(M[c][c]) < 1e-300) continue;
+      for (let i = 0; i < N; i++) if (i !== c && M[i][c]) { const f = M[i][c] / M[c][c]; for (let k = c; k <= N; k++) M[i][k] -= f * M[c][k]; }
+    }
+    return M.map((row, i) => Math.abs(row[i]) > 1e-300 ? row[N] / row[i] : 0);
+  };
+  const der = [];
+  for (const k of [0, 1]) {
+    const y = q.map(p => p[k]);
+    if (chiusa) {
+      const A = Array.from({ length: n }, () => new Array(n).fill(0)), r = new Array(n).fill(0);
+      for (let i = 0; i < n; i++) {
+        const hp = h[(i - 1 + n) % n], hn = h[i];
+        A[i][(i - 1 + n) % n] += hp; A[i][i] += 2 * (hp + hn); A[i][(i + 1) % n] += hn;
+        const yp = i ? y[i - 1] : y[n - 1];
+        r[i] = 6 * ((y[i + 1] - y[i]) / hn - (y[i] - yp) / hp);
+      }
+      const m = risolvi(A, r); der.push([...m, m[0]]);
+    } else if (n === 1) der.push([0, 0]);
+    else {
+      const A = Array.from({ length: n - 1 }, () => new Array(n - 1).fill(0)), r = new Array(n - 1).fill(0);
+      for (let j = 0; j < n - 1; j++) {
+        const i = j + 1;
+        if (j) A[j][j - 1] = h[i - 1];
+        A[j][j] = 2 * (h[i - 1] + h[i]);
+        if (j < n - 2) A[j][j + 1] = h[i];
+        r[j] = 6 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1]);
+      }
+      der.push([0, ...risolvi(A, r), 0]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const hi = h[i], d0 = [], d1 = [];
+    for (const k of [0, 1]) {
+      const s = (q[i + 1][k] - q[i][k]) / hi, m0 = der[k][i], m1 = der[k][i + 1];
+      d0.push(s - m0 * hi / 3 - m1 * hi / 6); d1.push(s + m0 * hi / 6 + m1 * hi / 3);
+    }
+    out.push([q[i], [q[i][0] + d0[0] * hi / 3, q[i][1] + d0[1] * hi / 3], [q[i + 1][0] - d1[0] * hi / 3, q[i + 1][1] - d1[1] * hi / 3], q[i + 1]]);
+  }
+  return out;
+}
+function splineCampioni(pts, chiusa, per = 16) {
+  const out = [];
+  splineBezier(pts, chiusa).forEach((b, i) => {
+    for (let k = i ? 1 : 0; k <= per; k++) {
+      const t = k / per, s = 1 - t;
+      out.push([0, 1].map(j => s * s * s * b[0][j] + 3 * s * s * t * b[1][j] + 3 * s * t * t * b[2][j] + t * t * t * b[3][j]));
+    }
+  });
+  return out.length ? out : pts;
+}
+// l'ellisse dal centro c, dalla fine di un asse m e dalla metà dell'altro asse b; u0..u1 il pezzo (antiorario)
+function ellissePunti(c, m, b, u0 = 0, u1 = 2 * Math.PI, n = 96) {
+  const a = Math.hypot(m[0] - c[0], m[1] - c[1]) || 1e-9, ux = (m[0] - c[0]) / a, uy = (m[1] - c[1]) / a, out = [];
+  const k = Math.max(8, Math.round(n * (u1 - u0) / (2 * Math.PI)));
+  for (let i = 0; i <= k; i++) {
+    const t = u0 + (u1 - u0) * i / k, x = a * Math.cos(t), y = b * Math.sin(t);
+    out.push([c[0] + x * ux - y * uy, c[1] + x * uy + y * ux]);
+  }
+  return out;
+}
+function ellisseParam(c, m, b, p) {             // il parametro del punto dell'ellisse più vicino (circa)
+  const a = Math.hypot(m[0] - c[0], m[1] - c[1]) || 1e-9, ux = (m[0] - c[0]) / a, uy = (m[1] - c[1]) / a;
+  const dx = p[0] - c[0], dy = p[1] - c[1];
+  return Math.atan2((-dx * uy + dy * ux) / (b || 1e-9), (dx * ux + dy * uy) / a);
+}
+function ellisseB(c, m, q) {                    // la metà dell'altro asse: quanto q sta lontano dalla retta dell'asse
+  const a = Math.hypot(m[0] - c[0], m[1] - c[1]) || 1e-9;
+  return Math.abs((q[0] - c[0]) * -(m[1] - c[1]) / a + (q[1] - c[1]) * (m[0] - c[0]) / a);
+}
+function ellisseAnteprima(c, add) {
+  const P = SK.pts, C = P[0].xy;
+  if (P.length === 1) {                            // l'asse: dal centro al mouse, e dall'altra parte
+    add([[2 * C[0] - c[0], 2 * C[1] - c[1]], c], SK_TRACK);
+    return `asse ${num(2 * Math.hypot(c[0] - C[0], c[1] - C[1]), 2)} mm`;
+  }
+  const M = P[1].xy, a = Math.hypot(M[0] - C[0], M[1] - C[1]);
+  const b = P.length >= 3 ? SK.ellB : ellisseB(C, M, c);
+  if (P.length === 2) {
+    add(ellissePunti(C, M, Math.max(b, 1e-6)));
+    add([[2 * C[0] - M[0], 2 * C[1] - M[1]], M], SK_TRACK);
+    return `${num(2 * a, 2)} × ${num(2 * b, 2)}`;
+  }
+  add(ellissePunti(C, M, b), SK_CONSTR);             // arco di ellisse: l'ellisse intera grigia (guida), l'arco che cresce
+  const u0 = ellisseParam(C, M, b, P[3]?.xy || c);
+  if (P.length === 3) { add(ellissePunti(C, M, b, u0, u0 + 0.0001, 8)); return 'partenza dell’arco'; }
+  let u1 = ellisseParam(C, M, b, c);
+  while (u1 <= u0 + 1e-9) u1 += 2 * Math.PI;
+  add(ellissePunti(C, M, b, u0, u1));
+  return `arco di ${num((u1 - u0) * 180 / Math.PI, 1)}°`;
+}
+function ellisseFai(C, M, b, S = null, E = null) {
+  const k = SK.constr, sid = SK.sid;
+  SK.pts = []; SK.buf = ''; SK.ellB = null;
+  if (!(b > 1e-6) || Math.hypot(M[0] - C.xy[0], M[1] - C.xy[1]) < 1e-6) { toast('L’ellisse ha bisogno di due assi più lunghi di zero.', 'err'); drawRubber(); return; }
+  inCoda(async () => { await apply(await call('sketch_add_ellipse', sid, ptArg(C), M, b, S ? ptArg(S) : null, E ? ptArg(E) : null, k)); });
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+}
+function ellisseClic(c, p) {
+  const P = SK.pts, arco = ultimoEllisse.come === 'arco';
+  if (!P.length) { P.push(p); }
+  else if (P.length === 1) {
+    if (Math.hypot(c.xy[0] - P[0].xy[0], c.xy[1] - P[0].xy[1]) < 1e-6) { toast('La fine dell’asse deve essere lontana dal centro.', 'err'); return; }
+    P.push({ id: null, xy: c.xy });                 // la fine dell'asse: un punto nuovo (lo mette l'ellisse)
+  } else if (P.length === 2) {
+    const b = ellisseB(P[0].xy, P[1].xy, c.xy);
+    if (!arco) { ellisseFai(P[0], P[1].xy, b); return; }
+    SK.ellB = b; P.push({ id: null, xy: c.xy });
+  } else if (P.length === 3) {
+    P.push(p);
+  } else {
+    const [C, M, , S] = P;
+    ellisseFai(C, M.xy, SK.ellB, S, p);
+    return;
+  }
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+}
+function ellisseScritta(v, secondo) {              // 400x250 dal centro; 400 = un asse; poi l'altro
+  const P = SK.pts, C = P[0], mouse = SK.cursor?.xy;
+  if (!C) { toast('Prima clicca il centro.', 'err'); return; }
+  if (P.length === 1 && secondo > 0) {              // i due assi: dritta, il primo in orizzontale
+    const M = [C.xy[0] + v / 2, C.xy[1]];
+    if (ultimoEllisse.come !== 'arco') { ellisseFai(C, M, secondo / 2); return; }
+    P.push({ id: null, xy: M }); SK.ellB = secondo / 2; P.push({ id: null, xy: M });
+  } else if (P.length === 1) {                       // un asse, nella direzione del mouse (dritto se ci sei vicino)
+    let dx = (mouse?.[0] ?? C.xy[0] + 1) - C.xy[0], dy = (mouse?.[1] ?? C.xy[1]) - C.xy[1];
+    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const an = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
+    if (an < 8 || an > 172) { dx = Math.sign(dx) || 1; dy = 0; } else if (Math.abs(an - 90) < 8) { dx = 0; dy = Math.sign(dy) || 1; }
+    P.push({ id: null, xy: [C.xy[0] + dx * v / 2, C.xy[1] + dy * v / 2] });
+  } else if (P.length === 2) {
+    if (ultimoEllisse.come !== 'arco') { ellisseFai(C, P[1].xy, v / 2); return; }
+    SK.ellB = v / 2; P.push({ id: null, xy: P[1].xy });
+  } else { toast('Ora clicca sull’ellisse dove comincia e dove finisce l’arco.', 'err'); return; }
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+}
+function splineFine(chiusa) {
+  const pts = SK.pts, k = SK.constr, sid = SK.sid;
+  SK.pts = []; SK.buf = '';
+  drawRubber();
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  if (pts.length < (chiusa ? 3 : 2)) return;
+  inCoda(async () => { await apply(await call('sketch_add_spline', sid, pts.map(ptArg), chiusa, k)); });
+}
+// trascinare un punto di una curva libera o di un'ellisse: la curva lo segue mentre muovi, lasciando si fissa
+function maniglia(ev) {
+  const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  let best = null;
+  for (const cu of SK.v.curves || []) {
+    if (cu.ref || cu.xray) continue;
+    for (const pid of cu.handles) {
+      const p = SK.v.points.find(q => q.id === pid);
+      if (!p) continue;
+      const s = skScreen(p.xy), d = Math.hypot(s[0] - mx, s[1] - my);
+      if (d < AP && (!best || d < best.d)) best = { d, pid, cu, da: p.xy };
+    }
+  }
+  if (!best) return false;
+  SK.drag = { pid: best.pid, cu: best.cu, da: best.da, xy: best.da, mosso: false, x: ev.clientX, y: ev.clientY };
+  return true;
+}
+function curvaTrascinata(D) {                     // la curva col punto spostato, per l'anteprima
+  const cu = D.cu, P = id => id === D.pid ? D.xy : SK.v.points.find(q => q.id === id)?.xy;
+  if (cu.kind === 'spline') return splineCampioni(cu.points_ids.map(P), cu.closed);
+  let C = P(cu.center_id), M = P(cu.major), N = P(cu.minor);
+  if (D.pid === cu.center_id) {                    // il centro sposta tutta l'ellisse
+    const dx = D.xy[0] - D.da[0], dy = D.xy[1] - D.da[1];
+    M = [cu.xc[0] + cu.a * Math.cos(cu.ang) + dx, cu.xc[1] + cu.a * Math.sin(cu.ang) + dy];
+    C = D.xy;
+  }
+  const b = D.pid === cu.minor ? Math.hypot(N[0] - C[0], N[1] - C[1]) : cu.b;
+  if (cu.closed) return ellissePunti(C, M, b);
+  const S = P(cu.start), E = P(cu.end), sh = D.pid === cu.center_id ? [D.xy[0] - D.da[0], D.xy[1] - D.da[1]] : [0, 0];
+  const u0 = ellisseParam(C, M, b, [S[0] + sh[0], S[1] + sh[1]]);
+  let u1 = ellisseParam(C, M, b, [E[0] + sh[0], E[1] + sh[1]]);
+  while (u1 <= u0 + 1e-9) u1 += 2 * Math.PI;
+  return ellissePunti(C, M, b, u0, u1);
+}
+function trascinaManiglia(ev) {
+  const D = SK.drag;
+  if (!D.mosso && Math.hypot(ev.clientX - D.x, ev.clientY - D.y) < 4) return;
+  D.mosso = true;
+  const c = skCursor(ev), q = c?.xy || skPick(ev);
+  if (!q) return;
+  D.xy = q;
+  skRubber.traverse(x => x.geometry?.dispose()); skRubber.clear();
+  const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curvaTrascinata(D).map(skToWorld)), SK_RUB);
+  l.computeLineDistances(); skRubber.add(l);
+  drawSnap({ tipo: 'punto', xy: q });
+  const tip = $('#sk-tip'), s = skScreen(q);
+  tip.textContent = `${num(q[0], 2)} ; ${num(q[1], 2)}`; tip.style.display = 'block';
+  tip.style.left = (s[0] + 14) + 'px'; tip.style.top = (s[1] + 14) + 'px';
+  ridisegna();
+}
+function lasciaManiglia() {
+  const D = SK.drag, sid = SK.sid;
+  SK.drag = null;
+  premuto = null;                                 // non è un clic
+  if (!D.mosso) return;
+  drawSnap(null);
+  $('#sk-tip').style.display = 'none';
+  inCoda(async () => { await apply(await call('sketch_move_point', sid, D.pid, D.xy)); if (SK && !SK.drag) drawRubber(); });
+}
 // cerchi e archi come { id, xc, r, a0, a1 } (il cerchio intero va da 0 a 2π)
 function roundsOf() {
   return [...SK.v.circles.map(c => ({ id: c.id, xc: c.xc, r: c.r, a0: 0, a1: 2 * Math.PI })),
@@ -10994,6 +11263,14 @@ function skPlace(c) {
       const r = slotR(c.xy);
       if (r > 0) addSlot(r);
     }
+  } else if (SK.tool === 'ellipse') {
+    ellisseClic(c, p);
+  } else if (SK.tool === 'spline') {
+    if (SK.pts.length >= 3 && (c.first || (c.id && c.id === SK.pts[0].id))) { splineFine(true); return; }
+    if (SK.pts.length && Math.hypot(c.xy[0] - SK.pts[SK.pts.length - 1].xy[0], c.xy[1] - SK.pts[SK.pts.length - 1].xy[1]) < 1e-6) return;
+    if (SK.pts.length && c.id && SK.pts.some(q => q.id === c.id)) { toast('Questo punto è già nella curva: per chiuderla torna sul primo.', 'err'); return; }
+    SK.pts.push(p);
+    setHelp(aiutoStrumento() + AIUTI_VISTA);
   } else if (SK.tool === 'text') {
     const sid = SK.sid;
     finestraTesto({ valori: SK.lastText, at: p.xy, nuova: true, ok: (v, close) => {
@@ -11176,13 +11453,14 @@ function skTyped() {
   const m = SK.tool === 'line' && SK.buf.match(/^\s*([0-9.,]+)\s*<\s*(-?[0-9.,]+)\s*$/);
   if (m) { SK.buf = ''; skTypedAngle(parseFloat(m[1].replace(',', '.')), parseFloat(m[2].replace(',', '.'))); return; }
   // rettangolo "100x50": larghezza x altezza, verso il mouse
-  const mr = SK.tool === 'rect' && SK.buf.match(/^\s*([0-9.,]+)\s*[xX*×]\s*([0-9.,]+)\s*$/);
+  const mr = (SK.tool === 'rect' || SK.tool === 'ellipse') && SK.buf.match(/^\s*([0-9.,]+)\s*[xX*×]\s*([0-9.,]+)\s*$/);
   const rectH = mr ? parseFloat(mr[2].replace(',', '.')) : null;
   const v = parseFloat((mr ? mr[1] : SK.buf).replace(',', '.'));
   SK.buf = '';
   if (mr && !(rectH > 0)) { toast('Scrivi così: larghezza x altezza, per esempio 100x50', 'err'); return; }
   if (!(v > 0)) { toast('Scrivi un numero maggiore di zero.', 'err'); return; }
   if (SK.tool === 'arcr' && !SK.pick) { arcrScritto(v); return; }
+  if (SK.tool === 'ellipse' && !SK.pick) { ellisseScritta(v, rectH); return; }
   if (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2 && !SK.pick) { tanFai(v); return; }
   const last = SK.pts[SK.pts.length - 1];
   if (!last) { toast('Prima clicca il punto di partenza.', 'err'); return; }
@@ -11251,7 +11529,8 @@ function skKey(ev) {
   }
   if (ev.ctrlKey && ev.key.toLowerCase() === 'a') {
     // 05/11: anche gli archi (prima restavano fuori: Scala e Copia di «tutto» li lasciavano indietro)
-    SK.sel = new Set([...SK.v.lines.map(l => l.id), ...SK.v.circles.map(c => c.id), ...(SK.v.arcs || []).filter(a => !a.ref).map(a => a.id)]);
+    SK.sel = new Set([...SK.v.lines.map(l => l.id), ...SK.v.circles.map(c => c.id), ...(SK.v.arcs || []).filter(a => !a.ref).map(a => a.id),
+      ...(SK.v.curves || []).filter(a => !a.ref).map(a => a.id)]);
     if (SK.pick?.stage === 'sel') { drawSketch(); return true; }        // dentro Copia, Scala…: si resta nel comando
     setTool('select'); drawSketch(); return true;
   }
@@ -11263,13 +11542,15 @@ function skKey(ev) {
   if (ev.ctrlKey || ev.altKey) return false;
   const k = ev.key;
   if (SK.tool === 'guide' && guidaTasto(k)) return true;
-  if ((/^[0-9.,]$/.test(k) || (SK.tool === 'line' && /^[<\-]$/.test(k)) || (SK.tool === 'rect' && SK.buf && /^[xX*]$/.test(k)))
+  if ((/^[0-9.,]$/.test(k) || (SK.tool === 'line' && /^[<\-]$/.test(k)) || ((SK.tool === 'rect' || SK.tool === 'ellipse') && SK.buf && /^[xX*]$/.test(k)))
       && SK.tool !== 'select' && (SK.pts.length || (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2))) { SK.buf += k; drawRubber(); return true; }
   if (k === 'Backspace' && SK.buf) { SK.buf = SK.buf.slice(0, -1); drawRubber(); return true; }
   if (k === 'Enter' && SK.pick?.stage === 'sel') {
     if (!SK.sel.size) { toast(`Prima clicca quello ${DA_SCEGLIERE[SK.pick.what] || 'da copiare'}.`, 'err'); return true; }
     skScegliPoiBase(SK.pick); return true;
   }
+  if (k === 'Enter' && !SK.buf && SK.tool === 'spline' && SK.pts.length >= 2) { splineFine(false); return true; }
+  if (k === 'Escape' && !SK.buf && SK.tool === 'spline' && SK.pts.length >= 2) { splineFine(false); return true; }
   if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); else if (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2) tanFai(); return true; }
   if (k === 'Escape') {
     if (SK.buf) { SK.buf = ''; drawRubber(); return true; }
@@ -11290,7 +11571,7 @@ function skKey(ev) {
     eliminaNelloSketch(ids);
     return true;
   }
-  const tasti = { l: 'line', r: 'rect', c: 'circle', k: 'slot', p: 'polygon', s: 'select', d: 'dim', t: 'trim', a: 'extend' };
+  const tasti = { l: 'line', r: 'rect', c: 'circle', k: 'slot', p: 'polygon', s: 'select', d: 'dim', t: 'trim', a: 'extend', e: 'ellipse' };
   if (tasti[k.toLowerCase()]) { setTool(tasti[k.toLowerCase()]); return true; }
   if (k.toLowerCase() === 'x') { costruzione(); return true; }
   if (k.toLowerCase() === 'g' && (SK.v.on_face || SK.v.on_flat)) { SK.ghost = !SK.ghost; applyLook(); return true; }
@@ -11338,6 +11619,7 @@ function promptCmd() {
   if (SK.tool === 'rect' && ultimoRett.come === 'tre') return SK.pts.length === 1 ? 'Lunghezza del primo lato' : 'Larghezza';
   if (SK.tool === 'rect') return 'Misure: larghezza x altezza (es. 100x50)';
   if (SK.tool === 'circle') return ultimoCerchio.come === 'centro' ? 'Diametro' : null;
+  if (SK.tool === 'ellipse') return SK.pts.length === 1 ? 'Asse: tutta la lunghezza (nella direzione del mouse)' : SK.pts.length === 2 ? 'L’altro asse: tutta la larghezza' : null;
   if (SK.tool === 'slot') return SK.pts.length === 1 ? 'Interasse (distanza tra i centri)' : 'Larghezza dell’asola';
   if (SK.tool === 'polygon') return SK.pts.length ? null : 'Numero di lati';
   if (SK.tool === 'arc3') return null;
@@ -11349,7 +11631,7 @@ function updateCmd() {
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', !off && SK?.tool === b.dataset.tool));
   document.querySelectorAll('#sk-panel [data-act="offset"], #ribbon [data-act="offset"]').forEach(b => b.classList.toggle('on', off));
   // 05/11: con Rettangolo e Cerchio la casella c'è sempre, con le scelte di come farli (la parte da scrivere solo se serve)
-  const vari = SK && !SK.pick && (SK.tool === 'rect' || SK.tool === 'circle' || SK.tool === 'guide') ? SK.tool : '';
+  const vari = SK && !SK.pick && (SK.tool === 'rect' || SK.tool === 'circle' || SK.tool === 'guide' || SK.tool === 'ellipse') ? SK.tool : '';
   box.hidden = !testo && !vari;
   const extra = $('#sk-cmd-extra'), vuole = testo && SK?.tool === 'arcr' && !SK.pick ? 'arcr' : vari ? `${vari}:${varianteDi(vari)}` : '';
   if (extra && extra.dataset.cosa !== vuole) { extra.dataset.cosa = vuole; extra.innerHTML = vuole === 'arcr' ? arcrScelte() : vari ? scelteVarianti(vari) : ''; }
@@ -11930,6 +12212,16 @@ function skDimClick(ev) {
     if (punto) { SK.dimPick = [punto]; setHelp('Quota: ora clic su un altro punto o su una linea · Esc annulla'); return; }
     if (h && SK.v.circles.some(x => x.id === h)) { quota('diameter', [h]); return; }
     if (h && SK.v.arcs?.some(x => x.id === h)) { quota('radius', [h]); return; }
+    const cu = h && (SK.v.curves || []).find(x => x.id === h);
+    if (cu?.kind === 'spline') { toast('Della curva libera si quotano i punti dove passa: clic su un punto.', 'err'); return; }
+    if (cu) {                                       // 05/11: ellisse: quale misura
+      modal(`<h3>Quota dell’ellisse</h3><div class="choice"><button data-k="major_axis">Asse grande</button><button data-k="minor_axis">Asse piccolo</button><button data-k="tilt">Inclinazione</button></div>
+        <div class="acts"><button class="btn" id="m-no">Annulla</button></div>`, close => {
+        $('#m-no').onclick = close;
+        $('#modal-box').querySelectorAll('.choice button').forEach(b => { b.onclick = () => { close(); quota(b.dataset.k, [h]); }; });
+      }, { stretta: true });
+      return;
+    }
     if (h) { quota('length', [h]); return; }
     return;
   }
