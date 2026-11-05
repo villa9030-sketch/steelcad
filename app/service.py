@@ -23,7 +23,7 @@ from cad_engine.exporters import dxf, step  # noqa: E402
 from cad_engine.mesh import tessellate  # noqa: E402
 from cad_engine.profiles import catalog, parse  # noqa: E402
 from cad_engine.sketch import Sketch  # noqa: E402
-from cad_engine.sketch.model import DIMENSIONS  # noqa: E402
+from cad_engine.sketch.model import DIMENSIONS, punti_entita  # noqa: E402
 from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS, SEP_PEZZO  # noqa: E402
@@ -38,6 +38,7 @@ from app.forata_service import ForataMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_kg, fmt_mm  # noqa: E402
+from cad_engine.sketch.curve import TOLL_ARCHI  # noqa: E402
 
 DIREZIONI = {'X+': (0, 1), 'X-': (0, -1), 'Y+': (1, 1), 'Y-': (1, -1), 'Z+': (2, 1), 'Z-': (2, -1)}
 ANCORAGGI = {'center': 'centro', 'top': 'sopra', 'bottom': 'sotto', 'left': 'sinistra', 'right': 'destra',
@@ -276,7 +277,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             visti = set()
             linee_di = _linee_per_punto(f)
             for did, c in f.constraints.items():
-                if c['type'] not in ('length', 'distance', 'diameter', 'radius', 'hdistance', 'vdistance', 'pldistance'):
+                if c['type'] not in ('length', 'distance', 'diameter', 'radius', 'hdistance', 'vdistance', 'pldistance',
+                                     'major_axis', 'minor_axis', 'tilt'):
                     continue
                 if not c.get('driven') and _guida_secondaria(f, c, linee_di):
                     continue                    # delle linee di costruzione si mostra solo la distanza che conta
@@ -316,6 +318,12 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     else:
                         continue
                     pa, pb = (cx, cy), (cx + r * math.cos(tm), cy + r * math.sin(tm))
+                elif c['type'] in ('major_axis', 'minor_axis', 'tilt'):
+                    # 05/11: gli assi dell'ellisse da parte a parte; l'inclinazione sulla fine dell'asse grande
+                    e = f.entities[c['refs'][0]]
+                    (cx, cy) = ss.points[e['center']]
+                    qx, qy = ss.points[e['minor' if c['type'] == 'minor_axis' else 'major']]
+                    pa, pb = ((cx, cy), (qx, qy)) if c['type'] == 'tilt' else ((2 * cx - qx, 2 * cy - qy), (qx, qy))
                 elif c['type'] == 'pldistance':
                     pa = ss.points[c['refs'][0]]
                     la, lb = (ss.points[x] for x in ss.lines[c['refs'][1]])
@@ -333,7 +341,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 ga, gb = _nel_mondo(pl, pa), _nel_mondo(pl, pb)
                 v = ss.values.get(did)
                 rif = bool(c.get('driven'))
-                if c['type'] in ('length', 'distance', 'pldistance'):
+                if c['type'] in ('length', 'distance', 'pldistance', 'major_axis', 'minor_axis'):
                     dx, dy = pb[0] - pa[0], pb[1] - pa[1]
                     verso = 'h' if abs(dy) < 1e-6 else 'v' if abs(dx) < 1e-6 else round(math.degrees(math.atan2(dy, dx)) % 180)
                 else:
@@ -348,7 +356,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                             # lo dice la quota stessa
                             'value': v, 'shown': abs(v) if v is not None and c['type'] in ('hdistance', 'vdistance') else v,
                             'label': ('(' if rif else '') + ({'diameter': 'Ø', 'radius': 'R'}.get(c['type'], ''))
-                            + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0)) + (')' if rif else ''),
+                            + fmt_mm(abs(v or 0) if c['type'] in ('hdistance', 'vdistance') else (v or 0))
+                            + ('°' if c['type'] == 'tilt' else '') + (')' if rif else ''),
                             'a': ga, 'b': gb})
         # 24/10: la stessa quota ripetuta (le copie di una serie: 300 quadrati da 10 × 10 = 600 quote «10» che
         # coprivano il disegno) si mostra una volta, «10 ×300»; cambiarla cambia tutto il gruppo. Le altre restano
@@ -2035,6 +2044,52 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return self._sketch_change(f'Cerchio Ø{fmt_mm(round(2 * float(r), 2))}',
                                    lambda: sketch_ops.add_circle(self.doc, sid, center, r, construction))
 
+    # 05/11: ellissi e curve libere (idea da SolidCraft)
+    def sketch_add_ellipse(self, sid: str, center, major, b, start=None, end=None, construction: bool = False) -> dict:
+        """Ellisse: centro, fine di un asse ([x, y]) e metà dell'altro asse; con start/end l'arco di ellisse."""
+        try:
+            center, major, b = _punto(center, 'il centro'), _punto(major, 'la fine dell’asse'), _numero(b, 'l’asse')
+            start = None if start is None else _punto(start, 'la partenza')
+            end = None if end is None else _punto(end, 'l’arrivo')
+        except SteelCADError as ex:
+            return _err(ex)
+        from app import sketch_curve
+        out = {}
+
+        def fn():
+            out['id'] = sketch_curve.add_ellipse(self.doc, sid, center, major, b, start, end, construction)
+        res = self._sketch_change('Arco di ellisse' if start is not None else 'Ellisse', fn)
+        if res.get('ok'):
+            res['id'] = out.get('id')
+        return res
+
+    def sketch_add_spline(self, sid: str, pts: list, closed: bool = False, construction: bool = False) -> dict:
+        """Curva libera che passa per i punti cliccati, aperta o chiusa."""
+        try:
+            if not isinstance(pts, (list, tuple)) or len(pts) < 2:
+                raise SteelCADError('Per una curva libera servono almeno due punti.', code='punti')
+            pts = [_punto(q) for q in pts]
+        except SteelCADError as ex:
+            return _err(ex)
+        from app import sketch_curve
+        out = {}
+
+        def fn():
+            out['id'] = sketch_curve.add_spline(self.doc, sid, pts, bool(closed), construction)
+        res = self._sketch_change(f'Curva libera {"chiusa " if closed else ""}per {len(pts)} punti', fn)
+        if res.get('ok'):
+            res['id'] = out.get('id')
+        return res
+
+    def sketch_move_point(self, sid: str, pid: str, xy) -> dict:
+        """Trascinare un punto di una curva libera o di un'ellisse (la curva lo segue)."""
+        try:
+            xy = _punto(xy)
+        except SteelCADError as ex:
+            return _err(ex)
+        from app import sketch_curve
+        return self._sketch_change('Sposta un punto della curva', lambda: sketch_curve.move_point(self.doc, sid, pid, xy))
+
     def sketch_add_text(self, sid: str, pos, testo: str, h, angolo=0, stencil=None, centrato=False) -> dict:
         """Un testo da marcare col laser (numeri, codici, sigle): poi «Marca col laser». Con stencil ('saira' o
         'allerta') le lettere sono contorni chiusi da tagliare: poi «Togli materiale»."""
@@ -2842,7 +2897,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     dentro = pl.z_dir if t.get('type') == 'sheet' else -pl.z_dir   # la base cresce dallo sketch verso z
                     data = getattr(self.result.body, 'sheet', None)
                     d0 = sk.entities[cid].get('d_step')
-                    vere = [e for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text')
+                    vere = [e for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline')
                             and not e.get('ref') and not e.get('construction')]
                     cambiabile = isinstance(sk.plane, dict) and 'face' in sk.plane and (bool(t.get('foro_rapido')) or (
                         len(uguali) == len(vere) and not any(e.get('hole') for e in vere)))
@@ -3126,6 +3181,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 pezzi.append('testi da marcare (layer MARK)')
             if rep['cut_texts']:
                 pezzi.append('testi da tagliare')
+            if rep.get('curves'):
+                pezzi.append(f'ellissi e curve libere in archi tangenti (entro {fmt_mm(TOLL_ARCHI)} mm)')
             msg = (f'{", ".join(pezzi)}; ingombro {fmt_mm(round(rep["size_mm"][0], 2))} × '
                    f'{fmt_mm(round(rep["size_mm"][1], 2))} mm.')
             if geo['skipped']:
@@ -3152,7 +3209,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if not sid:
                 raise SteelCADError('Si ripetono in serie le lavorazioni fatte da un disegno (tagli, tasche).', code='serie')
             sk = self.doc.sketch(sid)
-            ids = [k for k, e in sk.entities.items() if e['kind'] in ('line', 'circle', 'arc', 'text')
+            ids = [k for k, e in sk.entities.items() if e['kind'] in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline')
                    and not e.get('ref') and not e.get('construction')]
             if not ids:
                 raise SteelCADError('Il disegno di questa lavorazione è vuoto.', code='serie')
@@ -3238,7 +3295,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             if nome and body is not None and nome in body.names:
                 sketch_ops.refresh_reference_edges(sk, bd.Face(body.face(nome)[0]), plane_of(body, nome, sk), body.shape)
                 # i punti arancio dei fori tolti (i centri): via, se nessun disegno ci è attaccato
-                usati = {e[k] for e in sk.entities.values() for k in ('a', 'b', 'center', 'start', 'end') if k in e}
+                usati = {p for e in sk.entities.values() for p in punti_entita(e)}
                 usati |= {r for c in sk.constraints.values() if c['type'] != 'fix' for r in c['refs']}
                 soli = [k for k, e in sk.entities.items() if e['kind'] == 'point' and e.get('ref') and k not in usati]
                 for k in soli:
@@ -3644,7 +3701,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             piano = plane_of(self.result.body, face_name, sk)
             ox, oy, _w, _h = self._fuori_tutto(piano, face_name)
             P = {k: e for k, e in sk.entities.items() if e['kind'] == 'point'}
-            vere = [e for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref')
+            vere = [e for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline') and not e.get('ref')
                     and not e.get('construction')]
             cerchi = [e for e in vere if e['kind'] == 'circle']
             diam = {round(2 * e['r'], 3) for e in cerchi}
@@ -3721,7 +3778,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             sk = self.doc.sketch(sid)
         except SteelCADError:
             return _ok(state=self.state())
-        vuoto = not any(e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref') for e in sk.entities.values())
+        vuoto = not any(e['kind'] in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline') and not e.get('ref') for e in sk.entities.values())
         usato = any(not isinstance(f, Sketch) and (f.get('sketch') == sid or sid in self.doc._sketch_refs(f))
                     for f in self.doc.features)
         ultimo = self.history.labels()['undo'][:1]
@@ -6084,7 +6141,8 @@ def _nome_elemento(sk, eid: str) -> str:
             return f'l’arco R{fmt_mm(round(math.hypot(a["x"] - c["x"], a["y"] - c["y"]), 1))}'
     except (KeyError, TypeError, ValueError):
         pass
-    return {'point': 'il punto', 'line': 'la linea', 'circle': 'il cerchio', 'arc': 'l’arco', 'text': 'il testo'}.get(k, 'l’elemento')
+    return {'point': 'il punto', 'line': 'la linea', 'circle': 'il cerchio', 'arc': 'l’arco', 'text': 'il testo',
+            'ellipse': 'l’ellisse', 'spline': 'la curva libera'}.get(k, 'l’elemento')
 
 
 _PUNTI_QUOTE: dict = {}

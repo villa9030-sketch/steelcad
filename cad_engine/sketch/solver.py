@@ -14,7 +14,7 @@ import planegcs as gcs
 from ..errors import SketchError
 from ..expressions import evaluate
 from ..units import cap, TOL, rad
-from .model import DIMENSIONS, ORIGIN, Sketch
+from .model import CHIAVI_PUNTI, DIMENSIONS, ORIGIN, Sketch, punti_entita
 
 FULLY, UNDER, OVER, REDUNDANT, FAILED = 'completo', 'parziale', 'sovra-vincolato', 'ridondante', 'non risolto'
 
@@ -49,6 +49,19 @@ class SolvedSketch:
 
     def xy(self, pid: str) -> tuple[float, float]:
         return self.points[pid]
+
+    # 05/11: ellissi e curve libere non hanno numeri loro: tutto viene dai loro punti, già risolti
+    @property
+    def ellipses(self) -> dict:
+        """id -> (centro, fine asse grande, fine asse piccolo, partenza | None, arrivo | None) come id di punti."""
+        return {k: (e['center'], e['major'], e['minor'], e.get('start'), e.get('end'))
+                for k, e in self.sketch.entities.items() if e['kind'] == 'ellipse'}
+
+    @property
+    def splines(self) -> dict:
+        """id -> (punti, chiusa)"""
+        return {k: (list(e['points']), bool(e.get('closed')))
+                for k, e in self.sketch.entities.items() if e['kind'] == 'spline'}
 
 
 def _value(sk: Sketch, cid: str, c: dict, params: dict) -> float:
@@ -154,6 +167,12 @@ def misura(ss: 'SolvedSketch', c: dict) -> float:
     if t in ('diameter', 'radius'):
         r = ss.circles[refs[0]][1] if refs[0] in ss.circles else ss.arcs[refs[0]][3]
         return 2 * r if t == 'diameter' else r
+    if t in ('major_axis', 'minor_axis', 'tilt'):
+        e = ss.sketch.entities[refs[0]]
+        c, q = P[e['center']], P[e['major' if t != 'minor_axis' else 'minor']]
+        if t == 'tilt':
+            return math.degrees(math.atan2(q[1] - c[1], q[0] - c[0]))
+        return 2 * math.dist(c, q)
     if t == 'distance':
         return math.dist(P[refs[0]], P[refs[1]])
     if t == 'hdistance':
@@ -197,11 +216,13 @@ def _forma_del_blocco(piano, entita: dict, vincoli: dict, params: dict):
     ent = []
     for d in entita.values():
         x = {k: v for k, v in d.items() if k != 'label'}
-        for k in ('a', 'b', 'center', 'start', 'end'):
+        if any(p not in nomi for p in punti_entita(x)):
+            return None
+        for k in CHIAVI_PUNTI:
             if k in x:
-                if x[k] not in nomi:
-                    return None
                 x[k] = nomi[x[k]]
+        if 'points' in x:
+            x['points'] = [nomi[p] for p in x['points']]
         if 'x' in x:
             x['x'], x['y'] = round(x['x'] - o[0], 6), round(x['y'] - o[1], 6)
         ent.append(x)
@@ -250,7 +271,7 @@ def _fissi_di(sk: Sketch) -> set:
 
 
 def _riferimenti(sk: Sketch, e: dict) -> list:
-    return [e[k] for k in ('a', 'b', 'center', 'start', 'end') if k in e]
+    return punti_entita(e)
 
 
 def _blocchi(sk: Sketch) -> list:
@@ -491,19 +512,29 @@ def _solve(sk: Sketch, params: dict) -> SolvedSketch:
     # una copia con i punti spostati di pochissimo: se il disegno soddisfa già
     # alla perfezione i vincoli, planegcs vedrebbe superflui vincoli che servono.
     # La soluzione si calcola sempre sul disegno originale.
-    dg, _, tag_of_d, values = _build(sk, params, jitter=True)
-    diag = dg.diagnose()
-    conflict = [tag_of_d[t] for t in diag.conflicting if t in tag_of_d]
-    redundant = [tag_of_d[t] for t in diag.redundant if t in tag_of_d]
-    status = _status(sk, diag.dof, conflict, redundant, values)
-    s, (pid, lid, cid_, aid), _, _ = _build(sk, params, jitter=False)
-    if status.state in (OVER, REDUNDANT):
-        return _result(sk, s, pid, lid, cid_, aid, status, values, solved=False)
-    res = s.solve()
+    simm = _archi_simmetrici(sk)
+    for _giro in range(2):
+        dg, _, tag_of_d, values = _build(sk, params, jitter=True, simm=simm)
+        diag = dg.diagnose()
+        conflict = [tag_of_d[t] for t in diag.conflicting if t in tag_of_d]
+        redundant = [tag_of_d[t] for t in diag.redundant if t in tag_of_d]
+        status = _status(sk, diag.dof, conflict, redundant, values)
+        s, (pid, lid, cid_, aid), _, _ = _build(sk, params, jitter=False, simm=simm)
+        if status.state in (OVER, REDUNDANT):
+            return _result(sk, s, pid, lid, cid_, aid, status, values, solved=False)
+        res = s.solve()
+        # l'arrivo di un arco simmetrico è restato sull'ellisse? (lo tengono lì gli altri vincoli) se no, di nuovo
+        # con tutti i vincoli dell'arco
+        if not simm or res not in (gcs.SolveStatus.Success, gcs.SolveStatus.Converged) or all(
+                _sull_ellisse(sk, {k: s.get_point(g) for k, g in pid.items()}, k) for k in simm):
+            break
+        simm = set()
     if res not in (gcs.SolveStatus.Success, gcs.SolveStatus.Converged):
-        status = SketchStatus(FAILED, diag.dof,
-                              'Con queste quote lo sketch non si può costruire. Controlla che i valori siano '
-                              'possibili, per esempio un foro più grande della piastra o un angolo impossibile.')
+        testo = ('Con queste quote lo sketch non si può costruire. Controlla che i valori siano '
+                 'possibili, per esempio un foro più grande della piastra o un angolo impossibile.')
+        if any(e['kind'] == 'ellipse' for e in sk.entities.values()):
+            testo += ' In un’ellisse l’asse grande deve essere più lungo dell’asse piccolo.'
+        status = SketchStatus(FAILED, diag.dof, testo)
         return _result(sk, s, pid, lid, cid_, aid, status, values, solved=False)
     return _result(sk, s, pid, lid, cid_, aid, status, values, solved=True)
 
@@ -514,9 +545,37 @@ def _jitter(eid: str, scale: float) -> tuple[float, float]:
     return (math.sin(h) * 1e-3 * scale, math.cos(h * 1.7) * 1e-3 * scale)
 
 
-def _build(sk: Sketch, params: dict, jitter: bool):
+def _archi_simmetrici(sk: Sketch) -> set:
+    """05/11: gli archi di ellisse con partenza e arrivo da parti opposte del centro (la mezza ellisse sopra una
+    base, il caso di tutti i giorni). Lì «l'arrivo sta sull'ellisse» viene da solo da «la partenza sta
+    sull'ellisse»: tenerlo faceva sembrare deciso l'asse piccolo (la diagnosi sul disegno spostato di pochissimo
+    perde la simmetria) e la sua quota «in conflitto». Per questi archi il vincolo dell'arrivo non si mette."""
+    out = set()
+    for k, e in sk.entities.items():
+        if e['kind'] != 'ellipse' or 'start' not in e:
+            continue
+        try:
+            c, a, b = (sk.entities[e[x]] for x in ('center', 'start', 'end'))
+        except KeyError:
+            continue
+        scala = max(1.0, abs(a['x'] - c['x']), abs(a['y'] - c['y']))
+        if abs(a['x'] + b['x'] - 2 * c['x']) < 1e-7 * scala and abs(a['y'] + b['y'] - 2 * c['y']) < 1e-7 * scala:
+            out.add(k)
+    return out
+
+
+def _sull_ellisse(sk: Sketch, P: dict, k: str) -> bool:
+    from .curve import ellisse_assi, ellisse_parametro, ellisse_punto
+    e = sk.entities[k]
+    c, m, n, q = (P[e[x]] for x in ('center', 'major', 'minor', 'end'))
+    a, b, ang = ellisse_assi(c, m, n)
+    u = ellisse_parametro(c, a, b, ang, q)
+    return math.dist(ellisse_punto(c, a, b, ang, u), q) < 1e-6 * max(1.0, a)
+
+
+def _build(sk: Sketch, params: dict, jitter: bool, simm=frozenset()):
     s = gcs.Sketch()
-    pid, lid, cid_, aid = {}, {}, {}, {}
+    pid, lid, cid_, aid, eid_ = {}, {}, {}, {}, {}
     tag_of = {}          # tag planegcs -> id vincolo nostro
     values = {}
 
@@ -552,10 +611,12 @@ def _build(sk: Sketch, params: dict, jitter: bool):
             while t1 <= t0:
                 t1 += 2 * math.pi
             aid[eid] = s.add_arc_cse(pid[e['center']], pid[e['start']], pid[e['end']], r, t0, t1)
+        elif k == 'ellipse':
+            eid_[eid] = _ellisse(s, pid, e, senza_fine=eid in simm)
 
     def curve(ref):
         k = sk.entities[ref]['kind']
-        return k, {'line': lid, 'circle': cid_, 'arc': aid}.get(k, {}).get(ref)
+        return k, {'line': lid, 'circle': cid_, 'arc': aid, 'ellipse': eid_}.get(k, {}).get(ref)
 
     # --- vincoli e quote
     for kid, c in sk.constraints.items():
@@ -588,6 +649,8 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                     add(s.tangent_line_circle(g1, g2), kid)
                 elif k1 == 'circle' and k2 == 'line':
                     add(s.tangent_line_circle(g2, g1), kid)
+                elif {k1, k2} == {'line', 'ellipse'}:
+                    add(s.tangent_line_ellipse(*((g1, g2) if k1 == 'line' else (g2, g1))), kid)
                 elif pair == {'circle'}:
                     add(s.tangent_circle_circle(g1, g2), kid)
                 elif pair == {'arc'}:
@@ -623,7 +686,9 @@ def _build(sk: Sketch, params: dict, jitter: bool):
             elif t == 'on_line':
                 # "sulla linea" vale anche per cerchi e archi: il punto resta sul bordo
                 k2 = sk.entities[refs[1]]['kind']
-                if k2 == 'circle':
+                if k2 == 'ellipse':
+                    add(s.point_on_ellipse(pid[refs[0]], eid_[refs[1]]), kid)
+                elif k2 == 'circle':
                     add(s.point_on_circle(pid[refs[0]], cid_[refs[1]]), kid)
                 elif k2 == 'arc':
                     add(s.point_on_arc(pid[refs[0]], aid[refs[1]]), kid)
@@ -655,7 +720,7 @@ def _build(sk: Sketch, params: dict, jitter: bool):
             elif t in DIMENSIONS:
                 v = _value(sk, kid, c, params)
                 values[kid] = v
-                if t in ('distance', 'length', 'diameter', 'radius', 'pldistance') and v <= 0:
+                if t in ('distance', 'length', 'diameter', 'radius', 'pldistance', 'major_axis', 'minor_axis') and v <= 0:
                     raise SketchError(f'{cap(sk.describe_constraint(kid, v))} deve essere maggiore di zero.',
                                       code='quota_non_valida')
                 if t == 'distance':
@@ -672,6 +737,13 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                     add(s.difference(p1, p2, s.add_param(v, fixed=True)), kid)
                 elif t == 'angle':
                     add(s.l2l_angle(lid[refs[0]], lid[refs[1]], s.add_param(rad(v), fixed=True)), kid)
+                elif t in ('major_axis', 'minor_axis'):
+                    e = sk.entities[refs[0]]
+                    q = e['major' if t == 'major_axis' else 'minor']
+                    add(s.p2p_distance(pid[e['center']], pid[q], s.add_param(v / 2, fixed=True)), kid)
+                elif t == 'tilt':
+                    e = sk.entities[refs[0]]
+                    add(s.p2p_angle(pid[e['center']], pid[e['major']], s.add_param(rad(v), fixed=True)), kid)
                 elif t in ('diameter', 'radius'):
                     r = v / 2 if t == 'diameter' else v
                     k, g = curve(refs[0])
@@ -686,6 +758,29 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                               code='vincolo_non_valido') from None
 
     return s, (pid, lid, cid_, aid), tag_of, values
+
+
+_IA = gcs.InternalAlignmentType
+
+
+def _ellisse(s, pid: dict, e: dict, senza_fine: bool = False):
+    """L'ellisse in planegcs: centro, fuoco (un punto in più, interno) e semiasse piccolo; i punti dell'asse grande e
+    piccolo agganciati alle loro posizioni; partenza e arrivo di un arco sull'ellisse, ognuno col suo parametro."""
+    from .curve import ellisse_assi, ellisse_parametro
+    c, m, n = (s.get_point(pid[e[x]]) for x in ('center', 'major', 'minor'))
+    a, b, ang = ellisse_assi(c, m, n)
+    f = math.sqrt(max(a * a - b * b, (0.01 * a) ** 2))      # due assi quasi uguali: il fuoco non sta sul centro
+    fuoco = s.add_point(c[0] + f * math.cos(ang), c[1] + f * math.sin(ang))
+    g = s.add_ellipse(pid[e['center']], fuoco, max(b, 1e-6))
+    s.internal_alignment_point2ellipse(g, pid[e['major']], _IA.EllipsePositiveMajorX)
+    s.internal_alignment_point2ellipse(g, pid[e['major']], _IA.EllipsePositiveMajorY)
+    s.internal_alignment_point2ellipse(g, pid[e['minor']], _IA.EllipsePositiveMinorX)
+    s.internal_alignment_point2ellipse(g, pid[e['minor']], _IA.EllipsePositiveMinorY)
+    for k in ('start',) if senza_fine else ('start', 'end'):
+        if k in e:
+            u = ellisse_parametro(c, a, b, ang, s.get_point(pid[e[k]]))
+            s.curve_value(pid[e[k]], g, s.add_param(u))
+    return g
 
 
 def _status(sk, dof, conflict, redundant, values) -> SketchStatus:

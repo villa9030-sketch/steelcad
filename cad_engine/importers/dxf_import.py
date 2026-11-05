@@ -1,6 +1,6 @@
 """Import di uno sviluppo di lamiera da DXF (o DWG): dal disegno piano al pezzo piegato.
 
-1. **Lettura**: linee, archi, cerchi, polilinee (anche con archi), spline ed ellissi (spezzate), anche dentro i
+1. **Lettura**: linee, archi, cerchi, polilinee (anche con archi), spline ed ellissi (in archi tangenti), anche dentro i
    blocchi; unità del file convertite in mm. Testi, quote, tratteggi e linee nascoste non sono geometria.
 2. **Linee di piega**: layer che si chiamano PIEGA/BEND/FOLD…, oppure tipo di linea ad asse/tratto-punto.
 3. **Contorni**: i tratti si concatenano in giri chiusi; ogni giro può essere il contorno del pezzo, i giri dentro
@@ -217,9 +217,15 @@ def leggi(path) -> Analisi:
                 for v in e.virtual_entities() if t in ('LWPOLYLINE', 'POLYLINE') else []:
                     aggiungi(v, gruppo)
                 if t in ('SPLINE', 'ELLIPSE'):
-                    pts = [P(q) for q in e.flattening(0.05)]
-                    if len(pts) >= 2:
-                        tratti.append(Tratto('poly', tuple(pts), ruolo, layer))
+                    # 05/11: in archi tangenti (entro 0,01 mm) come li vuole il laser, non più in centinaia di
+                    # segmentini: il pezzo ha facce lisce e il DXF che riesce ha archi veri
+                    pezzi = _curva_in_archi(e, k)
+                    if pezzi is None:
+                        pts = [P(q) for q in e.flattening(0.05)]
+                        if len(pts) >= 2:
+                            tratti.append(Tratto('poly', tuple(pts), ruolo, layer))
+                    else:
+                        tratti.extend(Tratto(*x, ruolo, layer) for x in pezzi)
             except Exception:  # noqa: BLE001
                 pass
         for x in tratti[n0:]:
@@ -235,6 +241,55 @@ def leggi(path) -> Analisi:
     an = Analisi(str(p), giri, pieghe, testi, aperti, _proponi(giri))
     an.spessore, an.materiale = _indizi(testi, p)
     return an
+
+
+def _curva_in_archi(e, k: float):
+    """Un'ellisse o una spline del DXF in linee e archi tangenti: [('line', (a, b)) | ('arc', (c, r, a0, a1))].
+    None se non si riesce (si spezza come prima)."""
+    from ..sketch.curve import arco_dxf, in_archi
+    try:
+        if e.dxftype() == 'ELLIPSE':
+            el = e.construction_tool()
+            u0, u1 = el.start_param, el.end_param
+            while u1 <= u0 + 1e-12:
+                u1 += 2 * math.pi
+            cc, ma, mi = el.center, el.major_axis, el.minor_axis
+
+            def punto(u):
+                return ((cc.x + ma.x * math.cos(u) + mi.x * math.sin(u)) * k,
+                        (cc.y + ma.y * math.cos(u) + mi.y * math.sin(u)) * k)
+
+            def derivata(u):
+                return ((-ma.x * math.sin(u) + mi.x * math.cos(u)) * k, (-ma.y * math.sin(u) + mi.y * math.cos(u)) * k)
+            n = max(1, math.ceil((u1 - u0) / (math.pi / 2) - 1e-9))
+            nodi = [u0 + (u1 - u0) * i / n for i in range(n + 1)]
+        else:
+            bs = e.construction_tool()
+
+            def punto(u):
+                p = bs.point(u)
+                return (p.x * k, p.y * k)
+
+            def derivata(u):
+                d = bs.derivative(u, 1)[1]
+                return (d.x * k, d.y * k)
+            nodi = sorted(set(bs.knots()))
+        pezzi = []
+        for a, b in zip(nodi, nodi[1:]):
+            if b - a > 1e-12:
+                pezzi += in_archi(punto, derivata, a, b)
+        out, prima = [], None
+        for p in pezzi:
+            a = prima if prima is not None else p[1]
+            if p[0] == 'L':
+                out.append(('line', (a, p[2])))
+            else:
+                arco = arco_dxf(a, p[2], p[3])
+                out.append(('line', (a, p[3])) if arco is None else ('arc', ((arco[0][0], arco[0][1]),) + arco[1:]))
+            prima = p[-1]
+        return out or None
+    except Exception:  # noqa: BLE001 - una curva strana: si spezza in segmenti come prima
+        return None
 
 
 # ------------------------------------------------------------------------------------------ contorni

@@ -52,6 +52,8 @@ def flat_reference(shape):
             ax = BRepAdaptor_Surface(f.wrapped).Cylinder().Axis().Direction()
             if abs(abs(bd.Vector(ax.X(), ax.Y(), ax.Z()).dot(n)) - 1) < 1e-6:
                 continue
+        elif _fianco_dritto(f, n):
+            continue                          # 05/11: il fianco di un'ellisse o di una curva libera, dritto
         raise ExportError('Il pezzo non è una lamiera piana: ha facce inclinate, raccordi sugli spigoli di sopra '
                           'o pieghe. Per i pezzi piegati serve lo sviluppo (Milestone 3).')
     spessori = {round(abs((f.center() - ref.center()).dot(n)), 6) for f in opposte}
@@ -64,6 +66,20 @@ def flat_reference(shape):
         x = bd.Vector(0, 1, 0)
     x = (x - n * n.dot(x)).normalized()
     return ref, bd.Plane(origin=origin, x_dir=x, z_dir=n), spessori.pop()
+
+
+def _fianco_dritto(f, n) -> bool:
+    """Una faccia curva (ellisse, curva libera estrusa) che sta tutta in piedi rispetto alla faccia grande: la
+    normale è perpendicolare a n in una griglia di punti."""
+    try:
+        for i in range(5):
+            for j in range(5):
+                q = f.normal_at((i + 0.5) / 5, (j + 0.5) / 5)        # u, v da 0 a 1
+                if abs(q.dot(n)) > 1e-6:
+                    return False
+        return True
+    except Exception:  # noqa: BLE001 - se non si sa dire, non è dritta
+        return False
 
 
 def export_flat(shape, path, *, name: str = '') -> dict:
@@ -132,7 +148,7 @@ def export_sketch(geo: dict, path) -> dict:
     da marcare su MARK (tratti, come nello sviluppo), i testi stencil su CUT (contorni chiusi). Gli stessi layer e lo
     stesso controllo rileggendo il file dei DXF di taglio; ma uno sketch può avere linee aperte o sovrapposte:
     quello che il controllo trova non blocca, si dice (report['problems'] diventano avvisi da guardare)."""
-    if not (geo['lines'] or geo['arcs'] or geo['circles'] or geo['marks'] or geo['cut_texts']):
+    if not (geo['lines'] or geo['arcs'] or geo['circles'] or geo['marks'] or geo['cut_texts'] or geo.get('curves')):
         raise ExportError('Nel disegno non c’è niente da salvare: le linee di costruzione (guide) e i bordi del pezzo '
                           'non vanno nel DXF.')
     doc = _new_doc()
@@ -146,22 +162,9 @@ def export_sketch(geo: dict, path) -> dict:
     for pts in geo['marks']:
         if len(pts) > 1:
             msp.add_lwpolyline([tuple(p) for p in pts], dxfattribs={'layer': 'MARK'})
-    for giro in geo['cut_texts']:
+    for giro in geo['cut_texts'] + geo.get('curves', []):      # 05/11: + ellissi e curve libere, in archi tangenti
         for pz in giro:
-            if pz[0] == 'L':
-                msp.add_line(pz[1], pz[2], dxfattribs={'layer': 'CUT'})
-                continue
-            a, m, b = pz[1], pz[2], pz[3]
-            c = _centro3(a, m, b)
-            if c is None:
-                msp.add_line(a, b, dxfattribs={'layer': 'CUT'})
-                continue
-            t0 = math.degrees(math.atan2(a[1] - c[1], a[0] - c[0]))
-            t1 = math.degrees(math.atan2(b[1] - c[1], b[0] - c[0]))
-            tm = math.degrees(math.atan2(m[1] - c[1], m[0] - c[0]))
-            if not _ccw_contains(t0, t1, tm):
-                t0, t1 = t1, t0
-            msp.add_arc(c, math.dist(c, a), t0 % 360, t1 % 360, dxfattribs={'layer': 'CUT'})
+            scrivi_pezzo(msp, pz, 'CUT')
     path = Path(path)
     tmp = path.with_suffix(path.suffix + '.tmp')
     doc.saveas(tmp)
@@ -171,7 +174,7 @@ def export_sketch(geo: dict, path) -> dict:
     tmp.replace(path)
     report['path'] = str(path)
     report.update(lines=len(geo['lines']), arcs=len(geo['arcs']), n_circles=len(geo['circles']),
-                  marks=len(geo['marks']), cut_texts=len(geo['cut_texts']))
+                  marks=len(geo['marks']), cut_texts=len(geo['cut_texts']), curves=len(geo.get('curves', [])))
     return report
 
 
@@ -208,10 +211,68 @@ def _write_face(msp, ref, plane) -> list:
                     t0, t1 = t1, t0
                 msp.add_arc((c.X, c.Y), r, t0 % 360, t1 % 360, dxfattribs={'layer': 'CUT'})
         else:
-            pts = [loc(p) for p in e.positions([i / 64 for i in range(65)])]
-            msp.add_lwpolyline([(p.X, p.Y) for p in pts], dxfattribs={'layer': 'CUT'})
-            avvisi.append(f'Una curva ({gt.name.lower()}) è stata approssimata con 64 segmenti.')
+            # 05/11: ellissi e curve libere come archi tangenti (Lantek vuole linee e archi), entro TOLL_ARCHI
+            for pz in archi_del_lato(e, plane):
+                scrivi_pezzo(msp, pz, 'CUT')
     return avvisi
+
+
+def archi_del_lato(e, plane) -> list:
+    """Un lato curvo qualsiasi (ellisse, B-spline) in archi tangenti sul piano: [('L', a, b) | ('A', a, m, b)]."""
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from ..sketch.curve import in_archi
+    ad = BRepAdaptor_Curve(e.wrapped)
+    o, x, y = plane.origin, plane.x_dir, plane.y_dir
+
+    def punto(u):
+        p = ad.Value(u)
+        d = bd.Vector(p.X(), p.Y(), p.Z()) - o
+        return (d.dot(x), d.dot(y))
+
+    def derivata(u):
+        from OCP.gp import gp_Pnt, gp_Vec
+        p, v = gp_Pnt(), gp_Vec()
+        ad.D1(u, p, v)
+        d = bd.Vector(v.X(), v.Y(), v.Z())
+        return (d.dot(x), d.dot(y))
+    u0, u1 = ad.FirstParameter(), ad.LastParameter()
+    # almeno un pezzo per ogni tratto della B-spline (o quarto di ellisse): lì la curva cambia
+    try:
+        tutti = sorted({ad.BSpline().Knot(i) for i in range(1, ad.BSpline().NbKnots() + 1)} | {u0, u1})
+        tutti = [u for u in tutti if u0 <= u <= u1]
+        nodi = [tutti[0]]                 # i nodi fitti (tratti sotto il millimetro) non servono: archi troppo corti
+        for u in tutti[1:-1]:
+            if math.dist(punto(u), punto(nodi[-1])) >= 1.0:
+                nodi.append(u)
+        if len(nodi) > 1 and math.dist(punto(nodi[-1]), punto(tutti[-1])) < 1.0:
+            nodi.pop()
+        nodi.append(tutti[-1])
+    except Exception:  # noqa: BLE001 - non è una B-spline
+        k = max(1, math.ceil((u1 - u0) / (math.pi / 2) - 1e-9))
+        nodi = [u0 + (u1 - u0) * i / k for i in range(k + 1)]
+    pezzi = []
+    for a, b in zip(nodi, nodi[1:]):
+        if b - a > 1e-12:
+            pezzi += in_archi(punto, derivata, a, b)
+    out = []
+    for p in pezzi:                       # ognuno parte esattamente dove finisce quello prima
+        if out:
+            p = (p[0], out[-1][-1]) + tuple(p[2:])
+        out.append(p)
+    return out
+
+
+def scrivi_pezzo(msp, pz, layer: str) -> None:
+    """('L', a, b) linea, ('A', a, m, b) arco per tre punti (in senso antiorario nel DXF)."""
+    from ..sketch.curve import arco_dxf
+    if pz[0] == 'L':
+        msp.add_line(tuple(pz[1]), tuple(pz[2]), dxfattribs={'layer': layer})
+        return
+    arco = arco_dxf(pz[1], pz[2], pz[3])
+    if arco is None:
+        msp.add_line(tuple(pz[1]), tuple(pz[3]), dxfattribs={'layer': layer})
+    else:
+        msp.add_arc(*arco, dxfattribs={'layer': layer})
 
 
 def _ccw_contains(t0: float, t1: float, tm: float) -> bool:

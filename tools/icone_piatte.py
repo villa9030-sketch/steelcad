@@ -87,6 +87,9 @@ ICONE = {
     'arc_tangent': s('M3 18h6A10 10 0 0 0 19 8') + tr('M9 8l7 7') + pallino(9, 18, 2.3),
     'slot': af('M8 8h8a4 4 0 0 1 0 8H8a4 4 0 0 1 0-8z') + s('M8 12h8'),
     'polygon': s('M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z') + pallino(12, 12, 2.2),
+    # 05/11: ellisse (col centro) e curva libera (passa per i punti)
+    'ellipse': s('M2.5 12a9.5 5.5 0 1 0 19 0a9.5 5.5 0 1 0 -19 0z') + pallino(12, 12, 2.2),
+    'spline': s('M3 17C6 5 10 5 12 12s6 7 9-5') + pallino(3, 17, 2.2) + pallino(12, 12, 2.2) + pallino(21, 7, 2.2),
     'text': a(rett(4.5, 3.5, 15, 3.2, 1)) + s('M12 6.7V20M9 20h6'),
     'offset': s(rett(8.5, 8.5, 7, 7, 1.2)) + at('M8 3.5h8a4.5 4.5 0 0 1 4.5 4.5v8a4.5 4.5 0 0 1-4.5 4.5H8A4.5 4.5 0 0 1 3.5 16V8A4.5 4.5 0 0 1 8 3.5z', 1.9),
     'trim': s('M13 3v18M3 12h10') + at('M13 12h8', 2.25, True) + pallino(13, 12, 2.2),
@@ -185,7 +188,7 @@ ICONE = {
 # i nomi «a parole» per la tavola: a cosa serve ogni icona nell'app
 NOMI = {
     'line': 'Linea', 'rect': 'Rettangolo', 'rect_center': 'Rettangolo dal centro', 'circle': 'Cerchio', 'arc3': 'Arco',
-    'arc_tangent': 'Arco col raggio', 'slot': 'Asola', 'polygon': 'Poligono', 'text': 'Testo / marca', 'offset': 'Offset',
+    'arc_tangent': 'Arco col raggio', 'slot': 'Asola', 'polygon': 'Poligono', 'ellipse': 'Ellisse', 'spline': 'Curva libera', 'text': 'Testo / marca', 'offset': 'Offset',
     'trim': 'Accorcia', 'extend': 'Allunga', 'scale': 'Scala', 'break': 'Spezza', 'fillet': 'Raccordo', 'chamfer': 'Smusso', 'mirror': 'Specchia / capovolgi',
     'copy': 'Copia', 'move': 'Sposta', 'pattern_rect': 'Serie / dividi', 'construction': 'Costruzione', 'dimension': 'Quota',
     'select': 'Seleziona', 'point': 'Griglia', 'delete': 'Elimina', 'sketch': 'Contorno libero', 'c_coincident': 'Spigolo su faccia',

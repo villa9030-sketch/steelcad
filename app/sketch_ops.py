@@ -16,7 +16,7 @@ import build123d as bd
 
 from cad_engine.errors import SketchError, SteelCADError
 from cad_engine.sketch import solve
-from cad_engine.sketch.model import ORIGIN
+from cad_engine.sketch.model import ORIGIN, punti_entita
 from cad_engine.sketch.profile import PLANES
 
 HV_TOL = math.radians(3)      # entro 3° un tratto diventa orizzontale o verticale
@@ -86,7 +86,10 @@ def view(doc, sid: str, body=None) -> dict:
         n = len(out['sciolte'])
         out['status'] = (f'{n} linea sciolta' if n == 1 else f'{n} linee sciolte') + ' (in rosso) non chiude nessun contorno: ' \
             + 'non conta per il taglio. Se non serve, selezionala ed Elimina.'
-    out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref'))
+    out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline')
+                       and not e.get('ref'))
+    from app import sketch_curve
+    out['curves'] = sketch_curve.vista(sk, pts, g)          # 05/11: ellissi e curve libere
     from cad_engine.sketch import testo as testo_mod
     for k, e in sk.entities.items():
         if e['kind'] != 'text' or e['center'] not in pts:
@@ -582,12 +585,21 @@ def delete(doc, sid: str, eids: list[str]) -> None:
     for k in list(sk.entities):
         if k in via:
             del sk.entities[k]
+    # 05/11: un punto tolto da una curva libera: la curva passa per gli altri (se ne restano abbastanza); un punto
+    # di un'ellisse (centro, assi, estremi dell'arco): via l'ellisse
+    for k, e in list(sk.entities.items()):
+        if e['kind'] == 'spline' and via & set(e['points']):
+            e['points'] = [p for p in e['points'] if p not in via]
+            if len(e['points']) < (3 if e.get('closed') else 2):
+                del sk.entities[k]
+                via.add(k)
+        elif e['kind'] == 'ellipse' and via & set(punti_entita(e)):
+            del sk.entities[k]
+            via.add(k)
     while True:
         usati = {ORIGIN}
         for e in sk.entities.values():
-            for key in ('a', 'b', 'center', 'start', 'end'):
-                if key in e:
-                    usati.add(e[key])
+            usati.update(punti_entita(e))
         soli = [k for k, e in sk.entities.items() if e['kind'] == 'point' and k not in usati]
         via |= set(soli)
         for k in soli:

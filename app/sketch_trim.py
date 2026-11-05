@@ -16,7 +16,7 @@ import math
 
 from cad_engine.errors import SketchError
 from cad_engine.sketch import solve
-from cad_engine.sketch.model import ORIGIN
+from cad_engine.sketch.model import ORIGIN, punti_entita
 
 from app import sketch_ops
 from app.sketch_edit import _sync
@@ -48,7 +48,72 @@ def _geom(doc, sk):
             while t1 <= t0:
                 t1 += TAU
             G[k] = ('arc', c, math.hypot(a[0] - c[0], a[1] - c[1]), t0, t1)
+        elif e['kind'] == 'ellipse':
+            # 05/11: le ellissi tagliano e si accorciano (le curve libere no: spezzarle cambierebbe la curva)
+            from cad_engine.sketch.curve import ellisse_intervallo
+            s_, f_ = (P[e['start']], P[e['end']]) if 'start' in e else (None, None)
+            G[k] = ('ellipse', P[e['center']]) + ellisse_intervallo(P[e['center']], P[e['major']], P[e['minor']], s_, f_)
     return P, G
+
+
+def _ell_punto(g, u):
+    _, c, a, b, ang = g[:5]
+    x, y = a * math.cos(u), b * math.sin(u)
+    return (c[0] + x * math.cos(ang) - y * math.sin(ang), c[1] + x * math.sin(ang) + y * math.cos(ang))
+
+
+def _implicita(g):
+    """(F, dentro): F(p) cambia segno attraversando g; dentro(p) dice se p sta sul pezzo vero di g."""
+    if g[0] == 'line':
+        a, b = g[1], g[2]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dy * dy or 1e-12
+        return ((lambda p: (p[0] - a[0]) * dy - (p[1] - a[1]) * dx),
+                (lambda p: -EPS <= ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2 <= 1 + EPS))
+    if g[0] in ('circle', 'arc'):
+        c, r = g[1], g[2]
+        dentro = (lambda p: True) if g[0] == 'circle' else (
+            lambda p: _ang_in(math.atan2(p[1] - c[1], p[0] - c[0]), g[3], g[4]))
+        return (lambda p: math.hypot(p[0] - c[0], p[1] - c[1]) - r), dentro
+    _, c, a, b, ang, u0, u1 = g
+    ca, sa = math.cos(ang), math.sin(ang)
+
+    def loc(p):
+        dx, dy = p[0] - c[0], p[1] - c[1]
+        return (dx * ca + dy * sa) / a, (-dx * sa + dy * ca) / b
+
+    def F(p):
+        x, y = loc(p)
+        return x * x + y * y - 1
+
+    def dentro(p):
+        if u1 - u0 >= TAU - 1e-9:
+            return True
+        x, y = loc(p)
+        return _ang_in(math.atan2(y, x), u0, u1)
+    return F, dentro
+
+
+def _radici(f, t0, t1, n):
+    """Dove f cambia segno tra t0 e t1 (n tratti, poi dimezzando): i parametri."""
+    out, ta, fa = [], t0, f(t0)
+    for i in range(1, n + 1):
+        tb = t0 + (t1 - t0) * i / n
+        fb = f(tb)
+        if fa == 0:
+            out.append(ta)
+        elif fa * fb < 0:
+            x, y, fx = ta, tb, fa
+            for _ in range(60):
+                m = (x + y) / 2
+                fm = f(m)
+                if fx * fm <= 0:
+                    y = m
+                else:
+                    x, fx = m, fm
+            out.append((x + y) / 2)
+        ta, fa = tb, fb
+    return out
 
 
 def _ang_in(t, t0, t1):
@@ -64,7 +129,12 @@ def _line_hits(a, b, other, infinita=False):
     considera prolungata (per l'Allunga), l'altro oggetto mai."""
     dx, dy = b[0] - a[0], b[1] - a[1]
     out = []
-    if other[0] == 'line':
+    if other[0] == 'ellipse':
+        F, dentro = _implicita(other)
+        at = lambda t: (a[0] + dx * t, a[1] + dy * t)  # noqa: E731
+        lo, hi, n = (-20.0, 21.0, 8200) if infinita else (0.0, 1.0, 400)
+        out = [t for t in _radici(lambda t: F(at(t)), lo, hi, n) if dentro(at(t))]
+    elif other[0] == 'line':
         c, d = other[1], other[2]
         ex, ey = d[0] - c[0], d[1] - c[1]
         den = dx * ey - dy * ex
@@ -96,6 +166,10 @@ def _line_hits(a, b, other, infinita=False):
 def _round_hits(c, r, other):
     """Angoli dove un cerchio (c, r) incontra un altro oggetto."""
     out = []
+    if other[0] == 'ellipse':
+        F, dentro = _implicita(other)
+        pc = lambda t: (c[0] + r * math.cos(t), c[1] + r * math.sin(t))  # noqa: E731
+        return [t for t in _radici(lambda t: F(pc(t)), 0.0, TAU, 720) if dentro(pc(t))]
     if other[0] == 'line':
         a, b = other[1], other[2]
         for t in _line_hits(a, b, ('circle', c, r)):
@@ -119,7 +193,9 @@ def _round_hits(c, r, other):
 
 # ------------------------------------------------------------------------------- taglia
 def _trim_plan(doc, sk, eid, click):
-    if eid not in sk.entities or sk.entities[eid]['kind'] not in ('line', 'circle', 'arc'):
+    if eid in sk.entities and sk.entities[eid]['kind'] == 'spline':
+        raise SketchError('La curva libera non si accorcia (cambierebbe forma): sposta o togli i suoi punti.')
+    if eid not in sk.entities or sk.entities[eid]['kind'] not in ('line', 'circle', 'arc', 'ellipse'):
         raise SketchError('Clicca una linea, un cerchio o un arco da tagliare.')
     if sk.entities[eid].get('ref'):
         raise SketchError('I bordi arancio sono il pezzo vero: non si cancellano né si modificano (servono per agganciarsi e per chiudere i contorni).')
@@ -140,6 +216,8 @@ def _trim_plan(doc, sk, eid, click):
         at = lambda t: (a[0] + dx * t, a[1] + dy * t)  # noqa: E731
         return {'kind': 'line', 'eid': eid, 'left': sx, 'right': dx_, 'at': at,
                 'remove': [list(at(t0)), list(at(t1))], 'all': not tagli}
+    if me[0] == 'ellipse':
+        return _trim_plan_ellisse(eid, me, altri, (cx, cy))
     c, r = me[1], me[2]
     tc = math.atan2(cy - c[1], cx - c[0])
     angoli = sorted({round(t % TAU, 9): k for k, g in altri for t in _round_hits(c, r, g)}.items())
@@ -169,6 +247,37 @@ def _trim_plan(doc, sk, eid, click):
             'remove': _arc_pts(c, r, t0 + ua, t0 + ub)}
 
 
+def _trim_plan_ellisse(eid, me, altri, click):
+    """Come per il cerchio e l'arco, lungo il parametro dell'ellisse."""
+    from cad_engine.sketch.curve import ellisse_parametro
+    _, c, a, b, ang, u0, u1 = me
+    tagli = []
+    for k, g in altri:
+        F, dentro = _implicita(g)
+        for u in _radici(lambda u: F(_ell_punto(me, u)), u0, u1, 720):
+            if dentro(_ell_punto(me, u)):
+                tagli.append((round(u - u0, 9), k))
+    span = u1 - u0
+    tagli = sorted({x for x in tagli if EPS < x[0] < span - EPS} if span < TAU - 1e-9 else set(tagli))
+    uc = (ellisse_parametro(c, a, b, ang, click) - u0) % TAU
+    pts = lambda x0, x1: [list(_ell_punto(me, u0 + x0 + (x1 - x0) * i / 64)) for i in range(65)]  # noqa: E731
+    if span >= TAU - 1e-9:                           # ellisse intera: come il cerchio
+        if len(tagli) < 2:
+            return {'kind': 'ellipse', 'eid': eid, 'all': True, 'remove': pts(0, TAU)}
+        dopo = next((x for x in tagli if x[0] > uc), tagli[0])
+        prima = next((x for x in reversed(tagli) if x[0] < uc), tagli[-1])
+        tb = dopo[0] if dopo[0] > uc else dopo[0] + TAU
+        ta = prima[0] if prima[0] < uc else prima[0] - TAU
+        return {'kind': 'ellipse', 'eid': eid, 'all': False, 'intera': True, 'u0': u0, 'me': me,
+                'keep': (tb, ta + TAU), 'cut': (dopo[1], prima[1]), 'remove': pts(ta, tb)}
+    if uc > span:
+        uc = span if uc - span < TAU - uc else 0.0
+    sx = max((x for x in tagli if x[0] < uc), default=None)
+    dx_ = min((x for x in tagli if x[0] > uc), default=None)
+    return {'kind': 'ellipse', 'eid': eid, 'all': not tagli, 'intera': False, 'u0': u0, 'me': me, 'left': sx,
+            'right': dx_, 'remove': pts(sx[0] if sx else 0.0, dx_[0] if dx_ else span)}
+
+
 def _arc_pts(c, r, a0, a1, n=48):
     return [[c[0] + r * math.cos(a0 + (a1 - a0) * i / n), c[1] + r * math.sin(a0 + (a1 - a0) * i / n)] for i in range(n + 1)]
 
@@ -181,7 +290,7 @@ def trim_preview(doc, sid, eid, click) -> dict:
 
 def _lega(sk, pid, cutter):
     """Il punto nuovo resta sulla linea (o sul cerchio, sull'arco) che ha tagliato."""
-    if cutter and sk.entities.get(cutter, {}).get('kind') in ('line', 'circle', 'arc'):
+    if cutter and sk.entities.get(cutter, {}).get('kind') in ('line', 'circle', 'arc', 'ellipse'):
         sk.constrain('on_line', pid, cutter)
 
 
@@ -205,9 +314,7 @@ def _cleanup(sk, via_constraints=()):
     while True:
         usati = {ORIGIN}
         for e in sk.entities.values():
-            for key in ('a', 'b', 'center', 'start', 'end'):
-                if key in e:
-                    usati.add(e[key])
+            usati.update(punti_entita(e))
         soli = [k for k, e in sk.entities.items() if e['kind'] == 'point' and k not in usati]
         for k in soli:
             del sk.entities[k]
@@ -252,6 +359,21 @@ def trim(doc, sid, eid, click):
         else:
             e['a'] = _punto(sk, at(dx_[0]), dx_[1])
         _cleanup(sk, quote)
+        return
+    if piano['kind'] == 'ellipse':
+        me, u0 = piano['me'], piano['u0']
+        pt = lambda u: _ell_punto(me, u0 + u)  # noqa: E731
+        if piano['intera']:                          # l'ellisse diventa l'arco che resta: stessi punti, stesse quote
+            ta, tb = piano['keep']
+            e['start'] = _punto(sk, pt(ta), piano['cut'][0])
+            e['end'] = _punto(sk, pt(tb), piano['cut'][1])
+        elif piano['left'] and piano['right']:
+            raise SketchError('Dell’arco di ellisse si accorcia un pezzo alla fine, non in mezzo.')
+        elif piano['left']:
+            e['end'] = _punto(sk, pt(piano['left'][0]), piano['left'][1])
+        else:
+            e['start'] = _punto(sk, pt(piano['right'][0]), piano['right'][1])
+        _cleanup(sk)
         return
     c, r = piano['c'], piano['r']
     if piano['kind'] == 'circle':

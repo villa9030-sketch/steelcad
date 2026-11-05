@@ -62,12 +62,16 @@ def _cosa_disegnato(doc, sk) -> str:
         parti.append('1 arco' if len(archi) == 1 else f'{len(archi)} archi')
     if testi:
         parti.append(f'testo «{testi[0].get("text", "")}»')
+    for kind, uno, tanti in (('ellipse', 'ellisse', 'ellissi'), ('spline', 'curva libera', 'curve libere')):
+        n = sum(1 for e in sk.entities.values() if e['kind'] == kind and not e.get('ref') and not e.get('construction'))
+        if n:
+            parti.append(uno if n == 1 else f'{n} {tanti}')
     t = ', '.join(parti) or 'vuoto'
     return t[0].upper() + t[1:]
 
 
 def _vuoto(sk) -> bool:
-    return not any(e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref') for e in sk.entities.values())
+    return not any(e['kind'] in ('line', 'circle', 'arc', 'text', 'ellipse', 'spline') and not e.get('ref') for e in sk.entities.values())
 
 
 def _feature_label(doc, f, fr) -> str:
