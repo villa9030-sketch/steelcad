@@ -1923,6 +1923,14 @@ body.bottom-closed .tabs button.on { font-weight: 500; }
 .dim.edit { border-color: var(--c-blu); box-shadow: var(--anello); }
 .dim .p, .dim .n, body.dark .dim .p { color: var(--c-testo-3); }
 .dim.rif, body.dark .dim.rif { color: var(--c-testo-2); border-style: dashed; }
+/* 05/11: le frecce su/giù accanto al numero che scrivi; la quota trascinata di lato */
+.dim.edit { display: inline-flex; align-items: center; }
+.dim .dim-frecce { display: inline-flex; flex-direction: column; margin-left: 4px; padding-left: 2px; border-left: 1px solid var(--c-linea); }
+.dim .dim-frecce button { width: 16px; height: 10px; padding: 0; border: 0; border-radius: 2px; background: none; color: var(--c-testo-3);
+  font: 8px/10px var(--font); cursor: pointer; }
+.dim .dim-frecce button:hover { color: var(--c-blu); background: var(--c-blu-tenue, #EEF3FF); }
+.dim.trascina { border-color: var(--c-blu); box-shadow: var(--anello); }
+body.trascina-quota, body.trascina-quota * { cursor: ew-resize !important; user-select: none; }
 /* l'ingombro: colore normale delle quote (ambra = solo attenzione), un filo più quieto; lo distingue ⤢ */
 .dim.ing, body.dark .dim.ing { color: var(--c-testo-2); border-color: var(--c-linea); }
 #interf-box .dim.interf { border-color: var(--c-err); color: var(--c-err-testo); }

@@ -1564,10 +1564,14 @@ function buildThreads(list) {
   }
   model.add(threadGroup);
 }
-function buildDims() {
+function buildDims(anteprima = null, tieni = null) {
+  // anteprima (05/11): le quote dello sketch con il numero che stai scrivendo; tieni = la quota che stai scrivendo o
+  // trascinando: la sua casella resta quella (col campo e il cursore dentro), le altre si rifanno
+  const tenuto = tieni ? dimEls.find(o => o.d && o.d.dim === tieni && o.d.sketch === SK?.sid)?.el : null;
   for (const l of dimLines.children) l.geometry.dispose();
   dimLines.clear();
-  dimsBox.innerHTML = '';
+  if (tenuto) { for (const c of [...dimsBox.children]) if (c !== tenuto) c.remove(); }
+  else dimsBox.innerHTML = '';
   dimEls = [];
   if (!showDims || !S) return;
   // con uno sketch aperto si vedono solo le sue quote, sfalsate nel suo piano (non verso di te)
@@ -1575,7 +1579,7 @@ function buildDims() {
   // notte 03/11: in una struttura (cancello, scaffale) le quote calcolate dal modello (la posizione di ogni sbarra,
   // «tf+2*g+…») facevano un mucchio di numeri uno sull'altro: nel 3D restano solo quelle con un nome (L, H, P…)
   const formula = d => !SK && !d.param && typeof d.expr === 'string' && /[a-z]/i.test(d.expr) && S.cutlist?.rows?.length && !S.sheet;
-  const lista = S.dimensions.filter(d => (SK ? d.sketch === SK.sid : !d.local) && !d.in_gruppo && !formula(d));
+  const lista = (anteprima || S.dimensions).filter(d => (SK ? d.sketch === SK.sid : !d.local) && !d.in_gruppo && !formula(d));
   const box = new THREE.Box3();
   if (SK) SK.v.points.filter(p => p.id !== 'O').forEach(p => box.expandByPoint(v3(p.xyz)));
   if (box.isEmpty()) box.setFromObject(model);
@@ -1597,6 +1601,10 @@ function buildDims() {
       const g = new THREE.BufferGeometry().setFromPoints(seg);
       dimLines.add(new THREE.LineSegments(g, DIM_MAT));
     }
+    if (tenuto && d.dim === tieni) {
+      dimEls.push({ el: tenuto, d, quota: true, a: pa.clone(), b: pb.clone(), at: d.type === 'diameter' || d.type === 'radius' ? pb.clone() : pa.clone().add(pb).multiplyScalar(0.5) });
+      continue;
+    }
     const el = document.createElement('div');
     el.className = 'dim' + (d.type === 'diameter' || d.type === 'radius' ? ' dia' : '') + (d.driven ? ' rif' : '');
     // 03/11: il passo della Serie si chiama «passo» (non «px1»); le misure con nome (W, P…) restano col loro nome
@@ -1605,8 +1613,11 @@ function buildDims() {
     el.title = d.driven ? 'Quota di riferimento: la misura la decide il pezzo (si aggiorna da sola)'
       : d.param ? `Quota legata a «${d.param_label || d.param}»: clicca per cambiarla`
       : d.gruppo ? `La stessa quota su ${d.gruppo.length} elementi uguali: cambiandola si cambiano tutti` : 'Clicca per cambiare la quota';
+    if (!d.driven) el.title += ' · trascinala di lato per cambiarla col mouse';
+    el.addEventListener('pointerdown', ev => trascinaQuota(ev, el, d));
     el.addEventListener('click', ev => {
       ev.stopPropagation();
+      if (el._trascinata) { el._trascinata = false; return; }       // era un trascinamento, non un clic
       if (d.driven) { toast(el.title); return; }
       if (SK && !['select', 'dim'].includes(SK.tool)) setTool('select');    // cambi la quota: il comando si chiude
       editDim(el, d);
@@ -1749,29 +1760,142 @@ function sbrogliaQuote(w, h) {
     fatti.push({ o, r: scatola(o, x, y) });
   }
 }
+// 05/11 (idee da SolidCraft): mentre scrivi il numero di una quota lo sketch si muove già (anteprima: Esc torna
+// com'era, niente passi nell'annulla); le frecce accanto al numero e i tasti ↑ ↓ cambiano di 1 mm (Maiusc: 10);
+// trascinando la quota di lato il numero cambia col mouse, e lasciando si conferma (un passo solo nell'annulla).
+// Fuori dallo sketch (le quote sul pezzo) niente anteprima: rifare il pezzo a ogni tasto sarebbe pesante.
+const QUOTA_PASSO = 1, QUOTA_PASSO_MAIUSC = 10, QUOTA_PX = 6;      // trascinando: un passo ogni 6 px
+function numeroQuota(t) {
+  const s = String(t ?? '').trim().replace(',', '.');
+  return /^\+?(\d+\.?\d*|\.\d+)$/.test(s) ? parseFloat(s) : null;
+}
+const testoQuota = v => String(Math.round(v * 1e6) / 1e6).replace('.', ',');
+let antQ = null;                                     // l'anteprima della quota che si sta cambiando
+function anteprimaQuota(d, testo) {
+  if (!SK || d.sketch !== SK.sid) return;
+  if (!antQ || antQ.d.dim !== d.dim) { fineAnteprima(true); antQ = { d, vPrima: SK.v, timer: 0, inVolo: false, prossimo: null, chiuso: false, mosso: false }; }
+  const a = antQ;
+  a.prossimo = testo;
+  clearTimeout(a.timer);
+  a.timer = setTimeout(() => mandaAnteprima(a), 60);          // si risolve solo l'ultimo numero scritto
+}
+async function mandaAnteprima(a) {
+  if (a.inVolo || a.prossimo == null || a.chiuso) return;
+  const testo = a.prossimo; a.prossimo = null; a.inVolo = true;
+  let r = null;
+  try { r = await call('sketch_dimension_preview', a.d.sketch, a.d.dim, testo); } catch (e) { r = null; }
+  a.inVolo = false;
+  if (a.chiuso || antQ !== a || !SK || SK.sid !== a.d.sketch) return;
+  if (r && r.ok && r.sketch) {                       // un numero che non va: resta l'ultima anteprima buona
+    SK.v = r.sketch; a.mosso = true;
+    drawSketch(); buildDims(r.dimensions, a.d.dim);
+  }
+  if (a.prossimo != null) mandaAnteprima(a);
+}
+function fineAnteprima(torna) {
+  const a = antQ; antQ = null;
+  if (!a) return;
+  a.chiuso = true; clearTimeout(a.timer);
+  if (torna && a.mosso && SK && SK.sid === a.d.sketch) { SK.v = a.vPrima; drawSketch(); }
+}
+function confermaQuota(d, v) {
+  const prima = antQ?.vPrima;
+  fineAnteprima(false);
+  inCoda(async () => {
+    if (!await apply(await call('set_dimension', d.sketch, d.dim, v))) {
+      if (prima && SK && SK.sid === d.sketch) { SK.v = prima; drawSketch(); }
+      buildDims(); return;
+    }
+    if (SK && SK.v.points.some(q => { const p = v3(q.xyz).project(camera); return Math.abs(p.x) > 0.95 || Math.abs(p.y) > 0.95; })) fitSketch();
+  });
+}
 function editDim(el, d) {
   if (el.classList.contains('edit')) return;
   el.classList.add('edit');
-  el.innerHTML = (d.param ? `<span class="p">${esc(d.param_label || d.param)} =</span>` : '') + '<input>';
+  el.innerHTML = (d.param ? `<span class="p">${esc(d.param_label || d.param)} =</span>` : '') + '<input>'
+    + '<span class="dim-frecce"><button type="button" class="su" tabindex="-1" title="Più 1 mm (Maiusc: più 10) · anche col tasto ↑">▲</button>'
+    + '<button type="button" class="giu" tabindex="-1" title="Meno 1 mm (Maiusc: meno 10) · anche col tasto ↓">▼</button></span>';
   const inp = el.querySelector('input');
   const mostrato = d.shown ?? d.value;
   inp.value = typeof d.expr === 'number' ? String(mostrato).replace('.', ',') : (d.param ? String(mostrato).replace('.', ',') : d.expr);
   inp.focus(); inp.select();
   let fatto = false;
-  const chiudi = () => { if (!fatto) { fatto = true; buildDims(); } };
+  const chiudi = () => { if (!fatto) { fatto = true; fineAnteprima(true); buildDims(); } };
+  const passo = (verso, grande) => {
+    const n = numeroQuota(inp.value);
+    if (n === null) { toast('Le frecce cambiano solo un numero: una formula resta come l’hai scritta.'); return; }
+    const v = Math.round((n + verso * (grande ? QUOTA_PASSO_MAIUSC : QUOTA_PASSO)) * 1e6) / 1e6;
+    if (v <= 0) return;                              // una misura non va sotto zero
+    inp.value = testoQuota(v);
+    anteprimaQuota(d, inp.value);
+  };
+  inp.addEventListener('input', () => anteprimaQuota(d, inp.value));
   inp.addEventListener('keydown', ev => {
     if (!ev.ctrlKey) ev.stopPropagation();
+    if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') { ev.preventDefault(); passo(ev.key === 'ArrowUp' ? 1 : -1, ev.shiftKey); }
     if (ev.key === 'Escape') chiudi();
-    if (ev.key === 'Enter') {
-      fatto = true;
-      const v = inp.value;
-      inCoda(async () => {
-        if (!await apply(await call('set_dimension', d.sketch, d.dim, v))) { buildDims(); return; }
-        if (SK && SK.v.points.some(q => { const p = v3(q.xyz).project(camera); return Math.abs(p.x) > 0.95 || Math.abs(p.y) > 0.95; })) fitSketch();
-      });
-    }
+    if (ev.key === 'Enter') { fatto = true; confermaQuota(d, inp.value); }
   });
+  for (const [cls, verso] of [['su', 1], ['giu', -1]]) {
+    const b = el.querySelector('.dim-frecce .' + cls);
+    b.addEventListener('pointerdown', ev => { ev.stopPropagation(); });
+    b.addEventListener('mousedown', ev => { ev.preventDefault(); ev.stopPropagation(); });    // il campo resta attivo
+    b.addEventListener('click', ev => { ev.stopPropagation(); passo(verso, ev.shiftKey); inp.focus(); });
+  }
   inp.addEventListener('blur', chiudi);
+}
+// trascinare la quota di lato: a destra cresce, a sinistra cala, a passi di 1 mm (Maiusc: 10); lasciando si conferma,
+// Esc mentre trascini torna com'era. Solo un numero: una quota scritta come formula non si trascina
+function trascinaQuota(ev, el, d) {
+  if (ev.button !== 0 || d.driven || el.classList.contains('edit')) return;
+  if (typeof d.expr !== 'number' && !d.param) return;
+  const inizio = Math.abs(Number(d.shown ?? d.value));
+  if (!Number.isFinite(inizio)) return;
+  ev.stopPropagation();
+  const x0 = ev.clientX, testoPrima = el.innerHTML;
+  let attivo = false, valore = inizio;
+  const etichetta = v => (d.param ? `<span class="p">${esc(el.querySelector('.p')?.textContent || d.param)}</span>` : '')
+    + esc((d.type === 'diameter' ? 'Ø' : d.type === 'radius' ? 'R' : '') + testoQuota(v));
+  const finisci = () => {
+    window.removeEventListener('pointermove', muovi, true);
+    window.removeEventListener('pointerup', su, true);
+    window.removeEventListener('keydown', tasto, true);
+    document.body.classList.remove('trascina-quota'); el.classList.remove('trascina');
+  };
+  const muovi = e => {
+    const dx = e.clientX - x0;
+    if (!attivo) {
+      if (Math.abs(dx) < 5) return;
+      attivo = true;
+      document.body.classList.add('trascina-quota'); el.classList.add('trascina');
+      if (SK && !['select', 'dim'].includes(SK.tool)) setTool('select');
+    }
+    e.preventDefault();
+    const p = e.shiftKey ? QUOTA_PASSO_MAIUSC : QUOTA_PASSO, k = Math.trunc(dx / QUOTA_PX);
+    let v = k === 0 ? inizio : Math.round(inizio / p) * p + k * p;            // si va sui numeri tondi
+    v = Math.round(v * 1e6) / 1e6;
+    if (v <= 0 || v === valore) return;
+    valore = v;
+    el.innerHTML = etichetta(v);
+    anteprimaQuota(d, testoQuota(v));
+  };
+  const su = () => {
+    finisci();
+    if (!attivo) return;
+    el._trascinata = true; setTimeout(() => { el._trascinata = false; }, 0);   // il clic che segue non apre il campo
+    if (valore === inizio) { fineAnteprima(true); el.innerHTML = testoPrima; return; }
+    confermaQuota(d, testoQuota(valore));
+  };
+  const tasto = e => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault(); e.stopPropagation();
+    finisci();
+    if (attivo) { el._trascinata = true; setTimeout(() => { el._trascinata = false; }, 0); }
+    fineAnteprima(true); buildDims();
+  };
+  window.addEventListener('pointermove', muovi, true);
+  window.addEventListener('pointerup', su, true);
+  window.addEventListener('keydown', tasto, true);
 }
 
 // --------------------------------------------------------------- nodi dello scheletro

@@ -583,6 +583,78 @@ def quasi_uguali_di_riferimento(doc, sk) -> list[str]:
     return fatte
 
 
+LUNGHEZZE = ('length', 'distance', 'hdistance', 'vdistance')
+
+
+def primo_punto(sk, did):
+    """Il punto da cui parte una quota di lunghezza: dei suoi due punti (le punte della linea, o i due punti
+    quotati) quello disegnato prima. Nel rettangolo è l'angolo da cui l'hai tirato: cambiando la larghezza o
+    l'altezza resta fermo quello (il lato sinistro va dall'angolo in alto a quello in basso, ma cresce in su).
+    None per le altre quote."""
+    c = sk.constraints.get(did)
+    if not c or c['type'] not in LUNGHEZZE:
+        return None
+    if c['type'] == 'length':
+        e = sk.entities.get(c['refs'][0], {})
+        due = [e.get('a'), e.get('b')]
+    else:
+        due = list(c['refs'][:2])
+    if not all(sk.entities.get(p, {}).get('kind') == 'point' for p in due):
+        return None
+    ordine = {k: i for i, k in enumerate(sk.entities)}       # l'ordine in cui sono stati disegnati
+    return min(due, key=lambda p: ordine[p])
+
+
+def tieni_il_primo_punto(sk, did, prima, params) -> bool:
+    """05/11 (idea da SolidCraft): cambiando una lunghezza o una distanza resta fermo il primo punto e si muove
+    l'altro: il lato di un rettangolo cresce dal suo primo angolo. Il risolutore, da solo, fa la mossa più piccola
+    e divide il cambiamento tra le due punte (40 → 60: 11 mm a sinistra e 9 a destra).
+
+    Da chiamare dopo aver messo il valore nuovo in `sk` (`prima` = lo sketch risolto com'era a video). Se il primo
+    punto si sposterebbe, si risolve tenendolo dov'era e le coordinate salvate diventano quelle trovate: la
+    ricostruzione parte già dalla forma giusta e non ha più niente da muovere. Se tenerlo fermo non si può (una
+    simmetria, un punto già deciso a metà dalle altre quote) o qualche linea si girerebbe, non cambia niente: si
+    risolve come sempre. Vale solo quando si cambia una quota: i pezzi salvati si riaprono uguali."""
+    import copy as _cp
+    from cad_engine.sketch.solver import FULLY, UNDER
+    pid = primo_punto(sk, did)
+    if pid is None or pid == ORIGIN or prima is None or pid not in prima.points or sk.constraints[did].get('driven'):
+        return False
+    try:
+        normale = solve(sk, params)
+    except SteelCADError:
+        normale = None
+    if normale is not None and normale.status.state in (FULLY, UNDER) and \
+            math.dist(normale.points.get(pid, (math.inf, 0)), prima.points[pid]) < 1e-7:
+        return False                        # resta già fermo da solo (il caso di quasi tutti i disegni quotati)
+    prova = _cp.deepcopy(sk)
+    for k, e in prova.entities.items():     # si parte da quello che si vede
+        if e['kind'] == 'point' and k in prima.points and k != ORIGIN:
+            e['x'], e['y'] = (float(t) for t in prima.points[k])
+        elif e['kind'] == 'circle' and k in prima.circles:
+            e['r'] = float(prima.circles[k][1])
+    prova.constraints['_fermo'] = {'type': 'fix', 'refs': [pid]}
+    try:
+        ss = solve(prova, params)
+    except SteelCADError:
+        return False
+    if ss.status.state not in (FULLY, UNDER):
+        return False
+    for lid, (a, b) in prima.lines.items():  # nessuna linea si gira al contrario
+        if lid not in ss.lines or a not in ss.points or b not in ss.points:
+            continue
+        u = (prima.points[b][0] - prima.points[a][0], prima.points[b][1] - prima.points[a][1])
+        w = (ss.points[b][0] - ss.points[a][0], ss.points[b][1] - ss.points[a][1])
+        if math.hypot(*u) > 1e-6 and math.hypot(*w) > 1e-6 and u[0] * w[0] + u[1] * w[1] < 0:
+            return False
+    for k, e in sk.entities.items():
+        if e['kind'] == 'point' and k in ss.points and k != ORIGIN:
+            e['x'], e['y'] = float(ss.points[k][0]), float(ss.points[k][1])
+        elif e['kind'] == 'circle' and k in ss.circles:
+            e['r'] = float(ss.circles[k][1])
+    return True
+
+
 def _descr(sk, cid, c):
     sk.constraints[cid] = c
     try:
