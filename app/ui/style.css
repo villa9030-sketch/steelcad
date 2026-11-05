@@ -2993,3 +2993,8 @@ body.dark #home .home-nuovo.m-file .pic :is(img, .ico) { filter: invert(1); }
 #lf-corpo .lf-due .field { min-width: 0; flex: 1; }
 .lf-avvisi { color: var(--c-err-testo, var(--err)); margin: 4px 0 0; }
 .lf-avvisi:empty { display: none; }
+
+/* 05/11 Blocca insieme: i pezzi scelti */
+.gr-lista { list-style: none; margin: 0; padding: 0; }
+.gr-lista li { padding: 4px 0; border-bottom: 1px solid var(--c-linea, var(--line)); }
+.gr-lista li:last-child { border-bottom: 0; }

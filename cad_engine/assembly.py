@@ -288,6 +288,7 @@ class Assembly:
     path: Path | None = None
     meta: dict = field(default_factory=dict)           # 28/10: dati dell'assieme (le tavole ritoccate…)
     moto: dict = field(default_factory=dict)           # 05/11: i giunti mossi a mano {id: {'angolo', 'corsa'}}: non si salva
+    gruppi: list = field(default_factory=list)         # 05/11: pezzi bloccati insieme {'id','name','pezzi':[id…]}
 
     def to_dict(self) -> dict:
         base = self.path.parent if self.path else None
@@ -304,6 +305,8 @@ class Assembly:
                'instances': ist, 'mates': copy.deepcopy(self.mates)}
         if self.meta:
             out['meta'] = copy.deepcopy(self.meta)
+        if self.gruppi:
+            out['gruppi'] = copy.deepcopy(self.gruppi)
         return out
 
     @classmethod
@@ -314,6 +317,7 @@ class Assembly:
             raise ProjectFileError('L’assieme è stato salvato da una versione più nuova di Radius.')
         a = cls(d.get('name') or 'Assieme', copy.deepcopy(d.get('instances') or []), copy.deepcopy(d.get('mates') or []), path,
                 copy.deepcopy(d.get('meta') or {}))
+        a.gruppi = copy.deepcopy(d.get('gruppi') or [])
         base = path.parent if path else Path.cwd()
         for i in a.instances:
             f = Path(i['file'])
@@ -543,6 +547,8 @@ def _kabsch(src: list, dst: list) -> np.ndarray:
 def solve(asm: Assembly, parts: dict) -> dict:
     """Mette a posto le istanze secondo gli accoppiamenti. Ritorna {id: (R, T)} e scrive R, T nelle istanze.
     Gli accoppiamenti che non si possono rispettare finiscono in asm.warnings."""
+    if getattr(asm, 'gruppi', None):
+        return _solve_gruppi(asm, parts)
     asm.warnings = []
     pose = {i['id']: (_R(i), _T(i)) for i in asm.instances}
     if not asm.instances:
@@ -657,19 +663,28 @@ _INFO_CACHE: dict = {}
 
 def _info(ref, parts, asm) -> dict:
     """La faccia di un riferimento nelle coordinate del suo pezzo: tipo, p, n (versore), r."""
-    part = parts[asm.instance(ref['inst'])['file']]
+    part = parts[asm.instance(ref.get('_da', ref['inst']))['file']]
     chiave = (id(part), ref.get('name'), ref.get('kind'), tuple(round(float(x), 9) for x in ref['p']),
               round(float(ref.get('r') or 0), 9))
     trovato = _INFO_CACHE.get(chiave)
     if trovato is not None and trovato[0] is part:
-        return trovato[1]
+        return _nel_capo(trovato[1], ref)
     i = resolve_ref(part, ref)
     n = np.array(i['n'], dtype=float)
     out = {'kind': i['kind'], 'p': np.array(i['p'], dtype=float), 'n': n / np.linalg.norm(n), 'r': float(i.get('r') or 0)}
     if len(_INFO_CACHE) > 50000:
         _INFO_CACHE.clear()
     _INFO_CACHE[chiave] = (part, out)
-    return out
+    return _nel_capo(out, ref)
+
+
+def _nel_capo(info, ref) -> dict:
+    """La faccia di un pezzo di un gruppo bloccato, nelle coordinate del primo pezzo del gruppo (vedi _solve_gruppi)."""
+    rel = ref.get('_rel')
+    if rel is None:
+        return info
+    Rr, Tr = rel
+    return {**info, 'p': Rr @ info['p'] + Tr, 'n': Rr @ info['n']}
 
 
 def _nel_mondo(info, R, T) -> dict:
@@ -1054,3 +1069,109 @@ def gioco(asm: Assembly, parts: dict, a: dict, b: dict, tol: float = 1e-3) -> di
                 break
         out['facce'] = fc
     return out
+
+
+# ------------------------------------------------------------------------------------------- pezzi bloccati insieme
+# 05/11 (da SolidCraft, joint.rigid_group): due o più pezzi «Bloccati insieme» si muovono come uno solo, anche negli
+# accoppiamenti, senza farne un sottoassieme (la distinta resta com'è). Nel file solo l'elenco dei pezzi del gruppo:
+# come stanno tra loro lo dicono le loro posizioni salvate (si muovono sempre tutti insieme, e restano così).
+class _Corpi(Assembly):
+    """L'assieme visto dal risolutore: un gruppo bloccato è un pezzo solo (il suo primo pezzo, il «capo»)."""
+    tutte: dict = None
+
+    def instance(self, iid: str) -> dict:
+        if self.tutte and iid in self.tutte:
+            return self.tutte[iid]
+        return super().instance(iid)
+
+
+def capi_dei_gruppi(asm: Assembly) -> dict:
+    """{id del pezzo: id del capo del suo gruppo} per i pezzi bloccati insieme (il capo: il primo nell'assieme).
+    Un gruppo con meno di due pezzi che ci sono ancora non conta; un pezzo sta in un gruppo solo (il primo)."""
+    ordine = {i['id']: k for k, i in enumerate(asm.instances)}
+    capo = {}
+    for g in getattr(asm, 'gruppi', None) or []:
+        dentro = sorted({x for x in g.get('pezzi') or [] if x in ordine and x not in capo}, key=ordine.get)
+        if len(dentro) < 2:
+            continue
+        for x in dentro:
+            capo[x] = dentro[0]
+    return capo
+
+
+def gruppo_di(asm: Assembly, iid: str) -> dict | None:
+    """Il gruppo bloccato del pezzo (quello che conta), o None."""
+    capo = capi_dei_gruppi(asm).get(iid)
+    if capo is None:
+        return None
+    return next(g for g in asm.gruppi if capo in (g.get('pezzi') or []) and iid in (g.get('pezzi') or []))
+
+
+def compagni(asm: Assembly, iid: str) -> list:
+    """I pezzi che si muovono insieme a iid (lui compreso), nell'ordine dell'assieme."""
+    capo = capi_dei_gruppi(asm)
+    c = capo.get(iid)
+    return [i['id'] for i in asm.instances if c is not None and capo.get(i['id']) == c] or [iid]
+
+
+def _solve_gruppi(asm: Assembly, parts: dict) -> dict:
+    capo = capi_dei_gruppi(asm)
+    ist = {i['id']: i for i in asm.instances}
+    rel = {}
+    for x, c in capo.items():
+        if x != c:
+            RL, TL = _R(ist[c]), _T(ist[c])
+            rel[x] = (RL.T @ _R(ist[x]), RL.T @ (_T(ist[x]) - TL))
+    nome_g = {}
+    for g in asm.gruppi:
+        for x in g.get('pezzi') or []:
+            if x in capo:
+                nome_g.setdefault(capo[x], g.get('name') or 'Gruppo')
+    corpi = []
+    for i in asm.instances:
+        if capo.get(i['id'], i['id']) != i['id']:
+            continue
+        d = dict(i)
+        if i['id'] in nome_g:
+            d['name'] = nome_g[i['id']]
+            if any(ist[x].get('fixed') for x, c in capo.items() if c == i['id']):
+                d['fixed'] = True
+        corpi.append(d)
+
+    def rif(r):
+        x = r['inst']
+        if x not in rel:
+            return r
+        return {**r, 'inst': capo[x], '_da': x, '_rel': rel[x]}
+    mates = []
+    for m in asm.mates:
+        a, b = m['a']['inst'], m['b']['inst']
+        if capo.get(a, a) == capo.get(b, b):
+            continue                                 # dentro lo stesso gruppo: stanno già insieme
+        v = {**m, **{k: rif(m[k]) for k in CHIAVI if m.get(k)}}
+        if m['type'] == 'blocca':
+            Rr, Tr = np.array(m['rel_R'], dtype=float), np.array(m['rel_T'], dtype=float)
+            if a in rel:                             # A = capo ∘ relA
+                RrA, TrA = rel[a]
+                Rr, Tr = RrA @ Rr, RrA @ Tr + TrA
+            if b in rel:                             # B = capo ∘ relB
+                RrB, TrB = rel[b]
+                Rr = Rr @ RrB.T
+                Tr = Tr - Rr @ TrB
+            v['rel_R'], v['rel_T'] = Rr.tolist(), Tr.tolist()
+        mates.append(v)
+    vista = _Corpi(asm.name, corpi, mates, asm.path)
+    vista.tutte = ist
+    pv = solve(vista, parts)
+    asm.warnings = vista.warnings
+    pose = {}
+    for i in asm.instances:
+        RL, TL = pv[capo.get(i['id'], i['id'])]
+        if i['id'] in rel:
+            Rr, Tr = rel[i['id']]
+            R, T = RL @ Rr, RL @ Tr + TL
+        else:
+            R, T = RL, TL
+        i['R'], i['T'] = R.tolist(), T.tolist()
+        pose[i['id']] = (R, T)
+    return pose
