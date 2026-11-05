@@ -4589,6 +4589,7 @@ const MATE_UI = {
   vano: { nome: 'Metti nel vano', clic: ['il pannello da mettere', 'il telaio, vicino al vano dove va'], val: 0 },
   appoggia: { nome: 'Appoggia', clic: ['una faccia del pezzo da mettere (va bene quella che vedi)', 'la faccia del pezzo fermo, dove appoggiarlo'], val: 0 },
   testa: { nome: 'Testa a testa', clic: ['la faccia a 45° del pezzo che sta fermo', 'la faccia a 45° dell’altro pezzo (la stessa parete)'], val: null },
+  gioco: { nome: 'Gioco', clic: ['una faccia del primo pezzo', 'la faccia dell’altro pezzo, di fronte'], val: 0 },
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
@@ -4600,6 +4601,7 @@ function asmHelp() {
 function asmTool(t) {
   if (t && !ASM.tool && sel) clearSelection();     // la barretta del pezzo scelto copriva proprio le facce da cliccare
   ASM.tool = t; ASM.clic = [];
+  if (t !== 'gioco') giocoChiudi();
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
   if (t) asmHelp(); else setHelp('');
   if (!SK) $('#sk-foot').hidden = !t;                // il suggerimento in basso, anche fuori dal disegno
@@ -4751,6 +4753,7 @@ function pickInstEdge(ev) {                          // lo spigolo di una copia 
 function asmClick(ev) {
   if (ASM.tool === 'appoggia') { appoggiaClick(ev); return; }
   if (ASM.tool === 'vano') { vanoClick(ev); return; }
+  if (ASM.tool === 'gioco') { giocoClick(ev); return; }
   const u0 = MATE_UI[ASM.tool], k0 = ASM.clic.length;
   let h, c;
   if (u0.spigoli?.[k0 < u0.clic.length / 2 ? 0 : 1]) {
@@ -4906,6 +4909,62 @@ function interfMostra(lista) {
   if (lista.length) interfPannello(lista);
 }
 window.__interf = { mostra: interfMostra, pulisci: interfPulisci, get n() { return interfGroup.children.length; } };
+// ===================================================================== Gioco tra due pezzi (05/11)
+// Idea da SolidCraft (inspect.clearance): clic su una faccia di un pezzo e su quella di fronte dell'altro → quanto
+// gioco c'è tra le due facce (il plexiglass nella scanalatura: 0,5 per lato) e, tra i due pezzi interi, il punto più
+// vicino. Nel 3D una quota come quelle di «Quota» (tasto destro la toglie); se si toccano lo dice, se uno entra
+// nell'altro il pezzo in comune in rosso, come le interferenze. Il comando resta acceso per misurarne altri due.
+function giocoChiudi() { document.getElementById('gioco-pan')?.remove(); }
+function giocoClick(ev) {
+  const h = pick(ev);
+  if (!h || h.face == null || objs.get(h.id)?.data.kind !== 'instance') { toast('Clicca una faccia di un pezzo.', 'err'); return; }
+  const c = { inst: h.id, face: h.face, pt: [h.point.x, h.point.y, h.point.z] };
+  if (!ASM.clic.length) { ASM.clic.push(c); sel = { id: h.id, face: h.face }; paint(); asmHelp(); return; }
+  if (h.id === ASM.clic[0].inst) { toast('Scegli una faccia di un altro pezzo.', 'err'); return; }
+  const a = ASM.clic[0];
+  asmTool('gioco');                                    // resta acceso: altri due
+  inCoda(async () => {
+    const r = await call('asm_gioco', a, c);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    sel = null; paint();
+    giocoMostra(r);
+  });
+}
+const mmG = v => num(v, 2);
+const volG = v => (v >= 1000 ? mmTesto(v / 1000) + ' cm³' : Math.round(v) + ' mm³');
+function giocoMostra(r) {
+  const g = r.gioco, pz = g.pezzi, fc = g.facce, Q = quoteDi();
+  if (fc) Q.push({ a: fc.p, b: fc.q, testo: fc.mm > 1e-3 ? `gioco ${mmG(fc.mm)}` : 'si toccano', dett: 'Gioco tra le due facce cliccate', fine: true });
+  const stessa = fc && Math.abs(fc.mm - pz.mm) < 0.01;
+  if (pz.stato === 'gioco' && !stessa) Q.push({ a: pz.p, b: pz.q, testo: `${mmG(pz.mm)} tra i pezzi`, dett: 'Il punto più vicino tra i due pezzi', fine: true });
+  if (pz.stato === 'tocca' && !(fc && fc.mm <= 1e-3)) Q.push({ a: pz.p, b: pz.q, testo: 'si toccano', dett: 'Qui i due pezzi si toccano' });
+  if (pz.stato === 'dentro') {
+    if (pz.mesh?.positions?.length) {
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(pz.mesh.positions, 3));
+      gg.setIndex(pz.mesh.indices);
+      const m = new THREE.Mesh(gg, INTERF_MAT); m.renderOrder = 40; interfGroup.add(m);
+    }
+    const at = pz.centro || pz.p;
+    Q.push({ a: at, b: at, testo: `entrano: ${volG(pz.volume)}`, rosso: true, dett: 'I due pezzi entrano uno nell’altro: in rosso il pezzo in comune' });
+  }
+  disegnaMisure();
+  // il pannello a destra: le due risposte in parole
+  giocoChiudi();
+  const el = document.createElement('div');
+  el.id = 'gioco-pan'; el.className = 'pannello-cmd';
+  const tra = `«${esc(r.nomi[0])}» e «${esc(r.nomi[1])}»`;
+  const rigaPezzi = pz.stato === 'dentro' ? `<b class="gc-rosso">Entrano uno nell’altro</b><small class="testo-2"> ${volG(pz.volume)} in comune, in rosso</small>`
+    : pz.stato === 'tocca' ? '<b>Si toccano</b><small class="testo-2"> gioco zero</small>' : `<b>${mmG(pz.mm)} mm</b><small class="testo-2"> nel punto più vicino</small>`;
+  el.innerHTML = `<div class="pc-testa"><h3>Gioco</h3><p>Tra ${tra}. Le misure restano nel 3D: tasto destro su una per toglierla</p></div>
+    <div class="pc-corpo">${fc ? `<section class="sezione"><h4>Tra le due facce</h4><p class="gc-mm" id="gc-facce"><b>${fc.mm > 1e-3 ? mmG(fc.mm) + ' mm' : 'Si toccano'}</b></p></section>` : ''}
+    <section class="sezione"><h4>Tra i due pezzi</h4><p class="gc-mm" id="gc-pezzi">${rigaPezzi}</p></section>
+    <section class="sezione"><p class="hint">Per misurarne altri due: clic su una faccia e su quella di fronte.</p></section></div>
+    <div class="pc-fondo"><button class="btn primary big" id="gc-ok">Fatto</button></div>`;
+  document.body.appendChild(el);
+  $('#gc-ok').onclick = () => { giocoChiudi(); if (ASM.tool === 'gioco') asmTool(null); };
+}
+window.__gioco = { mostra: giocoMostra };
 // ===================================================================== Vite nei fori (03/11, secondo giro)
 // Foro su foro: clic nel foro di un pezzo, poi in quello dell'altro → un pannello piccolo con la vite giusta per il
 // foro (Ø13 → M12) e lunga quanto il pacco più il dado: Invio la mette (e allinea i pezzi), «Solo allinea» come prima.
@@ -5512,6 +5571,7 @@ const misGroup = new THREE.Group();
 scene.add(misGroup);
 const MIS_MAT = new THREE.LineBasicMaterial({ color: 0xFFB21A, depthTest: false });
 const MIS_RUB = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 4, gapSize: 3, depthTest: false });
+const MIS_OFFERTI = new THREE.PointsMaterial({ color: 0xFFB21A, size: 5, sizeAttenuation: false, depthTest: false, transparent: true, opacity: 0.8 });
 var misEls = [];                                   // var: placeDims la legge già prima di qui
 const misBox = document.createElement('div');
 misBox.id = 'mis-box';
@@ -5603,15 +5663,72 @@ function misCandidati() {
       daPolilinea(pts);
     }
     chiudiArchi();                                  // per pezzo: i cerchi di due copie non si mescolano
+    for (const c of out) c.obj ??= o.data.id;       // di che pezzo è (i punti offerti dalla faccia: solo i suoi)
   }
   return out;
+}
+// 05/11 (idea da SolidCraft: «una faccia piana offre gli angoli, le metà degli spigoli e il centro di ogni foro»):
+// angoli, metà e centri dei fori c'erano già; qui il centro della faccia e i suoi punti fatti vedere al passaggio.
+// Il centro è il mezzo dell'ingombro della faccia, preso lungo il suo lato più lungo (su un rettangolo con i fori è il
+// mezzo vero, non il baricentro spostato dai fori). Calcolato dai triangoli a video, nelle coordinate del pezzo.
+function facciaPiana(o, face) {
+  const d = o.data;
+  if (!d.faces || !d.positions || !d.indices) return null;
+  d._facce ??= new Map();
+  if (d._facce.has(face)) return d._facce.get(face);
+  let out = null;
+  const f = d.faces.find(x => x.index === face);
+  if (f && f.count >= 3) {
+    const P = d.positions, I = d.indices, V = i => new THREE.Vector3(P[3 * i], P[3 * i + 1], P[3 * i + 2]);
+    let n = null, piana = true;
+    const lati = new Map(), chiave = (a, b) => (a < b ? a + ':' + b : b + ':' + a);
+    for (let k = f.start; k + 2 < f.start + f.count; k += 3) {
+      const a = V(I[k]), b = V(I[k + 1]), c = V(I[k + 2]);
+      const nn = b.clone().sub(a).cross(c.clone().sub(a));
+      if (nn.lengthSq() < 1e-12) continue;
+      nn.normalize();
+      if (!n) n = nn; else if (Math.abs(n.dot(nn)) < 0.9999) { piana = false; break; }
+      for (const [x, y] of [[I[k], I[k + 1]], [I[k + 1], I[k + 2]], [I[k + 2], I[k]]]) { const q = chiave(x, y); lati.set(q, (lati.get(q) || 0) + 1); }
+    }
+    if (n && piana) {
+      let u = null, lu = 0;                         // il lato di bordo più lungo: la direzione della faccia
+      const bordo = [];
+      for (const [q, m] of lati) if (m === 1) {
+        const [x, y] = q.split(':').map(Number), A = V(x), B = V(y), L = A.distanceTo(B);
+        bordo.push(A, B);
+        if (L > lu) { lu = L; u = B.clone().sub(A).normalize(); }
+      }
+      if (u) {
+        const w = n.clone().cross(u).normalize(), o0 = bordo[0];
+        let u0 = Infinity, u1 = -Infinity, w0 = Infinity, w1 = -Infinity;
+        for (const p of bordo) { const t = p.clone().sub(o0), a = t.dot(u), b = t.dot(w); u0 = Math.min(u0, a); u1 = Math.max(u1, a); w0 = Math.min(w0, b); w1 = Math.max(w1, b); }
+        const c = o0.clone().addScaledVector(u, (u0 + u1) / 2).addScaledVector(w, (w0 + w1) / 2);
+        out = { c, n, u, w, o0, box: [u0, u1, w0, w1] };
+      }
+    }
+  }
+  d._facce.set(face, out);
+  return out;
+}
+// la faccia piana nel mondo (il pezzo può essere spostato nell'assieme)
+function facciaNelMondo(o, face) {
+  const f = facciaPiana(o, face);
+  if (!f) return null;
+  o.mesh.updateMatrixWorld(true);
+  const M = o.mesh.matrixWorld, N = new THREE.Matrix3().getNormalMatrix(M);
+  const c = f.c.clone().applyMatrix4(M), n = f.n.clone().applyMatrix3(N).normalize();
+  const o0 = f.o0.clone().applyMatrix4(M), u = f.u.clone().transformDirection(M), w = f.w.clone().transformDirection(M);
+  // un punto è «della faccia» se sta sul suo piano e dentro il suo ingombro (con un filo di tolleranza)
+  const contiene = p => { const t = p.clone().sub(o0), a = t.dot(u), b = t.dot(w), e = 0.01;
+    return Math.abs(t.dot(n)) < e && a > f.box[0] - e && a < f.box[1] + e && b > f.box[2] - e && b < f.box[3] + e; };
+  return { c, n, contiene, id: o.data.id };
 }
 // angolo (24/10): tre clic, un punto su un lato, il vertice, un punto sull'altro lato
 const gradiTra = (a, v, b) => THREE.MathUtils.radToDeg(a.clone().sub(v).angleTo(b.clone().sub(v)));
 function misStart(angolo = false) {
   if (SK) { toast('Nel disegno c’è già la Quota del disegno (tasto D).'); return; }
   if (MIS) misStop();
-  MIS = { a: null, cand: misCandidati(), hover: null, angolo, pts: [] };
+  MIS = { a: null, cand: misCandidati(), hover: null, angolo, pts: [], offerti: null };
   document.querySelectorAll(`[data-cmd="${angolo ? 'misura_angolo' : 'misura'}"]`).forEach(b => b.classList.add('on'));
   setHelp(angolo ? 'Angolo: clic su un punto del primo lato, poi sul vertice, poi su un punto dell’altro lato · tasto destro su una misura per toglierla · Esc finisce'
     : 'Quota: clic sul primo punto (vertice, metà, centro) e sul secondo · clic sul bordo di un foro = diametro · tasto destro su una quota per toglierla · Esc finisce');
@@ -5644,15 +5761,20 @@ function misTrova(ev) {
     }
   }
   const h = pick(ev);                             // nessun aggancio: il punto sotto il mouse sulla superficie
+  const fm = h && h.face != null ? facciaNelMondo(objs.get(h.id), h.face) : null;
+  if (fm) {                                       // sulla faccia piana: il suo centro, se il mouse ci è vicino
+    const [x, y, z] = scr(fm.c);
+    if (z <= 1 && Math.hypot(x - mx, y - my) < 14) return { p: fm.c, tipo: 'mezzo', faccia: fm };
+  }
   if (h) {
     const rr = canvas.getBoundingClientRect();
     ray.setFromCamera(new THREE.Vector2(((ev.clientX - rr.left) / rr.width) * 2 - 1, -((ev.clientY - rr.top) / rr.height) * 2 + 1), camera);
     const hit = ray.intersectObjects([...objs.values()].map(o => o.mesh), false)[0];
-    if (hit) return { p: hit.point.clone(), tipo: 'punto' };
+    if (hit) return { p: hit.point.clone(), tipo: 'punto', faccia: fm };
   }
   return null;
 }
-const NOMI_AGGANCIO = { vertice: 'vertice', 'metà': 'metà dello spigolo', centro: 'centro', cerchio: 'bordo del foro: clic = diametro', punto: 'sulla faccia' };
+const NOMI_AGGANCIO = { vertice: 'vertice', 'metà': 'metà dello spigolo', centro: 'centro', cerchio: 'bordo del foro: clic = diametro', punto: 'sulla faccia', mezzo: 'centro della faccia' };
 function misMove(ev) {
   MIS.hover = misTrova(ev);
   const h = MIS.hover, r = view.getBoundingClientRect();
@@ -5661,11 +5783,12 @@ function misMove(ev) {
     misSnap.style.display = 'block';
     misSnap.style.left = ((q.x + 1) / 2 * r.width) + 'px'; misSnap.style.top = ((1 - q.y) / 2 * r.height) + 'px';
     misSnap.className = 'mis-' + (h.tipo === 'metà' ? 'meta' : h.tipo);
+    MIS.offerti = h.faccia ? [...MIS.cand.filter(c => c.obj === h.faccia.id && h.faccia.contiene(c.p)).map(c => c.p), h.faccia.c] : null;
     tip.textContent = MIS.angolo ? (MIS.pts.length === 2 ? `${num(gradiTra(MIS.pts[0], MIS.pts[1], h.p), 1)}° · ${NOMI_AGGANCIO[h.tipo]}`
         : `${['primo lato', 'vertice'][MIS.pts.length]} · ${NOMI_AGGANCIO[h.tipo]}`)
       : MIS.a ? `${num(MIS.a.p.distanceTo(h.p), 2)} mm · ${NOMI_AGGANCIO[h.tipo]}` : NOMI_AGGANCIO[h.tipo];
     tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 14) + 'px'; tip.style.display = 'block';
-  } else { misSnap.style.display = 'none'; tip.style.display = 'none'; }
+  } else { misSnap.style.display = 'none'; tip.style.display = 'none'; MIS.offerti = null; }
   disegnaMisure();
 }
 function misClick(ev) {
@@ -5704,11 +5827,13 @@ function disegnaMisure() {
     const a = new THREE.Vector3(...q.a), b = new THREE.Vector3(...q.b), v = q.v ? new THREE.Vector3(...q.v) : null;
     const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(v ? [a, v, b] : [a, b]), MIS_MAT); l.renderOrder = 30; misGroup.add(l);
     for (const p of v ? [a, v, b] : [a, b]) {
-      const g = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.6, modelRadius * 0.004), 10, 8), new THREE.MeshBasicMaterial({ color: 0xFFB21A, depthTest: false }));
+      // il gioco (05/11): le palline non più grosse di un quarto della misura, se no coprono il mezzo millimetro
+      const rg = Math.max(0.6, modelRadius * 0.004), dq = a.distanceTo(b);
+      const g = new THREE.Mesh(new THREE.SphereGeometry(q.fine && dq > 1e-6 ? Math.min(rg, dq / 4) : rg, 10, 8), new THREE.MeshBasicMaterial({ color: q.rosso ? 0xE5484D : 0xFFB21A, depthTest: false }));
       g.position.copy(p); g.renderOrder = 30; misGroup.add(g);
     }
     const el = document.createElement('div');
-    el.className = 'dim mis'; el.textContent = q.testo; el.title = (q.dett ? q.dett + '\n' : '') + 'Tasto destro: togli questa quota';
+    el.className = 'dim mis' + (q.rosso ? ' rosso' : ''); el.textContent = q.testo; el.title = (q.dett ? q.dett + '\n' : '') + 'Tasto destro: togli questa quota';
     el.oncontextmenu = ev => { ev.preventDefault(); quoteDi().splice(k, 1); salvaQuote(); disegnaMisure(); };
     misBox.appendChild(el);
     // l'angolo: la scritta sulla bisettrice, vicino al vertice
@@ -5719,6 +5844,10 @@ function disegnaMisure() {
   if (MIS?.angolo && MIS.pts.length && MIS.hover) {
     const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([...MIS.pts, MIS.hover.p]), MIS_RUB);
     l.computeLineDistances(); l.renderOrder = 30; misGroup.add(l);
+  }
+  if (MIS?.offerti?.length) {                       // i punti che la faccia sotto il mouse offre
+    const pt = new THREE.Points(new THREE.BufferGeometry().setFromPoints(MIS.offerti), MIS_OFFERTI);
+    pt.renderOrder = 31; misGroup.add(pt);
   }
   if (MIS?.a && MIS.hover) {
     const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([MIS.a.p, MIS.hover.p]), MIS_RUB);
@@ -8131,6 +8260,7 @@ const CMDS = [
     interfMostra(r.interferences);
     toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, l’elenco a destra.`, 'err');
   }) },
+  { id: 'asm_gioco', label: 'Assieme: gioco tra due pezzi (quanto spazio c’è tra due facce)', run: () => { if (S?.mode !== 'assembly') { toast('Il gioco si misura negli assiemi.', 'err'); return; } asmTool(ASM.tool === 'gioco' ? null : 'gioco'); } },
   { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
@@ -8874,6 +9004,23 @@ function statoSketch(v) {
 // rispetto al punto prima, poi la griglia (F9 la spegne).
 const AP = 11;                                     // raggio di presa, in pixel
 const VANTAGGIO = { punto: 4, origine: 4, centro: 4, incrocio: 3, 'metà': 2, quadrante: 2, tangente: 1.5, perpendicolare: 1.5, sul: -3 };
+// il centro della faccia su cui si disegna (05/11), nelle coordinate dello sketch: una volta per sketch
+function centroFacciaSketch() {
+  if (!SK?.v?.on_face) return null;
+  if (SK._cf !== undefined && SK._cf.v === SK.v) return SK._cf.xy;
+  let xy = null;
+  const z = v3(SK.v.z_dir), o = v3(SK.v.origin);
+  for (const ob of objs.values()) {
+    if (xy || ob.data.kind !== 'body' || !ob.data.faces) continue;
+    for (const f of ob.data.faces) {
+      if (f.name !== SK.v.on_face) continue;
+      const fm = facciaNelMondo(ob, f.index);
+      if (fm && Math.abs(Math.abs(fm.n.dot(z)) - 1) < 1e-4 && Math.abs(fm.c.clone().sub(o).dot(z)) < 0.01) { xy = skToLocal(fm.c); break; }
+    }
+  }
+  SK._cf = { v: SK.v, xy };
+  return xy;
+}
 function skCursor(ev) {
   const xy = skPick(ev);
   if (!xy) return null;
@@ -8886,6 +9033,8 @@ function skCursor(ev) {
     if (d < AP) cand.push({ xy: q, tipo, d, ...extra });
   };
   const centri = new Set([...SK.v.circles, ...(SK.v.arcs || [])].map(c => c.center_id));
+  const cf = centroFacciaSketch();
+  if (cf) prendi(cf, 'centro', { nota: 'centro della faccia' });
   for (const p of SK.v.points) prendi(p.xy, p.id === 'O' ? 'origine' : centri.has(p.id) ? 'centro' : 'punto', { id: p.id });
   SK.pts.forEach((p, i) => { if (!p.id) prendi(p.xy, 'punto', { id: null, first: i === 0 }); });
   const L = SK.v.lines, tondi = roundsOf();
@@ -10630,7 +10779,7 @@ const BARRA_GRANDI = {
   lamiera: ['flange_help', 'foro', 'asola', 'tipo_foro', 'taglia', 'face_help', 'unfold', 'misura'],
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
-  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'vano', 'asse', 'distanza', 'angolo', 'asm_interf', 'asm_esploso', 'misura'],
+  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'vano', 'asse', 'distanza', 'angolo', 'asm_interf', 'gioco', 'asm_esploso', 'misura'],
   sketch: ['line', 'rect', 'circle', 'arcr', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };
