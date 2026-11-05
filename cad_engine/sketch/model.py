@@ -30,6 +30,7 @@ DIMENSIONS = {
     'distance': 'distanza', 'length': 'lunghezza', 'hdistance': 'distanza orizzontale',
     'vdistance': 'distanza verticale', 'angle': 'angolo', 'diameter': 'diametro', 'radius': 'raggio',
     'pldistance': 'distanza dalla linea',
+    'arclength': 'sviluppo dell’arco',       # 05/11: la lunghezza misurata lungo l'arco (il pezzo da calandrare)
 }
 
 
@@ -230,6 +231,8 @@ class Sketch:
                 fmt_mm(v) if isinstance(v, (int, float)) else str(v))
             if c['type'] == 'diameter' and isinstance(v, (int, float)):
                 testo = 'Ø' + testo
+            elif c['type'] == 'arclength' and isinstance(v, (int, float)):
+                testo = '⌒' + testo
             return f'la quota {testo} ({DIMENSIONS[c["type"]]} di {oggetti})'
         return f'il vincolo {CONSTRAINTS[c["type"]]} su {oggetti}'
 

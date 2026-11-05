@@ -1931,6 +1931,11 @@ body.bottom-closed .tabs button.on { font-weight: 500; }
 .dim .dim-frecce button { width: 16px; height: 10px; padding: 0; border: 0; border-radius: 2px; background: none; color: var(--c-testo-3);
   font: 8px/10px var(--font); cursor: pointer; }
 .dim .dim-frecce button:hover { color: var(--c-blu); background: var(--c-blu-tenue, #EEF3FF); }
+/* 05/11: accanto al numero, i tipi della quota: R, Ø, ⌒ (sviluppo dell'arco), ( ) di riferimento */
+.dim .dim-tipi { display: inline-flex; gap: 1px; margin-left: 4px; padding-left: 4px; border-left: 1px solid var(--c-linea); }
+.dim .dim-tipi button { min-width: 20px; height: 20px; padding: 0 3px; border: 0; border-radius: 3px; background: none; color: var(--c-testo-2);
+  font: 600 12px/20px var(--font); cursor: pointer; }
+.dim .dim-tipi button:hover { color: var(--c-blu); background: var(--c-blu-tenue, #EEF3FF); }
 .dim.trascina { border-color: var(--c-blu); box-shadow: var(--anello); }
 body.trascina-quota, body.trascina-quota * { cursor: ew-resize !important; user-select: none; }
 /* l'ingombro: colore normale delle quote (ambra = solo attenzione), un filo più quieto; lo distingue ⤢ */

@@ -472,6 +472,19 @@ class Api:
     def sketch_dimension(self, sid, kind, refs):
         return self._call(self._svc.sketch_dimension, sid, kind, refs)
 
+    # 05/11: quote che cambiano tipo con un clic; linee guida pronte
+    def sketch_dimension_kind(self, sid, did, kind):
+        return self._call(self._svc.sketch_dimension_kind, sid, did, kind)
+
+    def sketch_dimension_reference(self, sid, did, rif):
+        return self._call(self._svc.sketch_dimension_reference, sid, did, rif)
+
+    def sketch_add_guide(self, sid, come, dati):
+        return self._call(self._svc.sketch_add_guide, sid, come, dati)
+
+    def sketch_guide_preview(self, sid, come, dati):
+        return self._call(self._svc.sketch_guide_preview, sid, come, dati)
+
     def sketch_delete(self, sid, eids):
         return self._call(self._svc.sketch_delete, sid, eids)
 

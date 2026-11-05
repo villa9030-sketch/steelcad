@@ -563,14 +563,17 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
         if r not in sk.entities:
             raise SketchError(f'Nello sketch non c’è {r}.')
     # che cosa vuole ogni quota: tipo di elemento per ogni riferimento
-    vuole = {'length': ('line',), 'diameter': ('circle',), 'radius': ('arc',), 'distance': ('point', 'point'),
+    vuole = {'length': ('line',), 'diameter': ('circle',), 'radius': ('arc',), 'arclength': ('arc!',),
+             'distance': ('point', 'point'),
              'hdistance': ('point', 'point'), 'vdistance': ('point', 'point'), 'pldistance': ('point', 'line')}.get(kind)
-    nomi = {'line': 'una linea', 'circle': 'un cerchio', 'arc': 'un arco', 'point': 'un punto'}
+    nomi = {'line': 'una linea', 'circle': 'un cerchio', 'arc': 'un arco', 'arc!': 'un arco', 'point': 'un punto'}
     if vuole is not None:
         tipi = [sk.entities[r]['kind'] for r in refs]
-        if len(refs) != len(vuole) or any(t != v and not (v == 'circle' and t == 'arc') for t, v in zip(tipi, vuole)):
+        # 'arc!' = solo un arco (lo sviluppo); 'circle' vale anche per un arco
+        if len(refs) != len(vuole) or any(t != v.rstrip('!') and not (v == 'circle' and t == 'arc')
+                                          for t, v in zip(tipi, vuole)):
             raise SketchError('Per questa quota scegli ' + ' e '.join(nomi[v] for v in vuole) + '.')
-    simmetrica = kind in ('distance', 'length', 'diameter', 'radius')
+    simmetrica = kind in ('distance', 'length', 'diameter', 'radius', 'arclength')
     for cid, c in sk.constraints.items():
         if c['type'] == kind and (list(c['refs']) == list(refs) or (simmetrica and sorted(c['refs']) == sorted(refs))
                                   or (kind in ('hdistance', 'vdistance') and sorted(c['refs']) == sorted(refs))):
@@ -586,6 +589,9 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
         elif kind == 'radius':
             ss = solve(sk, doc.resolved_parameters())
             value = ss.arcs[refs[0]][3] if refs[0] in ss.arcs else ss.circles[refs[0]][1]
+        elif kind == 'arclength':
+            from cad_engine.sketch.solver import sviluppo_arco
+            value = sviluppo_arco(solve(sk, doc.resolved_parameters()), refs[0])
         elif kind == 'distance':
             value = math.dist(pts[refs[0]], pts[refs[1]])
         elif kind == 'hdistance':
@@ -601,7 +607,7 @@ def add_dimension(doc, sid, kind, refs, value=None, info=None):
     if kind in ('hdistance', 'vdistance') and value < 0:
         refs = [refs[1], refs[0]]
         value = -value
-    if kind in ('distance', 'length', 'diameter', 'pldistance') and value <= 1e-9:
+    if kind in ('distance', 'length', 'diameter', 'pldistance', 'arclength') and value <= 1e-9:
         raise SketchError('La misura è zero: i due elementi coincidono.')
     did = sk.dimension(kind, *refs, value=_r(value))
     par = doc.resolved_parameters()
