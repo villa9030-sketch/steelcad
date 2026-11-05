@@ -786,8 +786,11 @@ function selectEdge(e) {
 
 // --------------------------------------------------------------- scelta col mouse
 const ray = new THREE.Raycaster();
-function pick(ev) {
-  if (!model.visible) return null;            // sviluppo a video: il pezzo piegato non c'è da cliccare
+function pick(ev, ancheNascosto = false) {
+  // sviluppo a video: il pezzo piegato non c'è da cliccare. ancheNascosto: il pezzo nascosto dall'anteprima (che ne
+  // mostra la copia in azzurro) si clicca lo stesso (05/11: scegliendo il tubo di riferimento a anteprima pronta il
+  // clic finiva nel vuoto e chiudeva il pannello dell'angolo)
+  if (!model.visible && !ancheNascosto) return null;
   const r = canvas.getBoundingClientRect();
   const p = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(p, camera);
@@ -933,6 +936,12 @@ canvas.addEventListener('pointerup', ev => {
   if (FORATA && !$('#modal').hidden && $('#lf-corpo')) { forataClic(ev); return; }   // lamiera forata: clic = un'altra faccia
   if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }
   if (ANGOLI && !$('#modal').hidden && $('#ag-corpo')) return;                      // «Angoli tondi»: si cliccano i cerchi   // «Piega i bordi»: clic = un bordo in più o in meno
+  // scheletro 3D: si sceglie il tubo di riferimento, anche con l'anteprima a video; un clic nel vuoto non chiude niente
+  if (L3D?.prendi && $('#l3-tubo')) {
+    const h0 = pick(ev, antNascosto);
+    if (h0 && objs.get(h0.id)?.data?.kind === 'member') L3D.prendi(h0.id);
+    return;
+  }
   if (MIS) { misClick(ev); return; }
   if (DRESS) { dressClick(ev); return; }
   if (S?.mode === 'assembly' && ASM.tool) { asmClick(ev); return; }
@@ -942,7 +951,6 @@ canvas.addEventListener('pointerup', ev => {
   ultimoClic = h;
   if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
   if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) { puntoPreso(h.point); return; }
-  if (L3D?.prendi && h && objs.get(h.id)?.data?.kind === 'member' && $('#l3-tubo')) { L3D.prendi(h.id); return; }
   if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; passoTubi(null); ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
   if (DIVSCEGLI) { DIVSCEGLI = false; passoTubi(null); }
   MINI.dove = { p: h?.point ?? null, t: performance.now(), id: h?.id };      // la barretta compare qui

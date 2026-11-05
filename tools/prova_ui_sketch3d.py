@@ -122,11 +122,14 @@ try:
         scegli_nodo(nodo_in([-sp, -sp, 800]))
         pg.fill('#n-len', str(round(600 + 2 * sp, 3)))
         pg.click('[data-n3d="parallela"]'); time.sleep(0.3)
+        # si clicca a anteprima pronta (il pezzo vero è nascosto, a video c'è la copia in azzurro): è il caso che
+        # chiudeva il pannello dell'angolo (05/11)
+        anteprima_pronta()
         c = pg.evaluate("(() => { const b = new window.__steelcad.THREE.Box3().setFromObject(window.__steelcad.objs.get('ST1/M1').mesh); const c = b.getCenter(new window.__steelcad.THREE.Vector3()); return [c.x, c.y, c.z]; })()")
         xy = pg.evaluate("p => window.__steelcad.toScreen(p)", c)
         box = pg.locator('#c3d').bounding_box()
         pg.mouse.click(box['x'] + xy[0], box['y'] + xy[1]); time.sleep(0.6)
-        scelto = pg.input_value('#l3-tubo')
+        scelto = pg.input_value('#l3-tubo', timeout=5000) if pg.is_visible('#l3-tubo') else '(pannello chiuso)'
         ok(f'tubo di riferimento scelto cliccandolo nel disegno ({scelto})', scelto == 'M1')
         anteprima_pronta()
         foto('telaio sopra: parallelo al tubo davanti (cliccato), anteprima')
