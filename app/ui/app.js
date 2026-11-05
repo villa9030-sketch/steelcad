@@ -9290,6 +9290,7 @@ let skBase = null;                     // per quale vista dello sketch è fatto 
 const SK_LINE = new THREE.LineBasicMaterial({ color: 0x00A88F });
 const SK_SEL = new THREE.LineBasicMaterial({ color: 0xFFB21A });
 const SK_SCIOLTA = new THREE.LineBasicMaterial({ color: 0xE5484D });   // non chiude nessun contorno: non conta
+const SK_LIBERA = new THREE.LineBasicMaterial({ color: 0x2F6FE4 });    // 05/11: si muove ancora (mancano misure)
 const SK_HOV = new THREE.LineBasicMaterial({ color: 0x6E9BFF });
 const SK_RUB = new THREE.LineDashedMaterial({ color: 0x00A88F, dashSize: 6, gapSize: 4 });
 const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 5, gapSize: 3 });   // dove andrà la copia
@@ -9323,8 +9324,8 @@ const SK_TRACK = new THREE.LineDashedMaterial({ color: 0x4CC3AE, dashSize: 3, ga
 const SK_PTS = new THREE.PointsMaterial({ color: 0x1C2228, size: 6, sizeAttenuation: false });
 // tema chiaro / scuro: i colori del disegno che devono staccare dallo sfondo
 const COLORI_TEMA = {
-  chiaro: [[SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [ING_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
-  scuro: [[SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [ING_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
+  chiaro: [[SK_LIBERA, 0x2F6FE4], [SK_LINE, 0x00A88F], [SK_RUB, 0x00A88F], [SK_GRID1, 0xDDE2E8], [SK_GRID2, 0xC2CAD3], [SK_PTS, 0x15202B], [DIM_MAT, 0x3A4A5C], [ING_MAT, 0x3A4A5C], [FLAT_EDGE, 0x2B3138]],
+  scuro: [[SK_LIBERA, 0x6FA3FF], [SK_LINE, 0x2CCCB0], [SK_RUB, 0x2CCCB0], [SK_GRID1, 0x262C33], [SK_GRID2, 0x353D46], [SK_PTS, 0xE1E6EB], [DIM_MAT, 0x6FA8E8], [ING_MAT, 0x6FA8E8], [FLAT_EDGE, 0xC9D2DB]],
 };
 function applyTheme(scuro) {
   document.body.classList.toggle('dark', scuro);
@@ -9693,10 +9694,11 @@ function disegnaBaseSketch(v, w, h) {
   skGrid.position.copy(v3(v.z_dir).multiplyScalar(-0.05));
   skGrid.children.forEach(c => { c.renderOrder = -1; c.material.depthWrite = false; });   // prima di tutto, sotto al pezzo
   const sciolte = new Set(v.sciolte || []), idx = new Map(), tratti = [];
+  const liberi = new Set(v.misure?.liberi || []);         // 05/11: si muovono ancora (mancano misure): blu
   for (const l of v.lines) {
     idx.set(l.id, ['line', l]);
     const mat = l.xray ? SK_XRAY : l.piega ? (l.piega === 'centro' ? SK_PIEGA : SK_PIEGA_BORDO) : l.ref ? SK_REF
-      : l.construction ? SK_CONSTR : sciolte.has(l.id) ? SK_SCIOLTA : SK_LINE;
+      : l.construction ? SK_CONSTR : sciolte.has(l.id) ? SK_SCIOLTA : liberi.has(l.id) ? SK_LIBERA : SK_LINE;
     tratti.push([[v3(l.pa), v3(l.pb)], mat]);
   }
   for (const t of v.texts || []) {                  // testi da marcare: i tratti delle lettere
@@ -9705,18 +9707,19 @@ function disegnaBaseSketch(v, w, h) {
   }
   for (const c of v.circles) {
     idx.set(c.id, ['circle', c]);
-    tratti.push([skPolilinee('circle', c, v)[0], c.xray ? SK_XRAY : c.ref ? SK_REF : c.construction ? SK_CONSTR : SK_LINE]);
+    tratti.push([skPolilinee('circle', c, v)[0], c.xray ? SK_XRAY : c.ref ? SK_REF : c.construction ? SK_CONSTR : liberi.has(c.id) ? SK_LIBERA : SK_LINE]);
     const fuori = c.hole?.tipo === 'filettato' ? ({ M3: 3, M4: 4, M5: 5, M6: 6, M8: 8, M10: 10, M12: 12, M16: 16 }[c.hole.M] || 0) / 2
       : c.hole?.tipo === 'svasato' ? Number(c.hole.D) / 2 : 0;
     if (fuori > c.r) tratti.push([skPolilinee('circle', { ...c, r: fuori }, v)[0], SK_CONSTR]);   // filettatura o svasatura: tratteggiato attorno
   }
   for (const a of v.arcs || []) {
     idx.set(a.id, ['arc', a]);
-    tratti.push([skPolilinee('arc', a, v)[0], a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : sciolte.has(a.id) ? SK_SCIOLTA : SK_LINE]);
+    tratti.push([skPolilinee('arc', a, v)[0], a.xray ? SK_XRAY : a.ref ? SK_REF : a.construction ? SK_CONSTR : sciolte.has(a.id) ? SK_SCIOLTA : liberi.has(a.id) ? SK_LIBERA : SK_LINE]);
   }
   lineeInBlocco(skGroup, tratti);
   const pg = new THREE.BufferGeometry().setFromPoints(v.points.map(p => v3(p.xyz)));
   skGroup.add(new THREE.Points(pg, SK_PTS));
+  disegnaAperte(v);
   skGroup.position.copy(v3(v.z_dir).multiplyScalar(0.05));
   skBase = { v, spesse: lineeSpesse, w, h, idx };
 }
@@ -9766,6 +9769,7 @@ function statoSketch(v) {
     if (v.sciolte?.length) { cls = 'todo'; testo += ' ⚠ ' + v.status; } }
   else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: «Pieghe e forme ▾» → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
   else { cls = 'bad'; testo = /^Il disegno (è tutto quotato|si può ancora muovere)/.test(v.status || '') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
+  aggiornaStatoMisure(v);
   $('#sk-where').textContent = 'Stai disegnando ' + (v.where || '');
   $('#sk-status').className = 'sk-state ' + cls;
   $('#sk-status').textContent = testo;
@@ -10158,6 +10162,11 @@ function drawRubber() {
     for (const tr of pt.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + o[0], q[1] + o[1]]))), SK_TESTO));
   }
   const tip = $('#sk-tip');
+  if (SK?.sistemaProva) { disegnaSistemaProva(SK.sistemaProva); tip.style.display = 'none'; ridisegna(); return; }
+  if (SK?.svgProva) {                               // 05/11: l'SVG in prova al suo posto, tratteggiato
+    for (const pl of SK.svgProva) { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pl.map(skToWorld)), SK_ANTEPRIMA); l.computeLineDistances(); skRubber.add(l); }
+    tip.style.display = 'none'; ridisegna(); return;
+  }
   if (SK?.scritteProva) {                           // le scritte sotto i fori, in prova al loro posto
     for (const sp of SK.scritteProva) for (const tr of sp.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + sp.at[0], q[1] + sp.at[1]]))), SK_TESTO));
     tip.style.display = 'none'; ridisegna(); return;
@@ -11484,7 +11493,170 @@ function skScegliPoiBase(P) {
   setHelp(`${AIUTO_SCEGLI[P.what]}: clic sul punto di partenza (gli agganci si accendono) · Esc annulla`);
   drawRubber();
 }
+// ------------------------------------------------------------- 05/11: stato del disegno (idee da SolidCraft)
+// Sempre a vista in alto a sinistra: «Tutto definito» o «Mancano 3 misure» (le linee che si muovono ancora sono
+// blu); i pallini rossi sono le estremità che non toccano niente e «Chiudi» unisce quelle vicine (cerchio giallo).
+function aggiornaStatoMisure(v) {
+  const box = $('#sk-stato');
+  if (!box) return;
+  const m = v.misure || {};
+  const sciolte = new Set(v.sciolte || []);       // le sciolte restano rosse: la legenda blu solo se ci sono linee blu
+  const fatto = m.stato === 'completo', liberi = (m.liberi || []).filter(id => !sciolte.has(id)).length;
+  $('#sk-misure').textContent = m.frase || '';
+  $('#sk-misure').className = 'sk-misure ' + (fatto ? 'ok' : m.stato === 'parziale' ? 'todo' : 'bad');
+  $('#sk-misure').title = fatto ? 'Forma e posizione sono decise: niente si muove più.'
+    : m.stato === 'parziale' ? 'Si può già usare. Per fissarlo del tutto aggiungi le quote che mancano: le linee blu si muovono ancora.'
+      : 'Alcune quote sono di troppo o litigano: guarda il messaggio in basso.';
+  $('#sk-leg-liberi').hidden = !liberi;
+  const ap = (v.aperte || []).length, cp = (v.coppie || []).length;
+  $('#sk-aperte').hidden = !ap;
+  $('#sk-aperte-n').textContent = ap === 1 ? '1 estremità aperta' : `${ap} estremità aperte`;
+  $('#sk-chiudi').hidden = !cp;
+  $('#sk-chiudi').textContent = cp === 1 ? 'Chiudi' : `Chiudi (${cp})`;
+  $('#sk-chiudi').title = `Unisce ${cp === 1 ? 'le due estremità' : `${cp} coppie di estremità`} a meno di 1 mm (cerchio giallo): il contorno si chiude`;
+}
+// un pallino tondo (i punti di WebGL sono quadrati)
+let _pallino = null;
+function texPallino() {
+  if (_pallino) return _pallino;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2); g.fill();
+  _pallino = new THREE.CanvasTexture(c);
+  return _pallino;
+}
+const SK_APERTA = new THREE.PointsMaterial({ color: 0xE5484D, size: 11, sizeAttenuation: false, depthTest: false, transparent: true, alphaTest: 0.5 });
+const SK_DA_UNIRE = new THREE.PointsMaterial({ color: 0xFFB21A, size: 20, sizeAttenuation: false, depthTest: false, transparent: true, alphaTest: 0.5 });
+function disegnaAperte(v) {
+  const metti = (xy, mat, ordine) => {
+    if (!xy.length) return;
+    mat.map = texPallino(); mat.needsUpdate = true;
+    const p = new THREE.Points(new THREE.BufferGeometry().setFromPoints(xy.map(q => skToWorld(q))), mat);
+    p.renderOrder = ordine; skGroup.add(p);
+  };
+  metti((v.coppie || []).flat(), SK_DA_UNIRE, 21);
+  metti(v.aperte || [], SK_APERTA, 22);
+}
+$('#sk-chiudi')?.addEventListener('click', () => {
+  if (!SK) return;
+  const sid = SK.sid;
+  inCoda(async () => { const r = await call('sketch_chiudi', sid); await apply(r, r.message); });
+});
+
+// «Sistema il disegno»: per i disegni arrivati da fuori (DXF, SVG). Trova orizzontali, verticali, punti da unire,
+// tangenze e uguali che il disegno ha già quasi esatti; l'anteprima li mostra sul disegno, si sceglie cosa mettere
+const SK_PROVA_HV = new THREE.MeshBasicMaterial({ color: 0xFF8A00, side: THREE.DoubleSide, depthTest: false });
+const SK_PROVA_UG = new THREE.MeshBasicMaterial({ color: 0x9B5CF6, side: THREE.DoubleSide, depthTest: false });
+const SK_PROVA_PT = new THREE.PointsMaterial({ color: 0x1F5EFF, size: 12, sizeAttenuation: false, depthTest: false, transparent: true, alphaTest: 0.5 });
+const SISTEMA_TIPI = [['uniti', 'Punti da unire', 'pt'], ['hv', 'Orizzontali e verticali', 'hv'], ['tangenti', 'Tangenti (linea e arco che si raccordano)', 'pt'], ['uguali', 'Uguali (stessa lunghezza, stesso raggio)', 'ug']];
+function disegnaSistemaProva(P) {
+  const tratto = id => {
+    const el = skBase?.idx.get(id);
+    if (!el) return null;
+    const [tipo, e] = el;
+    if (tipo === 'line') return [e.xa, e.xb];
+    const n = tipo === 'circle' ? 48 : 24, a0 = tipo === 'circle' ? 0 : e.a0, a1 = tipo === 'circle' ? 2 * Math.PI : e.a1;
+    return Array.from({ length: n + 1 }, (_, i) => { const t = a0 + (a1 - a0) * i / n; return [e.xc[0] + e.r * Math.cos(t), e.xc[1] + e.r * Math.sin(t)]; });
+  };
+  for (const s of P.hv || []) { const t = tratto(s.id); if (t) skRubber.add(fatLine(t, 6, SK_PROVA_HV)); }
+  for (const s of P.uguali || []) for (const id of s.ids) { const t = tratto(id); if (t) skRubber.add(fatLine(t, 6, SK_PROVA_UG)); }
+  const pt = [...(P.uniti || []), ...(P.tangenti || [])].map(s => skToWorld(s.xy));
+  if (pt.length) {
+    SK_PROVA_PT.map = texPallino(); SK_PROVA_PT.needsUpdate = true;
+    const p = new THREE.Points(new THREE.BufferGeometry().setFromPoints(pt), SK_PROVA_PT); p.renderOrder = 23; skRubber.add(p);
+  }
+}
+function sistemaDisegno() {
+  if (!SK) return;
+  const sid = SK.sid;
+  inCoda(async () => {
+    const r = await call('sketch_sistema_anteprima', sid, null);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    const c = r.conti;
+    if (!SISTEMA_TIPI.some(([k]) => c[k]) && !r.sbloccati) { toast('Nel disegno non c’è niente da sistemare: orizzontali, verticali e tangenze ci sono già.', 'ok'); return; }
+    modal(`<h3>Sistema il disegno</h3>
+      <p class="hint">Metto le relazioni che il disegno ha già quasi esatte: così si quota e si cambia come uno disegnato qui. Il disegno resta dov’è.</p>
+      <div class="sd-tipi" id="sd-tipi">${SISTEMA_TIPI.map(([k, t, col]) => `<label class="check sd-${col}"><input type="checkbox" data-sd="${k}" ${c[k] ? 'checked' : 'disabled'}><i></i>${esc(t)}: <b>${c[k] || 'nessuno'}</b></label>`).join('')}</div>
+      ${r.sbloccati ? '<p class="hint">Il disegno è arrivato con tutti i punti bloccati: li sblocco, resta fermo solo il punto in basso a sinistra. Poi aggiungi le quote che ti servono.</p>' : ''}
+      <p class="fo-frase" id="sd-frase"></p>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Metti</button></div>`, close => {
+      $('#modal').classList.add('laterale');
+      const scelti = () => [...document.querySelectorAll('#sd-tipi [data-sd]:checked')].map(x => x.dataset.sd);
+      let giro = 0;
+      const mostra = x => {
+        SK.sistemaProva = x.segni;
+        const n = SISTEMA_TIPI.reduce((s, [k]) => s + (x.scelti[k] || 0), 0);
+        $('#sd-frase').textContent = n ? `Dopo: ${x.dopo.toLowerCase()}${/tutto/i.test(x.dopo) ? '' : ' (le quote le metti tu)'}` : 'Scegli almeno una cosa da mettere.';
+        $('#m-ok').disabled = !n && !r.sbloccati;
+        drawRubber();
+      };
+      const prova = async () => {
+        const mio = ++giro, x = await call('sketch_sistema_anteprima', sid, scelti());
+        if (mio !== giro || !SK) return;
+        if (x.ok) mostra(x);
+      };
+      $('#sd-tipi').addEventListener('change', prova);
+      const chiudi = () => { if (SK) { SK.sistemaProva = null; drawRubber(); } close(); };
+      $('#m-no').onclick = chiudi;
+      $('#m-ok').onclick = () => { const t = scelti(); chiudi(); inCoda(async () => { const x = await call('sketch_sistema', sid, t); await apply(x, x.message); }); };
+      $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+      mostra(r);
+    });
+  });
+}
+
+// Importa SVG (un logo, una sagoma): come il DXF, si sceglie il file, poi larghezza e posizione con l'anteprima al
+// suo posto (tratteggiata gialla); le curve diventano archi e linee
+function importaSvg() {
+  if (!SK) return;
+  const sid = SK.sid;
+  inCoda(async () => {
+    const r = await call('svg_scegli');
+    if (!r.ok) { if (!r.cancelled) toast(r.message, 'err'); return; }
+    const u = SK.ultimoSvg || {};
+    const virg = x => esc(String(x).replace('.', ','));
+    const w0 = u.larghezza || Math.round(r.w * 10) / 10;
+    modal(`<h3>Importa SVG «${esc(r.name)}»</h3>
+      <p class="hint">Nel file è largo ${virg(Math.round(r.w * 10) / 10)} × alto ${virg(Math.round(r.h * 10) / 10)} mm. Le curve diventano archi e linee (entro 0,02 mm): il laser taglia archi veri.</p>
+      ${r.testi ? `<p class="hint">${r.testi === 1 ? 'C’è 1 testo che non si legge: nel programma di grafica trasformalo' : `Ci sono ${r.testi} testi che non si leggono: nel programma di grafica trasformali`} in tracciato («converti in curve»).</p>` : ''}
+      <div class="form" id="sv-form">
+        <label>Larghezza<span class="inp"><input class="field" id="sv-w" value="${virg(w0)}"><i>mm</i></span></label>
+        <label>Il punto X, Y è<select class="field" id="sv-dove"><option value="">l’angolo in basso a sinistra</option><option value="1"${u.centro ? ' selected' : ''}>il centro del disegno</option></select></label>
+        <label>X<span class="inp"><input class="field" id="sv-x" value="${virg(u.x ?? 0)}"><i>mm</i></span></label>
+        <label>Y<span class="inp"><input class="field" id="sv-y" value="${virg(u.y ?? 0)}"><i>mm</i></span></label></div>
+      <p class="fo-frase" id="sv-frase"></p>
+      <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Importa</button></div>`, close => {
+      $('#modal').classList.add('laterale');
+      const leggi = () => ({ larghezza: $('#sv-w').value.trim().replace(',', '.'), x: $('#sv-x').value.trim().replace(',', '.'),
+        y: $('#sv-y').value.trim().replace(',', '.'), centro: !!$('#sv-dove').value });
+      let giro = 0, t = null, prima = true;
+      const prova = async () => {
+        const mio = ++giro, x = await call('sketch_svg_anteprima', sid, leggi());
+        if (mio !== giro || !SK) return;
+        SK.svgProva = x.ok ? x.polilinee : null;
+        $('#sv-frase').textContent = x.ok ? `Largo ${virgola(x.w)} × alto ${virgola(x.h)} mm · ${x.pezzi} ${x.pezzi === 1 ? 'pezzo' : 'pezzi'}` : x.message;
+        $('#sv-frase').classList.toggle('no', !x.ok);
+        $('#m-ok').disabled = !x.ok;
+        drawRubber();
+        if (x.ok && prima) { prima = false; const pts = x.polilinee.flat().map(q => skToWorld(q)); fitSketch(false, pts); setTimeout(() => scostaDallaFinestra(pts), 0); }
+      };
+      $('#sv-form').addEventListener('input', () => { clearTimeout(t); t = setTimeout(prova, 150); });
+      $('#sv-form').addEventListener('change', () => { clearTimeout(t); t = setTimeout(prova, 30); });
+      const chiudi = () => { if (SK) { SK.svgProva = null; drawRubber(); } close(); };
+      $('#m-no').onclick = chiudi;
+      $('#m-ok').onclick = () => {
+        const v = leggi();
+        SK.ultimoSvg = v;
+        chiudi();
+        inCoda(async () => { const x = await call('sketch_svg_inserisci', sid, v); await apply(x, x.message); });
+      };
+      $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+      prova();
+    });
+  });
+}
 function skAction(act) {
+  if (act === 'sistema') { sistemaDisegno(); return; }
+  if (act === 'svg') { importaSvg(); return; }
   if (act === 'offset') { startOffset(); return; }
   if ((act === 'copy' || act === 'move' || act === 'mirror' || act === 'scale')) {
     SK.pts = []; SK.cursor = null;

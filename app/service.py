@@ -36,6 +36,7 @@ from app.tubi_service import TubiMixin  # noqa: E402
 from app.strutture_service import StruttureMixin  # noqa: E402
 from app.forata_service import ForataMixin  # noqa: E402
 from app.gruppi_service import GruppiMixin  # noqa: E402
+from app.sketch_stato import StatoSketchMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_kg, fmt_mm  # noqa: E402
@@ -105,7 +106,7 @@ def _err(ex: Exception):
 _MAGLIE_TUBI: dict = {}          # id(solido del tubo) -> (solido, maglia): vedi scene()
 
 
-class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, ForataMixin, GruppiMixin):
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, ForataMixin, GruppiMixin, StatoSketchMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))

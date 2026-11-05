@@ -578,6 +578,31 @@ class Api:
     def sketch_togli_doppioni(self, sid):
         return self._call(self._svc.sketch_togli_doppioni, sid)
 
+    # 05/11: stato del disegno, Chiudi, Sistema il disegno, Importa SVG
+    def sketch_chiudi(self, sid):
+        return self._call(self._svc.sketch_chiudi, sid)
+
+    def sketch_sistema_anteprima(self, sid, tipi=None):
+        return self._call(self._svc.sketch_sistema_anteprima, sid, tipi)
+
+    def sketch_sistema(self, sid, tipi=None):
+        return self._call(self._svc.sketch_sistema, sid, tipi)
+
+    def svg_scegli(self):
+        p = self._dialog(webview.OPEN_DIALOG, ('Disegno SVG (*.svg)',))
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return self._call(self._svc.svg_leggi, p if isinstance(p, str) else p[0])
+
+    def svg_leggi(self, path):
+        return self._call(self._svc.svg_leggi, path)
+
+    def sketch_svg_anteprima(self, sid, opz):
+        return self._call(self._svc.sketch_svg_anteprima, sid, opz)
+
+    def sketch_svg_inserisci(self, sid, opz):
+        return self._call(self._svc.sketch_svg_inserisci, sid, opz)
+
     def new_project_preview(self, kind, values=None):
         return self._call(self._svc.new_project_preview, kind, values)
 
