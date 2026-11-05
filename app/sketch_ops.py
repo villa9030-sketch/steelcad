@@ -46,6 +46,7 @@ def view(doc, sid: str, body=None) -> dict:
         if body is None:
             raise SteelCADError('La faccia di questo sketch non c’è più nel pezzo.', code='piano')
         pl = doc._plane(sk, body)
+    ss = None
     try:
         ss = solve(sk, doc.resolved_parameters())
         pts, stato = ss.points, ss.status.message
@@ -86,6 +87,7 @@ def view(doc, sid: str, body=None) -> dict:
         n = len(out['sciolte'])
         out['status'] = (f'{n} linea sciolta' if n == 1 else f'{n} linee sciolte') + ' (in rosso) non chiude nessun contorno: ' \
             + 'non conta per il taglio. Se non serve, selezionala ed Elimina.'
+    _misure_e_aperture(out, sk, ss, doc)
     out['drawn'] = sum(1 for e in sk.entities.values() if e['kind'] in ('line', 'circle', 'arc', 'text') and not e.get('ref'))
     from cad_engine.sketch import testo as testo_mod
     for k, e in sk.entities.items():
@@ -168,6 +170,26 @@ def view(doc, sid: str, body=None) -> dict:
                                    'center_id': e['center'], 'hole': e.get('hole'),
                                    'construction': bool(e.get('construction')), 'ref': bool(e.get('ref')), 'xray': bool(e.get('xray'))})
     return out
+
+
+def _misure_e_aperture(out: dict, sk, ss, doc) -> None:
+    """05/11: quanto manca (sempre a vista), quali linee si muovono ancora, le estremità che non toccano niente e
+    quelle abbastanza vicine da unire con «Chiudi»."""
+    from cad_engine.sketch import stato as st
+    if ss is None:
+        out['misure'] = {'stato': 'non risolto', 'dof': None, 'frase': 'Da sistemare', 'liberi': []}
+        out['aperte'], out['coppie'] = [], []
+        return
+    dof = ss.status.dof
+    try:
+        liberi = st.elementi_liberi(sk, doc.resolved_parameters(), dof if ss.status.state == 'completo' else None)
+    except SteelCADError:
+        liberi = None
+    out['misure'] = {'stato': ss.status.state, 'dof': dof, 'frase': st.frase_misure(ss.status.state, dof),
+                     'liberi': liberi or []}
+    ap = st.estremita_aperte(sk, ss)
+    out['aperte'] = [a['xy'] for a in ap['aperte']]
+    out['coppie'] = [[c['xy_a'], c['xy_b']] for c in ap['coppie']]
 
 
 def _bend_edges(body_shape, face) -> set:

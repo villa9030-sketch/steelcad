@@ -2993,3 +2993,26 @@ body.dark #home .home-nuovo.m-file .pic :is(img, .ico) { filter: invert(1); }
 #lf-corpo .lf-due .field { min-width: 0; flex: 1; }
 .lf-avvisi { color: var(--c-err-testo, var(--err)); margin: 4px 0 0; }
 .lf-avvisi:empty { display: none; }
+
+/* 05/11: stato del disegno sempre a vista (in alto a sinistra): quanto manca, linee libere, estremità aperte, Chiudi */
+#sk-stato { display: none; position: absolute; top: var(--s-2, 8px); left: var(--s-2, 8px); z-index: 4; align-items: center; gap: var(--s-2, 8px);
+  padding: 4px var(--s-2, 8px); font: 500 var(--fs-etichetta, 12px)/1.3 var(--font); color: var(--c-testo-2, #4A5562);
+  background: var(--c-pannello, #fff); border: 1px solid var(--c-linea, #D3D8DE); border-radius: var(--r-galleggia, 8px); box-shadow: var(--ombra-galleggia, none); }
+body.sketching #sk-stato { display: flex; }
+#sk-stato [hidden] { display: none !important; }
+.sk-misure { font-weight: 600; color: var(--c-testo, #1C2228); }
+.sk-misure::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--c-testo-2, #7D8790); }
+.sk-misure.ok::before { background: var(--ok, #1E8E3E); }
+.sk-misure.todo::before { background: #2F6FE4; }
+.sk-misure.bad::before { background: var(--c-err-testo, #D92D20); }
+.sk-leg-liberi, .sk-aperte { display: inline-flex; align-items: center; gap: 5px; }
+.sk-leg-liberi i { width: 18px; border-top: 2px solid #2F6FE4; }
+body.dark .sk-leg-liberi i, body.dark .sk-misure.todo::before { border-color: #6FA3FF; }
+.sk-aperte i { width: 9px; height: 9px; border-radius: 50%; background: #E5484D; }
+#sk-chiudi { height: 24px; padding: 0 var(--s-2, 8px); font-size: var(--fs-etichetta, 12px); }
+.sd-tipi { display: flex; flex-direction: column; gap: 6px; margin: var(--s-2, 8px) 0; }
+.sd-tipi label { display: flex; align-items: center; gap: 8px; }
+.sd-tipi label i { width: 18px; height: 0; border-top: 4px solid; border-radius: 2px; }
+.sd-tipi .sd-hv i { border-color: #FF8A00; }
+.sd-tipi .sd-ug i { border-color: #9B5CF6; }
+.sd-tipi .sd-pt i { width: 10px; height: 10px; border: none; border-radius: 50%; background: #1F5EFF; }
