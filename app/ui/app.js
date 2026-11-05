@@ -2378,8 +2378,13 @@ function renderMateriale() {
   const lst = S?.materiali || [];
   box.hidden = !lst.length || S.mode === 'assembly';
   if (box.hidden) return;
+  // 05/11: sotto il materiale le regole personali (materiale, spessore, raggio e K salvati una volta): scegli e il
+  // pezzo prende tutto. Solo per la lamiera (non per coni, tramogge, STEP: lì spessore e raggio vengono dalla forma)
+  const sh = S.sheet;
   box.innerHTML = `<label>Materiale<select class="field" id="mat-sel">${lst.map(m =>
-    `<option value="${esc(m.code)}"${m.code === S.materiale ? ' selected' : ''}>${esc(m.nome)}</option>`).join('')}</select></label>`;
+    `<option value="${esc(m.code)}"${m.code === S.materiale ? ' selected' : ''}>${esc(m.nome)}</option>`).join('')}</select></label>`
+    + (sh && !sh.shape ? `<label title="Materiale, spessore, raggio e K salvati una volta con un nome: li scegli e il pezzo li prende tutti insieme">Regola${selRegola('regola-sx', sh.regola)}</label>` : '');
+  legaRegola('regola-sx');
   $('#mat-sel').onchange = () => inCoda(async () => { const r = await call('set_material', $('#mat-sel').value); await apply(r, r.message); });
 }
 function renderParams() {
@@ -4614,9 +4619,15 @@ function stepDialog() {
   const k = S?.bend_default?.k ?? 0.33;
   modal(`<h3>Apri STEP di una lamiera</h3>
     <p class="hint">Riconosco spessore e pieghe e spiego il pezzo: lo sviluppo con il K che usi tu (non quello del cliente). Se il pezzo non è una lamiera piegata (angolare, assieme, forme speciali) te lo dico invece di darti uno sviluppo sbagliato.</p>
-    <div class="form"><label>Fattore K (il tuo, della piegatrice)<input class="field" id="st-k" value="${esc(String(k).replace('.', ','))}"></label></div>
+    <div class="form">${(S?.regole || []).length ? `<label>Regola (prende il K; spessore e raggio li dà il file)<select class="field" id="st-regola">${opzioniRegole('', '— scrivo io il K —')}</select></label>` : ''}
+      <label>Fattore K (il tuo, della piegatrice)<input class="field" id="st-k" value="${esc(String(k).replace('.', ','))}"></label></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Scegli il file STEP…</button></div>`, close => {
     $('#m-no').onclick = close;
+    if ($('#st-regola')) $('#st-regola').onchange = () => {
+      const x = (S?.regole || []).find(r => r.name === $('#st-regola').value);
+      if (x && x.k != null) $('#st-k').value = virgola(x.k);
+    };
+    $('#st-k').oninput = () => { if ($('#st-regola')) $('#st-regola').value = ''; };
     $('#m-ok').onclick = () => {
       const kk = $('#st-k').value.trim(); close();
       inCoda(async () => {
@@ -6541,9 +6552,10 @@ async function impostazioniDialog(sezione = 'piegatrice') {
   if (!r.ok) { toast(r.message, 'err'); return; }
   const n = v => (v == null || v === '' ? '' : String(v).replace('.', ','));
   const metodo = x => (x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : n(x.k));
-  const regole = r.rules.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.material || '')}</td><td class="destra">${n(x.thickness)}</td>
+  const regole = r.rules.map(x => `<tr><td data-nome-regola>${esc(x.name)}</td><td>${esc(x.material || '')}</td><td class="destra">${n(x.thickness)}</td>
       <td class="destra">${n(x.radius)}</td><td class="destra">${metodo(x)}</td>
-      <td class="destra"><button class="btn piccolo danger" data-rule-del="${esc(x.name)}" title="Elimina la regola">Elimina</button></td></tr>`).join('')
+      <td class="destra"><button class="btn piccolo" data-rule-ren="${esc(x.name)}" title="Cambia il nome (i pezzi già fatti non cambiano)">Rinomina</button>
+        <button class="btn piccolo danger" data-rule-del="${esc(x.name)}" title="Elimina la regola (i pezzi già fatti non cambiano)">Elimina</button></td></tr>`).join('')
     || '<tr><td colspan="6" class="hint">Ancora nessuna regola. Con una lamiera aperta: «Regole piega», poi «Salva regola».</td></tr>';
   const scuro = r.tema === 'scuro';
   const corpi = {
@@ -6584,7 +6596,8 @@ async function impostazioniDialog(sezione = 'piegatrice') {
       $('#modal-box').querySelectorAll('[data-corpo]').forEach(x => { x.hidden = x.dataset.corpo !== b.dataset.sez; });
     }; });
     $('#i-tema').querySelectorAll('button').forEach(b => { b.onclick = () => $('#i-tema').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
-    $('#modal-box').querySelectorAll('[data-rule-del]').forEach(b => { b.onclick = () => inCoda(async () => { await call('delete_sheet_rule', b.dataset.ruleDel); close(); impostazioniDialog('piegatrice'); }); });
+    $('#modal-box').querySelectorAll('[data-rule-del]').forEach(b => { b.onclick = () => inCoda(async () => { await call('delete_sheet_rule', b.dataset.ruleDel); close(); await ricaricaRegole(); impostazioniDialog('piegatrice'); }); });
+    $('#modal-box').querySelectorAll('[data-rule-ren]').forEach(b => { b.onclick = () => rinominaRegola(b, b.dataset.ruleRen, () => { close(); impostazioniDialog('piegatrice'); }); });
     $('#modal-box').querySelectorAll('[data-apri]').forEach(b => { b.onclick = () => call('apri_cartella', b.dataset.apri); });
     // il logo si mette subito (è un file): Annulla non lo toglie, lo toglie «Togli»
     const logo = x => { if (x.cancelled) return; toast(x.message, x.ok ? '' : 'err'); if (!x.ok) return;
@@ -6719,7 +6732,7 @@ function renderSheet() {
   const vede = k => (k === 'thickness' && parSp ? parSp.resolved ?? parSp.value : d[k]);
   const campo = (k, label, miss) => `<label for="t-${k}">${label}</label><input class="field${miss ? ' missing' : ''}" id="t-${k}" data-tech="${k}"
       value="${esc(vede(k) == null ? '' : String(vede(k)).replace('.', ','))}" placeholder="${miss ? 'manca: dato della piegatrice' : ''}">`;
-  const tech = `<div class="tech">${campo('thickness', parSp ? `Spessore (mm) <small title="È il parametro ${esc(parSp.name)}: cambiandolo qui cambia anche lui">= ${esc(parSp.name)}</small>` : 'Spessore (mm)', false)}${campo('radius', 'Raggio interno (mm)', manca.has('raggio interno'))}
+  const tech = `<div class="tech">${sh.shape ? '' : `<label for="regola-sh">Regola</label>${selRegola('regola-sh', sh.regola)}`}${campo('thickness', parSp ? `Spessore (mm) <small title="È il parametro ${esc(parSp.name)}: cambiandolo qui cambia anche lui">= ${esc(parSp.name)}</small>` : 'Spessore (mm)', false)}${campo('radius', 'Raggio interno (mm)', manca.has('raggio interno'))}
     <label for="t-method">Calcolo della piega</label><select class="field" id="t-method">${opts(sh.methods, d.method || 'k')}</select>
     ${d.method === 'bd90' ? campo('bd90', 'Deduzione a 90° (mm)', manca.has('deduzione a 90°')) : d.method === 'din6935' ? '' : campo('k', 'K-factor', manca.has('K-factor'))}</div>
     ${manca.size ? `<div class="msg err">Mancano: ${esc([...manca].join(', '))}. Sono dati della tua piegatrice: senza, le flange non si possono calcolare.</div>` : ''}
@@ -6762,6 +6775,7 @@ function renderSheet() {
     i.onblur = () => { if (i.value.trim() !== ora) salva({ [i.dataset.tech]: i.value }); };
   });
   $('#t-method').onchange = () => salva({ method: $('#t-method').value });
+  legaRegola('regola-sh');
   document.querySelectorAll('#tab-sheet tr[data-fl]').forEach(tr => {   // le pieghe su un bordo libero sono «PB…»
     tr.onclick = () => select(tr.dataset.fl.startsWith('PB') ? `pb=${tr.dataset.fl}` : `flange=${sh.feature}/${tr.dataset.fl}`);
   });
@@ -7632,6 +7646,52 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
   modal(disegna(), wire);
 }
 
+// 05/11 (spessori preferiti, idea da SolidCraft): le regole personali offerte dove si sceglie lo spessore. La tendina
+// dice quale regola ha il pezzo (se i suoi dati coincidono); scegliendone una il pezzo prende spessore, raggio, K e
+// materiale in un passo solo (Annulla lo toglie). Il pezzo tiene i suoi valori: la regola si può cambiare o cancellare.
+function opzioniRegole(scelta, vuota = '— valori di questo pezzo —') {
+  const lst = S?.regole || [];
+  return `<option value="">${esc(vuota)}</option>` + lst.map(r => `<option value="${esc(r.name)}"${r.name === scelta ? ' selected' : ''} title="${esc(r.descrizione)}">${esc(r.name)}${r.name.includes(r.descrizione) ? '' : ` (${esc(r.descrizione)})`}</option>`).join('');
+}
+function selRegola(id, scelta) {
+  return `<select class="field sel-regola" id="${id}" aria-label="Regola">${opzioniRegole(scelta)}
+    <option value="__gestisci">${(S?.regole || []).length ? 'Salva o cambia le regole…' : 'Salva questi dati come regola…'}</option></select>`;
+}
+function legaRegola(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.onchange = () => {
+    const v = el.value;
+    if (v === '__gestisci') { el.value = S.sheet?.regola || ''; inCoda(rulesDialog); return; }
+    if (!v) return;                                   // «valori di questo pezzo»: niente da cambiare
+    inCoda(async () => apply(await call('apply_sheet_rule', S.sheet.feature, v), `Regola «${v}»: spessore, raggio e K presi.`));
+  };
+}
+// Rinomina sul posto (niente finestre del browser): il nome diventa un campo, Invio conferma, Esc lascia com'era
+function rinominaRegola(btn, nome, poi) {
+  const riga = btn.closest('tr');
+  const cella = riga.querySelector('[data-nome-regola]') || riga.querySelector('td');
+  const prima = cella.innerHTML;
+  cella.innerHTML = `<span class="rinomina-regola"><input class="field" value="${esc(nome)}" aria-label="Nome nuovo"><button class="btn piccolo">Fatto</button></span>`;
+  const inp = cella.querySelector('input'), ok = cella.querySelector('button');
+  const fatto = () => inCoda(async () => {
+    const x = await call('rename_sheet_rule', nome, inp.value);
+    if (!x.ok) { toast(x.message, 'err'); inp.focus(); return; }
+    toast(x.message);
+    await ricaricaRegole();
+    poi();
+  });
+  ok.onclick = fatto;
+  inp.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); fatto(); } if (ev.key === 'Escape') { ev.stopPropagation(); cella.innerHTML = prima; } };
+  inp.focus(); inp.select();
+}
+// le regole sono nello stato del pezzo: dopo salva/rinomina/cancella si rilegge, così le tendine sono giuste subito
+async function ricaricaRegole() {
+  if (!S) return;
+  const r = await call('sheet_rules');
+  if (r.ok) { S.regole = r.regole || S.regole; if (S.sheet) S.sheet.regola = r.regola_pezzo; if (S.mode !== 'assembly' && S.parameters) { renderParams(); if (S.sheet) renderSheet(); } }
+}
+
 // Regole di lamiera: i dati della piegatrice salvati per materiale/spessore, riusati in ogni progetto
 async function rulesDialog() {
   const r = await call('sheet_rules');
@@ -7639,13 +7699,14 @@ async function rulesDialog() {
   const fid = S?.sheet?.feature;
   const n = v => (v == null || v === '' ? '–' : String(v).replace('.', ','));
   // 04/11: tre parti come nelle Impostazioni (per ogni lamiera nuova, le regole salvate, salva questa); un blu solo in fondo
-  const righe = r.rules.map(x => `<tr><td><b>${esc(x.name)}</b><div class="hint">${esc([x.material, `sp. ${n(x.thickness)}`, `R ${n(x.radius)}`,
-    x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : 'K ' + n(x.k)].filter(Boolean).join(', '))}</div></td>
+  const righe = (r.regole || r.rules).map(x => `<tr><td data-nome-regola><b>${esc(x.name)}</b><div class="hint">${esc(x.descrizione || [x.material, `sp. ${n(x.thickness)}`, `R ${n(x.radius)}`,
+    x.method === 'bd90' ? 'BD90 ' + n(x.bd90) : x.method === 'din6935' ? 'DIN 6935' : 'K ' + n(x.k)].filter(Boolean).join(', '))}${x.name === S?.sheet?.regola ? ' · <b>è quella di questo pezzo</b>' : ''}</div></td>
     <td class="rg-az">${fid ? `<button class="btn" data-rule-apply="${esc(x.name)}">Usa su questa lamiera</button>` : ''}
-    <button class="btn danger" data-rule-del="${esc(x.name)}" title="Elimina la regola ${esc(x.name)}">Elimina</button></td></tr>`).join('')
+    <button class="btn" data-rule-ren="${esc(x.name)}" title="Cambia il nome della regola (i pezzi già fatti non cambiano)">Rinomina</button>
+    <button class="btn danger" data-rule-del="${esc(x.name)}" title="Elimina la regola ${esc(x.name)} (i pezzi già fatti non cambiano)">Elimina</button></td></tr>`).join('')
     || '<tr><td class="hint">Ancora nessuna regola. Scrivi i dati di piega nella scheda Lamiera e salvali qui sotto con un nome.</td></tr>';
   modal(`<h3>Regole di piega</h3>
-    <p class="hint">I dati della tua piegatrice (spessore, raggio interno, K o deduzione) salvati con un nome: li riusi in ogni progetto con un clic.</p>
+    <p class="hint">I dati della tua piegatrice (materiale, spessore, raggio interno, K o deduzione) salvati con un nome: li riusi in ogni pezzo con un clic. Il pezzo tiene i suoi valori: se cambi o cancelli una regola, i pezzi già fatti restano come sono.</p>
     <section class="rg-sez"><h4>Per ogni lamiera nuova</h4>
       <div class="rg-riga"><label>Raggio interno<span class="campo-unita"><input class="field" id="d-r" value="${n(r.default?.radius).replace('–', '')}" placeholder="es. 2"><i>mm</i></span></label>
         <label>Fattore K<input class="field" id="d-k" value="${n(r.default?.k).replace('–', '')}" placeholder="es. 0,33"></label>
@@ -7662,12 +7723,21 @@ async function rulesDialog() {
       if (x.ok) { S.bend_default = x.default; close(); rulesDialog(); }
     });
     if ($('#r-save')) $('#r-save').onclick = () => inCoda(async () => {
-      const x = await call('save_sheet_rule', fid, $('#r-name').value);
+      const nome = $('#r-name').value.trim();
+      // stesso nome di una regola che c'è: si chiede (prima la sovrascriveva senza dirlo)
+      if (nome && r.rules.some(x => x.name === nome) && $('#r-save').dataset.conferma !== nome) {
+        $('#r-save').dataset.conferma = nome; $('#r-save').textContent = 'Sì, sostituisci la regola';
+        toast(`C’è già la regola «${nome}»: clicca di nuovo per sostituirla con i dati di questa lamiera.`, 'err');
+        return;
+      }
+      const x = await call('save_sheet_rule', fid, nome);
       if (!x.ok) { toast(x.message, 'err'); return; }
-      toast(x.message); close(); rulesDialog();
+      toast(x.message); close(); await ricaricaRegole(); rulesDialog();
     });
+    if ($('#r-name')) $('#r-name').oninput = () => { delete $('#r-save').dataset.conferma; $('#r-save').textContent = 'Salva la regola'; };
     $('#modal-box').querySelectorAll('[data-rule-apply]').forEach(b => { b.onclick = () => { close(); inCoda(async () => apply(await call('apply_sheet_rule', fid, b.dataset.ruleApply), 'Regola applicata.')); }; });
-    $('#modal-box').querySelectorAll('[data-rule-del]').forEach(b => { b.onclick = () => inCoda(async () => { await call('delete_sheet_rule', b.dataset.ruleDel); close(); rulesDialog(); }); });
+    $('#modal-box').querySelectorAll('[data-rule-ren]').forEach(b => { b.onclick = () => rinominaRegola(b, b.dataset.ruleRen, () => { close(); rulesDialog(); }); });
+    $('#modal-box').querySelectorAll('[data-rule-del]').forEach(b => { b.onclick = () => inCoda(async () => { await call('delete_sheet_rule', b.dataset.ruleDel); close(); await ricaricaRegole(); rulesDialog(); }); });
   });
 }
 
@@ -7716,7 +7786,7 @@ async function importDialog(percorso) {
         <label>Materiale<select class="field" id="imp-mat">${r.materiali.map(m => `<option value="${esc(m.code)}"${m.code === mat ? ' selected' : ''}>${esc(m.code)}</option>`).join('')}</select></label>
         <label>Spessore<input class="field" id="imp-sp" value="${virg(r.spessore)}" placeholder="mm"></label>
         ${regole.length ? `<label class="tutta-riga">Regola di piega<select class="field" id="imp-rule"><option value="">— scrivi i dati qui sotto —</option>
-          ${regole.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join('')}</select></label>` : ''}
+          ${regole.map((x, i) => `<option value="${i}" title="${esc(x.descrizione || '')}">${esc(x.name)}${x.descrizione && !x.name.includes(x.descrizione) ? ` (${esc(x.descrizione)})` : ''}</option>`).join('')}</select></label>` : ''}
         <label>Raggio interno<input class="field" id="imp-r" placeholder="mm" value="${virg(S?.bend_default?.radius)}"></label>
         <label>Metodo<select class="field" id="imp-met"><option value="k">Fattore K</option><option value="din6935">DIN 6935</option><option value="bd90">Deduzione 90°</option></select></label>
         <label id="imp-k-l">Fattore K<input class="field" id="imp-k" placeholder="es. 0,4" value="${virg(S?.bend_default?.k)}"></label>
@@ -7940,21 +8010,35 @@ function modelloDialog(m) {
     <div class="mod-corpo"><div class="mod-ant" id="mod-ant">${disegnoModello(m.k, c)}</div>
       <div class="mod-campi">${Object.keys(c).map(k => `<label class="campo-mod">${esc((m.et || {})[k] || ETICHETTE_MOD[k])}<span class="inp"><input class="field" data-k="${k}" value="${String(c[k]).replace('.', ',')}"><i>mm</i></span></label>`).join('')}
       <div class="mod-piega"><b>Piegatrice</b>
+        ${(S?.regole || []).length ? `<label class="campo-mod">Regola<span class="inp"><select class="field" id="mod-regola">${opzioniRegole('', '— scrivo io i dati —')}</select></span></label>` : ''}
         <label class="campo-mod">Raggio interno<span class="inp"><input class="field" id="mod-r" value="${esc(virgola(S?.bend_default?.radius ?? ''))}" placeholder="es. 2"><i>mm</i></span></label>
         <label class="campo-mod">K-factor<span class="inp"><input class="field" id="mod-k" value="${esc(virgola(S?.bend_default?.k ?? ''))}" placeholder="es. 0,33"><i></i></span></label>
         ${S?.bend_default?.radius != null ? '<p class="hint">Dalle tue regole di piega.</p>' : '<p class="hint attenzione">Scrivili tu: sono dati della tua piegatrice, Radius non li inventa. Li ricorda in «Regole piega».</p>'}</div>
       <p class="hint">Le misure sono esterne (fuori tutto). Dopo si cambiano a sinistra, e le pieghe cliccandole.</p></div></div>
     <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary big" id="m-ok">Crea il pezzo</button></div>`, close => {
     const leggi = () => { document.querySelectorAll('.mod-campi input').forEach(x => { const v = parseFloat(x.value.replace(',', '.')); if (v > 0) c[x.dataset.k] = v; }); };
-    document.querySelectorAll('.mod-campi input').forEach(x => { x.oninput = () => { leggi(); $('#mod-ant').innerHTML = disegnoModello(m.k, c); }; });
+    let materialeRegola = null;
+    // a mano su spessore, raggio o K dopo aver scelto la regola: la regola non vale più (resta quello che hai scritto)
+    document.querySelectorAll('.mod-campi input').forEach(x => { x.oninput = () => {
+      if ($('#mod-regola') && (x.dataset.k === 'spessore' || x.id === 'mod-r' || x.id === 'mod-k')) { $('#mod-regola').value = ''; materialeRegola = null; }
+      leggi(); $('#mod-ant').innerHTML = disegnoModello(m.k, c); }; });
+    if ($('#mod-regola')) $('#mod-regola').onchange = () => {
+      const x = (S?.regole || []).find(r => r.name === $('#mod-regola').value);
+      if (!x) { materialeRegola = null; return; }
+      const sp = document.querySelector('.mod-campi input[data-k="spessore"]');
+      if (sp && x.thickness != null) sp.value = virgola(x.thickness);
+      $('#mod-r').value = virgola(x.radius ?? ''); $('#mod-k').value = virgola(x.k ?? '');
+      materialeRegola = x.material || null;
+      leggi(); $('#mod-ant').innerHTML = disegnoModello(m.k, c);
+    };
     $('#m-no').onclick = close;
     $('#m-ok').onclick = () => {
       leggi();
-      const raggio = $('#mod-r').value.trim(), k = $('#mod-k').value.trim();
-      if (!raggio || !k) { toast('Scrivi raggio interno e K della tua piegatrice: senza, le pieghe non si possono fare.', 'err'); (raggio ? $('#mod-k') : $('#mod-r')).focus(); return; }
+      const raggio = $('#mod-r').value.trim(), k = $('#mod-k').value.trim(), regola = $('#mod-regola')?.value || '';
+      if (!regola && (!raggio || !k)) { toast('Scrivi raggio interno e K della tua piegatrice: senza, le pieghe non si possono fare.', 'err'); (raggio ? $('#mod-k') : $('#mod-r')).focus(); return; }
       close();
       primaVolta = true; clearSelection(); if (SK) exitSketch();
-      inCoda(async () => { if (await apply(await call('crea_da_modello', m.k, { ...c, nome: m.n, raggio, k }))) hideHome(); });
+      inCoda(async () => { if (await apply(await call('crea_da_modello', m.k, { ...c, nome: m.n, raggio, k, ...(regola ? { regola } : {}) }))) hideHome(); });
     };
   });
   $('#modal-box').classList.add('wide');
@@ -11002,7 +11086,8 @@ async function start() {
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), nuovo: k => newDialog(k), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, foto: p => fotoAnteprima(p), THREE, get bendEdges() { return bendEdges; },
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
-  window.__prova = { call, MAN, MINI, renderProps, apriPezzoAssieme, tornaAllAssieme };            // per le prove automatiche dell'interfaccia
+  window.__prova = { call, MAN, MINI, renderProps, apriPezzoAssieme, tornaAllAssieme, stepDialog, showTab, applyTheme,
+    modello: k => modelloDialog(MODELLI.find(m => m.k === k)) };            // per le prove automatiche dell'interfaccia
 }
 // Diretta (?dev&live): uno script costruisce il progetto sul motore e qui si vede ogni passo
 async function liveLoop() {

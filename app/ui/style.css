@@ -2968,3 +2968,8 @@ body.dark #home .home-nuovo.m-file .pic :is(img, .ico) { filter: invert(1); }
 #tab-bom .distinta-modo button.on { background: var(--c-pannello); color: var(--c-testo); }
 #tab-bom tr.blocco td { font-weight: 600; }
 #tab-bom tr.dentro td:nth-child(2) { padding-left: 22px; color: var(--c-testo-2); }
+/* 05/11: le regole personali (spessore, raggio e K salvati una volta) */
+#mat-riga label + label { margin-top: 6px; }
+.tech .sel-regola { min-width: 0; }
+.rinomina-regola { display: flex; gap: var(--s-1, 4px); align-items: center; }
+.rinomina-regola input { flex: 1; min-width: 0; }

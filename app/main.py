@@ -386,6 +386,9 @@ class Api:
     def apply_sheet_rule(self, fid, name):
         return self._call(self._svc.apply_sheet_rule, fid, name)
 
+    def rename_sheet_rule(self, name, new_name):
+        return self._call(self._svc.rename_sheet_rule, name, new_name)
+
     def sketch_construction(self, sid, eids, flag):
         return self._call(self._svc.sketch_construction, sid, eids, flag)
 

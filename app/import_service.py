@@ -44,7 +44,7 @@ class ImportMixin:
                    'scelto': an.scelto, 'spessore': an.spessore, 'materiale': an.materiale, 'aperti': an.aperti,
                    'pieghe_tot': len(an.pieghe), 'materiali': [{'code': m.code, 'name': m.description}
                                                               for m in materials.CATALOG.values()],
-                   'rules': self._rules()}
+                   'rules': self._regole_viste()}
             if an.scelto is not None:
                 out['giro'] = self._info_giro(an, an.scelto)
             return {'ok': True, **out}

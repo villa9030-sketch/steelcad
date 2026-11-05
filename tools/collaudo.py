@@ -333,6 +333,10 @@ def g_tecno():
     chiama(s, 'save_sheet_rule', 'SM1', 'Regola prova', atteso='any', nota='stesso nome')
     chiama(s, 'apply_sheet_rule', 'SM1', 'Regola prova', atteso='any')
     chiama(s, 'apply_sheet_rule', 'SM1', 'Non esiste', atteso='no')
+    chiama(s, 'rename_sheet_rule', 'Regola prova', '', atteso='no', nota='nome vuoto')
+    chiama(s, 'rename_sheet_rule', 'Non esiste', 'X', atteso='no')
+    chiama(s, 'rename_sheet_rule', 'Regola prova', 'Regola prova 2')
+    chiama(s, 'rename_sheet_rule', 'Regola prova 2', 'Regola prova')
     chiama(s, 'delete_sheet_rule', 'Regola prova')
     chiama(s, 'delete_sheet_rule', 'Non esiste', atteso='any')
     for v, att in (({'radius': 2, 'k': 0.4}, 'ok'), ({'radius': '', 'k': 0.4}, 'no'), ({'radius': 2}, 'no'),

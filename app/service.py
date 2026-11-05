@@ -214,7 +214,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             'storia': {'passi': [s.label for s in self.history.done] + [s.label for s in reversed(self.history.undone)],
                        'qui': len(self.history.done)},
             'bend_default': self.bend_default(), 'from_template': bool(self._modelli()),
-            'materiale': doc.material, 'materiali': _materiali(),
+            'materiale': doc.material, 'materiali': _materiali(), 'regole': self._regole_viste(),
         }
 
     def _nome_parametro(self, k, nomi=None):
@@ -857,6 +857,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             out['missing'] = data.tech['missing']
         else:
             out['missing'] = [m for m, k in (('raggio interno', 'radius'),) if sm.get(k) in (None, '')]
+        out['regola'] = self._regola_uguale(sm, data)
         return out
 
     def _face_indices(self, prefix: str) -> list[int]:
@@ -1274,7 +1275,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return out
 
     def sheet_rules(self) -> dict:
-        return _ok(rules=self._rules(), material=self.doc.material, default=self.bend_default())
+        sm = next((f for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet'), None)
+        data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
+        return _ok(rules=self._rules(), regole=self._regole_viste(), material=self.doc.material, default=self.bend_default(),
+                   regola_pezzo=self._regola_uguale(sm, data) if sm is not None and getattr(self, 'asm', None) is None else None)
 
     def save_sheet_rule(self, fid: str, name: str) -> dict:
         try:
@@ -1304,6 +1308,75 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             return _ok(rules=self._rules())
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
+
+    @staticmethod
+    def _descrivi_regola(r: dict) -> str:
+        """«Inox 304 sp. 2 · R 2 · K 0,4»: la regola in parole, per gli elenchi a tendina."""
+        n = lambda v: '?' if v in (None, '') else (fmt_mm(v) if isinstance(v, (int, float)) else str(v))  # noqa: E731
+        calcolo = (f'deduzione {n(r.get("bd90"))}' if r.get('method') == 'bd90' else 'DIN 6935' if r.get('method') == 'din6935'
+                   else f'K {n(r.get("k"))}')
+        mat = NOMI_MATERIALI.get(r.get('material'), r.get('material') or '')
+        return ' · '.join(x for x in (f'{mat} sp. {n(r.get("thickness"))}'.strip(), f'R {n(r.get("radius"))}', calcolo) if x)
+
+    def _regole_viste(self) -> list:
+        return [{**r, 'descrizione': self._descrivi_regola(r)} for r in self._rules() if isinstance(r, dict) and r.get('name')]
+
+    def _regola_uguale(self, sm: dict, data=None) -> str | None:
+        """Il nome della regola personale che ha esattamente i dati di questa lamiera (materiale, spessore, raggio,
+        calcolo), se c'è. Il pezzo non si ricorda la regola: tiene i suoi valori; qui si guarda solo se coincidono."""
+        sp = data.thickness if data is not None else sm.get('thickness')
+        if isinstance(sp, str):
+            sp = self.doc.resolved_parameters().get(sp)
+        uguale = lambda a, b: (a in (None, '') and b in (None, '')) or (  # noqa: E731
+            isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 1e-6)
+        for r in self._rules():
+            if not isinstance(r, dict) or (r.get('material') and r['material'] != self.doc.material):
+                continue
+            metodo = r.get('method') or 'k'
+            if metodo != (sm.get('method') or 'k') or not uguale(r.get('thickness'), sp) or not uguale(r.get('radius'), sm.get('radius')):
+                continue
+            if (metodo == 'k' and not uguale(r.get('k'), sm.get('k'))) or (metodo == 'bd90' and not uguale(r.get('bd90'), sm.get('bd90'))):
+                continue
+            return r.get('name')
+        return None
+
+    def rename_sheet_rule(self, name: str, new_name: str) -> dict:
+        """Cambia il nome di una regola personale. I pezzi già fatti non cambiano (tengono i loro valori)."""
+        try:
+            nuovo = str(new_name or '').strip()
+            if not nuovo:
+                raise SteelCADError('Scrivi il nome nuovo della regola.', code='nome')
+            rules = self._rules()
+            regola = next((r for r in rules if r.get('name') == name), None)
+            if regola is None:
+                raise SteelCADError(f'La regola "{name}" non c’è più.', code='regola')
+            if nuovo != name and any(r.get('name') == nuovo for r in rules):
+                raise SteelCADError(f'C’è già una regola che si chiama "{nuovo}".', code='nome')
+            regola['name'] = nuovo
+            self._save_rules(rules)
+            return _ok(rules=self._rules(), message=f'Regola "{name}" ora si chiama "{nuovo}".')
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def _valori_da_regola(self, values: dict) -> dict:
+        """Un pezzo nuovo con «regola»: spessore, raggio, calcolo e materiale presi dalla regola personale (copiati nel
+        pezzo: se poi cambi o cancelli la regola, il pezzo resta com'è)."""
+        values = dict(values or {})
+        nome = values.pop('regola', None)
+        if not nome:
+            return values
+        r = next((x for x in self._rules() if x.get('name') == nome), None)
+        if r is None:
+            raise SteelCADError(f'La regola "{nome}" non c’è più.', code='regola')
+        if r.get('thickness') not in (None, ''):
+            values['spessore'] = r['thickness']
+        values['raggio'] = r.get('radius')
+        values['metodo'] = r.get('method') or 'k'
+        values['k'] = r.get('k') if values['metodo'] == 'k' else None
+        values['bd90'] = r.get('bd90') if values['metodo'] == 'bd90' else None
+        if r.get('material'):
+            values['material'] = r['material']
+        return {k: v for k, v in values.items() if v is not None}
 
     def apply_sheet_rule(self, fid: str, name: str) -> dict:
         regola = next((r for r in self._rules() if r['name'] == name), None)
@@ -4806,6 +4879,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except SteelCADError as ex:
             return _err(ex)
         dati = {'name': (c.get('nome') or nome).strip() or nome, 'larghezza': L, 'profondita': P, 'spessore': t}
+        if c.get('regola'):                       # 05/11: una regola personale = materiale, spessore, raggio e K insieme
+            dati['regola'] = c['regola']
         for k_in, k_out in (('raggio', 'raggio'), ('k', 'k')):         # i dati della piegatrice, se li hai scritti
             if str(c.get(k_in) or '').strip():
                 try:
@@ -4859,6 +4934,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                      'cono', 'tramoggia', 'tramoggia_cassone')
 
     def _doc_modello(self, kind: str, values: dict | None) -> Document:
+        if kind == 'lamiera' and (values or {}).get('regola'):
+            values = self._valori_da_regola(values)
         if kind in ('lamiera', 'cono', 'tramoggia', 'tramoggia_cassone'):
             d = self.bend_default()
             values = dict(values or {})
@@ -4871,7 +4948,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 values['metodo'] = d['method']
                 if d.get('bd90') is not None:
                     values['bd90'] = d['bd90']
-        values = {k: _number(v) for k, v in (values or {}).items()}
+        values = {k: (v if k == 'material' else _number(v)) for k, v in (values or {}).items()}
+        if values.get('material') and values['material'] not in {m['code'] for m in _materiali()}:
+            raise SteelCADError(f'Materiale «{values["material"]}» sconosciuto.', code='materiale')
         if kind not in self.TIPI_PROGETTO:
             raise SteelCADError(f'Tipo di progetto "{kind}" sconosciuto.', code='tipo')
         doc = {'telaio': templates.telaio, 'piastra': templates.piastra,
