@@ -387,11 +387,12 @@ def comandi_sketch(pg, ok):
     attendi("v.circles.some(c => Math.abs(c.xc[0] - 105) < 1e-6)")
     xs = sorted(round(c['xc'][0], 3) for c in v()['circles'])
     ok(f'px1 = 45 → fori a {xs} (anche gli specchiati seguono)', xs == [60, 105, 150, 170, 215, 260])
-    comando(pg, '#sk-make [data-make="plate"]')   # sta in «Crea ▾»
-    pg.fill('#m-sp', '8')
-    pg.click('#m-ok')
+    # 05/11: «Crea piastra» non c'è più nell'interfaccia (Stefano); il pezzo pieno si fa ancora dal motore (file vecchi)
+    sid = pg.evaluate('window.__steelcad.sketch.sid')
+    pg.evaluate("async (sid) => { const r = await (await fetch('/api/create_from_sketch', {method: 'POST', body: JSON.stringify([sid, 'plate', {thickness: 8}])})).json(); await window.__steelcad.apply(r); }", sid)
+    pg.click('#sk-done')
     pg.wait_for_function("!window.__steelcad.sketch && window.__steelcad.state.info.part")
-    ok('piastra con 6 fori creata: ' + pg.evaluate("window.__steelcad.state.bom[0].description"), True)
+    ok('pezzo con 6 fori creato: ' + pg.evaluate("window.__steelcad.state.bom[0].description"), True)
 
 
 def pannello(pg):

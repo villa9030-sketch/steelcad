@@ -1552,8 +1552,8 @@ function buildDisegni(list) {
   model.add(disegniGroup);
   const avviso = $('#disegno-avviso');
   if (avviso) {
-    avviso.hidden = !(list || []).length;
-    if ((list || []).length) avviso.innerHTML = `«${esc(list[0].nome)}» non è ancora un pezzo: doppio clic sul disegno nell’albero per continuare, oppure <b>Crea lamiera</b> / <b>Piastra</b> dal disegno.`;
+    avviso.hidden = !(list || []).length || !!SK;          // dentro il disegno no: lì si sta già continuando
+    if ((list || []).length) avviso.innerHTML = `«${esc(list[0].nome)}» non è ancora un pezzo: doppio clic sul disegno nell’albero per continuare, oppure <b>Crea lamiera</b> dal disegno.`;
   }
 }
 function buildThreads(list) {
@@ -4134,7 +4134,7 @@ function facciaPerForo() {
 // modifica (03/11): {feature, spec, info} da fori_da_modificare: la stessa finestra, con com'erano i fori fatti
 async function foroDialog(tipo = 'tondo', face = null, modifica = null) {
   if (SK) { toast('Stai disegnando: nel disegno il foro è il Cerchio. Per il comando Foro sul pezzo, prima «Esci».', 'err'); return; }
-  if (!objs.get('body')) { toast('I fori si fanno su una lamiera o su una piastra: prima crea il pezzo.', 'err'); return; }
+  if (!objs.get('body')) { toast('I fori si fanno su una lamiera: prima crea il pezzo.', 'err'); return; }
   const info = modifica ? modifica.info : await call('fori_info', face || facciaPerForo());
   if (!info.ok) { toast(info.message || 'Qui non si possono fare fori: clicca una faccia piana del pezzo.', 'err'); return; }
   nascondiMini();
@@ -8559,7 +8559,7 @@ function newDialog(iniziale = 'lamiera', daHome = false) {
     piastra: { titolo: 'Piastra piana', bottone: 'Crea la piastra', nota: 'Piastra con un foro; gli altri fori li aggiungi dopo.', nome: 'Piastra',
       campi: [{ k: 'larghezza', l: 'Larghezza', v: 300, lettera: 'A' }, { k: 'altezza', l: 'Altezza', v: 200, lettera: 'B' },
         { k: 'foro', l: 'Diametro del foro', v: 30, lettera: 'C' }, { k: 'spessore', l: 'Spessore', v: 5, lettera: 'D' }] },
-    zero: { titolo: 'Da zero', bottone: 'Inizia a disegnare', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera o piastra; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
+    zero: { titolo: 'Da zero', bottone: 'Inizia a disegnare', nota: 'Disegni la sagoma con linee e archi. Chiusa diventa lamiera; aperta (un collare, un omega) diventa lamiera piegata con «Estrudi in lamiera».', nome: 'Pezzo', campi: [] },
     telaio: { titolo: 'Telaio in tubo', bottone: 'Crea il telaio', nota: 'Misure fuori tutto: il telaio finito è grande così, i tubi stanno dentro.', nome: 'Banco',
       campi: [{ k: 'L', l: 'Lunghezza', v: 1600, lettera: 'A' }, { k: 'P', l: 'Profondità', v: 700, lettera: 'B' },
         { k: 'H', l: 'Altezza (piano di lavoro)', v: 850, lettera: 'C' },
@@ -9113,7 +9113,7 @@ function nuovoDaZero() {
     if (!(await apply(await call('new_project', 'zero', { name: 'Pezzo' })))) return;
     hideHome();
     await enterSketch('S1');
-    toast('Disegna la sagoma. Chiusa: in alto a destra «Crea lamiera» o «Crea piastra». Aperta (un collare, un omega): «Estrudi in lamiera».');
+    toast('Disegna la sagoma. Chiusa: in alto a destra «Crea lamiera». Aperta (un collare, un omega): «Estrudi in lamiera».');
   });
 }
 // il menu File → Apri recenti: gli ultimi lavori, letti quando il menu si apre
@@ -9968,7 +9968,7 @@ function statoSketch(v) {
   else if (!v.drawn) testo = suPezzo
     ? 'Vuoto. Scegli Rettangolo o Cerchio e disegna sulla faccia. Le misure partono dall’angolo in basso a sinistra (0;0); i bordi del pezzo sono in arancio: ci si aggancia e ci si fa l’offset.'
     : 'Vuoto. Scegli Linea o Rettangolo e disegna il contorno.';
-  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera o la piastra'}. Per cambiare una misura, clicca la quota.`;
+  else if (pronto) { cls = 'ok'; testo = `✓ ${v.profiles === 1 ? '1 contorno chiuso' : v.profiles + ' contorni chiusi'}: ${suPezzo ? 'premi «Togli materiale» per fare il foro' : 'crea la lamiera'}. Per cambiare una misura, clicca la quota.`;
     if (v.sciolte?.length) { cls = 'todo'; testo += ' ⚠ ' + v.status; } }
   else if (v.on_sheet && !v.on_flat) { cls = 'todo'; testo = 'Linea aperta da bordo a bordo (arancio): «Togli materiale» la chiude lungo il bordo e toglie il pezzo più piccolo; «Aggiungi materiale» se è disegnata fuori, attaccata al bordo. Se parte dallo spigolo di un bordo libero: «Pieghe e forme ▾» → «Lamiera a contorno» la fa diventare lamiera piegata.'; }
   else { cls = 'bad'; testo = /^Il disegno (è tutto quotato|si può ancora muovere)/.test(v.status || '') ? 'Nessun contorno chiuso: chiudi il disegno tornando sul primo punto.' : v.status; }
@@ -13042,7 +13042,7 @@ function motivoNo(cmd) {
   const lam = !!S?.sheet?.data, asm = S?.mode === 'assembly';
   const piastra = !S?.sheet && JSON.stringify(S?.tree || {}).includes('"kind":"extrude"');
   switch (cmd) {
-    case 'export_dxf': return asm ? 'negli assiemi si esporta pezzo per pezzo' : lam || piastra ? null : 'serve una lamiera o una piastra';
+    case 'export_dxf': return asm ? 'negli assiemi si esporta pezzo per pezzo' : lam || piastra ? null : 'serve una lamiera';
     case 'export_bendtable': return lam && ((S.sheet.data.bends || []).length || (S.sheet.data.bend_rows || []).length) ? null : 'nessuna piega';
     case 'export_step': case 'drawings': return objs.size || asm ? null : 'il progetto è vuoto';
     case 'export_bom': return asm ? null : 'la distinta materiali si fa da un assieme';
@@ -13102,7 +13102,7 @@ function aggiornaModo() {
 }
 // l'editor delle tavole si apre e si chiude aggiungendo e togliendo #tav-ed: basta guardare i figli di body
 new MutationObserver(() => aggiornaModo()).observe(document.body, { childList: true });
-// le schede di modalità (Lamiera, Strutture, Piastra, Assieme, Disegno) stanno nella barra in alto, come segmenti
+// le schede di modalità (Lamiera, Strutture, Pezzo pieno, Assieme, Disegno) stanno nella barra in alto, come segmenti
 document.querySelector('.rtabs').addEventListener('click', ev => {
   const tab = ev.target.closest('.rtabs button');
   if (tab) { showRibbon(tab.dataset.rtab); if (tab.dataset.rtab !== 'sketch') schedaPrima = tab.dataset.rtab; }
