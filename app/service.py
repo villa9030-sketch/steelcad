@@ -452,8 +452,44 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 bordi.append({**e, 'feature': data.feature, 'thickness': data.thickness,
                               'label': f'bordo ({fmt_mm(round(e["length"], 1))} mm)'})
         return {'version': self.scene_version, 'objects': objs + self._oggetti_contesto(), 'nodes': nodi,
+                'disegni': self._disegni_senza_pezzo() if r.body is None and not r.structures else [],
                 'bend_edges': bordi, 'threads': self._filettature(), 'svasature_ko': self._svasature_ko(),
                 'marks': [m['pezzo'] for m in (getattr(data, 'marks', None) or []) if m.get('pezzo')] if data is not None else []}
+
+    def _disegni_senza_pezzo(self) -> list:
+        """05/11 (Stefano): uscito da un disegno che non è ancora un pezzo, a video restavano solo le quote. Le linee dei
+        disegni non usati si mostrano (sottili, in 3D) finché il pezzo non c'è: polilinee già nello spazio."""
+        from app import sketch_ops
+        out = []
+        for f in self.doc.features:
+            if not hasattr(f, 'entities'):
+                continue
+            try:
+                v = sketch_ops.view(self.doc, f.id)
+            except Exception:  # noqa: BLE001
+                continue
+            if v.get('used_by') or not v.get('drawn'):
+                continue
+            o, x, y = v['origin'], v['x_dir'], v['y_dir']
+            g = lambda u, w: [o[i] + u * x[i] + w * y[i] for i in range(3)]  # noqa: E731
+            pl = [[l['pa'], l['pb']] for l in v['lines'] if not l['ref'] and not l['construction']]
+            for a in v['arcs']:
+                if a['ref'] or a['construction']:
+                    continue
+                n = max(8, int((a['a1'] - a['a0']) / 0.1))
+                cx, cy = a['xc']
+                pl.append([g(cx + a['r'] * math.cos(a['a0'] + (a['a1'] - a['a0']) * i / n),
+                             cy + a['r'] * math.sin(a['a0'] + (a['a1'] - a['a0']) * i / n)) for i in range(n + 1)])
+            for c in v['circles']:
+                if c['ref'] or c['construction']:
+                    continue
+                cx, cy = c['xc']
+                pl.append([g(cx + c['r'] * math.cos(2 * math.pi * i / 64), cy + c['r'] * math.sin(2 * math.pi * i / 64))
+                           for i in range(65)])
+            pl += [c['p3'] for c in v.get('curves') or [] if not c.get('ref') and not c.get('construction')]
+            if pl:
+                out.append({'sketch': f.id, 'nome': v.get('name') or f.id, 'linee': pl})
+        return out
 
     def _mesh_del_pezzo(self, body) -> dict:
         """I triangoli del pezzo, tenuti per le ultime versioni: dopo Annulla/Rifai il pezzo è lo stesso oggetto di prima

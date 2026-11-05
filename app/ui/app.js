@@ -1540,6 +1540,22 @@ function buildMarks(list) {                         // marcature laser: i tratti
   for (const s of list || []) markGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(s.map(q => new THREE.Vector3(...q))), MARK_MAT));
   model.add(markGroup);
 }
+// 05/11 (Stefano): un disegno che non è ancora un pezzo si vede anche fuori dallo sketch (prima restavano solo le quote,
+// sospese nel vuoto), con una scritta che dice come andare avanti
+let disegniGroup = null;
+const DISEGNO_MAT = new THREE.LineBasicMaterial({ color: 0x0F8A7E });
+function buildDisegni(list) {
+  if (disegniGroup) { disegniGroup.traverse(o => o.geometry?.dispose()); model.remove(disegniGroup); }
+  disegniGroup = new THREE.Group();
+  for (const d of list || []) for (const l of d.linee) disegniGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(l.map(q => new THREE.Vector3(...q))), DISEGNO_MAT));
+  disegniGroup.visible = !SK;
+  model.add(disegniGroup);
+  const avviso = $('#disegno-avviso');
+  if (avviso) {
+    avviso.hidden = !(list || []).length;
+    if ((list || []).length) avviso.innerHTML = `«${esc(list[0].nome)}» non è ancora un pezzo: doppio clic sul disegno nell’albero per continuare, oppure <b>Crea lamiera</b> / <b>Piastra</b> dal disegno.`;
+  }
+}
 function buildThreads(list) {
   if (threadGroup) { threadGroup.traverse(o => { o.geometry?.dispose(); }); model.remove(threadGroup); }
   threadGroup = new THREE.Group();
@@ -2119,6 +2135,7 @@ async function caricaScena() {
   buildThreads(sc.threads);
   buildSvasatureKo(sc.svasature_ko);
   buildMarks(sc.marks);
+  buildDisegni(sc.disegni);
   nodes = sc.nodes || [];
   bendEdges = sc.bend_edges || [];
   hoverEdge = null;
@@ -9582,6 +9599,8 @@ function skStep() {          // passo della griglia: circa 12 px sullo schermo, 
 async function enterSketch(sid) {
   const r = await call('sketch_view', sid);
   if (!r.ok) { toast(r.message, 'err'); return; }
+  if (disegniGroup) disegniGroup.visible = false;
+  if ($('#disegno-avviso')) $('#disegno-avviso').hidden = true;
   SK = { sid, v: r.sketch, tool: 'line', pts: [], cursor: null, sel: new Set(), buf: '', constr: false, pick: null, dimPick: [], ghost: !!r.sketch.on_tube, grid: aggancioGriglia };   // sul tubo: la struttura si vede in trasparenza
   aggiornaLayout();
   if (flatView) flatView = false;
@@ -9628,6 +9647,7 @@ function exitSketch() {
   const era = SK;
   SK = null;
   aggiornaLayout();
+  if (!objs.has('body')) inCoda(loadScene);           // 05/11: senza pezzo il disegno resta a vista (buildDisegni)
   // uno sketch su faccia/sviluppo lasciato vuoto non resta nell'albero
   if (era.v.on_face || era.v.on_flat) inCoda(async () => apply(await call('sketch_close', era.sid)));
   controls.enableRotate = true;
@@ -11730,9 +11750,10 @@ function skKey(ev) {
     if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return true; }
     if (SK.tool === 'guide' && guidaInCorso()) { guidaReset(); return true; }
     if (SK.sel.size) { SK.sel.clear(); drawSketch(); return true; }
-    // come negli altri CAD: il primo Esc spegne lo strumento (quota, linea, cerchio…), il secondo esce dallo sketch
+    // il primo Esc spegne lo strumento (quota, linea, cerchio…). 05/11 (Stefano): Esc NON fa più uscire dal disegno
+    // (un Esc di troppo lo chiudeva e restavano a video solo le quote): si esce con «Esci» o creando il pezzo
     if (SK.tool && SK.tool !== 'select') { setTool('select'); return true; }
-    exitSketch(); return true;
+    toast('Per uscire dal disegno: «Esci» in alto a destra, oppure «Crea lamiera».'); return true;
   }
   if (k === 'Delete' && SK.sel.size) {
     const ids = [...SK.sel]; SK.sel.clear();
