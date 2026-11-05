@@ -158,6 +158,10 @@ ICONE = {
     'tappi': s('M8 21V10M16 21V10') + af('M7 10V6.5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2V10z'),
     'giunto': s('M3 3h5v13h13v5H3z') + at('M3.4 20.6L8 16', 2.6),
     # ------------------------------------------------------------------ assieme
+    # 05/11: i pezzi che si muovono (cerniera, guida, perno)
+    'cerniera': s('M3 4h6v16H3z') + at('M11 3.5v17', 2.6) + s('M13 5.5l7 2.2v10.6l-7 2.2z') + tr('M15.5 2.8a9 9 0 0 1 5.2 4.2'),
+    'guida': s('M2.5 18h19') + s(rett(5, 9.5, 8, 6)) + at('M15.5 12.5h6M19 10l2.5 2.5-2.5 2.5', 2.2),
+    'perno': af(rett(10.8, 2.5, 2.4, 19)) + s('M5.5 10.5a6.5 2.6 0 1 0 6.5-2.6') + a('M3.6 10.9l2-3.3 2 3.3z') + s('M17.5 15.5v4M16 18l1.5 1.5 1.5-1.5'),
     'explode': a(rett(9, 9, 6, 6, 1.2)) + s('M12 2.5v4M10 4.5l2-2 2 2M12 21.5v-4M10 19.5l2 2 2-2M2.5 12h4M4.5 10l-2 2 2 2M21.5 12h-4M19.5 10l2 2-2 2'),
     # ------------------------------------------------------------------ vista
     'eye': s('M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z') + pallino(12, 12, 3.2),
@@ -198,7 +202,7 @@ NOMI = {
     'chiudi_angoli': 'Chiudi angoli', 'incastri': 'Incastri', 'convert_sheet': 'Converti in lamiera', 'bendtable': 'Tabella pieghe',
     'library': 'Regole piega', 'params': 'Misure', 'section': 'Sezione', 'rivoluzione': 'Rivoluzione', 'measure': 'Righello',
     'tubo': 'Tubo', 'traverso': 'Traverso', 'struttura': 'Struttura', 'piedi': 'Piedi', 'tappi': 'Tappi', 'giunto': 'Angoli dei tubi',
-    'explode': 'Esploso', 'eye': 'Vedi / nascondi', 'fit': 'Inquadra', 'home': 'Vista iso', 'lookat': 'Guarda la faccia',
+    'cerniera': 'Cerniera', 'guida': 'Guida', 'perno': 'Perno', 'explode': 'Esploso', 'eye': 'Vedi / nascondi', 'fit': 'Inquadra', 'home': 'Vista iso', 'lookat': 'Guarda la faccia',
     'orbit': 'Gira', 'pan': 'Sposta la vista', 'zoom': 'Dettaglio', 'search': 'Cerca', 'new': 'Nuovo / inserisci',
     'open': 'Apri / cartella', 'save': 'Salva', 'export': 'Esporta', 'dxf': 'DXF', 'undo': 'Annulla', 'redo': 'Rifai',
     'list': 'Altro', 'settings': 'Impostazioni', 'finish': 'Fatto / esci', 'plane_angle': 'Angolo',

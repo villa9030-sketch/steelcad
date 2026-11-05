@@ -17,7 +17,7 @@ const kg = v => (v ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2, max
 // cosa dire mentre si aspetta (le chiamate che non sono qui: «Sto lavorando…»)
 const ATTESA = {
   scene: 'Preparo il 3D…', open_path: 'Apro il progetto…', open_project_dialog: 'Apro il progetto…', save: 'Salvo…',
-  asm_edit_mate: 'Ricalcolo l’assieme…', asm_trascina_mate: 'Sposto i pezzi…', asm_add_mate: 'Accoppio i pezzi…',
+  asm_edit_mate: 'Ricalcolo l’assieme…', asm_giunto_limiti: 'Cerco fin dove arriva…', asm_giunto_controlla: 'Percorro la corsa…', asm_trascina_mate: 'Sposto i pezzi…', asm_add_mate: 'Accoppio i pezzi…',
   asm_delete_mate: 'Ricalcolo l’assieme…', asm_move: 'Ricalcolo l’assieme…', asm_rotate: 'Ricalcolo l’assieme…',
   asm_insert: 'Inserisco il pezzo…', asm_insert_dialog: 'Inserisco il pezzo…', asm_insert_libreria: 'Preparo la viteria…',
   asm_interferences: 'Controllo le interferenze…', asm_open_part: 'Apro il pezzo…', asm_back: 'Torno all’assieme…',
@@ -517,6 +517,7 @@ function paint() {
   if (hover && hover.face != null && objs.has(hover.id) && !(sel && sel.id === hover.id && sel.face === hover.face))
     faceOverlay(objs.get(hover.id), hover.face, C_HOVER);
   paintScassi();
+  paintGiunti();
   paintEdges();
   ridisegna();
 }
@@ -3192,6 +3193,9 @@ function azioniPezzo(s) {
     ...(s.movimenti || []).slice(0, 1).map((mv, k) => ({ ic: 'dimension', cls: 'mov',
       t: `${mv.nome.replace(/ \(.*$/, '')} ${virgola(Math.round(mv.valore * 10) / 10)} ${mv.campo === 'angle' ? '°' : 'mm'}`,
       fai: () => { tutteLeOpzioni(); setTimeout(() => { const c = $('#mv-v' + k); if (c) { c.focus(); c.select(); } }, 60); } })),
+    // 05/11: il pezzo che si muove (cerniera, guida, perno): di quanto è aperto; un clic apre il giunto
+    ...(s.giunti || []).slice(0, 1).map(g => { const q = Object.keys(g.valori)[0];
+      return { ic: g.tipo, cls: 'mov', t: `${q === 'angolo' ? 'Gira' : 'Scorre'} ${testoQ(q, g.valori[q])} (trascina il pezzo o apri il giunto)`, fai: () => inCoda(() => select('mate=' + g.id)) }; }),
     { ic: 'open', t: s.sottoassieme ? 'Apri il sottoassieme' : 'Apri il pezzo', fai: () => apriPezzoAssieme(id), id: 'open' },
     { ic: 'appoggia', t: piana ? 'Appoggia (da questa faccia)' : 'Appoggia', fai: () => appoggiaDa(id, piana ? faccia : null) },
     ...(foro ? [{ ic: 'fastener', t: 'Viti nei fori', fai: () => runCmd('asm_viteria') }] : []),
@@ -4936,6 +4940,10 @@ const MATE_UI = {
   appoggia: { nome: 'Appoggia', clic: ['una faccia del pezzo da mettere (va bene quella che vedi)', 'la faccia del pezzo fermo, dove appoggiarlo'], val: 0 },
   testa: { nome: 'Testa a testa', clic: ['la faccia a 45° del pezzo che sta fermo', 'la faccia a 45° dell’altro pezzo (la stessa parete)'], val: null },
   gioco: { nome: 'Gioco', clic: ['una faccia del primo pezzo', 'la faccia dell’altro pezzo, di fronte'], val: 0 },
+  // 05/11: i pezzi che si muovono (il primo clic è l'asse, su uno dei due pezzi)
+  cerniera: { nome: 'Cerniera', clic: ['l’asse: un foro, un tubo o uno spigolo dritto', 'l’altro pezzo (sul suo foro o spigolo solo se va messo in asse)'], val: 0, giunto: true },
+  guida: { nome: 'Guida', clic: ['la direzione: uno spigolo dritto, un tubo o la faccia di fronte a cui scorre', 'l’altro pezzo'], val: 0, giunto: true },
+  perno: { nome: 'Perno', clic: ['l’asse: il foro o il tubo del perno', 'l’altro pezzo (sul suo foro: va in asse)'], val: 0, giunto: true },
 };
 function asmHelp() {
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
@@ -4947,6 +4955,7 @@ function asmHelp() {
 function asmTool(t) {
   if (t && !ASM.tool && sel) clearSelection();     // la barretta del pezzo scelto copriva proprio le facce da cliccare
   ASM.tool = t; ASM.clic = [];
+  GIU.asse = null;                                   // l'asse tratteggiato del primo clic di un giunto
   if (t !== 'gioco') giocoChiudi();
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
   if (t) asmHelp(); else setHelp('');
@@ -5106,6 +5115,7 @@ function asmClick(ev) {
   if (ASM.tool === 'appoggia') { appoggiaClick(ev); return; }
   if (ASM.tool === 'vano') { vanoClick(ev); return; }
   if (ASM.tool === 'gioco') { giocoClick(ev); return; }
+  if (MATE_UI[ASM.tool]?.giunto) { giuntoClick(ev); return; }
   const u0 = MATE_UI[ASM.tool], k0 = ASM.clic.length;
   let h, c;
   if (u0.spigoli?.[k0 < u0.clic.length / 2 ? 0 : 1]) {
@@ -5261,6 +5271,269 @@ function interfMostra(lista) {
   if (lista.length) interfPannello(lista);
 }
 window.__interf = { mostra: interfMostra, pulisci: interfPulisci, get n() { return interfGroup.children.length; } };
+// ===================================================================== Pezzi che si muovono (05/11)
+// Idee da SolidCraft (joint revolute/slider/cylindrical, find_limits, motion interference): cerniera, guida, perno.
+// Due clic: l'asse (un foro, un tubo o uno spigolo; per la guida anche una faccia) e l'altro pezzo. Poi il pezzo si
+// trascina col mouse (prima lo scegli: gira o scorre solo come vuole il giunto) o si scrive di quanto. La posizione di
+// movimento non cambia il disegno: «Tieni questa posizione» la scrive, «Torna com'era» la toglie.
+const TRASCINA_SOLO_SCELTO = true;      // da decidere con Stefano: false = si trascina subito, senza sceglierlo prima
+const GIU = { asse: null, drag: null, esito: {}, gruppo: new THREE.Group() };
+scene.add(GIU.gruppo);
+const GIU_MAT = new THREE.LineDashedMaterial({ color: 0x1F5EFF, dashSize: 18, gapSize: 10, depthTest: false });   // il giallo è del pezzo scelto
+const GIU_ROSSO = new THREE.MeshBasicMaterial({ color: 0xE5484D, depthTest: false });
+const Q_NOME = { angolo: 'Gira di', corsa: 'Scorre di' }, Q_UN = { angolo: '°', corsa: 'mm' };
+const GIU_COSA = { cerniera: 'Cerniera: il pezzo gira attorno all’asse', guida: 'Guida: il pezzo scorre avanti e indietro',
+  perno: 'Perno: il pezzo gira attorno all’asse e ci scorre sopra' };
+const testoQ = (q, v) => (v == null ? 'libero' : `${mmTesto(v)}${q === 'angolo' ? '°' : ' mm'}`);
+function giuntoClick(ev) {
+  // il primo clic è l'asse: vicino a uno spigolo vale lo spigolo (anche se sotto il mouse c'è la faccia di un altro
+  // pezzo); il secondo è l'altro pezzo: vale quello sotto il mouse
+  const h = pick(ev), e = pickInstEdge(ev);
+  const id = ASM.clic.length ? (h?.id ?? e?.id) : (e?.id ?? h?.id);
+  if (!id || objs.get(id)?.data.kind !== 'instance') { toast('Clicca un pezzo.', 'err'); return; }
+  const c = { inst: id, face: h && h.id === id ? h.face : null, pt: h && h.id === id ? [h.point.x, h.point.y, h.point.z] : null };
+  // sul secondo pezzo lo spigolo vale solo cliccato proprio sopra: se no il pezzo si metterebbe in asse con uno
+  // spigolo preso per sbaglio vicino alla faccia
+  if (e && e.id === id && (!ASM.clic.length || e.d <= 3)) c.edge_pt = e.p;
+  const tipo = ASM.tool;
+  if (!ASM.clic.length) {
+    inCoda(async () => {
+      const r = await call('asm_giunto_asse', tipo, c);
+      if (!r.ok) { toast(r.message, 'err'); return; }
+      if (ASM.tool !== tipo) return;
+      ASM.clic.push(c); GIU.asse = r.asse;
+      sel = { id }; paint(); asmHelp();
+    });
+    return;
+  }
+  if (id === ASM.clic[0].inst) { toast('Ora clicca l’altro pezzo.', 'err'); return; }
+  const a = ASM.clic[0];
+  asmTool(null);
+  inCoda(async () => {
+    const r = await call('asm_add_mate', tipo, a, c, 0, false, null, null, true);
+    if (await apply(r, r.message) && r.select) await select(r.select);
+  });
+}
+// il giunto del pezzo (o dell'accoppiamento) scelto
+function giuntoScelto() {
+  if (!sel || S?.mode !== 'assembly') return null;
+  const gg = S.giunti || [];
+  if (String(sel.id).startsWith('mate=')) return gg.find(g => g.id === sel.id.slice(5)) || null;
+  return gg.find(g => g.mobili.includes(sel.id)) || null;
+}
+// l'asse, tratteggiato in giallo: dopo il primo clic e col giunto (o il pezzo che muove) scelto
+function paintGiunti() {
+  for (const x of GIU.gruppo.children) x.geometry.dispose();
+  GIU.gruppo.clear();
+  if (S?.mode !== 'assembly') return;
+  const assi = [];
+  if (GIU.asse && ASM.tool && MATE_UI[ASM.tool]?.giunto) assi.push([GIU.asse, [GIU.asse.inst]]);
+  const g = giuntoScelto();
+  if (g?.asse && !g.off) assi.push([g.asse, g.mobili]);
+  for (const [a, ids] of assi) {
+    // lungo quanto il pezzo che si muove, e un po' di più sopra e sotto: si vede che esce dal pezzo
+    const p = v3(a.p), d = v3(a.d).normalize();
+    let t0 = Infinity, t1 = -Infinity;
+    for (const id of ids) {
+      const o = objs.get(id);
+      if (!o) continue;
+      const b = new THREE.Box3().setFromObject(o.mesh);
+      for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
+        const t = d.dot(new THREE.Vector3(x, y, z).sub(p)); t0 = Math.min(t0, t); t1 = Math.max(t1, t); }
+    }
+    if (!Number.isFinite(t0)) { t0 = -modelRadius / 2; t1 = modelRadius / 2; }
+    const fuori = Math.max((t1 - t0) * 0.12, 40);
+    const geo = new THREE.BufferGeometry().setFromPoints([p.clone().addScaledVector(d, t0 - fuori), p.clone().addScaledVector(d, t1 + fuori)]);
+    const l = new THREE.Line(geo, GIU_MAT); l.computeLineDistances(); l.renderOrder = 30; GIU.gruppo.add(l);
+  }
+}
+// ---- col mouse: il pezzo scelto si trascina e gira (o scorre) solo come vuole il giunto
+function valoreTrascinato(D, ev) {
+  const r = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((ev.clientX - r.left) / r.width * 2 - 1, -(ev.clientY - r.top) / r.height * 2 + 1), camera);
+  const o = ray.ray.origin, dir = ray.ray.direction, A = v3(D.g.asse.p), d = v3(D.g.asse.d).normalize();
+  if (D.q === 'corsa') {                             // il punto della retta P0 + t·d più vicino al raggio del mouse
+    const w = D.P0.clone().sub(o), b = d.dot(dir), den = 1 - b * b;
+    if (den < 1e-4) return D.v0 - (ev.clientY - D.y0);        // guardato di punta: si scorre col mouse su e giù
+    return D.v0 + (b * dir.dot(w) - d.dot(w)) / den;
+  }
+  const C = A.clone().addScaledVector(d, d.dot(D.P0.clone().sub(A))), den = d.dot(dir);
+  if (Math.abs(den) < 0.15) return D.v0 + (ev.clientX - D.x0) * 0.5;   // l'asse di taglio: destra/sinistra gira
+  const X = o.clone().addScaledVector(dir, d.dot(C.clone().sub(o)) / den);
+  const v0 = D.P0.clone().sub(C), v1 = X.sub(C);
+  if (v0.length() < 1e-6 || v1.length() < 1e-6) return null;
+  const a = Math.atan2(d.dot(v0.clone().cross(v1)), v0.dot(v1)) * 180 / Math.PI;
+  let delta = a - D.ultA;
+  while (delta > 180) delta -= 360;
+  while (delta < -180) delta += 360;
+  D.giro += delta; D.ultA = a;
+  return D.v0 + D.giro;
+}
+async function mandaGiunto(D) {
+  if (D.inVolo || D.ultimo == null) return;
+  D.inVolo = true; const v = D.ultimo; D.ultimo = null;
+  const r = await call('asm_muovi_giunto', D.g.id, { [D.q]: v }, false);
+  if (r.ok) { spostaPezzi(r.pose); D.reale = r.valori[D.q]; if (GIU.drag === D) giuntoTip(D); }
+  D.inVolo = false;
+  if (D.ultimo != null) mandaGiunto(D);
+}
+function giuntoTip(D) {
+  tip.classList.remove('t-cartellino');
+  tip.textContent = `${D.q === 'angolo' ? 'Gira' : 'Scorre'}: ${testoQ(D.q, D.reale ?? D.v0)}`;
+  const rv = view.getBoundingClientRect();
+  tip.style.left = (D.mx - rv.left + 14) + 'px'; tip.style.top = (D.my - rv.top + 14) + 'px';
+  tip.style.display = 'block';
+}
+function giuntoSotto(ev) {
+  if (ev.button !== 0 || S?.mode !== 'assembly' || SK || ASM.tool || MIS || !(S.giunti || []).length) return null;
+  const h = pick(ev);
+  if (!h) return null;
+  const g = (S.giunti || []).find(x => x.mobili.includes(h.id) && x.asse && !x.bloccato);
+  if (!g) return null;
+  if (TRASCINA_SOLO_SCELTO && !(sel && (sel.id === h.id || sel.id === 'mate=' + g.id || (sel.ids || []).includes(h.id)))) return null;
+  return { h, g };
+}
+canvas.addEventListener('pointerdown', ev => {
+  const x = giuntoSotto(ev);
+  if (!x) return;
+  ev.stopImmediatePropagation(); ev.preventDefault();
+  premuto = null; controls.enabled = false;
+  const q = x.g.tipo === 'guida' || (x.g.tipo === 'perno' && ev.shiftKey) ? 'corsa' : 'angolo';
+  GIU.drag = { g: x.g, h: x.h, q, P0: x.h.point.clone(), v0: x.g.valori[q], ultimo: null, inVolo: false, giro: 0, ultA: 0,
+    x0: ev.clientX, y0: ev.clientY, mx: ev.clientX, my: ev.clientY, mosso: false };
+  try { canvas.setPointerCapture(ev.pointerId); } catch { /* va bene lo stesso */ }
+}, true);
+window.addEventListener('pointermove', ev => {
+  const D = GIU.drag;
+  if (!D) {
+    if (S?.mode === 'assembly' && !ev.buttons && (S.giunti || []).length && sel) canvas.style.cursor = giuntoSotto({ ...ev, button: 0, clientX: ev.clientX, clientY: ev.clientY }) ? 'grab' : '';
+    return;
+  }
+  D.mx = ev.clientX; D.my = ev.clientY;
+  if (!D.mosso && Math.hypot(ev.clientX - D.x0, ev.clientY - D.y0) < 3) return;
+  const v = valoreTrascinato(D, ev);
+  if (v == null || !Number.isFinite(v)) return;
+  D.mosso = true; canvas.style.cursor = 'grabbing';
+  D.ultimo = v; giuntoTip(D); mandaGiunto(D);
+});
+window.addEventListener('pointerup', () => {
+  const D = GIU.drag;
+  if (!D) return;
+  GIU.drag = null; controls.enabled = true; tip.style.display = 'none'; canvas.style.cursor = '';
+  if (!D.mosso) { select(D.h.id, D.h.face); return; }          // un clic senza trascinare: come prima, sceglie
+  inCoda(async () => {
+    while (D.inVolo) await new Promise(r => setTimeout(r, 30));
+    const r = await call('asm_muovi_giunto', D.g.id, { [D.q]: D.ultimo ?? D.reale ?? D.v0 }, true);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    if (await apply(r)) await refreshSel();
+  });
+});
+// ---- i campi del valore (pannello del giunto e del pezzo): mentre scrivi il pezzo si muove
+function campiGiunto(g, pre) {
+  return Object.keys(g.valori).map(q => {
+    const [lo, hi] = g.limiti[q], v = g.valori[q];
+    const min = lo ?? (q === 'angolo' ? Math.min(-180, Math.floor(v)) : Math.floor(Math.min(v, 0) - 500));
+    const max = hi ?? (q === 'angolo' ? Math.max(180, Math.ceil(v)) : Math.ceil(Math.max(v, 0) + 500));
+    return `<div class="asm-misura"><span>${Q_NOME[q]}</span><span class="campo-unita"><input class="field num" id="${pre}-${q}" value="${esc(mmTesto(v))}" aria-label="${Q_NOME[q]}"><i>${Q_UN[q]}</i></span>
+      <input type="range" class="cursore" id="${pre}-${q}-s" min="${min}" max="${max}" step="${q === 'angolo' ? 0.5 : 1}" value="${v}" title="Trascina: il pezzo si muove"></div>`;
+  }).join('');
+}
+function wireCampiGiunto(g, pre) {
+  for (const q of Object.keys(g.valori)) {
+    const box = $(`#${pre}-${q}`), sl = $(`#${pre}-${q}-s`);
+    if (!box) continue;
+    const D = { g, q, inVolo: false, ultimo: null };
+    let t = null, fatto = null;
+    const fine = v => {
+      if (fatto === String(v)) return;
+      fatto = String(v);
+      inCoda(async () => {
+        while (D.inVolo) await new Promise(r => setTimeout(r, 30));
+        const r = await call('asm_muovi_giunto', g.id, { [q]: v }, true);
+        if (!r.ok) { toast(r.message, 'err'); return; }
+        if (await apply(r)) await refreshSel();
+      });
+    };
+    box.oninput = () => { clearTimeout(t); t = setTimeout(() => { if (/\d/.test(box.value)) { D.ultimo = box.value; mandaGiunto(D); } }, 120); };
+    box.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); fine(box.value); } };
+    box.onchange = () => fine(box.value);
+    if (sl) { sl.oninput = () => { box.value = mmTesto(+sl.value); D.ultimo = sl.value; mandaGiunto(D); }; sl.onchange = () => fine(sl.value); }
+  }
+}
+function giuntoPanel(s) {
+  const g = s.giunto, d = s.def, riga = k => s.rows.find(r => r[0] === k)?.[1] || '';
+  const pezzo = (k, id) => `<button class="asm-mate" data-vai-pezzo="${esc(id || '')}" title="Scegli il pezzo"><img src="icons/${k === 'Fermo' ? 'c_fix' : 'move'}.svg" alt=""><span><span class="testo-2">${k === 'Fermo' ? 'Sta fermo' : 'Si muove'}:</span> ${esc(riga(k))}</span></button>`;
+  const lim = q => `<div class="ff"><label>${q === 'angolo' ? 'Gira da' : 'Scorre da'}<span class="inp"><input class="field num" id="g-da-${q}" value="${g.limiti[q][0] == null ? '' : esc(mmTesto(g.limiti[q][0]))}" placeholder="libero"><i>${Q_UN[q]}</i></span></label>
+      <label>fino a<span class="inp"><input class="field num" id="g-a-${q}" value="${g.limiti[q][1] == null ? '' : esc(mmTesto(g.limiti[q][1]))}" placeholder="libero"><i>${Q_UN[q]}</i></span></label></div>`;
+  const es = GIU.esito[g.id] || {};
+  const disegnato = Object.keys(g.valori).map(q => testoQ(q, g.disegnato[q])).join(', ');
+  return `<div class="asm-pan giunto-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(GIU_COSA[g.tipo])}${d.off ? ': sospeso, adesso non tiene' : ''}</div></div></div>
+    <section class="sezione"><h4>Muovi</h4>${campiGiunto(g, 'g')}
+      <p class="hint">${g.bloccato ? 'Il pezzo è tenuto anche da altri accoppiamenti a pezzi fermi: per muoverlo sospendili.'
+        : `Scrivi di quanto (per esempio «90») o clic sul pezzo e trascinalo${g.tipo === 'perno' ? ' (con Maiusc scorre)' : ''}. Disegnato a ${esc(disegnato)}: il disegno non cambia finché non tieni la posizione.`}</p>
+      <div class="asm-azioni una"><button class="btn" id="g-torna"${g.mosso ? '' : ' disabled'} title="Il pezzo torna dov’è disegnato"><img src="icons/undo.svg" alt=""><span>Torna com’era</span></button>
+        <button class="btn" id="g-tieni"${g.mosso ? '' : ' disabled'} title="Questa diventa la posizione disegnata (si salva)"><img src="icons/save.svg" alt=""><span>Tieni questa posizione</span></button></div></section>
+    <section class="sezione"><h4>Finecorsa</h4>${Object.keys(g.valori).map(lim).join('')}
+      <div class="asm-azioni una"><button class="btn" id="g-trova" title="Gira (o scorre) da una parte e dall’altra finché tocca un altro pezzo"><img src="icons/search.svg" alt=""><span>Trova da solo</span></button></div>
+      <p class="hint" id="g-trova-esito">${es.trova ? esc(es.trova) : 'Fin dove arriva prima di toccare un altro pezzo. Vuoto = libero.'}</p></section>
+    <section class="sezione"><h4>Controlla</h4><div class="asm-azioni una"><button class="btn" id="g-controlla"><img src="icons/interferenze.svg" alt=""><span>Controlla che non sbatta</span></button></div>
+      <p class="hint" id="g-controlla-esito">${es.controlla ? esc(es.controlla) : 'Percorre tutta la corsa a passi e ti dice se e dove tocca un altro pezzo.'}</p></section>
+    <section class="sezione"><h4>Cosa puoi fare</h4><div class="asm-azioni una">
+      <button class="btn" id="g-verso" title="Lo stesso movimento, contato dall’altra parte (i gradi in positivo verso dove si apre)"><img src="icons/mirror.svg" alt=""><span>Verso contrario</span></button>
+      <button class="btn" id="m-sosp" title="${d.off ? 'Torna a tenere i due pezzi' : 'Per un momento non tiene: il pezzo resta dov’è e lo puoi spostare'}"><img src="icons/${d.off ? 'joint' : 'eye'}.svg" alt=""><span>${d.off ? 'Riattiva' : 'Sospendi'}</span></button>
+      ${TOGLI_ASM('m-del', 'Togli il giunto', 'I due pezzi restano dove sono, liberi')}</div></section>
+    <section class="sezione"><h4>I due pezzi</h4>${pezzo('Fermo', d.a)}${pezzo('Si muove', d.b)}</section>
+    <div class="asm-fondo"><button class="btn primary big" id="m-fatto">Fatto</button></div></div>`;
+}
+function wireGiunto(s) {
+  const g = s.giunto, mid = s.id;
+  const fai = (m, ...a) => inCoda(async () => { const r = await call(m, ...a); if (await apply(r, r.message)) await refreshSel(); return r; });
+  wireCampiGiunto(g, 'g');
+  $('#g-torna').onclick = () => { delete (GIU.esito[mid] || {}).controlla; fai('asm_giunto_torna', mid); };
+  $('#g-tieni').onclick = () => fai('asm_giunto_tieni', mid);
+  for (const q of Object.keys(g.valori)) {
+    const manda = () => fai('asm_edit_mate', mid, { ['lim_' + q]: [$('#g-da-' + q).value.trim(), $('#g-a-' + q).value.trim()] });
+    for (const id of ['#g-da-' + q, '#g-a-' + q]) {
+      $(id).onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $(id).blur(); } };
+      $(id).onchange = manda;
+    }
+  }
+  $('#g-trova').onclick = () => inCoda(async () => {
+    const r = await call('asm_giunto_limiti', mid);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    GIU.esito[mid] = { ...(GIU.esito[mid] || {}), trova: r.message };
+    if (await apply(r, r.message)) await refreshSel();
+  });
+  $('#g-controlla').onclick = () => inCoda(async () => {
+    const r = await call('asm_giunto_controlla', mid);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    GIU.esito[mid] = { ...(GIU.esito[mid] || {}), controlla: r.message };
+    if (await apply(r, r.message)) await refreshSel();
+    if (r.tocca) giuntoTocca(r.tocca);
+  });
+  $('#g-verso').onclick = () => fai('asm_edit_mate', mid, { verso_contrario: true });
+  $('#m-sosp').onclick = () => fai('asm_edit_mate', mid, { off: !s.def.off });
+  $('#m-del').onclick = () => { clearSelection(); inCoda(async () => apply(await call('asm_delete_mate', mid))); };
+  document.querySelectorAll('[data-vai-pezzo]').forEach(b => { if (b.dataset.vaiPezzo) b.onclick = () => inCoda(() => select(b.dataset.vaiPezzo)); });
+  $('#m-fatto').onclick = () => { document.activeElement?.blur?.(); setTimeout(clearSelection, 30); };
+  if (sel && sel.id === 'mate=' + mid && s.def.b && objs.has(s.def.b)) { sel.ids = [sel.id, ...g.mobili.filter(x => objs.has(x))]; paint(); }
+}
+// dove sbatte: un punto rosso, col cartellino (come le interferenze: se ne va quando il pezzo si muove)
+function giuntoTocca(t) {
+  interfPulisci();
+  const m = new THREE.Mesh(new THREE.SphereGeometry(Math.max(modelRadius * 0.02, 4), 20, 14), GIU_ROSSO);
+  m.position.set(...t.punto); m.renderOrder = 41; interfGroup.add(m);
+  const el = document.createElement('div');
+  el.className = 'dim interf';
+  el.textContent = `tocca «${t.fermo}» a ${t.testo}`;
+  el.title = 'Qui il pezzo che si muove tocca un altro pezzo';
+  interfBox.appendChild(el);
+  // il cartellino un po' sopra il punto, che resta da vedere
+  interfEls.push({ el, at: new THREE.Vector3(...t.punto).add(camera.up.clone().multiplyScalar(modelRadius * 0.09)) });
+  placeDims(); ridisegna();
+}
+window.__giunti = { get drag() { return GIU.drag; }, get asse() { return GIU.asse; }, tocca: giuntoTocca,
+  get punti() { return interfGroup.children.length; }, scelto: () => giuntoScelto() };
 // ===================================================================== Gioco tra due pezzi (05/11)
 // Idea da SolidCraft (inspect.clearance): clic su una faccia di un pezzo e su quella di fronte dell'altro → quanto
 // gioco c'è tra le due facce (il plexiglass nella scanalatura: 0,5 per lato) e, tra i due pezzi interi, il punto più
@@ -5656,7 +5929,8 @@ function cosEPezzo(s) {
 // l'icona di ogni tipo di accoppiamento (righe «Lo tengono» e albero)
 function iconaMate(t) { return ICONA_MATE[t] || null; }
 const ICONA_MATE = { faccia: 'faccia_su_faccia', asse: 'foro_su_foro', distanza: 'dimension', angolo: 'plane_angle', tangente: 'c_tangent', parallelo: 'c_parallel',
-  perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'testa', appoggia: 'appoggia' };
+  perpendicolare: 'c_perpendicular', centra: 'c_symmetry', blocca: 'c_fix', spigolo: 'c_collinear', spigolo_faccia: 'c_coincident', cono: 'fastener', testa: 'testa', appoggia: 'appoggia',
+  cerniera: 'cerniera', guida: 'guida', perno: 'perno' };
 const TOGLI_ASM = (id, nome, titolo) => `<button class="btn danger tutta-riga" id="${id}" title="${esc(titolo)}"><img src="icons/delete.svg" alt=""><span>${esc(nome)}</span></button>`;
 function instancePanel(s) {
   const tab = `<table class="grid">${s.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
@@ -5688,11 +5962,15 @@ function instancePanel(s) {
     return riga + `<div class="asm-misura"><span>${esc(m.nome)}</span><span class="campo-unita"><input class="field num" id="mv-v${k}" value="${esc(String(Math.round(v * 10) / 10).replace('.', ','))}" aria-label="${esc(m.nome)}"><i>${m.campo === 'angle' ? '°' : 'mm'}</i></span>
       <input type="range" class="cursore" id="mv-s${k}" min="${lo}" max="${hi}" step="1" value="${v}" title="Trascina: il pezzo si muove"></div>`;
   }).join('') : '<p class="hint">Nessun accoppiamento: si sposta liberamente. Per metterlo su un altro pezzo: «Appoggia».</p>'}</section>`;
+  // 05/11: il pezzo che si muove (cerniera, guida, perno): di quanto, subito qui
+  const muove = (s.giunti || []).length ? `<section class="sezione"><h4>Si muove</h4>${s.giunti.map((g, k) =>
+    `<button class="asm-mate" data-vai-mate="${esc(g.id)}" title="Apri il giunto: finecorsa, controlla che non sbatta"><img src="icons/${g.tipo}.svg" alt=""><span>${esc(GIU_COSA[g.tipo])}</span></button>${campiGiunto(g, 'gi' + k)}`).join('')}
+    <p class="hint">${s.giunti.some(g => g.bloccato) ? 'Lo tengono anche altri accoppiamenti a pezzi fermi: per muoverlo sospendili.' : 'Scrivi di quanto, o trascina il pezzo col mouse.'}</p></section>` : '';
   const fin = s.acquisto || s.sottoassieme ? '' : `<div class="ff"><label>Finitura<select class="field" id="a-fin">${[['grezzo', 'Grezzo'], ['zincato', 'Zincato'], ['inox', 'Inox spazzolato'], ['verniciato', 'Verniciato RAL']].map(([k, l]) => `<option value="${k}"${(s.finitura?.tipo || 'grezzo') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
       <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`;
   return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div></div>
-    ${cosa}${incastri}${scassi}${tiene}
+    ${cosa}${incastri}${scassi}${muove}${tiene}
     <section class="sezione"><h4>Dove sta</h4>${dovePanel(s)}
       <div class="asm-sposta"${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
       <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
@@ -5754,6 +6032,7 @@ function wireInstance(s) {
   document.querySelectorAll('[data-rot]').forEach(b => { b.onclick = () => fai('asm_rotate', s.id, b.dataset.rot, 90); });
   $('#a-fixed').onchange = () => fai('asm_set', s.id, { fixed: $('#a-fixed').checked });
   (s.movimenti || []).forEach((m, k) => cursoreMovimento($('#mv-s' + k), $('#mv-v' + k), m.id, m.campo));
+  (s.giunti || []).forEach((g, k) => wireCampiGiunto(g, 'gi' + k));
   const acq = () => ({ descrizione: $('#a-acq-d')?.value || '', codice: $('#a-acq-c')?.value || '', fornitore: $('#a-acq-f')?.value || '' });
   if ($('#a-acq')) $('#a-acq').onchange = () => fai('asm_set_acquisto', s.id, $('#a-acq').checked ? acq() : null);
   if ($('#a-fin')) {
@@ -5847,6 +6126,7 @@ function tieniScritto(disegna) {
   if (n && $('#props').contains(n)) { n.value = scritto[1]; n.focus(); }
 }
 function matePanel(s) {
+  if (s.giunto) return giuntoPanel(s);              // 05/11: cerniera, guida, perno
   const d = s.def, v = x => esc(String(Math.round(x * 1000) / 1000).replace('.', ','));
   const gira = d.da === 'appoggia' || d.da === 'vano' ? null : MATE_GIRA[d.type];          // da «Appoggia»: il verso è già quello giusto
   const riga = k => s.rows.find(r => r[0] === k)?.[1] || '';
@@ -5870,6 +6150,7 @@ function matePanel(s) {
     <div class="asm-fondo"><button class="btn primary big" id="m-fatto">Fatto</button></div></div>`;
 }
 function wireMate(s) {
+  if (s.giunto) { wireGiunto(s); return; }
   const fai = f => inCoda(async () => { if (await apply(await call('asm_edit_mate', s.id, f))) await refreshSel(); });
   if ($('#m-off')) { $('#m-off').onkeydown = ev => { if (ev.key === 'Enter') fai({ offset: $('#m-off').value.trim() }); }; $('#m-off').onchange = () => fai({ offset: $('#m-off').value.trim() }); }
   if ($('#m-ang')) { $('#m-ang').onkeydown = ev => { if (ev.key === 'Enter') fai({ angle: $('#m-ang').value.trim() }); }; $('#m-ang').onchange = () => fai({ angle: $('#m-ang').value.trim() }); }
@@ -8686,6 +8967,8 @@ const CMDS = [
     toast(`${r.interferences.length === 1 ? 'Un’interferenza' : r.interferences.length + ' interferenze'}: in rosso il pezzo che entra nell’altro, l’elenco a destra.`, 'err');
   }) },
   { id: 'asm_gioco', label: 'Assieme: gioco tra due pezzi (quanto spazio c’è tra due facce)', run: () => { if (S?.mode !== 'assembly') { toast('Il gioco si misura negli assiemi.', 'err'); return; } asmTool(ASM.tool === 'gioco' ? null : 'gioco'); } },
+  ...[['cerniera', 'il pezzo gira attorno a un asse (un’anta, un cancello)'], ['guida', 'il pezzo scorre lungo una direzione (un cassetto)'], ['perno', 'il pezzo gira e scorre su un perno']].map(([k, t]) =>
+    ({ id: 'asm_' + k, label: `Assieme: ${k} (${t})`, run: () => { if (S?.mode !== 'assembly') { toast('I pezzi si muovono negli assiemi.', 'err'); return; } asmTool(ASM.tool === k ? null : k); } })),
   { id: 'asm_back', label: 'Torna all’assieme', run: tornaAllAssieme },
   { id: 'open', label: 'Apri progetto…', keys: 'Ctrl+O', run: () => inCoda(openProject) },
   { id: 'import_dxf', label: 'Importa sviluppo DXF / DWG…', run: () => inCoda(importDialog) },
@@ -11661,7 +11944,7 @@ const BARRA_GRANDI = {
   lamiera: ['flange_help', 'foro', 'asola', 'tipo_foro', 'taglia', 'face_help', 'unfold', 'misura'],
   strutture: ['tubonuovo', 'traverso', 'dividi', 'piedi', 'misure', 'tubo', 'giunti', 'misura', 'saldatura3d'],
   piastra: ['foro', 'taglia', 'face_help', 'misure', 'misura'],
-  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'vano', 'asse', 'distanza', 'angolo', 'asm_interf', 'gioco', 'asm_esploso', 'misura'],
+  assieme: ['asm_insert', 'asm_viteria', 'appoggia', 'vano', 'asse', 'distanza', 'angolo', 'cerniera', 'asm_interf', 'gioco', 'asm_esploso', 'misura'],
   sketch: ['line', 'rect', 'circle', 'arcr', 'arc3', 'text', 'trim', 'fillet', 'pattern', 'dim', 'sk-grid',
     'tubi', 'sheet', 'profilo', 'fold', 'cut', 'tab', 'mark', 'sk-done'],
 };
@@ -11752,7 +12035,7 @@ const BARRA_CEDE = {
   lamiera: ['misura', 'unfold', 'tipo_foro', 'asola', 'taglia', 'face_help', 'foro'],
   strutture: ['saldatura3d', 'misura', 'giunti', 'tubo', 'misure', 'piedi', 'dividi'],
   piastra: ['misura', 'misure', 'face_help', 'taglia'],
-  assieme: ['misura', 'asm_esploso', 'asm_interf', 'angolo', 'distanza', 'asse', 'asm_viteria'],
+  assieme: ['misura', 'asm_esploso', 'asm_interf', 'cerniera', 'angolo', 'distanza', 'asse', 'asm_viteria'],
 };
 const BARRA_FERMI = new Set(['sk-done', 'line']);
 let barraAdatto = false;

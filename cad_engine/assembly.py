@@ -11,7 +11,8 @@ Accoppiamenti (come in officina):
 - **parallele**, **perpendicolari**, **angolo**: solo l'orientamento di due facce (o assi);
 - **tangente**: un tubo appoggiato su una faccia, o due tubi uno contro l'altro;
 - **in mezzo**: due facce di un pezzo centrate tra due facce dell'altro (un piatto in un U);
-- **blocca**: il pezzo resta attaccato all'altro così com'è.
+- **blocca**: il pezzo resta attaccato all'altro così com'è;
+- **cerniera**, **guida**, **perno** (05/11): il pezzo gira o scorre attorno a un asse (vedi assembly_moto).
 
 Sottoassiemi (05/11, Stefano: «in un assieme posso mettere un altro assieme?»): un'istanza può richiamare un altro
 `.steelcad-asm`. Si legge come un pezzo solo (Part con `sotto` = il suo assieme e `figli` = i suoi pezzi messi): la
@@ -41,7 +42,9 @@ MATE_TYPES = {'faccia': 'faccia su faccia', 'asse': 'foro su foro (coassiale)', 
               'parallelo': 'parallele', 'perpendicolare': 'perpendicolari', 'angolo': 'angolo',
               'tangente': 'tangente', 'centra': 'in mezzo', 'blocca': 'blocca',
               'spigolo': 'spigolo su spigolo', 'spigolo_faccia': 'spigolo su faccia', 'cono': 'cono su cono',
-              'testa': 'testa a testa (angolo a cornice)'}
+              'testa': 'testa a testa (angolo a cornice)',
+              # 05/11: i pezzi che si muovono (assembly_moto)
+              'cerniera': 'cerniera', 'guida': 'guida', 'perno': 'perno'}
 
 
 class AssemblyError(SteelCADError):
@@ -284,6 +287,7 @@ class Assembly:
     mates: list = field(default_factory=list)          # {'id','type','a':ref,'b':ref,'offset','flip'}
     path: Path | None = None
     meta: dict = field(default_factory=dict)           # 28/10: dati dell'assieme (le tavole ritoccate…)
+    moto: dict = field(default_factory=dict)           # 05/11: i giunti mossi a mano {id: {'angolo', 'corsa'}}: non si salva
 
     def to_dict(self) -> dict:
         base = self.path.parent if self.path else None
@@ -414,8 +418,49 @@ def edge_info(part: Part, edge) -> dict:
             'p': [m.X, m.Y, m.Z], 'n': [d.X, d.Y, d.Z], 'L': be.length}
 
 
+def spigolo_vicino(part: Part, p, n=None, entro: float | None = None) -> dict | None:
+    """Lo spigolo dritto del pezzo più vicino al punto p (nelle coordinate del pezzo), parallelo a n se c'è: per i
+    pezzi le cui facce non hanno nome (i tubi di una struttura). entro: più lontano di così, niente."""
+    import build123d as bd
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.GeomAbs import GeomAbs_Line
+    from OCP.gp import gp_Pnt
+
+    from .topology.naming import _edges_of
+    v = BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(c) for c in p])).Vertex()
+    migliore = None
+    for e in _edges_of(part.shape):
+        if BRepAdaptor_Curve(e).GetType() != GeomAbs_Line:
+            continue
+        be = bd.Edge(e)
+        a, b = be.position_at(0), be.position_at(1)
+        d = np.array([b.X - a.X, b.Y - a.Y, b.Z - a.Z])
+        if np.linalg.norm(d) < 1e-9:
+            continue
+        d /= np.linalg.norm(d)
+        if n is not None and abs(float(np.dot(d, n))) < 0.999:
+            continue
+        dd = BRepExtrema_DistShapeShape(v, e)
+        if not dd.IsDone():
+            continue
+        if migliore is None or dd.Value() < migliore[0]:
+            m = (a + b) * 0.5
+            migliore = (dd.Value(), {'kind': 'spigolo', 'name': None, 'faces': None, 'p': [m.X, m.Y, m.Z], 'n': d.tolist(),
+                                      'L': be.length})
+    if migliore is None or (entro is not None and migliore[0] > entro):
+        return None
+    return migliore[1]
+
+
 def _resolve_edge(part: Part, ref: dict) -> dict:
     from .topology import NamedShape
+    if ref.get('faces') is None:                    # 05/11: spigolo senza nome (un tubo): il più vicino, parallelo
+        trovato = spigolo_vicino(part, ref['p'], np.array(ref['n'], dtype=float))
+        if trovato is None:
+            raise AssemblyError('Un accoppiamento non trova più il suo spigolo nel pezzo (è stato tolto?).')
+        return trovato
     try:
         spigoli = NamedShape(part.shape, part.names).edges({'faces': ref['faces'], **({'index': ref['index']} if 'index' in ref else {})})
     except SteelCADError:
@@ -504,7 +549,13 @@ def solve(asm: Assembly, parts: dict) -> dict:
         return pose
     terra = {i['id'] for i in asm.instances if i.get('fixed')} or {asm.instances[0]['id']}
     fatti = set(terra)
-    mates = [m for m in asm.mates if not m.get('off')]
+    mates = []
+    for m in asm.mates:
+        if m.get('off'):
+            continue
+        if m['type'] in _giunti():
+            m = _giunto_blocca(m, parts, asm)
+        mates.append(m)
     nomi = {i['id']: i.get('name') or i['id'] for i in asm.instances}
 
     def metti():
@@ -569,9 +620,27 @@ def solve(asm: Assembly, parts: dict) -> dict:
             continue
         err = mate_error(m, pose, parts, asm)
         if err is not None and err > 1e-3:
-            asm.warnings.append(f'L’accoppiamento {m["id"]} ({MATE_TYPES[m["type"]]}) non si riesce a rispettare '
+            asm.warnings.append(f'L’accoppiamento {m["id"]} ({MATE_TYPES[m.get("giunto") or m["type"]]}) non si riesce a rispettare '
                                 f'(scarto {err:.3f}): controlla che non sia in contrasto con gli altri.')
     return pose
+
+
+def _giunti():
+    from .assembly_moto import GIUNTI
+    return GIUNTI
+
+
+def _giunto_blocca(m, parts, asm) -> dict:
+    """Un giunto per il risolutore: «blocca» con la posa dei valori di adesso (quelli mossi a mano, se ci sono)."""
+    from .assembly_moto import come_blocca
+    try:
+        return come_blocca(m, parts, asm, getattr(asm, 'moto', None))
+    except (AssemblyError, KeyError, ValueError):
+        if not hasattr(asm, 'warnings'):
+            asm.warnings = []
+        asm.warnings.append(f'La {MATE_TYPES[m["type"]]} {m["id"]} non trova più il suo asse nel pezzo: tiene il pezzo '
+                            'dov’era disegnato.')
+        return {**m, 'type': 'blocca', 'giunto': m['type']}
 
 
 def _world(ref, pose, parts, asm):
@@ -812,6 +881,8 @@ def _partenza(R0, T0, dati, pose, iid):
 
 def mate_error(m, pose, parts, asm) -> float | None:
     try:
+        if m['type'] in _giunti():
+            m = _giunto_blocca(m, parts, asm)
         if m['type'] == 'blocca':
             return float(np.linalg.norm(residui(m, {}, (pose[m['a']['inst']], pose[m['b']['inst']]), peso=1)))
         F = {}

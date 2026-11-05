@@ -798,6 +798,25 @@ class Api:
     def asm_trascina_mate(self, mid, campo, valore, fine=False):
         return self._call(self._svc.asm_trascina_mate, mid, campo, valore, fine)
 
+    # 05/11: i pezzi che si muovono (cerniera, guida, perno)
+    def asm_giunto_asse(self, kind, c):
+        return self._call(self._svc.asm_giunto_asse, kind, c)
+
+    def asm_muovi_giunto(self, mid, vals, fine=False):
+        return self._call(self._svc.asm_muovi_giunto, mid, vals, fine)
+
+    def asm_giunto_torna(self, mid):
+        return self._call(self._svc.asm_giunto_torna, mid)
+
+    def asm_giunto_tieni(self, mid):
+        return self._call(self._svc.asm_giunto_tieni, mid)
+
+    def asm_giunto_limiti(self, mid):
+        return self._call(self._svc.asm_giunto_limiti, mid)
+
+    def asm_giunto_controlla(self, mid):
+        return self._call(self._svc.asm_giunto_controlla, mid)
+
     def asm_set_finitura(self, iid, campi):
         return self._call(self._svc.asm_set_finitura, iid, campi)
 

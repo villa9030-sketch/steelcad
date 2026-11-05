@@ -13,7 +13,9 @@ from pathlib import Path
 
 import numpy as np
 
+from app.assembly_moto_service import MotoMixin
 from cad_engine import assembly as A
+from cad_engine import assembly_moto as AM
 from cad_engine.errors import SteelCADError
 from cad_engine.units import fmt_kg, fmt_mm
 
@@ -34,13 +36,14 @@ def _in_assieme(fn):
         return fn(self, *a, **kw)
     return dentro
 
-class AssemblyMixin:
+class AssemblyMixin(MotoMixin):
     asm = None
 
     # ------------------------------------------------------------------ apertura, salvataggio, cronologia
     def _asm_set(self, asm, path=None):
         self.asm = asm
         self.asm_parts = {}
+        self.asm_moto = {}                          # 05/11: i giunti mossi a mano (non si salva)
         self.asm_undo, self.asm_redo = [], []
         self.asm_dirty = False
         self._asm_ritorno = None
@@ -113,6 +116,8 @@ class AssemblyMixin:
         validi = A.Assembly(self.asm.name, [i for i in self.asm.instances if i['file'] in parti],
                             [m for m in self.asm.mates if m['a']['inst'] in self._asm_ids(parti) and m['b']['inst'] in self._asm_ids(parti)],
                             self.asm.path)
+        # 05/11: i giunti mossi a mano (cerniera aperta): per il risolutore, senza cambiare il disegno
+        self.asm.moto = validi.moto = self._moto()
         A.solve(validi, parti)
         self.asm.warnings = getattr(validi, 'warnings', [])
         self.asm_ms = (time.perf_counter() - t0) * 1000
@@ -277,7 +282,8 @@ class AssemblyMixin:
         p = Path(path) if path else self.path
         if p is None:
             return {'ok': False, 'code': 'serve_percorso', 'message': 'Scegli dove salvare l’assieme.'}
-        self.path = A.save(self.asm, p)
+        self.path = A.save(self._asm_salvabile(), p)      # 05/11: i giunti nella posizione disegnata
+        self.asm.path = self.path
         self.asm_dirty = False
         from app.service import _add_recent
         _add_recent(self.path)
@@ -626,6 +632,8 @@ class AssemblyMixin:
         from app.service import _numero
         if kind not in A.MATE_TYPES:
             return {'ok': False, 'message': f'Accoppiamento "{kind}" sconosciuto.'}
+        if kind in AM.GIUNTI:                       # 05/11: cerniera, guida, perno
+            return self._aggiungi_giunto(kind, a, b)
 
         def fn():
             if a['inst'] == b['inst']:
@@ -939,6 +947,8 @@ class AssemblyMixin:
                 m['flip'] = bool(fields['flip'])
             if 'off' in fields:
                 m['off'] = bool(fields['off'])
+            if AM.e_giunto(m):                      # 05/11: finecorsa e verso dei giunti
+                self._limiti_da_campi(m, fields)
         return self._asm_change(f'{mid}: modifica', fn)
 
     @_in_assieme
@@ -2110,7 +2120,7 @@ class AssemblyMixin:
                 'scene_version': self.scene_version, 'dimensions': [], 'sheet': None,
                 'instances': [{'id': i['id'], 'name': i['name'], 'file': i['file'], 'fixed': bool(i.get('fixed')),
                                'pezzo': nome_pezzo.get(i['file'])} for i in asm.instances],
-                'mate_types': A.MATE_TYPES}
+                'mate_types': A.MATE_TYPES, 'giunti': self._giunti_stato()}
 
     # ------------------------------------------------------------ saldature nell'assieme (28/10)
     # «ovunque schiaccio mi da solo errori»: nell'assieme lo strumento cercava gli spigoli di un pezzo solo. Qui si
@@ -2305,7 +2315,8 @@ class AssemblyMixin:
                                   'def': {'type': m['type'], 'offset': (m.get('offset') or 0) * (m.get('segno') or 1),
                                           'flip': bool(m.get('flip')), 'da': m.get('da'),
                                           'angle': m.get('angle') or 0, 'a': m['a']['inst'], 'b': m['b']['inst'],
-                                          'off': bool(m.get('off'))}})
+                                          'off': bool(m.get('off'))},
+                                  **({'giunto': self._giunto_info(m)} if AM.e_giunto(m) else {})})
         i = self.asm.instance(obj_id)
         part = self.asm_parts.get(i['file'])
         rows = [['File', Path(i['file']).name]]
@@ -2320,7 +2331,8 @@ class AssemblyMixin:
                'finitura': (part.doc.meta.get('finitura') if part is not None else None),
                'sottoassieme': bool(part is not None and part.sotto is not None),
                'T': i['T'], 'mates': [m['id'] for m in self.asm.mates if obj_id in (m['a']['inst'], m['b']['inst'])],
-               'movimenti': self._movimenti(obj_id), 'dove': self._dove_sta(obj_id)}
+               'movimenti': self._movimenti(obj_id), 'dove': self._dove_sta(obj_id),
+               'giunti': [g for g in self._giunti_stato() if obj_id in g['mobili']]}
         # lo tengono gli accoppiamenti (spostarlo a mano non serve: il risolutore lo rimette lì); il pezzo fermo no
         sel['tenuto'] = bool(sel['mates']) and obj_id != self._terra()
         if face_index is not None and part is not None:
@@ -2351,7 +2363,8 @@ _FRASI_MATE = {'faccia': '{b} su {a}', 'asse': '{b} in asse con {a}', 'distanza'
                'parallelo': '{b} in parallelo con {a}', 'perpendicolare': '{b} a squadra con {a}', 'angolo': '{b} ad angolo con {a}',
                'tangente': '{b} tangente a {a}', 'centra': '{b} in mezzo a {a}', 'blocca': '{b} in blocco con {a}',
                'spigolo': '{b} spigolo su spigolo con {a}', 'spigolo_faccia': '{b} con lo spigolo su {a}',
-               'cono': '{b} cono su cono con {a}', 'testa': '{b} di testa con {a} (a cornice)'}
+               'cono': '{b} cono su cono con {a}', 'testa': '{b} di testa con {a} (a cornice)',
+               'cerniera': '{b} in cerniera su {a}', 'guida': '{b} scorre su {a}', 'perno': '{b} sul perno di {a}'}
 
 
 def _frase_mate(m: dict, nomi: dict) -> str:
