@@ -629,6 +629,23 @@ def _build(sk: Sketch, params: dict, jitter: bool):
                     add(s.point_on_arc(pid[refs[0]], aid[refs[1]]), kid)
                 else:
                     add(s.point_on_line(pid[refs[0]], lid[refs[1]]), kid)
+            elif t == 'rotated':
+                # la copia q è il punto p girato attorno al centro c dell'angolo scritto (serie attorno a un centro,
+                # 05/11): stessa distanza dal centro, direzione girata. Le incognite in più sono la direzione di p,
+                # quella di q e la distanza in comune
+                p_, q_, c_ = refs
+                g = rad(_value(sk, kid, c, params))
+                (px, py), (cx, cy) = (s.get_point(pid[x]) for x in (p_, c_))
+                # la direzione di q parte già girata di g da quella di p (non da atan2 di q, che salta di 360° oltre
+                # mezzo giro: il risolutore non ci arrivava)
+                a1 = s.add_param(math.atan2(py - cy, px - cx))
+                a2 = s.add_param(math.atan2(py - cy, px - cx) + g)
+                rho = s.add_param(math.hypot(px - cx, py - cy))
+                add(s.p2p_angle(pid[c_], pid[p_], a1), kid)
+                add(s.p2p_angle(pid[c_], pid[q_], a2), kid)
+                add(s.difference(a1, a2, s.add_param(g, fixed=True)), kid)
+                add(s.p2p_distance(pid[c_], pid[p_], rho), kid)
+                add(s.p2p_distance(pid[c_], pid[q_], rho), kid)
             elif t == 'fix' and fissi.get(refs[0]) == kid:
                 continue                                  # già fisso come punto
             elif t == 'fix':

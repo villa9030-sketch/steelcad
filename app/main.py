@@ -329,6 +329,24 @@ class Api:
     def sketch_add_rectangle(self, sid, p0, p1, construction=False):
         return self._call(self._svc.sketch_add_rectangle, sid, p0, p1, construction)
 
+    def sketch_add_rectangle_center(self, sid, center, corner, construction=False):
+        return self._call(self._svc.sketch_add_rectangle_center, sid, center, corner, construction)
+
+    def sketch_add_rectangle_3p(self, sid, p1, p2, p3, construction=False):
+        return self._call(self._svc.sketch_add_rectangle_3p, sid, p1, p2, p3, construction)
+
+    def sketch_add_rectangle_rounded(self, sid, p0, p1, r, construction=False):
+        return self._call(self._svc.sketch_add_rectangle_rounded, sid, p0, p1, r, construction)
+
+    def sketch_add_circle_3p(self, sid, p1, p2, p3, construction=False):
+        return self._call(self._svc.sketch_add_circle_3p, sid, p1, p2, p3, construction)
+
+    def sketch_add_circle_tangent(self, sid, linee, r=None, vicino=None, clic=None, construction=False):
+        return self._call(self._svc.sketch_add_circle_tangent, sid, linee, r, vicino, clic, construction)
+
+    def sketch_circle_tangent_preview(self, sid, linee, r=None, vicino=None, clic=None):
+        return self._call(self._svc.sketch_circle_tangent_preview, sid, linee, r, vicino, clic)
+
     def sketch_add_circle(self, sid, center, r, construction=False):
         return self._call(self._svc.sketch_add_circle, sid, center, r, construction)
 
@@ -421,6 +439,9 @@ class Api:
 
     def sketch_pattern(self, sid, eids, cols, px, rows, py):
         return self._call(self._svc.sketch_pattern, sid, eids, cols, px, rows, py)
+
+    def sketch_pattern_circular(self, sid, eids, center, n, angolo=360):
+        return self._call(self._svc.sketch_pattern_circular, sid, eids, center, n, angolo)
 
     def sketch_dimension(self, sid, kind, refs):
         return self._call(self._svc.sketch_dimension, sid, kind, refs)
