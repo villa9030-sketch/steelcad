@@ -135,6 +135,18 @@ def _feature_label(doc, f, fr) -> str:
             if f.get('kind') == 'louver':
                 return f'{nome or "Persiane"}: {n} × {f.get("width")} alta {f.get("height")}'
             return f'{nome or "Imbutiture"}: {n} × profonde {f.get("depth")}'
+        if t == 'sheet_perforate':
+            # 05/11: «Lamiera forata: 1728 fori Ø5 sfalsati, passo 8» (il numero dei fori fatti, dalla ricostruzione)
+            corpo = getattr(getattr(doc, 'last', None), 'body', None)
+            info = (getattr(getattr(corpo, 'sheet', None), 'forate', None) or {}).get(f['id']) or {}
+            disp = 'sfalsati' if f.get('disposizione') == 'sfalsata' else 'in fila'
+            if info:
+                cosa = info['foro']
+                n = info['n']
+                cosa = f'{n} {cosa}' if cosa.startswith('asole') else f'{n} {"foro" if n == 1 else "fori"} {cosa}'
+            else:
+                cosa = {'asola': 'asole', 'quadro': 'fori quadri'}.get(f.get('forma'), 'fori')
+            return f'{nome or "Lamiera forata"}: {cosa} {disp}, passo {f.get("px")}'
         if t == 'sheet_cut':
             if f.get('mode') == 'add':
                 return f'{nome or "Linguetta"}: materiale aggiunto nel piano della faccia'

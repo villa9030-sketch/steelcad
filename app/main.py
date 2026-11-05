@@ -488,6 +488,21 @@ class Api:
     def angoli_sviluppo(self, fid, tipo, valore, punti=None):
         return self._call(self._svc.angoli_sviluppo, fid, tipo, valore, punti)
 
+    def forata_info(self, face_name=None, fid=None):
+        return self._call(self._svc.forata_info, face_name, fid)
+
+    def forata_anteprima(self, face_name, spec, fid=None):
+        return self._call(self._svc.forata_anteprima, face_name, spec, fid)
+
+    def forata(self, face_name, spec):
+        return self._call(self._svc.forata, face_name, spec)
+
+    def forata_modifica(self, fid, spec):
+        return self._call(self._svc.forata_modifica, fid, spec)
+
+    def forata_da_modificare(self, fid):
+        return self._call(self._svc.forata_da_modificare, fid)
+
     def fori_da_modificare(self, fid):
         return self._call(self._svc.fori_da_modificare, fid)
 

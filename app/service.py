@@ -34,6 +34,7 @@ from app.drawings_service import DrawingsMixin  # noqa: E402
 from app.import_service import ImportMixin  # noqa: E402
 from app.tubi_service import TubiMixin  # noqa: E402
 from app.strutture_service import StruttureMixin  # noqa: E402
+from app.forata_service import ForataMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_kg, fmt_mm  # noqa: E402
@@ -103,7 +104,7 @@ def _err(ex: Exception):
 _MAGLIE_TUBI: dict = {}          # id(solido del tubo) -> (solido, maglia): vedi scene()
 
 
-class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin):
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, ForataMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))
@@ -711,6 +712,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     dati['rows'].append(['Area faccia', f'{dati["face"]["area"]:.1f} mm²'])
                     nome = dati['face']['name'] or ''
                     parti = nome.split('/')
+                    # 05/11: la parete di un foro di una lamiera forata: il pannello della lamiera forata
+                    if parti and len(parti) == 2 and parti[1] == 'parete' and self._e_forata(parti[0]):
+                        return _ok(selection=self._forata_selection(parti[0], dati['face']))
                     sm = self._sheet_def(parti[0]) if parti else None
                     # la faccia di una piega sul bordo (di una parete o di un bordo libero): il pannello di quella piega
                     if sm is not None and len(parti) == 4 and parti[2] in ('u0', 'u1'):
@@ -755,6 +759,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 return _ok(selection=self._node_selection(obj_id))
             if obj_id.startswith('struct='):
                 return _ok(selection=self._structure_selection(obj_id[7:]))
+            if obj_id.startswith('lf='):
+                return _ok(selection=self._forata_selection(obj_id[3:]))
             if obj_id.startswith('tt='):
                 f_ = self.doc.feature(obj_id[3:])
                 righe = []
@@ -850,7 +856,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         out = {'feature': sm['id'], 'def': {k: sm.get(k) for k in ('thickness', 'radius', 'method', 'k', 'bd90')},
                'methods': METODI, 'data': None, 'flanges': len(sm.get('flanges') or []),
                'after': [f['id'] for f in self.doc.features[self.doc.features.index(sm) + 1:]
-                         if not isinstance(f, Sketch) and f.get('type') not in ('structure', 'sheet_cut')]}
+                         if not isinstance(f, Sketch) and f.get('type') not in ('structure', 'sheet_cut', 'sheet_perforate')]}
         data = getattr(self.result.body, 'sheet', None) if self.result.body is not None else None
         if data is not None:
             out['data'] = data.summary()
@@ -861,12 +867,15 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
 
     def _face_indices(self, prefix: str) -> list[int]:
         from cad_engine.topology.naming import _faces_of
+        from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as Mappa
         facce = _faces_of(self.result.body.shape)
-        out = []
+        # 05/11: con una mappa (una lamiera forata ha 2000 pareti di fori: faccia per faccia erano milioni di confronti)
+        cerca = Mappa()
         for nome, fs in self.result.body.names.items():
             if nome == prefix or nome.startswith(prefix + '/'):
-                out += [i for i, f in enumerate(facce) if any(f.IsSame(g) for g in fs)]
-        return sorted(set(out))
+                for g in fs:
+                    cerca.Add(g)
+        return [i for i, f in enumerate(facce) if cerca.Contains(f)]
 
     def _flange_selection(self, fid: str, flid: str) -> dict:
         sm = self._sheet_def(fid)
@@ -956,6 +965,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             prefissi = [f'{parti[0]}/{x}/' for x in via]
         sopra = [Document._fid(f) for f in self.doc.features if isinstance(f, Sketch) and isinstance(f.plane, dict)
                  and any(str(f.plane.get('face', '')).startswith(px) for px in prefissi)]
+        # 05/11: anche le lamiere forate fatte sulle sue facce (non hanno un disegno, hanno la faccia)
+        sopra += [Document._fid(f) for f in self.doc.features if not isinstance(f, Sketch) and f.get('type') == 'sheet_perforate'
+                  and any(str(f.get('face', '')).startswith(px) for px in prefissi)]
         tutti = []
         for x in sopra:
             for y in [x] + self._dipendenti(x):
@@ -1002,7 +1014,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             sketch = ref if isinstance(f, Sketch) else f.get('sketch')
             pb = not isinstance(f, Sketch) and f.get('type') == 'sheet_edge_flange'
             tt = not isinstance(f, Sketch) and f.get('type') == 'sheet_miter'
-            voci = ['modifica'] if sketch or pb or tt else []
+            lf = not isinstance(f, Sketch) and f.get('type') == 'sheet_perforate'
+            if lf:
+                sketch = None                      # si cambia dalla sua finestra (il disegno della zona dalla sua voce)
+            voci = ['modifica'] if sketch or pb or tt or lf else []
             voci += ['rinomina']
             if not isinstance(f, Sketch) and f.get('sketch') and f.get('type') in ('sheet_cut', 'extrude', 'revolve')                     and (f.get('type') != 'extrude' or f.get('operation') == 'cut'):
                 voci.append('serie')
@@ -1014,7 +1029,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 voci.append('perche')
             nome = (f.name if isinstance(f, Sketch) else f.get('etichetta')) or ''
             return _ok(voci=voci, nome=nome, errore=errore, sketch=sketch,
-                       seleziona=('pb=' + ref) if pb else ('tt=' + ref) if tt else None,
+                       seleziona=('pb=' + ref) if pb else ('tt=' + ref) if tt else ('lf=' + ref) if lf else None,
                        dipendenti=[self._etichetta(x) for x in self._dipendenti(ref)])
         except SteelCADError as ex:
             return _err(ex)

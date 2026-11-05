@@ -4,6 +4,7 @@ from ..sheetmetal import shapes
 from ..sheetmetal import forms
 from ..sheetmetal import edge_flange, linguetta_piegata
 from ..sheetmetal import taglio_testa
+from ..sheetmetal import forata
 from ..importers import step_assieme, step_lamiera
 
 BUILDERS = {
@@ -19,6 +20,7 @@ BUILDERS = {
     'sheet_edge_flange': edge_flange.build_edge_flange,
     'sheet_tab_fold': linguetta_piegata.build,
     'sheet_miter': taglio_testa.build_end_miter,
+    'sheet_perforate': forata.build,
     'step_lamiera': step_lamiera.build,
     'solido_step': step_assieme.build_solido,
 }
@@ -36,5 +38,6 @@ VALUE_FIELDS = {
     'sheet_edge_flange': ('length', 'angle', 'trim0', 'trim1'),
     'sheet_tab_fold': ('angle',),
     'sheet_miter': ('angle', 'gap'),
+    'sheet_perforate': ('d', 'lung', 'larg', 'lato', 'px', 'py', 'margine'),
     'step_lamiera': ('k', 'spessore'),
 }
