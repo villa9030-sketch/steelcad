@@ -55,8 +55,9 @@ def _atteso(archi):
     ([(3, 15), ('L', 4)] * 5 + [(3, 15)], 6),          # colpi fitti con un tratto corto in mezzo
     ([(5, 45), (20, -45)], 2),                         # S senza tratto piano
 ])
-def test_sviluppo_delle_catene(archi, n):
-    r = spiega(_pezzo(archi), k=K)
+@pytest.mark.parametrize('v2', [False, True])
+def test_sviluppo_delle_catene(archi, n, v2):
+    r = spiega(_pezzo(archi), k=K, v2=v2)
     bb = r['flat'].bounding_box()
     lungo = next(x for x in (bb.size.X, bb.size.Y) if abs(x - W) > 1e-6)
     assert abs(lungo - _atteso(archi)) < 1e-3

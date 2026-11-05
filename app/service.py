@@ -4412,7 +4412,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         nome = p.stem if solido in (None, '') else f'{p.stem} — pezzo {int(solido) + 1}'
         doc = Document(nome, 'S235')
         extra = {} if solido in (None, '') else {'solido': int(solido)}
-        doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk, **extra,
+        # sviluppo=2 (05/11): pieghe spezzate da asole = una piega, strisce srotolate davvero, angoli chiusi
+        doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk, sviluppo=2, **extra,
                         dati=base64.b64encode(zlib.compress(dati, 9)).decode('ascii'))
         prova = doc.rebuild()
         fr = next((f for f in prova.features if f.id == 'IM1'), None)
@@ -4486,7 +4487,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             nome = pz['nome'] or f'Pezzo {k_}'
             dati = base64.b64encode(zlib.compress(SA.step_di(pz['forma']), 9)).decode('ascii')
             doc = Document(nome, 'S235')
-            doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk, dati=dati)
+            doc.add_feature('step_lamiera', 'Lamiera da STEP', file=p.name, k=kk, sviluppo=2, dati=dati)
             prova = doc.rebuild()
             fr = next((f for f in prova.features if f.id == 'IM1'), None)
             if fr is None or not fr.ok:                    # non è una lamiera piegata: pezzo importato

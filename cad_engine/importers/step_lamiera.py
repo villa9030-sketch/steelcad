@@ -66,7 +66,7 @@ def elenco(path, k: float = 0.33) -> list:
         voce = {'i': i, 'misure': sorted((round(bb.size.X, 1), round(bb.size.Y, 1), round(bb.size.Z, 1)), reverse=True),
                 'volume': so.volume}
         try:
-            r = spiega(so, k=k)
+            r = spiega(so, k=k, v2=True)
             voce.update(lamiera=True, spessore=round(r['t'], 2), pieghe=len(r['linee']), avvisi=list(r['avvisi']))
         except StepError as ex:
             voce.update(lamiera=False, perche=ex.message)
@@ -101,9 +101,16 @@ def _app(M, p) -> np.ndarray:
     return (M @ np.append(p, 1.0))[:3]
 
 
-def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
+def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0, v2: bool = False) -> dict:
     """Lo sviluppo del solido: {'t', 'flat' (Face nel piano XY), 'pieghe' [...], 'facce' {nome: (Face 3D, M 4x4)},
-    'avvisi'}."""
+    'avvisi'}.
+
+    v2 (05/11, per i pezzi importati da ora in poi; quelli già salvati restano come erano):
+    - una piega spezzata in più pezzi da asole o tagli che la attraversano è UNA piega (una riga, una linea), e le
+      asole tornano fori dello sviluppo;
+    - la striscia della piega è la faccia della piega srotolata davvero (fori, tagli e bordi storti dentro la piega),
+      non il rettangolo tra i due spigoli;
+    - negli angoli chiusi (due sponde unite nello spigolo) la colonnina dell'angolo si conta una volta sola."""
     facce = list(solido.faces())
     tipi = []
     for f in facce:
@@ -228,7 +235,7 @@ def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
                 continue
             C, e2 = figlio
             visti_cil.update(x for x, _ in catena)
-            if C in pos:
+            if C in pos and not v2:
                 continue                                   # già messo da un'altra strada (un giro chiuso)
             # le facce sullo stesso asse e con lo stesso raggio sono una piega sola (il CAD l'ha spezzata)
             gruppi = []
@@ -236,13 +243,12 @@ def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
                 uscita = catena[j + 1][1] if j + 1 < len(catena) else e2
                 if gruppi and coassiali(gruppi[-1][0], Qj):
                     gruppi[-1][2] = uscita
+                    gruppi[-1][3].append(Qj)
                 else:
-                    gruppi.append([Qj, ej, uscita])
-            if len(gruppi) > 1:
-                avvisi.append(f'{len(gruppi)} pieghe una dopo l’altra senza tratto piano (colpi fitti o raggi diversi): '
-                              'spiegate una per una, controlla lo sviluppo.')
+                    gruppi.append([Qj, ej, uscita, [Qj]])
+            nuove = []
             M, nA = pos[P], nP
-            for j, (Qg, ea, eb) in enumerate(gruppi):
+            for j, (Qg, ea, eb, membri) in enumerate(gruppi):
                 ultimo = j == len(gruppi) - 1
                 r1, r2 = retta(ea), retta(eb)
                 u = (r1[1] - r1[0]) / np.linalg.norm(r1[1] - r1[0])
@@ -279,27 +285,79 @@ def spiega(solido: bd.Shape, k: float = 0.33, raggio_min: float = 0.0) -> dict:
                     src = _frame(O2, -u, w2, nB)
                     dst = _frame(O1 + w1 * BA, -u, w1, nA)
                 M2 = M @ dst @ np.linalg.inv(src)
-                pieghe.append({'P': P if j == 0 else None, 'Q': Qg, 'C': C if ultimo else None, 'e1': r1, 'e2': r2,
-                               'angolo': math.degrees(phi), 'r': r_in, 'BA': BA, 'su': bool(dentro), 'MP': M, 'MC': M2})
+                nuove.append({'P': P if j == 0 else None, 'Q': Qg, 'C': C if ultimo else None, 'e1': r1, 'e2': r2,
+                              'angolo': math.degrees(phi), 'r': r_in, 'BA': BA, 'su': bool(dentro), 'MP': M, 'MC': M2,
+                              'membri': membri, 'O1': O1, 'u': u, 'w1': w1, 'asse': (o, a, R), 'phi': phi})
                 M, nA = M2, nB
+            if C in pos:
+                # v2: un altro pezzo della stessa piega (asole che la attraversano) porta il tratto dopo dove è già:
+                # è la stessa piega. Se no è un giro chiuso: il tratto è già messo da un'altra strada
+                prima = next((b for b in pieghe if b['C'] == C and coassiali(b['Q'], nuove[-1]['Q'])), None)
+                if len(nuove) != 1 or prima is None or not np.allclose(M, pos[C], atol=1e-6):
+                    continue
+                nuove[0]['gruppo'] = prima['gruppo']
+                pieghe.extend(nuove)
+                continue
+            if len(gruppi) > 1:
+                avvisi.append(f'{len(gruppi)} pieghe una dopo l’altra senza tratto piano (colpi fitti o raggi diversi): '
+                              'spiegate una per una, controlla lo sviluppo.')
+            for b in nuove:
+                b['gruppo'] = len(pieghe)
+                pieghe.append(b)
             pos[C] = M
             coda.append(C)
+            if v2:
+                # la sponda dopo la piega divisa da un taglio che parte dalla piega: gli altri pezzi della sponda (nello
+                # stesso piano, sulla stessa piega) vanno dove va il primo
+                cC, nC = _piano(facce[C])
+                for C3, e3 in vicini.get(catena[-1][0], []):
+                    if C3 in pos or tipi[C3] != GeomAbs_Plane or not tangente(C3, catena[-1][0], e3):
+                        continue
+                    c3, n3 = _piano(facce[C3])
+                    if np.dot(n3, nC) > 1 - 1e-9 and abs(np.dot(c3 - cC, nC)) < 1e-4:
+                        pos[C3] = M
+                        coda.append(C3)
     # lo sviluppo: tratti piani in piano + strisce delle pieghe
     pezzi = []
+    tagliate = _angoli_chiusi(facce, pos, t) if v2 else {}
     for i, M in pos.items():
-        pezzi.append(facce[i].moved(_trsf(M)))
+        pezzi.extend(f.moved(_trsf(M)) for f in tagliate.get(i, [facce[i]]))
     linee = []
+    estremi: dict = {}                                 # v2: piega → [O, verso, da, a, piega] da un capo all'altro
     for b in pieghe:
         a1, b1 = _app(b['MP'], b['e1'][0]), _app(b['MP'], b['e1'][1])
         a2, b2 = _app(b['MC'], b['e2'][0]), _app(b['MC'], b['e2'][1])
         u = b1 - a1
         if np.dot(b2 - a2, u) < 0:
             a2, b2 = b2, a2
-        try:
-            pezzi.append(bd.Face(bd.Wire.make_polygon([tuple(a1), tuple(b1), tuple(b2), tuple(a2)], close=True)))
-        except Exception:  # noqa: BLE001
-            pass
-        linee.append(((a1 + a2) / 2, (b1 + b2) / 2, b))
+        strisce = None
+        if v2:
+            try:
+                strisce = [_srotola(facce[q], b, k, t) for q in b['membri']]
+            except Exception:  # noqa: BLE001 - una faccia strana: il rettangolo tra i due spigoli
+                strisce = None
+        if strisce:
+            pezzi.extend(strisce)
+            punti = [_v(v) for f in strisce for v in f.vertices()]
+        else:
+            try:
+                pezzi.append(bd.Face(bd.Wire.make_polygon([tuple(a1), tuple(b1), tuple(b2), tuple(a2)], close=True)))
+            except Exception:  # noqa: BLE001
+                pass
+            punti = [a1, b1, a2, b2]
+        if not v2:
+            linee.append(((a1 + a2) / 2, (b1 + b2) / 2, b))
+            continue
+        # v2: la linea di piega a metà striscia, da un capo all'altro di tutti i pezzi della stessa piega
+        if b['gruppo'] not in estremi:
+            du = (b1 - a1) / np.linalg.norm(b1 - a1)
+            estremi[b['gruppo']] = [(a1 + a2) / 2, du, math.inf, -math.inf, b]
+        x = estremi[b['gruppo']]
+        for q in punti:
+            d = float(np.dot(q - x[0], x[1]))
+            x[2], x[3] = min(x[2], d), max(x[3], d)
+    for O, du, lo, hi, b in estremi.values():
+        linee.append((O + du * lo, O + du * hi, b))
     # unione robusta: ogni pezzo diventa una lastrina alta 1 (verso +Z qualunque sia il verso della faccia), si
     # fondono i solidi e si prende la faccia di sotto (a z = 0)
     lastre = [bd.extrude(f, amount=1, dir=(0, 0, 1)) for f in pezzi]
@@ -346,7 +404,8 @@ def build(fdef: dict, ctx):
         p.write_bytes(dati)
         try:
             solido = leggi(p, fdef.get('solido'))
-            r = spiega(solido, k=k)
+            # i pezzi importati prima del 05/11 (senza «sviluppo») si aprono come erano
+            r = spiega(solido, k=k, v2=fdef.get('sviluppo') == 2)
         except StepError as ex:
             raise FeatureError(ex.message, feature=fid) from None
     t = r['t']
@@ -359,7 +418,7 @@ def build(fdef: dict, ctx):
             raise FeatureError('Lo spessore deve essere più di zero.', feature=fid)
         if abs(nuovo - t) > 1e-9:
             if r['pieghe']:
-                raise FeatureError(f'Questo pezzo da STEP ha {len(r["pieghe"])} pieghe: lo spessore segue il file 3D. Per '
+                raise FeatureError(f'Questo pezzo da STEP ha {len(r["linee"])} pieghe: lo spessore segue il file 3D. Per '
                                    'cambiarlo rifai il pezzo in Radius (o fatti dare lo STEP giusto).', feature=fid)
             (i, _M), = r['pos'].items()
             f = r['facce'][i]
@@ -400,6 +459,120 @@ def build(fdef: dict, ctx):
     ns = NamedShape(solido.wrapped, names)
     ns.sheet = data
     return ns
+
+
+def _srotola(f: bd.Face, b: dict, k: float, t: float) -> bd.Face:
+    """Un pezzo della faccia di una piega (lato A) srotolato nel piano dello sviluppo (v2): ogni punto va alla sua
+    posizione lungo la piega e alla sua lunghezza d'arco sulla fibra neutra. Così tornano giusti i fori e le asole
+    dentro la piega e i bordi storti o curvi che la attraversano; i bordi dritti restano dritti."""
+    from OCP.BRepTools import BRepTools_WireExplorer
+    from OCP.TopAbs import TopAbs_REVERSED
+    o, a, _R = b['asse']
+    O1, u, w1, phi, BA, M = b['O1'], b['u'], b['w1'], b['phi'], b['BA'], b['MP']
+    if phi < 1e-6:
+        raise ValueError('piega piatta')
+
+    def radiale(p):
+        r = p - o - a * np.dot(p - o, a)
+        return r / np.linalg.norm(r)
+    r0 = radiale(O1)
+    # il verso di giro: quello per cui la faccia sta tra 0 e l'angolo della piega
+    rc = radiale(_v(f.center()))
+    d = a if float(np.dot(np.cross(r0, rc), a)) >= 0 else -a
+
+    def piatto(p):
+        rp = radiale(p)
+        th = math.atan2(float(np.dot(np.cross(r0, rp), d)), float(np.dot(r0, rp)))
+        if th < -1e-6:
+            th += 2 * math.pi
+        th = min(max(th, 0.0), phi)
+        q = O1 + u * float(np.dot(p - O1, u)) + w1 * (th / phi * BA)
+        return _app(M, q)
+
+    def filo(w):
+        tratti = []
+        ex = BRepTools_WireExplorer(w.wrapped, f.wrapped)
+        while ex.More():
+            e = bd.Edge(ex.Current())
+            c = BRepAdaptor_Curve(ex.Current())                # i parametri veri, il verso lo dice il filo
+            n = 1 if c.GetType() == GeomAbs_Line else max(8, min(64, int(e.length / 0.5)))
+            t0, t1 = c.FirstParameter(), c.LastParameter()
+            ts = [t0 + (t1 - t0) * i / n for i in range(n + 1)]
+            if ex.Current().Orientation() == TopAbs_REVERSED:
+                ts.reverse()
+            tratti.append([piatto(_v(bd.Vector(c.Value(x)))) for x in ts])
+            ex.Next()
+        for i, pts in enumerate(tratti):                  # ogni tratto parte dove finisce quello prima
+            pts[0] = tratti[i - 1][-1]
+        lati = []
+        for pts in tratti:
+            ab = pts[-1] - pts[0]
+            lab = float(np.linalg.norm(ab))
+            if lab < 1e-7 and len(pts) < 3:
+                continue
+            dritto = lab > 1e-7 and all(np.linalg.norm(np.cross(q - pts[0], ab / lab)) < 1e-5 for q in pts[1:-1])
+            if dritto:
+                lati.append(bd.Edge.make_line(tuple(pts[0]), tuple(pts[-1])))
+            else:
+                lati.append(bd.Edge.make_spline([bd.Vector(*q) for q in pts]))
+        return bd.Wire(lati)
+    fuori = filo(f.outer_wire())
+    dentro = [filo(w) for w in f.inner_wires()]
+    out = bd.Face(fuori, dentro)
+    if out.area < 1e-9:
+        raise ValueError('striscia vuota')
+    return out
+
+
+def _angoli_chiusi(facce, pos, t) -> dict:
+    """Angoli chiusi (v2): due sponde unite nello spigolo dell'angolo. La faccia del lato A di una sponda continua
+    sulla testa dell'altra (sono nello stesso piano e il CAD le ha fuse): la colonnina dell'angolo verrebbe contata
+    due volte. Lo si vede dal materiale: lo spessore dietro le due facce si sovrappone (in una piega normale no, c'è
+    la piega in mezzo). Allora dalla seconda faccia si toglie la parte che sta nello spessore della prima.
+    Ritorna {faccia: [pezzi che restano]}."""
+    out = {}
+    ids = sorted(pos)
+    piani = {i: _piano(facce[i]) for i in ids}
+    cache: dict = {}
+
+    def dietro(i):
+        """Il materiale dietro la faccia i: la faccia tirata di t verso dentro."""
+        if ('d', i) not in cache:
+            cache['d', i] = bd.extrude(facce[i], amount=t, dir=tuple(-piani[i][1]))
+        return cache['d', i]
+
+    def taglio(i):
+        """Lo spessore della sponda i (dal suo piano verso il materiale) attorno alla faccia i: quello che si toglie."""
+        if ('t', i) not in cache:
+            c, n = piani[i]
+            u, _w = _assi(facce[i], n)
+            pl = bd.Plane(origin=tuple(c), x_dir=tuple(u), z_dir=tuple(-n))
+            lastra = bd.Box(1e5, 1e5, t, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN)).moved(bd.Location(pl))
+            bb = facce[i].bounding_box()
+            box = bd.Box(bb.size.X + 2 * t, bb.size.Y + 2 * t, bb.size.Z + 2 * t).moved(bd.Location(bb.center()))
+            x = lastra.intersect(box)
+            cache['t', i] = bd.Compound(list(x)) if isinstance(x, list) else x
+        return cache['t', i]
+    for x, i in enumerate(ids):
+        for j in ids[x + 1:]:
+            if abs(float(np.dot(piani[i][1], piani[j][1]))) > 1 - 1e-6:
+                continue
+            bi, bj = facce[i].bounding_box(), facce[j].bounding_box()
+            if any(tuple(bi.min)[q] > tuple(bj.max)[q] + t or tuple(bj.min)[q] > tuple(bi.max)[q] + t
+                   for q in range(3)):
+                continue
+            try:
+                comune = dietro(i).intersect(dietro(j))
+                v = 0.0 if comune is None else sum(x.volume for x in (comune if isinstance(comune, list) else [comune]))
+            except Exception:  # noqa: BLE001
+                v = 0.0
+            if v < 1e-3 * t ** 3:
+                continue
+            try:
+                out[j] = [g for h in out.get(j, [facce[j]]) for g in h.cut(taglio(i)).faces()]
+            except Exception:  # noqa: BLE001
+                pass
+    return out
 
 
 def _assi(f: bd.Face, n):
