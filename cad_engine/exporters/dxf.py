@@ -127,6 +127,65 @@ def export_flat_pattern(sheet, path) -> dict:
     return _finish(doc, path, avvisi, sheet.thickness, extra)
 
 
+def export_sketch(geo: dict, path) -> dict:
+    """05/11: le linee di uno sketch così come sono disegnate (mm, archi veri): linee, archi e cerchi su CUT, i testi
+    da marcare su MARK (tratti, come nello sviluppo), i testi stencil su CUT (contorni chiusi). Gli stessi layer e lo
+    stesso controllo rileggendo il file dei DXF di taglio; ma uno sketch può avere linee aperte o sovrapposte:
+    quello che il controllo trova non blocca, si dice (report['problems'] diventano avvisi da guardare)."""
+    if not (geo['lines'] or geo['arcs'] or geo['circles'] or geo['marks'] or geo['cut_texts']):
+        raise ExportError('Nel disegno non c’è niente da salvare: le linee di costruzione (guide) e i bordi del pezzo '
+                          'non vanno nel DXF.')
+    doc = _new_doc()
+    msp = doc.modelspace()
+    for a, b in geo['lines']:
+        msp.add_line(a, b, dxfattribs={'layer': 'CUT'})
+    for c, r, t0, t1 in geo['arcs']:
+        msp.add_arc(c, r, t0, t1, dxfattribs={'layer': 'CUT'})
+    for c, r in geo['circles']:
+        msp.add_circle(c, r, dxfattribs={'layer': 'CUT'})
+    for pts in geo['marks']:
+        if len(pts) > 1:
+            msp.add_lwpolyline([tuple(p) for p in pts], dxfattribs={'layer': 'MARK'})
+    for giro in geo['cut_texts']:
+        for pz in giro:
+            if pz[0] == 'L':
+                msp.add_line(pz[1], pz[2], dxfattribs={'layer': 'CUT'})
+                continue
+            a, m, b = pz[1], pz[2], pz[3]
+            c = _centro3(a, m, b)
+            if c is None:
+                msp.add_line(a, b, dxfattribs={'layer': 'CUT'})
+                continue
+            t0 = math.degrees(math.atan2(a[1] - c[1], a[0] - c[0]))
+            t1 = math.degrees(math.atan2(b[1] - c[1], b[0] - c[0]))
+            tm = math.degrees(math.atan2(m[1] - c[1], m[0] - c[0]))
+            if not _ccw_contains(t0, t1, tm):
+                t0, t1 = t1, t0
+            msp.add_arc(c, math.dist(c, a), t0 % 360, t1 % 360, dxfattribs={'layer': 'CUT'})
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    doc.saveas(tmp)
+    report = check(tmp)
+    report['warnings'] = report['problems'] + report['warnings']
+    report['problems'] = []
+    tmp.replace(path)
+    report['path'] = str(path)
+    report.update(lines=len(geo['lines']), arcs=len(geo['arcs']), n_circles=len(geo['circles']),
+                  marks=len(geo['marks']), cut_texts=len(geo['cut_texts']))
+    return report
+
+
+def _centro3(a, m, b):
+    """Il centro del cerchio per tre punti (None se sono in fila)."""
+    (ax, ay), (bx, by), (cx, cy) = a, m, b
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-12:
+        return None
+    ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
+    uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
+    return (ux, uy)
+
+
 def _write_face(msp, ref, plane) -> list:
     loc = lambda v: plane.to_local_coords(v)  # noqa: E731
     avvisi = []

@@ -1519,6 +1519,7 @@ body.in-prova #sk-foot { display: none !important; }
 #tree .nome-albero { flex: 1; min-width: 0; height: 22px; padding: 1px 5px; font-size: 13px; }
 /* comando Foro / Asola (03/11) */
 .fo-frase { margin: 8px 0 0; font-weight: 600; color: var(--ink); min-height: 1em; }
+.fo-frase.no { color: var(--c-err-testo); font-weight: 500; }          /* 05/11 Scala: perché non si può */
 .fo-punto .field { width: 70px; }
 #fo-corpo .seg { flex-wrap: wrap; }
 #mini-barra > button.con-scritta { display: flex; gap: 5px; width: auto; padding: 0 9px 0 7px; font-size: 12px; color: var(--ink); white-space: nowrap; }

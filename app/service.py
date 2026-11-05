@@ -28,7 +28,7 @@ from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS, SEP_PEZZO  # noqa: E402
 from cad_engine.sheetmetal import METODI, POSIZIONI, TIP_CORNERS, VERSI  # noqa: E402
-from app import sketch_edit, sketch_more, sketch_ops, sketch_trim  # noqa: E402
+from app import sketch_edit, sketch_more, sketch_ops, sketch_scala, sketch_trim  # noqa: E402
 from app.assembly_service import AssemblyMixin  # noqa: E402
 from app.drawings_service import DrawingsMixin  # noqa: E402
 from app.import_service import ImportMixin  # noqa: E402
@@ -1004,6 +1004,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             tt = not isinstance(f, Sketch) and f.get('type') == 'sheet_miter'
             voci = ['modifica'] if sketch or pb or tt else []
             voci += ['rinomina']
+            if sketch:
+                voci.append('dxf')                      # 05/11: il disegno in DXF
             if not isinstance(f, Sketch) and f.get('sketch') and f.get('type') in ('sheet_cut', 'extrude', 'revolve')                     and (f.get('type') != 'extrude' or f.get('operation') == 'cut'):
                 voci.append('serie')
             if not isinstance(f, Sketch) and f.get('type') != 'sheet':
@@ -2925,6 +2927,77 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         except SteelCADError as ex:
             return _err(ex)
         return self._sketch_change('Sposta', lambda: sketch_edit.move(self.doc, sid, eids, dx, dy))
+
+    # 05/11 Scala e Spezza (idee da SolidCraft), il disegno in DXF
+    @staticmethod
+    def _fattore(f, da=None, a=None):
+        da = None if da in (None, '') else _numero(da, 'la misura di adesso')
+        a = None if a in (None, '') else _numero(a, 'la misura giusta')
+        return sketch_scala.fattore(None if f in (None, '') else _numero(f, 'il fattore'), da, a)
+
+    def sketch_scale_check(self, sid: str, eids: list, base, f=None, da=None, a=None) -> dict:
+        """La Scala in prova (niente cambia): dice se si può fare e con che fattore."""
+        try:
+            base = _punto(base, 'il punto fermo')
+            return _ok(**sketch_scala.scale_check(self.doc, sid, eids, base, self._fattore(f, da, a)))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def sketch_scale(self, sid: str, eids: list, base, f=None, da=None, a=None) -> dict:
+        try:
+            base = _punto(base, 'il punto fermo')
+            k = self._fattore(f, da, a)
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+        r = self._sketch_change(f'Scala × {fmt_mm(round(k, 4))}', lambda: sketch_scala.scale(self.doc, sid, eids, base, k))
+        if r.get('ok') and not r.get('message'):
+            r['message'] = f'Scalato × {fmt_mm(round(k, 4))}: le quote della selezione seguono.'
+        return r
+
+    def sketch_break_preview(self, sid: str, eid: str, click) -> dict:
+        try:
+            return _ok(**sketch_scala.break_preview(self.doc, sid, eid, _punto(click)))
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def sketch_break(self, sid: str, eid: str, click) -> dict:
+        try:
+            click = _punto(click)
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Spezza {eid}', lambda: sketch_scala.spezza(self.doc, sid, eid, click))
+
+    def sketch_export_dxf(self, sid: str, path: str) -> dict:
+        """Le linee del disegno in un DXF (mm, archi veri; guide e bordi del pezzo fuori), per il laser o per chi lo chiede."""
+        try:
+            if not Path(path).parent.is_dir():
+                raise SteelCADError(f'La cartella {Path(path).parent} non c’è: scegline un’altra.', code='file')
+            geo = sketch_scala.geometria_dxf(self.doc, sid)
+            rep = dxf.export_sketch(geo, path)
+            conta = lambda n, uno, tanti: f'{n} {uno if n == 1 else tanti}'  # noqa: E731
+            pezzi = [conta(rep['lines'], 'linea', 'linee'), conta(rep['arcs'], 'arco', 'archi'),
+                     conta(rep['n_circles'], 'cerchio', 'cerchi')]
+            pezzi = [p for p in pezzi if not p.startswith('0 ')]
+            if rep['marks']:
+                pezzi.append('testi da marcare (layer MARK)')
+            if rep['cut_texts']:
+                pezzi.append('testi da tagliare')
+            msg = (f'{", ".join(pezzi)}; ingombro {fmt_mm(round(rep["size_mm"][0], 2))} × '
+                   f'{fmt_mm(round(rep["size_mm"][1], 2))} mm.')
+            if geo['skipped']:
+                msg += ' Le guide e i bordi del pezzo non ci sono.'
+            avvisi = [a[0].upper() + a[1:] + '.' for a in rep['warnings']]
+            return _ok(message=msg + (' Da guardare: ' + ' '.join(avvisi) if avvisi else ''), path=str(path), avvisi=avvisi)
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+
+    def sketch_nome_dxf(self, sid: str) -> str:
+        """Il nome del file proposto: «<pezzo>_<nome del disegno>.dxf»."""
+        try:
+            nome = self.doc.sketch(sid).name or sid
+        except SteelCADError:
+            nome = sid
+        return self._nome_file() + '_' + (re.sub(r'[\\/:*?"<>|]+', '-', str(nome)).strip() or 'disegno') + '.dxf'
 
     def feature_serie(self, fid: str, cols, px, rows, py) -> dict:
         """Ripete in serie una lavorazione che viene da un disegno (un taglio, una tasca): tutto il suo disegno copiato

@@ -922,6 +922,7 @@ canvas.addEventListener('pointermove', ev => {
 canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; tip.style.display = 'none'; paint(); });
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
+  if (SK && SK.scalaProva && !$('#modal').hidden) { scalaPrendiMisura(ev); return; }          // 05/11: «quella linea deve essere 1000»
   if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D)
   if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroClic(ev); return; }   // finestra del foro: clic = dove va, o un'altra faccia
   if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }
@@ -2186,7 +2187,7 @@ function renderTree() {
 }
 // tasto destro su una voce dell'albero: modifica, rinomina, disattiva, elimina, perché è rossa (21/10)
 const VOCI_MENU = { modifica: 'Modifica', rinomina: 'Rinomina…', serie: 'Ripeti in serie…', disattiva: 'Disattiva (non farla, senza cancellarla)',
-  attiva: 'Attiva', elimina: 'Elimina…', perche: 'Perché è rossa?' };
+  attiva: 'Attiva', elimina: 'Elimina…', perche: 'Perché è rossa?', dxf: 'Salva il disegno in DXF…' };
 // Elimina con la conferma: cosa sparisce insieme (i disegni sopra, i tagli che li usano), poi tutto in un colpo
 async function confermaElimina(kind, ref, titolo, dip = null) {
   if (dip === null) { const m = await call('tree_menu', kind, ref); dip = m.ok ? (m.dipendenti || []) : []; }
@@ -2329,6 +2330,7 @@ $('#tree').addEventListener('contextmenu', ev => {
       chiudiMenuAlbero();
       if (v === 'modifica') { if (m.sketch) enterSketch(m.sketch); else if (m.seleziona) select(m.seleziona); return; }
       if (v === 'perche') { toast(m.errore, 'err'); return; }
+      if (v === 'dxf') { inCoda(() => esportaDisegnoDxf(m.sketch)); return; }
       if (v === 'rinomina') {
         modal(`<h3>Rinomina</h3><div class="form"><label class="tutta-riga">Nome<input class="field" id="rn-n" value="${esc(m.nome || '')}" placeholder="${esc(titolo)}"></label></div>
           <p class="hint">Vuoto = il nome che dà il programma.</p>
@@ -8345,7 +8347,7 @@ const SK_ANTEPRIMA = new THREE.LineDashedMaterial({ color: 0xFFB21A, dashSize: 5
 const SK_GRID1 = new THREE.LineBasicMaterial({ color: 0xD3D8DE, depthWrite: false });
 const SK_GRID2 = new THREE.LineBasicMaterial({ color: 0xB4BCC5, depthWrite: false });
 const TOOLS = { line: 'Linea', rect: 'Rettangolo', circle: 'Cerchio', slot: 'Asola', arc3: 'Arco', polygon: 'Poligono', select: 'Seleziona',
-  dim: 'Quota', trim: 'Accorcia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso' };
+  dim: 'Quota', trim: 'Accorcia', extend: 'Allunga', fillet: 'Raccordo', chamfer: 'Smusso', break: 'Spezza' };
 const SK_CUT_FILL = new THREE.MeshBasicMaterial({ color: 0xD92D20, side: THREE.DoubleSide, depthTest: false });   // il pezzo che il Taglia toglie
 // una linea spessa px pixel (in WebGL le linee sono sempre da 1 pixel): una striscia nel piano dello sketch
 function fatLine(pts, px, mat) {
@@ -8409,6 +8411,7 @@ const AIUTI = {
   dim: 'Quota: clic su una linea, un cerchio, o due punti · Esc finisce',
   trim: 'Accorcia: clic sul pezzo di linea da togliere (diventa rosso) · Esc finisce',
   extend: 'Allunga: clic vicino alla fine della linea da allungare · Esc finisce',
+  break: 'Spezza: clic dove dividere in due la linea, l’arco o il cerchio (non toglie niente) · Esc finisce',
   text: 'Testo: clic dove va la scritta (sul centro del foro per centrarla) · doppio clic con Seleziona la cambia · Esc finisce',
 };
 const AIUTI_VISTA = ' · destro sposta · rotella zoom';
@@ -8586,7 +8589,7 @@ function setTool(t) {
 // annulla»); qui diventa: il comando con la sua icona, i passi (2 di 3), cosa fare, e i tasti disegnati
 const ICONA_CMD = { Raccordo: 'fillet', Smusso: 'chamfer', Saldatura: 'saldatura', Quota: 'dimension', Angolo: 'plane_angle', Offset: 'offset',
   Specchia: 'mirror', Copia: 'copy', Sposta: 'move', Poligono: 'polygon', Linea: 'line', Rettangolo: 'rect', Cerchio: 'circle', Arco: 'arc3',
-  Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
+  Asola: 'slot', Testo: 'text', 'Arco col raggio': 'arc_tangent', Accorcia: 'trim', Allunga: 'extend', Spezza: 'break', Scala: 'scale', Serie: 'pattern_rect', 'Faccia su faccia': 'faccia_su_faccia', 'Foro su foro': 'foro_su_foro',
   'Testa a testa': 'cut', 'Cono su cono': 'fastener', Distanza: 'dimension', Tangente: 'c_tangent', Parallele: 'c_parallel',
   Perpendicolari: 'c_perpendicular', 'In mezzo': 'c_symmetry', Blocca: 'c_fix', 'Spigolo su spigolo': 'c_collinear', 'Spigolo su faccia': 'c_coincident',
   Seleziona: 'select', Costruzione: 'construction', Appoggia: 'appoggia', 'Metti nel vano': 'vano', 'Vite nei fori': 'fastener' };
@@ -8819,7 +8822,7 @@ function statoSketch(v) {
   $('#sk-problema').textContent = problema ? testo.replace('✓ ', '') : '';
   $('#sk-panel').classList.toggle('chiuso', !skPanelAperto() && !problema);
   $('#sk-where-fr').textContent = $('#sk-panel').classList.contains('chiuso') ? '▸' : '▾';
-  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"]):not([data-act="copy"]):not([data-act="move"]):not([data-act="mirror"])').forEach(b => { b.disabled = !SK.sel.size; });
+  document.querySelectorAll('#sk-selbar [data-act]:not([data-act="offset"]):not([data-act="copy"]):not([data-act="move"]):not([data-act="mirror"]):not([data-act="scale"])').forEach(b => { b.disabled = !SK.sel.size; });
   $('#rb-constr').classList.toggle('on', SK.constr);
   $('#sk-grid').classList.toggle('on', !!SK.grid);
   $('#sk-finish-box').hidden = !libero;
@@ -9037,6 +9040,131 @@ function anteprimaSpecchio(ids, A, B, add) {
     add(p, SK_ANTEPRIMA);
   }
 }
+// 05/11 Scala: la selezione ingrandita dal punto fermo; le linee attaccate (con un'estremità sola dentro) si stirano
+function anteprimaScala(ids, base, f, add) {
+  const dentro = new Set(ids), mossi = new Set();
+  for (const l of SK.v.lines) if (dentro.has(l.id)) { mossi.add(l.a); mossi.add(l.b); }
+  for (const c of [...SK.v.circles, ...(SK.v.arcs || [])]) if (dentro.has(c.id)) mossi.add(c.center_id);
+  for (const a of SK.v.arcs || []) if (dentro.has(a.id)) { mossi.add(a.start); mossi.add(a.end); }
+  const sc = q => [base[0] + f * (q[0] - base[0]), base[1] + f * (q[1] - base[1])];
+  for (const l of SK.v.lines) if (!l.ref && !l.xray && (mossi.has(l.a) || mossi.has(l.b)))
+    add([mossi.has(l.a) ? sc(l.xa) : l.xa, mossi.has(l.b) ? sc(l.xb) : l.xb], SK_ANTEPRIMA);
+  for (const c of SK.v.circles) if (dentro.has(c.id) || (!c.ref && mossi.has(c.center_id))) {    // come nel motore
+    const k = sc(c.xc), p = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; p.push([k[0] + f * c.r * Math.cos(a), k[1] + f * c.r * Math.sin(a)]); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const a of SK.v.arcs || []) if (dentro.has(a.id) || (!a.ref && [a.center_id, a.start, a.end].every(x => mossi.has(x)))) {
+    const k = sc(a.xc), p = []; for (let i = 0; i <= 48; i++) { const t = a.a0 + (a.a1 - a.a0) * i / 48; p.push([k[0] + f * a.r * Math.cos(t), k[1] + f * a.r * Math.sin(t)]); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const t of SK.v.texts || []) if (dentro.has(t.id)) for (const s of t.strokes) add(s.map(p => sc(skToLocal(v3(p)))), SK_ANTEPRIMA);
+}
+// l'ingombro della selezione (larghezza × altezza), per dire a parole cosa viene fuori
+function ingombroSel(ids) {
+  const dentro = new Set(ids), xs = [], ys = [];
+  const metti = q => { xs.push(q[0]); ys.push(q[1]); };
+  for (const l of SK.v.lines) if (dentro.has(l.id)) { metti(l.xa); metti(l.xb); }
+  for (const c of [...SK.v.circles, ...(SK.v.arcs || [])]) if (dentro.has(c.id)) { metti([c.xc[0] - c.r, c.xc[1] - c.r]); metti([c.xc[0] + c.r, c.xc[1] + c.r]); }
+  return xs.length ? [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)] : null;
+}
+// la finestra di lato della Scala: «di quante volte» oppure «da una misura a un'altra». Tratteggiato, come verrà; la
+// prova sul motore dice subito se una quota o un vincolo lo impedisce (e quale)
+let ultimaScala = { modo: 'fattore', f: '2', b: '' };
+function scalaFinestra(P) {
+  // i bordi arancio del pezzo non si scalano: se sono nella selezione (Ctrl+A su una faccia) si lasciano fuori
+  const bordo = id => [...SK.v.lines, ...SK.v.circles, ...(SK.v.arcs || [])].some(x => x.id === id && (x.ref || x.xray));
+  const ids = P.ids.filter(id => !bordo(id)), base = P.base.xy, sid = SK.sid;
+  const lunghe = SK.v.lines.filter(l => ids.includes(l.id)).map(l => [l.id, Math.hypot(l.xb[0] - l.xa[0], l.xb[1] - l.xa[1])]);
+  const rif = lunghe.sort((a, b) => b[1] - a[1])[0] || null;
+  SK.scalaProva = { ids, base, f: null, rif: null };
+  const n = x => parseFloat(String(x).replace(',', '.'));
+  const tondo = x => String(Math.round(x * 100) / 100).replace('.', ',');
+  modal(`<h3>Scala</h3><p class="hint">Quello che hai scelto si ingrandisce o si rimpicciolisce; il punto cliccato resta fermo. Tratteggiato, come verrà. Le quote seguono.</p>
+    <div class="choice" id="sc-modo"><button data-k="fattore">Di quante volte<small>2 = il doppio, 0,5 = la metà</small></button><button data-k="misura">Da una misura<small>quella linea deve essere…</small></button></div>
+    <div class="form" id="sc-f"><label class="tutta-riga">Quante volte<input class="field" id="sc-fatt" value="${esc(ultimaScala.f)}"></label></div>
+    <div class="form" id="sc-m"><label>Adesso è (mm)<input class="field" id="sc-a" value="${rif ? esc(tondo(rif[1])) : ''}"></label>
+      <label>Deve essere (mm)<input class="field" id="sc-b" value="${esc(ultimaScala.b)}"></label>
+      <p class="hint tutta-riga">Clic su una linea del disegno: «adesso è» prende la sua misura (la linea si colora).</p></div>
+    <p class="fo-frase" id="sc-frase"></p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Scala</button></div>`, close => {
+    $('#modal').classList.add('laterale');
+    setHelp('Scala: scrivi di quanto nella finestra a destra (tratteggiato, come verrà) · clic su una linea: prende la sua misura · Invio conferma · Esc annulla');
+    let modo = ultimaScala.modo, giro = 0, rifId = rif ? rif[0] : null;
+    const leggi = () => modo === 'fattore' ? { f: n($('#sc-fatt').value) }
+      : { a: n($('#sc-a').value), b: n($('#sc-b').value), f: n($('#sc-b').value) / n($('#sc-a').value) };
+    const prova = () => {
+      const v = leggi(), va = v.f > 0 && isFinite(v.f) && Math.abs(v.f - 1) > 1e-12;
+      SK.scalaProva.f = va ? v.f : null;
+      SK.scalaProva.rif = modo === 'misura' ? rifId : null;
+      const fr = $('#sc-frase'); fr.classList.remove('no');
+      const box = ingombroSel(ids);
+      fr.textContent = !va ? (modo === 'fattore' ? 'Scrivi quante volte: 2 = il doppio, 0,5 = la metà.' : 'Scrivi quanto è adesso e quanto deve essere.')
+        : `× ${num(v.f, 4)}` + (box ? `: ${num(box[0], 1)} × ${num(box[1], 1)} → ${num(box[0] * v.f, 1)} × ${num(box[1] * v.f, 1)} mm` : '');
+      $('#m-ok').disabled = !va;
+      drawRubber();
+      if (!va) return;
+      const mio = ++giro;
+      clearTimeout(SK.scalaTimer);
+      SK.scalaTimer = setTimeout(async () => {
+        const r = await call('sketch_scale_check', sid, ids, base, v.f);
+        if (mio !== giro || !SK?.scalaProva) return;
+        if (!r.ok) { fr.textContent = r.message; fr.classList.add('no'); $('#m-ok').disabled = true; }
+      }, 150);
+    };
+    const mostra = () => {
+      $('#sc-f').hidden = modo !== 'fattore'; $('#sc-m').hidden = modo !== 'misura';
+      document.querySelectorAll('#sc-modo button').forEach(b => b.classList.toggle('on', b.dataset.k === modo));
+      prova();
+    };
+    SK.scalaMisura = (id, L) => { modo = 'misura'; rifId = id; $('#sc-a').value = tondo(L); mostra(); $('#sc-b').focus(); $('#sc-b').select(); };
+    document.querySelectorAll('#sc-modo button').forEach(b => {
+      b.onclick = () => { modo = b.dataset.k; mostra(); const i = modo === 'fattore' ? $('#sc-fatt') : $('#sc-b'); i.focus(); i.select(); };
+    });
+    const chiudi = () => { if (SK) { SK.scalaProva = null; SK.scalaMisura = null; SK.pick = null; setTool('select'); } close(); };
+    $('#modal-box').addEventListener('input', prova);
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const v = leggi();
+      ultimaScala = { modo, f: $('#sc-fatt').value, b: $('#sc-b').value };
+      chiudi();
+      inCoda(async () => {
+        await apply(modo === 'fattore' ? await call('sketch_scale', sid, ids, base, v.f) : await call('sketch_scale', sid, ids, base, null, v.a, v.b));
+      });
+    };
+    $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) $('#m-ok').click(); if (ev.key === 'Escape') chiudi(); };
+    mostra();
+    const primo = modo === 'fattore' ? $('#sc-fatt') : $('#sc-b');
+    primo.focus(); primo.select();
+  });
+}
+// con la finestra della Scala aperta, un clic su una linea del disegno: «adesso è» = la sua misura
+function scalaPrendiMisura(ev) {
+  const h = skHit(ev), l = h && SK.v.lines.find(x => x.id === h);
+  if (!l || !SK.scalaMisura) return;
+  SK.scalaMisura(l.id, Math.hypot(l.xb[0] - l.xa[0], l.xb[1] - l.xa[1]));
+}
+// 05/11 Spezza: il punto del clic, agganciato (un punto, la metà, un incrocio, la griglia) se c'è un aggancio vicino
+function puntoSpezza(ev) {
+  const c = skCursor(ev);
+  return c && c.tipo !== 'hv' && c.tipo !== 'punta' ? c.xy : skPick(ev);
+}
+const SK_SPEZZA_A = new THREE.MeshBasicMaterial({ color: 0x1F5EFF, side: THREE.DoubleSide, depthTest: false });
+const SK_SPEZZA_B = new THREE.MeshBasicMaterial({ color: 0x9B5CF6, side: THREE.DoubleSide, depthTest: false });
+function spezzaDisegna(pv) {
+  skRubber.add(fatLine(pv.pieces[0], 4, SK_SPEZZA_A));
+  skRubber.add(fatLine(pv.pieces[1], 4, SK_SPEZZA_B));
+  drawSnap({ tipo: 'punto', xy: pv.at });
+  const [a, b] = pv.lengths;
+  setHelp(pv.kind === 'circle' ? 'Spezza: il cerchio diventa due mezzi archi, il primo parte da qui · clic per spezzare · Esc finisce'
+    : `Spezza: due pezzi, ${num(a, 2)} + ${num(b, 2)} mm${pv.kind === 'arc' ? ' (lungo l’arco)' : ''} · clic per spezzare · Esc finisce`);
+}
+// il disegno aperto (o quello di una voce dell'albero) in DXF, con la finestra «Salva con nome» degli altri file
+async function esportaDisegnoDxf(sid) {
+  const r = await call('export_sketch_dxf', sid);
+  if (r?.cancelled) return;
+  if (!r?.ok || !r.path) { await apply(r); return; }
+  fileFatto(r, 'DXF del disegno salvato');
+}
 // specchia, primo clic: se il cursore sta «sulla linea» (non su un punto, una metà, un incrocio) la linea è l'asse
 function asseSotto(c, ev) {
   if (c && (c.id || (c.ref && !c.ref.on))) return null;
@@ -9061,6 +9189,15 @@ function drawRubber() {
     for (const sp of SK.scritteProva) for (const tr of sp.tratti) skRubber.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(tr.map(q => skToWorld([q[0] + sp.at[0], q[1] + sp.at[1]]))), SK_TESTO));
     tip.style.display = 'none'; ridisegna(); return;
   }
+  if (SK?.scalaProva) {                             // 05/11: la Scala in prova, tratteggiata, e la linea di misura
+    const P = SK.scalaProva;
+    const metti = (pts, mat) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), mat); l.computeLineDistances(); skRubber.add(l); };
+    if (P.f) anteprimaScala(P.ids, P.base, P.f, metti);
+    const lr = P.rif && SK.v.lines.find(l => l.id === P.rif);
+    if (lr) skRubber.add(fatLine([lr.xa, lr.xb], 5, SK_SPEZZA_A));
+    drawSnap({ tipo: 'punto', xy: P.base });
+    tip.style.display = 'none'; ridisegna(); return;
+  }
   if (SK?.serieProva) {                             // la serie in prova: le copie (non l'originale) in azzurro
     const P = SK.serieProva;
     const metti = (pts, mat) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), mat); l.computeLineDistances(); skRubber.add(l); };
@@ -9068,9 +9205,10 @@ function drawRubber() {
     tip.style.display = 'none'; ridisegna(); return;
   }
   if (SK?.pick?.what === 'corner') { drawSnap({ tipo: 'punto', xy: SK.pick.xy }); updateCmd(); ridisegna(); return; }
-  if (SK && (SK.tool === 'trim' || SK.tool === 'extend') && !SK.pick) {
+  if (SK && (SK.tool === 'trim' || SK.tool === 'extend' || SK.tool === 'break') && !SK.pick) {
     tip.style.display = 'none';
     const pv = SK.cutPrev;
+    if (pv?.tool === 'break') { spezzaDisegna(pv); ridisegna(); return; }
     if (pv?.tool === 'trim') skRubber.add(fatLine(pv.remove, 5, SK_CUT_FILL)); else if (pv?.tool === 'extend') {
       const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pv.add.map(skToWorld)), SK_RUB);
       l.computeLineDistances(); skRubber.add(l);
@@ -9223,7 +9361,7 @@ function skMove(ev) {
     const h = skHit(ev);
     if (h !== SK.hover) { SK.hover = h; drawSketch(); }
   }
-  if ((SK.pick?.what === 'copy' || SK.pick?.what === 'move' || SK.pick?.what === 'mirror') && SK.pick.stage !== 'sel') {
+  if ((SK.pick?.what === 'copy' || SK.pick?.what === 'move' || SK.pick?.what === 'mirror' || SK.pick?.what === 'scale') && SK.pick.stage !== 'sel') {
     SK.cursor = skCursor(ev);
     if (SK.pick.what === 'mirror' && !SK.pick.base) {            // sopra una linea: sarà l'asse
       const h = asseSotto(SK.cursor, ev);
@@ -9245,10 +9383,10 @@ function skMove(ev) {
     if (hl !== SK.hover) { SK.hover = hl; drawSketch(); }
     drawRubber(); return;
   }
-  if (SK.tool === 'trim' || SK.tool === 'extend') {
+  if (SK.tool === 'trim' || SK.tool === 'extend' || SK.tool === 'break') {
     const h = skHit(ev);
     if (h !== SK.hover) { SK.hover = h; drawSketch(); }
-    SK.cutAt = h ? { id: h, xy: skPick(ev) } : null;
+    SK.cutAt = h ? { id: h, xy: SK.tool === 'break' ? puntoSpezza(ev) : skPick(ev) } : null;
     if (!h) { SK.cutPrev = null; drawRubber(); } else cutPreview();
     return;
   }
@@ -9387,7 +9525,7 @@ async function cutPreview() {
   if (!SK || SK.cutBusy || !SK.cutAt) return;
   SK.cutBusy = true;
   const q = SK.cutAt, tool = SK.tool;
-  const r = await call(tool === 'trim' ? 'sketch_trim_preview' : 'sketch_extend_preview', SK.sid, q.id, q.xy);
+  const r = await call(tool === 'trim' ? 'sketch_trim_preview' : tool === 'break' ? 'sketch_break_preview' : 'sketch_extend_preview', SK.sid, q.id, q.xy);
   if (!SK) return;
   SK.cutBusy = false;
   SK.cutPrev = r.ok && SK.tool === tool ? { tool, ...r } : null;
@@ -9453,12 +9591,12 @@ function askCorner(pick) {
   drawRubber();
 }
 function cutClick(ev) {
-  const h = skHit(ev), xy = skPick(ev);
-  if (!h || !xy) { toast(SK.tool === 'trim' ? 'Clicca il pezzo da togliere.' : 'Clicca vicino all’estremità da allungare.', 'err'); return; }
+  const h = skHit(ev), xy = SK.tool === 'break' ? puntoSpezza(ev) : skPick(ev);
+  if (!h || !xy) { toast(SK.tool === 'trim' ? 'Clicca il pezzo da togliere.' : SK.tool === 'break' ? 'Clicca sulla linea, sull’arco o sul cerchio da spezzare.' : 'Clicca vicino all’estremità da allungare.', 'err'); return; }
   const sid = SK.sid, tool = SK.tool;
   SK.cutPrev = null; SK.cutAt = null; drawRubber();
   inCoda(async () => {
-    await apply(await call(tool === 'trim' ? 'sketch_trim' : 'sketch_extend', sid, h, xy));
+    await apply(await call(tool === 'trim' ? 'sketch_trim' : tool === 'break' ? 'sketch_break' : 'sketch_extend', sid, h, xy));
     // l'anteprima arrivata nel frattempo riguarda il disegno di prima: via (si rifà muovendo il mouse)
     if (SK) { SK.cutPrev = null; SK.cutAt = null; drawRubber(); }
   });
@@ -9474,7 +9612,7 @@ function segX(a, b, c, d) {             // incrocio di due segmenti (o null)
 function skClick(ev) {
   if (SK.pick) { skPickClick(ev); return; }
   if (SK.tool === 'dim') { skDimClick(ev); return; }
-  if (SK.tool === 'trim' || SK.tool === 'extend') { cutClick(ev); return; }
+  if (SK.tool === 'trim' || SK.tool === 'extend' || SK.tool === 'break') { cutClick(ev); return; }
   if (SK.tool === 'fillet' || SK.tool === 'chamfer') { cornerClick(ev); return; }
   if (SK.tool === 'select') {
     const h = skHit(ev);
@@ -9750,7 +9888,10 @@ function skKey(ev) {
     if (ev.key === 'Enter') { offsetDist(); return true; }
   }
   if (ev.ctrlKey && ev.key.toLowerCase() === 'a') {
-    SK.sel = new Set([...SK.v.lines.map(l => l.id), ...SK.v.circles.map(c => c.id)]); setTool('select'); drawSketch(); return true;
+    // 05/11: anche gli archi (prima restavano fuori: Scala e Copia di «tutto» li lasciavano indietro)
+    SK.sel = new Set([...SK.v.lines.map(l => l.id), ...SK.v.circles.map(c => c.id), ...(SK.v.arcs || []).filter(a => !a.ref).map(a => a.id)]);
+    if (SK.pick?.stage === 'sel') { drawSketch(); return true; }        // dentro Copia, Scala…: si resta nel comando
+    setTool('select'); drawSketch(); return true;
   }
   if (ev.key === 'F9') {
     SK.grid = aggancioGriglia = !SK.grid;
@@ -9763,7 +9904,7 @@ function skKey(ev) {
       && SK.tool !== 'select' && SK.pts.length) { SK.buf += k; drawRubber(); return true; }
   if (k === 'Backspace' && SK.buf) { SK.buf = SK.buf.slice(0, -1); drawRubber(); return true; }
   if (k === 'Enter' && SK.pick?.stage === 'sel') {
-    if (!SK.sel.size) { toast(SK.pick.what === 'mirror' ? 'Prima clicca quello da specchiare.' : 'Prima clicca quello da copiare.', 'err'); return true; }
+    if (!SK.sel.size) { toast(`Prima clicca quello ${DA_SCEGLIERE[SK.pick.what] || 'da copiare'}.`, 'err'); return true; }
     skScegliPoiBase(SK.pick); return true;
   }
   if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); return true; }
@@ -9963,11 +10104,16 @@ function costruzione() {
 // Copia / Sposta come in AutoCAD (21/10): comando → scegli cosa (clic, doppio clic = contorno, finestra) → Invio →
 // punto di partenza con gli agganci → dove va, con l'anteprima attaccata al mouse. La copia resta attiva per altre
 // copie fino a Esc; lo spostamento finisce dopo il clic.
-const AIUTO_SCEGLI = { copy: 'Copia', move: 'Sposta', mirror: 'Specchia' };
+const AIUTO_SCEGLI = { copy: 'Copia', move: 'Sposta', mirror: 'Specchia', scale: 'Scala' };
+const DA_SCEGLIERE = { copy: 'da copiare', move: 'da spostare', mirror: 'da specchiare', scale: 'da scalare' };
 function skScegliPoiBase(P) {
   P.stage = 'base'; P.ids = [...SK.sel]; P.base = null;
   if (P.what === 'mirror') {
     setHelp('Specchia: clicca una linea che fa da asse, oppure due punti dell’asse (la metà di un bordo si aggancia) · Esc annulla');
+    drawRubber(); return;
+  }
+  if (P.what === 'scale') {
+    setHelp('Scala: clic sul punto che resta fermo (gli agganci si accendono: un angolo, il centro, l’origine) · Esc annulla');
     drawRubber(); return;
   }
   setHelp(`${AIUTO_SCEGLI[P.what]}: clic sul punto di partenza (gli agganci si accendono) · Esc annulla`);
@@ -9975,12 +10121,11 @@ function skScegliPoiBase(P) {
 }
 function skAction(act) {
   if (act === 'offset') { startOffset(); return; }
-  if ((act === 'copy' || act === 'move' || act === 'mirror')) {
+  if ((act === 'copy' || act === 'move' || act === 'mirror' || act === 'scale')) {
     SK.pts = []; SK.cursor = null;
     if (SK.sel.size) { SK.pick = { what: act }; skScegliPoiBase(SK.pick); return; }
     SK.pick = { what: act, stage: 'sel', ids: [], base: null };
-    setHelp(`${AIUTO_SCEGLI[act]}: clic su quello da copiare (doppio clic = il contorno intero, o una finestra) · Invio quando hai scelto · Esc annulla`
-      .replace('da copiare', act === 'move' ? 'da spostare' : act === 'mirror' ? 'da specchiare' : 'da copiare'));
+    setHelp(`${AIUTO_SCEGLI[act]}: clic su quello ${DA_SCEGLIERE[act]} (doppio clic = il contorno intero, o una finestra) · Invio quando hai scelto · Esc annulla`);
     drawSketch();
     return;
   }
@@ -10125,6 +10270,7 @@ function skPickClick(ev) {
   }
   const c = SK.cursor || skCursor(ev);
   if (!c) return;
+  if (P.what === 'scale') { P.base = { xy: c.xy }; SK.pts = []; SK.cursor = null; scalaFinestra(P); return; }
   if (!P.base) {
     P.base = { xy: c.xy }; SK.pts = [P.base];
     setHelp(`${AIUTO_SCEGLI[P.what] || 'Copia'}: clic dove va (vedi l’anteprima), o scrivi la distanza + Invio · ${P.what === 'copy' ? 'altre copie: altri clic · ' : ''}Esc finisce`);
@@ -10135,6 +10281,7 @@ function skPickClick(ev) {
 function skPickTyped(v) {
   const P = SK.pick;
   if (P.what === 'mirror') { toast('Lo specchio vuole l’asse: clicca una linea o due punti.', 'err'); return; }
+  if (P.what === 'scale') { toast('Prima clicca il punto che resta fermo: poi si scrive di quanto.', 'err'); return; }
   if (!P.base) { toast('Prima clicca il punto di partenza.', 'err'); return; }
   const c = SK.cursor?.xy || [P.base.xy[0] + 1, P.base.xy[1]];
   let dx = c[0] - P.base.xy[0], dy = c[1] - P.base.xy[1];
@@ -10874,6 +11021,7 @@ $('#ribbon').addEventListener('click', ev => {
   if (b.id === 'rb-constr') { costruzione(); return; }
   if (b.id === 'rb-xray') { toggleXray(); return; }
   if (b.id === 'sk-ghost') { SK.ghost = !SK.ghost; applyLook(); return; }
+  if (b.id === 'sk-dxf') { const sid = SK.sid; inCoda(() => esportaDisegnoDxf(sid)); return; }
   if (b.dataset.skdone) { exitSketch(); return; }
   if (b.dataset.act) { skAction(b.dataset.act); return; }
   if (b.dataset.tool) setTool(b.dataset.tool);

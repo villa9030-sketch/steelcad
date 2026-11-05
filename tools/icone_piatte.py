@@ -91,6 +91,10 @@ ICONE = {
     'offset': s(rett(8.5, 8.5, 7, 7, 1.2)) + at('M8 3.5h8a4.5 4.5 0 0 1 4.5 4.5v8a4.5 4.5 0 0 1-4.5 4.5H8A4.5 4.5 0 0 1 3.5 16V8A4.5 4.5 0 0 1 8 3.5z', 1.9),
     'trim': s('M13 3v18M3 12h10') + at('M13 12h8', 2.25, True) + pallino(13, 12, 2.2),
     'extend': s('M20 3v18M3 12h8') + at('M11 12h4', 2, True) + a('M19 12l-4.5-3.2v6.4z'),
+    # 05/11: Scala (il pezzo piccolo, il grande tratteggiato, il punto che resta fermo) e Spezza (una linea, due pezzi)
+    'scale': s(rett(3.5, 11.5, 9, 9, 1.2)) + at('M3.5 8V3.5h17v17H16', 1.9, True) + s('M10 14l7.5-7.5M13 6.5h4.5V11')
+    + pallino(3.5, 20.5, 2.2),
+    'break': s('M3 18l7-4') + at('M14 11.7l7-4', 2.4) + pallino(12, 12.8, 2.3),
     'fillet': s('M4 20v-8M12 4h8') + at('M4 12a8 8 0 0 1 8-8', 2.6),
     'chamfer': s('M4 20V11M13 4h7') + at('M4 11l7-7', 2.6),
     'mirror': tr('M12 3v18') + s('M9 6L3 18h6z') + af('M15 6l6 12h-6z'),
@@ -178,7 +182,7 @@ ICONE = {
 NOMI = {
     'line': 'Linea', 'rect': 'Rettangolo', 'rect_center': 'Rettangolo dal centro', 'circle': 'Cerchio', 'arc3': 'Arco',
     'arc_tangent': 'Arco col raggio', 'slot': 'Asola', 'polygon': 'Poligono', 'text': 'Testo / marca', 'offset': 'Offset',
-    'trim': 'Accorcia', 'extend': 'Allunga', 'fillet': 'Raccordo', 'chamfer': 'Smusso', 'mirror': 'Specchia / capovolgi',
+    'trim': 'Accorcia', 'extend': 'Allunga', 'scale': 'Scala', 'break': 'Spezza', 'fillet': 'Raccordo', 'chamfer': 'Smusso', 'mirror': 'Specchia / capovolgi',
     'copy': 'Copia', 'move': 'Sposta', 'pattern_rect': 'Serie / dividi', 'construction': 'Costruzione', 'dimension': 'Quota',
     'select': 'Seleziona', 'point': 'Griglia', 'delete': 'Elimina', 'sketch': 'Contorno libero', 'c_coincident': 'Spigolo su faccia',
     'c_collinear': 'Spigolo su spigolo', 'c_fix': 'Blocca / fisso', 'c_parallel': 'Parallele', 'c_perpendicular': 'Perpendicolari',
