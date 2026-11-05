@@ -34,6 +34,7 @@ from app.drawings_service import DrawingsMixin  # noqa: E402
 from app.import_service import ImportMixin  # noqa: E402
 from app.tubi_service import TubiMixin  # noqa: E402
 from app.strutture_service import StruttureMixin  # noqa: E402
+from app.scheletro3d import Scheletro3DMixin  # noqa: E402
 from app.forata_service import ForataMixin  # noqa: E402
 from app.gruppi_service import GruppiMixin  # noqa: E402
 from app.sketch_stato import StatoSketchMixin  # noqa: E402
@@ -107,7 +108,7 @@ def _err(ex: Exception):
 _MAGLIE_TUBI: dict = {}          # id(solido del tubo) -> (solido, maglia): vedi scene()
 
 
-class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, ForataMixin, GruppiMixin, StatoSketchMixin):
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, Scheletro3DMixin, ForataMixin, GruppiMixin, StatoSketchMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))
@@ -5040,7 +5041,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         st = next(s for s in self.result.structures if s.id == st_id)
         info = st.nodes[key]
         pdef = (self.doc.feature(st_id).get('points') or {}).get(key)
-        if isinstance(pdef, dict) and 'from' in pdef:
+        if isinstance(pdef, dict) and 'lungo' in pdef:
+            # la fine di una linea 3D (05/11): si cambia dalla lunghezza e dagli angoli del tubo, non con destra/dietro/su
+            pos = {'mode': 'fixed', 'values': [], 'linea': True}
+        elif isinstance(pdef, dict) and 'from' in pdef:
             pos = {'mode': 'from', 'base': pdef['from'], 'values': list(pdef.get('offset') or [0, 0, 0])}
         elif isinstance(pdef, dict) and 'sketch' in pdef:
             pos = {'mode': 'sketch', 'base': f'{pdef["sketch"]}.{pdef.get("point")}',
@@ -5202,6 +5206,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 raise SteelCADError('Servono le tre coordinate X, Y, Z.', code='nodo')
             if key not in (self.doc.feature(st_id).get('points') or {}):
                 raise SteelCADError(f'Il nodo {key} non si sposta da qui (non c’è, o nasce da uno sketch).', code='nodo')
+            if 'lungo' in ((self.doc.feature(st_id).get('points') or {}).get(key) or {'x': 1}):
+                raise SteelCADError('Questo angolo è la fine di una linea: cambiane lunghezza o angolo cliccando il tubo.',
+                                    code='nodo')
         except SteelCADError as ex:
             return _err(ex)
 
@@ -5516,7 +5523,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return _ok(path=str(q), name=q.stem, folder=str(q.parent), thumb=_anteprima(q))
 
     # i comandi che si possono provare su una copia: lavorano solo sul progetto (niente file, niente finestre)
-    ANTEPRIMA_OK = {'fai_tubi', 'dividi', 'add_traverso', 'set_piedi', 'set_tappi', 'edit_member', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
+    ANTEPRIMA_OK = {'fai_tubi', 'linea_3d', 'set_lunghezza_linea', 'set_angolo_linee', 'dividi', 'add_traverso', 'set_piedi', 'set_tappi', 'edit_member', 'create_from_sketch', 'sheet_fold', 'gradino', 'feature_serie', 'lavora_tubo',
                     'add_edge_dress', 'add_flange', 'add_edge_flange', 'edit_edge_flange', 'set_ear',
                     'edit_flange', 'sheet_tab', 'contour_flange', 'hole_adopt', 'sketch_hole_type', 'togli_dal_taglio',
                     'togli_fori_da_taglio', 'set_tip_corners', 'add_end_miter', 'edit_end_miter', 'fori_guidati', 'piega_bordi', 'auto_tabs', 'angoli_sviluppo',

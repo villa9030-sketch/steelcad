@@ -269,6 +269,18 @@ class Api:
     def tubo_da_angolo(self, st_id, key, freccia, lunghezza, profile=None, nome=''):
         return self._call(self._svc.tubo_da_angolo, st_id, key, freccia, lunghezza, profile, nome)
 
+    def linea_3d(self, st_id, key, spec, profile=None, nome=''):
+        return self._call(self._svc.linea_3d, st_id, key, spec, profile, nome)
+
+    def misure_linea(self, obj_id):
+        return self._call(self._svc.misure_linea, obj_id)
+
+    def set_lunghezza_linea(self, obj_id, valore):
+        return self._call(self._svc.set_lunghezza_linea, obj_id, valore)
+
+    def set_angolo_linee(self, obj_id, nodo, altro, gradi):
+        return self._call(self._svc.set_angolo_linee, obj_id, nodo, altro, gradi)
+
     def punto_su_tubo(self, st_id, mid, quota):
         return self._call(self._svc.punto_su_tubo, st_id, mid, quota)
 

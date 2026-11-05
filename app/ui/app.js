@@ -942,6 +942,7 @@ canvas.addEventListener('pointerup', ev => {
   ultimoClic = h;
   if (TRAV && h && objs.get(h.id)?.data?.kind === 'member') { cliccaTraverso(h.id); return; }
   if (PUNTO && h && h.id === PUNTO.id && $('#p-punto-q')) { puntoPreso(h.point); return; }
+  if (L3D?.prendi && h && objs.get(h.id)?.data?.kind === 'member' && $('#l3-tubo')) { L3D.prendi(h.id); return; }
   if (DIVSCEGLI && h && objs.get(h.id)?.data?.kind === 'member') { DIVSCEGLI = false; passoTubi(null); ultimoClic = h; inCoda(async () => { await select(h.id); await iniziaDividi({ id: h.id }); }); return; }
   if (DIVSCEGLI) { DIVSCEGLI = false; passoTubi(null); }
   MINI.dove = { p: h?.point ?? null, t: performance.now(), id: h?.id };      // la barretta compare qui
@@ -7678,7 +7679,7 @@ function pannelloStruttura(s) {
     ${tAzione('data-azione="dividi"', 'pattern_rect', 'Dividi un lato', 'Montanti e traversi in mezzo, quadri uguali')}
     ${tAzione('data-azione="traverso"', 'traverso', 'Aggiungi un traverso', 'Clicca due tubi, poi scrivi l’altezza')}
     ${tAzione('data-azione="giunti"', 'giunto', 'Come sono saldati gli angoli', 'Clicca un angolo, scegli col disegnino')}
-    ${tAzione('data-azione="tubonuovo"', 'tubo', 'Tubo nuovo da un angolo', 'Le frecce Su, Giù, Avanti… (mensole)')}
+    ${tAzione('data-azione="tubonuovo"', 'tubo', 'Tubo nuovo da un angolo', 'Con le frecce, inclinato o fino a un punto')}
     ${tAzione('data-azione="piedi"', 'piedi', 'Piedi sotto le gambe', 'Piastra coi fori o piedino regolabile')}
     ${tAzione('data-azione="tappi"', 'tappi', 'Tappi sulle teste dei tubi', 'In plastica o lamierino saldato')}
     ${tAzione('data-azione="fori"', 'hole', 'Fori sui tubi', 'Clicca la faccia del tubo e disegna')}
@@ -7695,7 +7696,7 @@ function pannelloStruttura(s) {
       ${tubi.length ? `<section class="sezione"><h4>Tubi</h4><div class="form st-tpl">${tubi.map(campo).join('')}</div></section>` : ''}
       <datalist id="dl-prof">${(profili || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist>
       <p class="hint t-nota">Cambia e premi «Applica le misure»: la struttura si rifà. I tubi ritoccati a mano restano.</p>`;
-  } else h += `<p class="hint">Struttura disegnata: le misure si cambiano dal disegno (clic sul disegno nell’albero), il tubo cliccando i tubi.</p>`;
+  } else h += `<p class="hint">Struttura disegnata: lunghezze e angoli si cambiano cliccando i tubi (o dal disegno, se viene da una sagoma).</p>`;
   const det = c ? [['Tubi da tagliare', `${c.tubi}, ${c.misure} ${c.misure === 1 ? 'misura' : 'misure'}`], ['Peso', `circa ${num(c.kg)} kg`]] : [];
   for (const r of s.rows || []) if (!(c && r[0] === 'Peso')) det.push(r);
   h += `<details class="fsec"><summary>Dettagli</summary>${tRighe(det)}</details>`;
@@ -7723,6 +7724,7 @@ function pannelloTubo(s, quanti) {
     <button class="btn piccolo" data-lav-sk="${esc(l.sketch)}">Modifica</button></div>`).join('');
   $('#props').innerHTML = `<div class="t-pan"><h3>${esc(s.title)}${quanti}</h3><p class="t-cose">${esc(cose)}</p>
     <section class="sezione t-misure">${tRighe(s.rows.filter(r => r[0] === 'Da tagliare' || r[0] === 'Batte contro'))}</section>
+    <div id="p-linea"></div>
     <section class="sezione"><h4>Cosa puoi fare</h4><div class="cosa t-azioni">
       ${tb.facce?.length ? tAzione('id="p-dividi"', 'pattern_rect', 'Dividi il lato', `Montanti e traversi in mezzo: ${tb.facce.join(' o ').toLowerCase()}`) : ''}
       ${tAzione('id="p-trav"', 'traverso', 'Traverso da qui', 'Parte da questo tubo, poi clicchi dove arriva')}
@@ -7749,6 +7751,7 @@ function pannelloTubo(s, quanti) {
   bluSeCambia([$('#p-prof')], $('#p-apply'));
   // 03/11: come sta il profilo (rettangolare, angolare, piatto, UPN): le posizioni col disegnino della sezione vista
   // di testa, «su» in alto e «fuori» a destra; passandoci sopra l'anteprima nel 3D, clic = lo gira così
+  misureLinea(s);
   chiamaMuto('member_posizioni', s.id).then(r => {
     const box = $('#p-pos');
     if (!box || !r.ok || !r.posizioni?.length) return;
@@ -7865,8 +7868,12 @@ function nodePanel(s) {
     <datalist id="dl-prof2">${(profili || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
     <label class="lbl">Nome (se vuoi)<input class="field" id="n-nome" value="" placeholder="es. Mensola"></label>
     <div class="dirs">${FRECCE.map(([d, t]) => `<button class="btn" data-freccia="${d}">${versoSvg(d)}${t}</button>`).join('')}</div>
+    <div class="sub n3d-titolo">Storto, o fino a un punto</div>
+    <div class="dirs n3d-modi">${N3D_MODI.map(([m, t]) => `<button class="btn${L3D?.modo === m && L3D.nodo === s.id ? ' on' : ''}" data-n3d="${m}">${t}</button>`).join('')}</div>
+    <div id="n-3d"></div>
     <div class="row-btns"><button class="btn" id="n-link">Unisci a un altro angolo…</button></div></section>`;
   const p = s.position;
+  if (p.linea) h += `<p class="hint">Questo angolo è la fine di una linea: lunghezza e angoli si cambiano cliccando il tubo.</p>`;
   if (p.mode !== 'fixed') {
     const cosa = { abs: 'Misure da zero (mm, anche nomi di misure)', from: 'Spostamento dall’angolo da cui parte', sketch: 'Spostamento dal punto del disegno' }[p.mode];
     h += `<details class="fsec"><summary>Sposta l’angolo</summary><p class="hint">${esc(cosa)}: verso destra, verso dietro, verso su.</p><div class="xyz">${['Destra', 'Dietro', 'Su'].map((t, i) =>
@@ -7874,6 +7881,156 @@ function nodePanel(s) {
       <div class="row-btns"><button class="btn" id="n-move">Sposta</button></div></details>`;
   }
   return h + '</div>';
+}
+// ------------------------------------------------------------ scheletro 3D (05/11, idea dallo «sketch 3D» di SolidCraft)
+// I telai che escono dal piano: la gamba inclinata della tramoggia, il corrimano della scala, la capriata. Dall'angolo
+// scelto: inclinato (verso + piega in gradi), fino a un punto (destra/dietro/su), parallelo o ad angolo con un tubo.
+// Anteprima mentre scrivi; il tubo di riferimento si sceglie dall'elenco o cliccandolo nel disegno.
+const N3D_MODI = [['inclinata', 'Inclinato'], ['punto', 'Fino a un punto'], ['parallela', 'Parallelo a un tubo'], ['angolo', 'Ad angolo con un tubo']];
+const N3D_LATI = { su: ['destra', 'sinistra', 'dietro', 'avanti'], giu: ['destra', 'sinistra', 'dietro', 'avanti'],
+  destra: ['su', 'giu', 'dietro', 'avanti'], sinistra: ['su', 'giu', 'dietro', 'avanti'],
+  dietro: ['su', 'giu', 'destra', 'sinistra'], avanti: ['su', 'giu', 'destra', 'sinistra'] };
+const N3D_PAROLA = { su: 'su', giu: 'giù', avanti: 'avanti', dietro: 'dietro', destra: 'destra', sinistra: 'sinistra' };
+var L3D = null;
+function tubiDellaStruttura(st) {
+  const out = new Map();
+  for (const [id, o] of objs) {
+    if (o.data?.kind !== 'member' || !id.startsWith(st + '/')) continue;
+    const base = id.split('/')[1].split('~')[0];
+    if (!out.has(base)) out.set(base, (o.data.name || base).split(' — ')[0]);
+  }
+  return [...out.entries()];
+}
+function chiudiLinea3d() {
+  L3D = null; anteprimaVia(); passoTubi(null);
+  const box = $('#n-3d'); if (box) box.innerHTML = '';
+  document.querySelectorAll('[data-n3d]').forEach(b => b.classList.remove('on'));
+}
+function apriLinea3d(s, modo, ancora = false) {
+  const box = $('#n-3d');
+  if (!box) return;
+  if (!ancora && L3D?.modo === modo && L3D.nodo === s.id) { chiudiLinea3d(); return; }
+  const prima = L3D?.nodo === s.id ? L3D.v || {} : {};
+  L3D = { nodo: s.id, modo, v: prima };
+  document.querySelectorAll('[data-n3d]').forEach(b => b.classList.toggle('on', b.dataset.n3d === modo));
+  const v = L3D.v, scegli = (id, scelte, ora) => `<select class="field" id="${id}">${scelte.map(([k, t]) => `<option value="${k}"${k === ora ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  const frecce = FRECCE.map(([d, t]) => [d, t]);
+  const tubi = tubiDellaStruttura(s.structure);
+  const qui = (s.members || []).map(x => x.split('~')[0]);
+  const tuboOra = v.tubo && tubi.some(([k]) => k === v.tubo) ? v.tubo : (qui.find(k => tubi.some(([t]) => t === k)) || tubi[0]?.[0] || '');
+  const campoMm = (id, l, val, ph = '') => `<label class="lbl">${l}<span class="campo-unita"><input class="field" id="${id}" value="${esc(val ?? '')}" placeholder="${ph}"><i>mm</i></span></label>`;
+  const campoG = (id, l, val) => `<label class="lbl">${l}<span class="campo-unita"><input class="field" id="${id}" value="${esc(val ?? '')}" placeholder="0"><i>°</i></span></label>`;
+  let h = '';
+  if (modo === 'inclinata') {
+    const fr = v.freccia || 'su', lati = N3D_LATI[fr];
+    h = `<p class="hint">La lunghezza è quella scritta sopra. Come una gamba: parte verso su e si piega di qualche grado.</p>
+      <label class="lbl">Parte verso${scegli('l3-fr', frecce, fr)}</label>
+      <div class="t-campi">${campoG('l3-g1', 'Piegato di', v.g1 ?? '10')}<label class="lbl">verso${scegli('l3-d1', lati.map(d => [d, N3D_PAROLA[d]]), lati.includes(v.d1) ? v.d1 : lati[0])}</label>
+      ${campoG('l3-g2', 'e di', v.g2 ?? '')}<label class="lbl">verso${scegli('l3-d2', lati.map(d => [d, N3D_PAROLA[d]]), lati.includes(v.d2) ? v.d2 : lati[2])}</label></div>
+      <label class="lbl">La lunghezza scritta è${scegli('l3-mis', [['lungo', 'lungo il tubo'], ['freccia', 'quanto va verso la freccia (l’altezza)']], v.misura || 'lungo')}</label>`;
+  } else if (modo === 'punto') {
+    h = `<p class="hint">Quanto va il capo del tubo da questo angolo. Se lì c’è già un angolo, il tubo si aggancia.</p>
+      <div class="t-campi">${campoMm('l3-x', 'Destra', v.x ?? '', '0')}${campoMm('l3-y', 'Dietro', v.y ?? '', '0')}${campoMm('l3-z', 'Su', v.z ?? '', '0')}</div>
+      <p class="hint">A sinistra, avanti o giù: col meno davanti (−200).</p>
+      <label class="check"><input type="checkbox" id="l3-zero"${v.zero ? ' checked' : ''}> Misure da zero (dal primo angolo del telaio)</label>`;
+  } else {
+    h = `<p class="hint">La lunghezza è quella scritta sopra. Scegli il tubo qui sotto o cliccalo nel disegno.</p>
+      <label class="lbl">${modo === 'parallela' ? 'Parallelo a' : 'Ad angolo con'}${scegli('l3-tubo', tubi, tuboOra)}</label>`;
+    if (modo === 'parallela') h += `<label class="check"><input type="checkbox" id="l3-inv"${v.inv ? ' checked' : ''}> Al contrario</label>`;
+    else h += `<div class="t-campi">${campoG('l3-gradi', 'Angolo', v.gradi ?? '90')}<label class="lbl">Girato verso${scegli('l3-verso', frecce, v.verso || 'su')}</label></div>
+      <p class="hint">90° = a squadra col tubo.</p>`;
+  }
+  h += `<div class="row-btns"><button class="btn primary" id="l3-ok">Fai il tubo</button>${modo === 'punto' ? '<button class="btn" id="l3-solo">Solo il punto</button>' : ''}</div>`;
+  box.innerHTML = h;
+  const leggi = () => {
+    const g = id => $('#' + id)?.value.trim() ?? '';
+    ricordaTubo();
+    const w = { ...(L3D?.v || {}) };
+    let spec;
+    if (modo === 'inclinata') {
+      Object.assign(w, { freccia: g('l3-fr'), g1: g('l3-g1'), d1: g('l3-d1'), g2: g('l3-g2'), d2: g('l3-d2'), misura: g('l3-mis') });
+      const piega = [[w.d1, w.g1 || '0']];
+      if (w.d2 !== w.d1) piega.push([w.d2, w.g2 || '0']);
+      spec = { modo, lunghezza: ultimaAsta.length, freccia: w.freccia, misura: w.misura, piega };
+    } else if (modo === 'punto') {
+      Object.assign(w, { x: g('l3-x'), y: g('l3-y'), z: g('l3-z'), zero: !!$('#l3-zero')?.checked });
+      spec = { modo, destra: w.x || 0, dietro: w.y || 0, su: w.z || 0, da_zero: w.zero };
+    } else {
+      Object.assign(w, { tubo: g('l3-tubo'), inv: !!$('#l3-inv')?.checked, gradi: g('l3-gradi'), verso: g('l3-verso') });
+      spec = { modo, lunghezza: ultimaAsta.length, tubo: w.tubo, inverso: w.inv, gradi: w.gradi || 90, verso: w.verso || 'su' };
+    }
+    if (L3D) L3D.v = w;
+    return spec;
+  };
+  const stato = document.createElement('div'); stato.className = 'ant-stato';
+  box.querySelector('.row-btns').before(stato);
+  const vai = () => { if (L3D) anteprima('linea_3d', () => [s.structure, s.key, leggi(), ultimaAsta.profile || null, ultimaAsta.nome || ''], stato); };
+  // girando la freccia cambiano i lati verso cui si piega: il pannello si rifà
+  $('#l3-fr')?.addEventListener('change', () => { leggi(); apriLinea3d(s, modo, true); });
+  box.querySelectorAll('input, select').forEach(i => { if (i.id !== 'l3-fr') { i.addEventListener('input', vai); i.addEventListener('change', vai); } });
+  ['#n-len', '#n-prof'].forEach(q => { const i = $(q); if (i && !i.dataset.l3) { i.dataset.l3 = '1'; i.addEventListener('input', () => { if (L3D && $('#n-3d')?.children.length) vai(); }); } });
+  L3D.prendi = (id) => {
+    const t = id.split('/')[1].split('~')[0], i = $('#l3-tubo');
+    if (!i) return;
+    i.value = t; i.dispatchEvent(new Event('change'));
+  };
+  const fai = (solo = false) => {
+    const spec = { ...leggi(), solo_punto: solo };
+    const nome = ultimaAsta.nome || '';
+    inCoda(async () => {
+      const r = await call('linea_3d', s.structure, s.key, spec, ultimaAsta.profile || null, nome);
+      if (!(await apply(r, r.message))) return;
+      ultimaAsta.nome = '';
+      L3D = null; anteprimaVia();
+      if (r.node) await select(r.node);
+      const capo = nodes.find(x => x.id === r.node);
+      if (capo && !dentroVista(new THREE.Vector3(...capo.xyz), 90)) { goTo(null, true); setTimeout(placeDims, 450); }
+    });
+  };
+  $('#l3-ok').onclick = () => fai(false);
+  if ($('#l3-solo')) $('#l3-solo').onclick = () => fai(true);
+  box.querySelectorAll('input').forEach(i => { i.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); fai(false); } }; });
+  if (modo === 'parallela' || modo === 'angolo') passoTubi('Clicca nel disegno il tubo di riferimento, poi «Fai il tubo»', [['Esc', 'annulla']]);
+  else passoTubi(null);
+  vai();
+}
+// le misure della linea del tubo cliccato (05/11): lunghezza e angoli coi tubi vicini, da cambiare dopo
+function misureLinea(s) {
+  chiamaMuto('misure_linea', s.id).then(r => {
+    const box = $('#p-linea');
+    if (!box || !r.ok) return;
+    const angoli = r.angoli.filter(a => a.si_cambia);
+    if (!r.si_cambia && !angoli.length && !r.storta) return;
+    const g = x => String(Math.round(x * 10) / 10).replace('.', ',');   // nei campi senza il punto delle migliaia
+    let h = `<section class="sezione l3-misure"><h4>Misure della linea</h4>`;
+    if (r.si_cambia) h += `<label class="lbl">Lunghezza della linea<div class="t-in-riga"><span class="campo-unita"><input class="field" id="l3-len" value="${esc(g(r.lunghezza))}"><i>mm</i></span>
+      <button class="btn" id="l3-len-ok">Cambia</button></div></label>`;
+    else h += tRighe([['Lunghezza della linea', `${g(r.lunghezza)} mm`]]);
+    if (r.storta) h += tRighe([['Inclinata', `${g(r.inclinazione)}° da terra`]]);
+    for (const [i, a] of angoli.entries()) h += `<label class="lbl">Angolo con ${esc(tMinuscola(a.nome))}<div class="t-in-riga"><span class="campo-unita"><input class="field" data-l3ang="${i}" value="${esc(g(a.gradi))}"><i>°</i></span>
+      <button class="btn" data-l3ang-ok="${i}">Cambia</button></div></label>`;
+    if (!r.si_cambia && r.perche) h += `<p class="hint">${esc(r.perche)}</p>`;
+    if (r.si_cambia || angoli.length) h += `<p class="hint">I tubi attaccati al capo che si muove lo seguono.</p>`;
+    box.innerHTML = h + '</section>';
+    const stato = document.createElement('div'); stato.className = 'ant-stato';
+    box.querySelector('section').appendChild(stato);
+    const len = $('#l3-len');
+    if (len) {
+      const fai = () => inCoda(async () => apply(await call('set_lunghezza_linea', s.id, len.value.trim())));
+      len.oninput = () => anteprima('set_lunghezza_linea', () => [s.id, len.value.trim()], stato);
+      len.onkeydown = ev => { if (ev.key === 'Enter') fai(); };
+      $('#l3-len-ok').onclick = fai;
+      bluSeCambia([len], $('#l3-len-ok'));
+    }
+    box.querySelectorAll('[data-l3ang]').forEach(i => {
+      const a = angoli[+i.dataset.l3ang], b = box.querySelector(`[data-l3ang-ok="${i.dataset.l3ang}"]`);
+      const fai = () => inCoda(async () => apply(await call('set_angolo_linee', s.id, a.nodo, a.tubo, i.value.trim())));
+      i.oninput = () => anteprima('set_angolo_linee', () => [s.id, a.nodo, a.tubo, i.value.trim()], stato);
+      i.onkeydown = ev => { if (ev.key === 'Enter') fai(); };
+      b.onclick = fai;
+      bluSeCambia([i], b);
+    });
+  });
 }
 function wireNode(s) {
   // un capo libero (da zero, o la punta di una mensola): la barra in basso dice come si continua
@@ -7890,6 +8047,8 @@ function wireNode(s) {
     $('#n-move').onclick = sposta;
     document.querySelectorAll('[data-xyz]').forEach(x => { x.onkeydown = ev => { if (ev.key === 'Enter') sposta(); }; });
   }
+  document.querySelectorAll('[data-n3d]').forEach(b => { b.onclick = () => apriLinea3d(s, b.dataset.n3d); });
+  if (L3D && L3D.nodo === s.id) apriLinea3d(s, L3D.modo, true); else L3D = null;
   $('#n-link').onclick = () => {
     ricordaTubo();
     linkFrom = { st: s.structure, key: s.key, profile: ultimaAsta.profile, group: '' };
@@ -9269,6 +9428,7 @@ document.addEventListener('keydown', ev => {
     if (DIV && $('#dv-no')) { $('#dv-no').click(); return; }
     if (DIVSCEGLI) { DIVSCEGLI = false; passoTubi(null); return; }
     if (PUNTO) { puntoVia(); if ($('#p-punto-riga')) $('#p-punto-riga').hidden = true; return; }
+    if (L3D && $('#n-3d')?.children.length) { chiudiLinea3d(); return; }
     if (inCampo) { document.activeElement.blur(); return; }
     clearSelection(); return;
   }

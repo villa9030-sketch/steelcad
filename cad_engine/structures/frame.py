@@ -174,6 +174,10 @@ def _point(k, v, params, sketches, nome, fid, _resolve=None) -> bd.Vector:
         if v.get('offset'):
             base = base + _vec(v['offset'], params, f'lo spostamento del punto {k}')
         return base
+    if isinstance(v, dict) and 'from' in v and 'lungo' in v and _resolve is not None:
+        # una linea che esce dal piano (05/11): lunghezza e direzione (freccia, inclinata, parallela, ad angolo)
+        from .linee3d import punto
+        return punto(k, v, params, _resolve, nome)
     if isinstance(v, dict) and 'from' in v:
         base = _resolve(v['from'])
         if v.get('offset'):

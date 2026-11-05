@@ -425,6 +425,13 @@ class Document:
             for v in (f.get('points') or {}).values():
                 for c in (v.get('offset') or [] if isinstance(v, dict) else v):
                     nomi |= names_in(c)
+                if isinstance(v, dict) and 'lungo' in v:          # le linee 3D (05/11): lunghezza e angoli
+                    nomi |= names_in(v['lungo'])
+                    verso = v.get('verso')
+                    if isinstance(verso, dict):
+                        nomi |= names_in(verso.get('gradi'))
+                        for _, g in verso.get('piega') or []:
+                            nomi |= names_in(g)
             for m in f.get('members') or []:
                 for c in m.get('offset') or []:
                     nomi |= names_in(c)

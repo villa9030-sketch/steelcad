@@ -87,6 +87,15 @@ def _mezzo(m) -> _V:
     return _V((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
 
 
+def _piano(members, m, asse):
+    """I limiti lungo X o Y dei soli tubi sdraiati alla stessa altezza di m (05/11: nel tronco di piramide la base è
+    più stretta del telaio sopra, e il tubo davanti della base si chiamava «in mezzo»)."""
+    z = (m.start.Z + m.end.Z) / 2
+    v = [getattr(p, asse) for o in members if not getattr(o, 'nome', '')
+         and abs(o.start.Z - z) < TOL and abs(o.end.Z - z) < TOL for p in (o.start, o.end)]
+    return (min(v), max(v)) if v else (0.0, 0.0)
+
+
 def nomi_aste(members) -> dict:
     """{id asta: nome}. Nomi uguali (due traversi a metà) prendono 1, 2… da sinistra/davanti/in basso."""
     if not members:
@@ -100,16 +109,26 @@ def nomi_aste(members) -> dict:
         tipo, w = _tipo(m), _dir(m)
         mid = _mezzo(m)
         parti = []
+        if 0.7 <= abs(w.Z) <= 0.95 and abs(min(m.start.Z, m.end.Z) - lz[0]) < TOL:
+            # 05/11 (scheletro 3D): un tubo poco inclinato che arriva a terra è una gamba inclinata (la tramoggia, il
+            # tronco di piramide), non una diagonale; dove sta lo dice il capo in alto, se no quello a terra
+            alto, basso = (m.end, m.start) if m.end.Z >= m.start.Z else (m.start, m.end)
+            for c in (alto, basso):
+                testo = ' '.join(x for x in (_lato(c.Y, ly, 'davanti', 'dietro'), _lato(c.X, lx, 'a sinistra', 'a destra')) if x)
+                if testo:
+                    break
+            out[m.id] = f'Gamba inclinata {testo}'.strip()
+            continue
         if abs(w.Z) > 0.95:                                   # in piedi: dove sta in pianta
             parti = [_lato(mid.Y, ly, 'davanti', 'dietro'), _lato(mid.X, lx, 'a sinistra', 'a destra')]
             testo = ' '.join(p for p in parti if p)
         else:
             if abs(w.X) >= abs(w.Y):                          # lungo la larghezza: davanti o dietro
-                dove = _lato(mid.Y, ly, 'davanti', 'dietro')
+                dove = _lato(mid.Y, ly, 'davanti', 'dietro') or _lato(mid.Y, _piano(members, m, 'Y'), 'davanti', 'dietro')
                 if not dove and tipo == 'Traverso' and ly[1] - ly[0] >= TOL:
                     dove = 'in mezzo'                         # 03/11: la croce sopra, da sinistra a destra
             else:                                             # lungo la profondità: a sinistra o a destra
-                dove = _lato(mid.X, lx, 'a sinistra', 'a destra')
+                dove = _lato(mid.X, lx, 'a sinistra', 'a destra') or _lato(mid.X, _piano(members, m, 'X'), 'a sinistra', 'a destra')
                 if tipo == 'Traverso':
                     if dove or lx[1] - lx[0] < TOL:
                         tipo = 'Fianco'
@@ -136,6 +155,11 @@ def nome_punto(p, members, limiti=None) -> str:
         return 'Punto di partenza'
     lx, ly, lz = limiti or _limiti(members)
     pianta = ' '.join(x for x in (_lato(p.Y, ly, 'davanti', 'dietro'), _lato(p.X, lx, 'a sinistra', 'a destra')) if x)
+    if not pianta:            # 05/11: l'angolo della base più stretta (tronco di piramide), coi tubi alla sua altezza
+        piano = [o for o in members if not getattr(o, 'nome', '') and abs(o.start.Z - p.Z) < TOL and abs(o.end.Z - p.Z) < TOL]
+        if len(piano) >= 3:                     # un giro di tubi (la base), non un traverso da solo
+            px, py = (_piano(piano, piano[0], a) for a in ('X', 'Y'))
+            pianta = ' '.join(x for x in (_lato(p.Y, py, 'davanti', 'dietro'), _lato(p.X, px, 'a sinistra', 'a destra')) if x)
     q = _quota(p.Z, lz)
     if pianta:
         return f'Angolo {pianta}' + (f', {q}' if q else '')
