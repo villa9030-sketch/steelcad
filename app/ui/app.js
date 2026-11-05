@@ -3807,8 +3807,9 @@ const azioneLam = (icona, nome, data, cls = '', titolo = '') =>
 function azioniFaccia(s) {
   if (!s.face?.planar || !s.face.name) return [];
   return [azioneLam('hole', 'Foro', 'data-azione="foro"'), azioneLam('slot', 'Asola', 'data-azione="asola"'),
-    azioneLam('forata', 'Lamiera forata', 'data-azione="forata"', '', 'Un campo di fori su questa faccia: tondi, asole o quadri, in fila o sfalsati'),
+    // le prime tre vanno anche nei pannelli corti (piega, barretta): Disegna resta fra quelle
     azioneLam('project', 'Disegna su questa faccia', `data-face-sketch="${esc(s.face.name)}"`),
+    azioneLam('forata', 'Lamiera forata', 'data-azione="forata"', '', 'Un campo di fori su questa faccia: tondi, asole o quadri, in fila o sfalsati'),
     azioneLam('cut', 'Taglio', 'data-azione="taglia"'), azioneLam('dimension', 'Misura', 'data-cmd="misura"')];
 }
 // i numeri dei Dettagli con la virgola (l'area arrivava «98784.0 mm²»)
