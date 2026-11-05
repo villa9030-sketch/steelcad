@@ -425,6 +425,26 @@ class Api:
     def sketch_move(self, sid, eids, dx, dy):
         return self._call(self._svc.sketch_move, sid, eids, dx, dy)
 
+    def sketch_scale_check(self, sid, eids, base, f=None, da=None, a=None):
+        return self._call(self._svc.sketch_scale_check, sid, eids, base, f, da, a)
+
+    def sketch_scale(self, sid, eids, base, f=None, da=None, a=None):
+        return self._call(self._svc.sketch_scale, sid, eids, base, f, da, a)
+
+    def sketch_break_preview(self, sid, eid, click):
+        return self._call(self._svc.sketch_break_preview, sid, eid, click)
+
+    def sketch_break(self, sid, eid, click):
+        return self._call(self._svc.sketch_break, sid, eid, click)
+
+    def export_sketch_dxf(self, sid):
+        """05/11: il disegno in DXF, con la stessa finestra «Salva con nome» degli altri export."""
+        nome = self._call(self._svc.sketch_nome_dxf, sid)
+        p = self._dialog(webview.SAVE_DIALOG, ('DXF (*.dxf)',), nome if isinstance(nome, str) else 'disegno.dxf')
+        if not p:
+            return {'ok': False, 'cancelled': True}
+        return _col_percorso(self._call(self._svc.sketch_export_dxf, sid, p), p)
+
     def sketch_pattern(self, sid, eids, cols, px, rows, py):
         return self._call(self._svc.sketch_pattern, sid, eids, cols, px, rows, py)
 
