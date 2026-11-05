@@ -923,7 +923,7 @@ canvas.addEventListener('pointerleave', () => { hover = null; hoverEdge = null; 
 canvas.addEventListener('pointerup', ev => {
   if (!premuto || Math.hypot(ev.clientX - premuto.x, ev.clientY - premuto.y) > 4 || ev.button !== 0) return;
   if (SK && SK.scalaProva && !$('#modal').hidden) { scalaPrendiMisura(ev); return; }          // 05/11: «quella linea deve essere 1000»
-  if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D)
+  if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); else if (SK.serieCentro) SK.serieCentro(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D); con la serie attorno sceglie il centro
   if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroClic(ev); return; }   // finestra del foro: clic = dove va, o un'altra faccia
   if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }
   if (ANGOLI && !$('#modal').hidden && $('#ag-corpo')) return;                      // «Angoli tondi»: si cliccano i cerchi   // «Piega i bordi»: clic = un bordo in più o in meno
@@ -8912,11 +8912,12 @@ async function refreshSketch() {
 function setTool(t) {
   if (!SK) return;
   SK.tool = t; SK.pts = []; SK.buf = ''; SK.pick = null; SK.dimPick = []; SK.angs = {}; SK.cutPrev = null; SK.cutAt = null; SK.cutMsg = null;
+  if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); }
   // con un comando di disegno in mano i clic passano attraverso le caselle delle quote (prima la casella sotto al
   // mouse si prendeva il clic e il punto «non veniva preso», 21/10); con Seleziona e Quota si cliccano
   document.body.classList.toggle('disegno-attivo', !['select', 'dim'].includes(t));
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  setHelp(AIUTI[t] + AIUTI_VISTA);
+  setHelp(aiutoStrumento(t) + AIUTI_VISTA);
   $('#sk-tip').style.display = 'none';              // 04/11: niente scritta vecchia del mouse (B_staffa 21-31)
   if (t === 'text' && SK.lastText && !SK.provaTesto) provaTesto(SK.lastText);    // la scritta di prima segue il mouse
   SK.arcR = null;
@@ -9558,7 +9559,12 @@ function drawRubber() {
   if (SK?.serieProva) {                             // la serie in prova: le copie (non l'originale) in azzurro
     const P = SK.serieProva;
     const metti = (pts, mat) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(skToWorld)), mat); l.computeLineDistances(); skRubber.add(l); };
-    for (let j = 0; j < P.r; j++) for (let i = 0; i < P.c; i++) if (i || j) anteprimaCopia(P.ids, i * P.px, j * P.py, metti);
+    if (P.giro) {                                   // attorno a un centro: le copie girate e una crocetta sul centro
+      for (let k = 1; k < P.n; k++) anteprimaGiro(P.ids, P.centro, k * P.passo, metti);
+      const m = P.croce;
+      metti([[P.centro[0] - m, P.centro[1]], [P.centro[0] + m, P.centro[1]]], SK_TRACK);
+      metti([[P.centro[0], P.centro[1] - m], [P.centro[0], P.centro[1] + m]], SK_TRACK);
+    } else for (let j = 0; j < P.r; j++) for (let i = 0; i < P.c; i++) if (i || j) anteprimaCopia(P.ids, i * P.px, j * P.py, metti);
     tip.style.display = 'none'; ridisegna(); return;
   }
   if (SK?.pick?.what === 'corner') { drawSnap({ tipo: 'punto', xy: SK.pick.xy }); updateCmd(); ridisegna(); return; }
@@ -9621,6 +9627,17 @@ function drawRubber() {
       const ang = Math.atan2(c[1] - last.xy[1], c[0] - last.xy[0]) * 180 / Math.PI;
       testo = `${num(Math.hypot(c[0] - last.xy[0], c[1] - last.xy[1]), 2)} mm < ${num(ang, 1)}°`;
     }
+  } else if (SK.tool === 'rect' && last && ultimoRett.come === 'centro') {
+    const o = last.xy, q = [2 * o[0] - c[0], 2 * o[1] - c[1]];
+    add([q, [c[0], q[1]], c, [q[0], c[1]], q]);
+    add([q, c], SK_TRACK);
+    testo = `${num(2 * Math.abs(c[0] - o[0]), 2)} × ${num(2 * Math.abs(c[1] - o[1]), 2)}`;
+  } else if (SK.tool === 'rect' && last && ultimoRett.come === 'tre') {
+    if (SK.pts.length === 1) { add([last.xy, c]); testo = `${num(Math.hypot(c[0] - last.xy[0], c[1] - last.xy[1]), 2)} mm < ${num(Math.atan2(c[1] - last.xy[1], c[0] - last.xy[0]) * 180 / Math.PI, 1)}°`; }
+    else { const R3 = rett3(SK.pts[0].xy, SK.pts[1].xy, c); if (R3) { add(R3.pts); testo = `${num(R3.L, 2)} × ${num(Math.abs(R3.w), 2)}`; } }
+  } else if (SK.tool === 'rect' && last && ultimoRett.come === 'raccordato') {
+    add(rettRaccordato(last.xy, c, raggioRacc()));
+    testo = `${num(Math.abs(c[0] - last.xy[0]), 2)} × ${num(Math.abs(c[1] - last.xy[1]), 2)} · R ${num(raggioRacc() || 0, 2)}`;
   } else if (SK.tool === 'rect' && last) {
     add([last.xy, [c[0], last.xy[1]], c, [last.xy[0], c[1]], last.xy]);
     testo = `${num(Math.abs(c[0] - last.xy[0]), 2)} × ${num(Math.abs(c[1] - last.xy[1]), 2)}`;
@@ -9643,6 +9660,16 @@ function drawRubber() {
     for (let i = 0; i <= 24; i++) { const t = ang + Math.PI / 2 + Math.PI * i / 24; pts.push([a[0] + r * Math.cos(t), a[1] + r * Math.sin(t)]); }
     for (let i = 0; i <= 24; i++) { const t = ang - Math.PI / 2 + Math.PI * i / 24; pts.push([b[0] + r * Math.cos(t), b[1] + r * Math.sin(t)]); }
     pts.push(pts[0]); add(pts); testo = `larghezza ${num(2 * r, 2)} mm`;
+  } else if (tangente()) {
+    const pv = tanProva(), L = SK.tanL || [];
+    if (pv) {
+      const pts = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push([pv.c[0] + pv.r * Math.cos(a), pv.c[1] + pv.r * Math.sin(a)]); }
+      add(pts); testo = `R ${num(pv.r, 2)}`;
+    } else testo = ultimoCerchio.come === 'tan2' && L.length === 2 ? 'scrivi il raggio' : `${L.length} di ${ultimoCerchio.come === 'tan2' ? 2 : 3} linee`;
+  } else if (SK.tool === 'circle' && last && ultimoCerchio.come === 'tre') {
+    const C3 = SK.pts.length === 2 ? cerchioPer3(SK.pts[0].xy, SK.pts[1].xy, c) : null;
+    if (C3) { const pts = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push([C3.c[0] + C3.r * Math.cos(a), C3.c[1] + C3.r * Math.sin(a)]); } add(pts); testo = `Ø ${num(2 * C3.r, 2)}`; }
+    else add([last.xy, c]);
   } else if (SK.tool === 'circle' && last) {
     const r = Math.hypot(c[0] - last.xy[0], c[1] - last.xy[1]), pts = [];
     for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push([last.xy[0] + r * Math.cos(a), last.xy[1] + r * Math.sin(a)]); }
@@ -9704,6 +9731,9 @@ function skHit(ev) {          // linea o cerchio vicino al mouse (per selezionar
 
 function skMove(ev) {
   if (ev.buttons) return;
+  if (SK.serieCentro && !$('#modal').hidden) {               // serie attorno a un centro: il clic sceglie il centro
+    SK.cursor = skCursor(ev); drawSnap(SK.cursor); return;
+  }
   if (SK.pick?.what === 'offset') {
     if (SK.pick.stage === 'obj') { const h = skHit(ev); if (h !== SK.hover) { SK.hover = h; drawSketch(); } }
     if (SK.pick.stage === 'side') {
@@ -9738,6 +9768,13 @@ function skMove(ev) {
     const h = p ? null : skHit(ev);
     const hl = h && SK.v.lines.some(l => l.id === h) ? h : null;
     if (hl !== SK.hover) { SK.hover = hl; drawSketch(); }
+    drawRubber(); return;
+  }
+  if (tangente()) {                                           // cerchio tangente: si puntano le linee
+    const h = skHit(ev), hl = h && SK.v.lines.some(l => l.id === h) ? h : null;
+    if (hl !== SK.hover) { SK.hover = hl; drawSketch(); }
+    const xy = skPick(ev);
+    SK.cursor = xy ? { xy } : null;
     drawRubber(); return;
   }
   if (SK.tool === 'trim' || SK.tool === 'extend' || SK.tool === 'break') {
@@ -9853,6 +9890,152 @@ document.addEventListener('input', ev => {
   const v = parseFloat(ev.target.value.replace(',', '.'));
   if (v > 0 && v < 360) { ultimoArcoR.giro = v; drawRubber(); }
 });
+// ------------------------------------------------------------- rettangolo e cerchio: i modi di farli (05/11)
+// Dentro lo strumento (non pulsanti nuovi nella barra): sopra la barra d'aiuto si sceglie come. Restano scelti per la
+// volta dopo. Idee da SolidCraft (rettangolo dal centro, a 3 punti, raccordato; cerchio per 3 punti, tangente).
+let ultimoRett = { come: 'angoli', r: '5' }, ultimoCerchio = { come: 'centro', r: '10' };
+const VARIANTI = {
+  rect: [['angoli', 'due angoli'], ['centro', 'dal centro'], ['tre', 'a 3 punti'], ['raccordato', 'raccordato']],
+  circle: [['centro', 'centro e bordo'], ['tre', 'per 3 punti'], ['tan2', 'tangente a 2 linee'], ['tan3', 'tangente a 3 linee']],
+};
+const varianteDi = t => t === 'rect' ? ultimoRett.come : t === 'circle' ? ultimoCerchio.come : null;
+const tangente = () => SK?.tool === 'circle' && /^tan/.test(ultimoCerchio.come);
+function scelteVarianti(t) {
+  const u = t === 'rect' ? ultimoRett : ultimoCerchio;
+  const b = VARIANTI[t].map(([k, testo]) => `<button type="button" data-var="${k}" class="${u.come === k ? 'on' : ''}">${testo}</button>`).join('');
+  const r = t === 'rect' && u.come === 'raccordato'
+    ? `<span>raggio</span><input id="sk-var-r" value="${esc(virgola(u.r))}" title="Raggio dei quattro raccordi"><i>mm</i>` : '';
+  return `<span class="arcr varianti">${b}${r}</span>`;
+}
+function aiutoStrumento(t = SK?.tool) {
+  const v = varianteDi(t), n = SK?.pts?.length || 0, L = SK?.tanL?.length || 0;
+  const terzi = ['prima', 'seconda', 'terza'];
+  if (t === 'rect' && v === 'centro') return n ? 'Rettangolo dal centro (2 di 2): clic su un angolo, o scrivi 100x50 · Invio conferma · Esc annulla'
+    : 'Rettangolo dal centro (1 di 2): clic sul centro (anche di un foro) · Esc annulla';
+  if (t === 'rect' && v === 'tre') return ['Rettangolo a 3 punti (1 di 3): clic dove comincia il primo lato · Esc annulla',
+    'Rettangolo a 3 punti (2 di 3): clic dove finisce il primo lato, o scrivi la lunghezza · Invio conferma · Esc annulla',
+    'Rettangolo a 3 punti (3 di 3): clic dalla parte della larghezza, o scrivila · Invio conferma · Esc annulla'][Math.min(n, 2)];
+  if (t === 'rect' && v === 'raccordato') return 'Rettangolo raccordato: clic su due angoli opposti, o scrivi 100x50 · Invio conferma · Esc annulla';
+  if (t === 'circle' && v === 'tre') return `Cerchio per 3 punti (${Math.min(n + 1, 3)} di 3): clic sul ${['primo', 'secondo', 'terzo'][Math.min(n, 2)]} punto · Esc annulla`;
+  if (t === 'circle' && v === 'tan2') return L < 2 ? `Cerchio tangente (${L + 1} di 3): clic sulla ${terzi[L]} linea · Esc annulla`
+    : 'Cerchio tangente (3 di 3): scrivi il raggio, il mouse sceglie l’angolo · Invio conferma · Esc annulla';
+  if (t === 'circle' && v === 'tan3') return `Cerchio tangente (${Math.min(L + 1, 3)} di 3): clic sulla ${terzi[Math.min(L, 2)]} linea, vicino a dove la tocca · Esc annulla`;
+  return AIUTI[t];
+}
+document.addEventListener('mousedown', ev => { if (ev.target.closest('[data-var]')) ev.preventDefault(); });
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-var]');
+  if (!b || !SK) return;
+  const u = SK.tool === 'rect' ? ultimoRett : ultimoCerchio;
+  u.come = b.dataset.var;
+  SK.pts = []; SK.buf = '';
+  if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); }
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+  if (u.come === 'raccordato') $('#sk-var-r')?.select();
+});
+document.addEventListener('input', ev => {
+  if (ev.target.id !== 'sk-var-r') return;
+  ultimoRett.r = ev.target.value.trim();
+  drawRubber();
+});
+document.addEventListener('keydown', ev => { if (ev.target.id === 'sk-var-r' && (ev.key === 'Enter' || ev.key === 'Escape')) { ev.stopPropagation(); ev.target.blur(); } }, true);
+const raggioRacc = () => parseFloat(String(ultimoRett.r).replace(',', '.'));
+// i punti del rettangolo raccordato da a a b (coordinate dello sketch), per l'anteprima
+function rettRaccordato(a, b, r) {
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  r = Math.max(0, Math.min(r || 0, (x1 - x0) / 2, (y1 - y0) / 2));
+  const pts = [], ang = (cx, cy, t0) => { for (let i = 0; i <= 12; i++) { const t = t0 + Math.PI / 2 * i / 12; pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } };
+  ang(x1 - r, y0 + r, -Math.PI / 2); ang(x1 - r, y1 - r, 0); ang(x0 + r, y1 - r, Math.PI / 2); ang(x0 + r, y0 + r, Math.PI);
+  pts.push(pts[0]);
+  return pts;
+}
+// i 4 angoli del rettangolo a 3 punti: a-b il primo lato, c dice la larghezza (e da che parte)
+function rett3(a, b, c) {
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (L < 1e-9) return null;
+  const nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L, w = (c[0] - b[0]) * nx + (c[1] - b[1]) * ny;
+  return { pts: [a, b, [b[0] + nx * w, b[1] + ny * w], [a[0] + nx * w, a[1] + ny * w], a], L, w, n: [nx, ny] };
+}
+function cerchioPer3(p1, p2, p3) {
+  const [x1, y1] = p1, [x2, y2] = p2, [x3, y3] = p3;
+  const d = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2));
+  if (Math.abs(d) < 1e-9) return null;
+  const ux = ((x1 * x1 + y1 * y1) * (y2 - y3) + (x2 * x2 + y2 * y2) * (y3 - y1) + (x3 * x3 + y3 * y3) * (y1 - y2)) / d;
+  const uy = ((x1 * x1 + y1 * y1) * (x3 - x2) + (x2 * x2 + y2 * y2) * (x1 - x3) + (x3 * x3 + y3 * y3) * (x2 - x1)) / d;
+  return { c: [ux, uy], r: Math.hypot(x1 - ux, y1 - uy) };
+}
+// il cerchio tangente alle linee (stessi conti del motore, app/sketch_forme.py): 2 linee col raggio e il mouse che
+// dice l'angolo; 3 linee: tra i cerchi possibili quello che le tocca più vicino ai clic
+function cerchioTangente(linee, r, vicino, clic) {
+  const R = linee.map(([a, b]) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, n = [-(b[1] - a[1]) / L, (b[0] - a[0]) / L]; return { n, d: n[0] * a[0] + n[1] * a[1], a }; });
+  if (R.length === 2) {
+    const [A, B] = R, v = vicino || A.a, det = A.n[0] * B.n[1] - A.n[1] * B.n[0];
+    const s1 = A.n[0] * v[0] + A.n[1] * v[1] - A.d >= 0 ? 1 : -1, s2 = B.n[0] * v[0] + B.n[1] * v[1] - B.d >= 0 ? 1 : -1;
+    if (Math.abs(det) < 1e-9) {
+      const dist = Math.abs(A.n[0] * B.a[0] + A.n[1] * B.a[1] - A.d);
+      if (dist < 1e-6) return null;
+      const dm = A.d + (A.n[0] * B.a[0] + A.n[1] * B.a[1] - A.d) / 2, t = v[0] * A.n[1] - v[1] * A.n[0];
+      return { c: [A.n[0] * dm + A.n[1] * t, A.n[1] * dm - A.n[0] * t], r: dist / 2, parallele: true };
+    }
+    if (!(r > 0)) return null;
+    const d1 = A.d + s1 * r, d2 = B.d + s2 * r;
+    return { c: [(d1 * B.n[1] - d2 * A.n[1]) / det, (A.n[0] * d2 - B.n[0] * d1) / det], r };
+  }
+  let best = null;
+  for (const s of [[1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1], [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1]]) {
+    const M = R.map((q, i) => [q.n[0], q.n[1], -s[i]]), dv = R.map(q => q.d);
+    const det3 = m => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const D = det3(M);
+    if (Math.abs(D) < 1e-12) continue;
+    const sol = [0, 1, 2].map(k => det3(M.map((row, i) => row.map((x, j) => j === k ? dv[i] : x))) / D);
+    const [cx, cy, rr] = sol;
+    if (rr <= 1e-6) continue;
+    const costo = clic ? R.reduce((t, q, i) => t + Math.hypot(cx - s[i] * rr * q.n[0] - clic[i][0], cy - s[i] * rr * q.n[1] - clic[i][1]), 0) : 0;
+    if (!best || costo < best.costo) best = { c: [cx, cy], r: rr, costo };
+  }
+  return best;
+}
+const lineaXY = id => { const l = SK.v.lines.find(x => x.id === id); return l ? [l.xa, l.xb] : null; };
+function tanRaggio() {
+  const v = parseFloat(String(SK.buf || '').replace(',', '.'));
+  if (v > 0) return v;
+  const u = parseFloat(String(ultimoCerchio.r).replace(',', '.'));
+  return u > 0 ? u : null;
+}
+// il cerchio tangente in prova: con 2 linee scelte (raggio e mouse), con la terza sotto il mouse
+function tanProva() {
+  const L = SK.tanL || [], c = SK.cursor?.xy;
+  if (!c) return null;
+  if (ultimoCerchio.come === 'tan2' && L.length === 2) return cerchioTangente(L.map(q => lineaXY(q.id)), tanRaggio(), c);
+  if (ultimoCerchio.come === 'tan3' && L.length === 2 && SK.hover && !L.some(q => q.id === SK.hover) && lineaXY(SK.hover))
+    return cerchioTangente([...L.map(q => lineaXY(q.id)), lineaXY(SK.hover)], null, null, [L[0].xy, L[1].xy, c]);
+  return null;
+}
+function tanClick(ev) {
+  const L = SK.tanL || (SK.tanL = []), due = ultimoCerchio.come === 'tan2';
+  if (due && L.length === 2) { tanFai(); return; }                  // clic: conferma col raggio scritto
+  const h = skHit(ev), xy = skPick(ev);
+  if (!h || !SK.v.lines.some(l => l.id === h) || !xy) { toast('Clicca una linea.', 'err'); return; }
+  if (L.some(q => q.id === h)) { toast('Questa linea l’hai già scelta: clicca un’altra.', 'err'); return; }
+  L.push({ id: h, xy });
+  SK.sel = new Set(L.map(q => q.id)); drawSketch();
+  if (!due && L.length === 3) { tanFai(); return; }
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+}
+function tanFai(scritto) {
+  const L = SK.tanL || [], sid = SK.sid, k = SK.constr, due = ultimoCerchio.come === 'tan2';
+  const r = scritto ?? (due ? tanRaggio() : null);
+  if (due && !(r > 0)) { toast('Scrivi il raggio + Invio.', 'err'); return; }
+  if (due) ultimoCerchio.r = virgola(r);
+  const vicino = SK.cursor?.xy || null;
+  SK.tanL = []; SK.sel.clear(); SK.buf = ''; SK.hover = null;
+  drawSketch();
+  inCoda(async () => { await apply(await call('sketch_add_circle_tangent', sid, L.map(q => q.id), due ? r : null, due ? vicino : null, due ? null : L.map(q => q.xy), k)); });
+  setHelp(aiutoStrumento() + AIUTI_VISTA);
+  drawRubber();
+}
 // cerchi e archi come { id, xc, r, a0, a1 } (il cerchio intero va da 0 a 2π)
 function roundsOf() {
   return [...SK.v.circles.map(c => ({ id: c.id, xc: c.xc, r: c.r, a0: 0, a1: 2 * Math.PI })),
@@ -9977,6 +10160,7 @@ function skClick(ev) {
     drawSketch();
     return;
   }
+  if (tangente()) { tanClick(ev); return; }
   const c = SK.cursor || skCursor(ev);
   if (!c) return;
   skPlace(c);
@@ -9989,8 +10173,18 @@ function skPlace(c) {
     SK.pts.push(p);
     if (SK.pts.length >= 2 && c.id && !SK.pts.slice(0, -1).some(q => q.id === c.id)) { skFinish(false); return; }   // agganciato a un punto che c'era: si collega lì
   } else if (SK.tool === 'rect') {
-    if (!SK.pts.length) { SK.pts.push(p); }
-    else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(a), c.xy, k)); }); }
+    const come = ultimoRett.come, k = SK.constr, sid = SK.sid;
+    if (come === 'tre' && SK.pts.length === 1 && Math.hypot(c.xy[0] - SK.pts[0].xy[0], c.xy[1] - SK.pts[0].xy[1]) < 1e-6) { toast('Il secondo punto deve essere diverso dal primo.', 'err'); return; }
+    if (!SK.pts.length || (come === 'tre' && SK.pts.length === 1)) { SK.pts.push(p); }
+    else if (come === 'tre') { const [a, b] = SK.pts; SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_rectangle_3p', sid, ptArg(a), ptArg(b), c.xy, k)); }); }
+    else if (come === 'centro') { const a = SK.pts[0]; SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_rectangle_center', sid, ptArg(a), c.xy, k)); }); }
+    else if (come === 'raccordato') {
+      const r = raggioRacc();
+      if (!(r > 0)) { toast('Scrivi il raggio dei raccordi, sopra.', 'err'); return; }
+      const a = SK.pts[0]; SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_rectangle_rounded', sid, ptArg(a), c.xy, r, k)); });
+    }
+    else { const a = SK.pts[0]; SK.pts = []; inCoda(async () => { await apply(await call('sketch_add_rectangle', sid, ptArg(a), c.xy, k)); }); }
+    setHelp(aiutoStrumento() + AIUTI_VISTA);
   } else if (SK.tool === 'arcr') {
     arcrClic(c);
   } else if (SK.tool === 'arc3') {
@@ -10022,6 +10216,16 @@ function skPlace(c) {
       close();
       inCoda(async () => { await apply(await call('sketch_add_text', sid, ptArg(p), v.text, v.h, v.angle, v.come || null, v.centro)); });
     } });
+  } else if (SK.tool === 'circle' && ultimoCerchio.come === 'tre') {
+    if (SK.pts.some(q => Math.hypot(q.xy[0] - c.xy[0], q.xy[1] - c.xy[1]) < 1e-6)) { toast('Questo punto l’hai già cliccato: servono tre punti diversi.', 'err'); return; }
+    if (SK.pts.length < 2) SK.pts.push(p);
+    else {
+      const [a, b] = SK.pts; SK.pts = [];
+      const k = SK.constr, sid = SK.sid;
+      if (!cerchioPer3(a.xy, b.xy, c.xy)) toast('I tre punti sono in fila: per tre punti in fila non passa un cerchio.', 'err');
+      else inCoda(async () => { await apply(await call('sketch_add_circle_3p', sid, ptArg(a), ptArg(b), ptArg(p), k)); });
+    }
+    setHelp(aiutoStrumento() + AIUTI_VISTA);
   } else if (SK.tool === 'circle') {
     if (!SK.pts.length) { SK.pts.push(p); }
     else { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; const r = Math.hypot(c.xy[0] - a.xy[0], c.xy[1] - a.xy[1]); if (r > 0) inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), r, k)); }); }
@@ -10194,10 +10398,19 @@ function skTyped() {
   if (mr && !(rectH > 0)) { toast('Scrivi così: larghezza x altezza, per esempio 100x50', 'err'); return; }
   if (!(v > 0)) { toast('Scrivi un numero maggiore di zero.', 'err'); return; }
   if (SK.tool === 'arcr' && !SK.pick) { arcrScritto(v); return; }
+  if (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2 && !SK.pick) { tanFai(v); return; }
   const last = SK.pts[SK.pts.length - 1];
   if (!last) { toast('Prima clicca il punto di partenza.', 'err'); return; }
   if (SK.pick) { skPickTyped(v); return; }
+  if (SK.tool === 'circle' && ultimoCerchio.come !== 'centro') { toast('Per 3 punti: clicca i punti sul disegno.', 'err'); return; }
   if (SK.tool === 'circle') { const a = SK.pts[0]; SK.pts = []; const k = SK.constr; inCoda(async () => { await apply(await call('sketch_add_circle', SK.sid, ptArg(a), v / 2, k)); }); drawRubber(); return; }
+  if (SK.tool === 'rect' && ultimoRett.come === 'tre' && SK.pts.length === 2) {          // la larghezza, dalla parte del mouse
+    const [a, b] = SK.pts, R3 = rett3(a.xy, b.xy, SK.cursor?.xy || b.xy);
+    const lato = R3 && R3.w < 0 ? -1 : 1, q = [b.xy[0] + R3.n[0] * v * lato, b.xy[1] + R3.n[1] * v * lato];
+    SK.pts = []; const k = SK.constr, sid = SK.sid;
+    inCoda(async () => { await apply(await call('sketch_add_rectangle_3p', sid, ptArg(a), ptArg(b), q, k)); });
+    setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return;
+  }
   if (SK.tool === 'slot') {
     if (SK.pts.length === 2) { addSlot(v / 2); return; }
     // interasse scritto: il secondo centro nella direzione del mouse (orizzontale/verticale se ci sei vicino)
@@ -10218,9 +10431,16 @@ function skTyped() {
   const q = [Math.round((last.xy[0] + dx * v) * 1000) / 1000, Math.round((last.xy[1] + dy * v) * 1000) / 1000];
   const primo = SK.pts[0];
   if (SK.tool === 'line' && SK.pts.length >= 3 && Math.hypot(q[0] - primo.xy[0], q[1] - primo.xy[1]) < 1e-6) { skFinish(true); return; }
-  if (SK.tool === 'rect') { SK.pts = []; const k = SK.constr, h = rectH ?? v; inCoda(async () => { await apply(await call('sketch_add_rectangle', SK.sid, ptArg(last), [last.xy[0] + (Math.sign(c[0] - last.xy[0]) || 1) * v, last.xy[1] + (Math.sign(c[1] - last.xy[1]) || 1) * h], k)); }); drawRubber(); return; }
+  if (SK.tool === 'rect' && ultimoRett.come !== 'tre') {
+    SK.pts = []; const k = SK.constr, h = rectH ?? v, sid = SK.sid, sx = Math.sign(c[0] - last.xy[0]) || 1, sy = Math.sign(c[1] - last.xy[1]) || 1;
+    if (ultimoRett.come === 'centro') inCoda(async () => { await apply(await call('sketch_add_rectangle_center', sid, ptArg(last), [last.xy[0] + sx * v / 2, last.xy[1] + sy * h / 2], k)); });
+    else if (ultimoRett.come === 'raccordato') { const r = raggioRacc(); inCoda(async () => { await apply(await call('sketch_add_rectangle_rounded', sid, ptArg(last), [last.xy[0] + sx * v, last.xy[1] + sy * h], r, k)); }); }
+    else inCoda(async () => { await apply(await call('sketch_add_rectangle', sid, ptArg(last), [last.xy[0] + sx * v, last.xy[1] + sy * h], k)); });
+    setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return;
+  }
   SK.pts.push({ id: null, xy: q });
   SK.cursor = { xy: q, id: null, how: 'scritto' };
+  if (SK.tool === 'rect') setHelp(aiutoStrumento() + AIUTI_VISTA);
   drawRubber();
 }
 function skTypedAngle(L, A) {
@@ -10258,20 +10478,21 @@ function skKey(ev) {
   if (ev.ctrlKey || ev.altKey) return false;
   const k = ev.key;
   if ((/^[0-9.,]$/.test(k) || (SK.tool === 'line' && /^[<\-]$/.test(k)) || (SK.tool === 'rect' && SK.buf && /^[xX*]$/.test(k)))
-      && SK.tool !== 'select' && SK.pts.length) { SK.buf += k; drawRubber(); return true; }
+      && SK.tool !== 'select' && (SK.pts.length || (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2))) { SK.buf += k; drawRubber(); return true; }
   if (k === 'Backspace' && SK.buf) { SK.buf = SK.buf.slice(0, -1); drawRubber(); return true; }
   if (k === 'Enter' && SK.pick?.stage === 'sel') {
     if (!SK.sel.size) { toast(`Prima clicca quello ${DA_SCEGLIERE[SK.pick.what] || 'da copiare'}.`, 'err'); return true; }
     skScegliPoiBase(SK.pick); return true;
   }
-  if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); return true; }
+  if (k === 'Enter') { if (SK.buf) skTyped(); else if (SK.tool === 'line' && SK.pts.length >= 2) skFinish(false); else if (tangente() && ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2) tanFai(); return true; }
   if (k === 'Escape') {
     if (SK.buf) { SK.buf = ''; drawRubber(); return true; }
     if (SK.pick?.what === 'corner' || SK.pick?.what === 'corner2') { const t = SK.pick.tool; SK.pick = null; SK.sel.clear(); drawSketch(); setTool(t); return true; }
     if (SK.pick) { SK.pick = null; setTool('select'); return true; }
     if (SK.dimPick.length) { SK.dimPick = []; drawRubber(); return true; }
     if (SK.tool === 'line' && SK.pts.length >= 2) { skFinish(false); return true; }
-    if (SK.pts.length) { SK.pts = []; drawRubber(); return true; }
+    if (SK.pts.length) { SK.pts = []; if (SK.tool === 'rect' || SK.tool === 'circle') setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return true; }
+    if (SK.tanL?.length) { SK.tanL = []; SK.sel.clear(); drawSketch(); setHelp(aiutoStrumento() + AIUTI_VISTA); drawRubber(); return true; }
     if (SK.sel.size) { SK.sel.clear(); drawSketch(); return true; }
     // come negli altri CAD: il primo Esc spegne lo strumento (quota, linea, cerchio…), il secondo esce dallo sketch
     if (SK.tool && SK.tool !== 'select') { setTool('select'); return true; }
@@ -10324,10 +10545,12 @@ function promptCmd() {
   if (P) return null;
   if (SK.tool === 'polygon' && !SK.pts.length) return 'Numero di lati';
   if (SK.tool === 'arcr') return SK.arcR ? 'Raggio dell’arco' : null;
+  if (tangente()) return ultimoCerchio.come === 'tan2' && SK.tanL?.length === 2 ? 'Raggio' : null;
   if (!SK.pts.length) return null;
   if (SK.tool === 'line') return 'Lunghezza, oppure lunghezza<angolo (es. 100<30)';
+  if (SK.tool === 'rect' && ultimoRett.come === 'tre') return SK.pts.length === 1 ? 'Lunghezza del primo lato' : 'Larghezza';
   if (SK.tool === 'rect') return 'Misure: larghezza x altezza (es. 100x50)';
-  if (SK.tool === 'circle') return 'Diametro';
+  if (SK.tool === 'circle') return ultimoCerchio.come === 'centro' ? 'Diametro' : null;
   if (SK.tool === 'slot') return SK.pts.length === 1 ? 'Interasse (distanza tra i centri)' : 'Larghezza dell’asola';
   if (SK.tool === 'polygon') return SK.pts.length ? null : 'Numero di lati';
   if (SK.tool === 'arc3') return null;
@@ -10338,10 +10561,17 @@ function updateCmd() {
   const off = SK?.pick?.what === 'offset';           // mentre fai l'offset è acceso Offset, non lo strumento di prima
   document.querySelectorAll('#sk-panel [data-tool], #ribbon [data-tool]').forEach(b => b.classList.toggle('on', !off && SK?.tool === b.dataset.tool));
   document.querySelectorAll('#sk-panel [data-act="offset"], #ribbon [data-act="offset"]').forEach(b => b.classList.toggle('on', off));
-  box.hidden = !testo;
-  const extra = $('#sk-cmd-extra'), vuole = testo && SK?.tool === 'arcr' && !SK.pick ? 'arcr' : '';
-  if (extra && extra.dataset.cosa !== vuole) { extra.dataset.cosa = vuole; extra.innerHTML = vuole ? arcrScelte() : ''; }
-  if (!testo) { if (document.activeElement === inp) inp.blur(); return; }
+  // 05/11: con Rettangolo e Cerchio la casella c'è sempre, con le scelte di come farli (la parte da scrivere solo se serve)
+  const vari = SK && !SK.pick && (SK.tool === 'rect' || SK.tool === 'circle') ? SK.tool : '';
+  box.hidden = !testo && !vari;
+  const extra = $('#sk-cmd-extra'), vuole = testo && SK?.tool === 'arcr' && !SK.pick ? 'arcr' : vari ? `${vari}:${varianteDi(vari)}` : '';
+  if (extra && extra.dataset.cosa !== vuole) { extra.dataset.cosa = vuole; extra.innerHTML = vuole === 'arcr' ? arcrScelte() : vari ? scelteVarianti(vari) : ''; }
+  for (const el of [inp, box.querySelector('.u'), box.querySelector('.sk-invio')]) if (el) el.style.display = testo ? '' : 'none';
+  if (!testo) {
+    if (document.activeElement === inp) inp.blur();
+    if (vari) { $('#sk-cmd-label').textContent = 'Come:'; misuraSkFoot(); }
+    return;
+  }
   misuraSkFoot();
   $('#sk-cmd-label').textContent = testo;
   if (document.activeElement !== inp) {
@@ -10535,40 +10765,115 @@ function skAction(act) {
     return;
   }
   if (act === 'pattern') {
-    // 03/11: la finestra di lato (non copre il disegno) e le copie in anteprima mentre scrivi, prima di confermare
-    const v0 = SK.lastSerie || { c: '3', px: '50', r: '1', py: '50' };
-    modal(`<h3>Serie</h3><p class="hint">Colonne verso destra e righe verso l’alto, originale compreso. Tratteggiate, le copie come verranno. I passi diventano misure (px, py): li cambi dopo e la serie segue.</p>
+    // 03/11: la finestra di lato (non copre il disegno) e le copie in anteprima mentre scrivi, prima di confermare.
+    // 05/11: in fila (righe e colonne) o attorno a un centro (fori su una flangia: quanti e su quanti gradi)
+    const v0 = { c: '3', px: '50', r: '1', py: '50', come: 'griglia', n: '6', ang: '360', ...(SK.lastSerie || {}) };
+    const c0 = centroSerie(ids);
+    let centro = c0.ref;                                        // un punto del disegno (resta legato) o null = le coordinate
+    modal(`<h3>Serie</h3>
+      <div class="choice" id="p-come"><button data-k="griglia" class="${v0.come === 'griglia' ? 'on' : ''}">In fila<small>righe e colonne</small></button><button data-k="giro" class="${v0.come === 'giro' ? 'on' : ''}">Attorno a un centro<small>fori su una flangia</small></button></div>
+      <div id="p-griglia"><p class="hint">Colonne verso destra e righe verso l’alto, originale compreso. Tratteggiate, le copie come verranno. I passi diventano misure (px, py): li cambi dopo e la serie segue.</p>
       <div class="form"><label>Colonne<input class="field" id="p-c" value="${esc(v0.c)}"></label><label>Passo X (mm)<input class="field" id="p-px" value="${esc(v0.px)}"></label>
-      <label>Righe<input class="field" id="p-r" value="${esc(v0.r)}"></label><label>Passo Y (mm)<input class="field" id="p-py" value="${esc(v0.py)}"></label></div>
+      <label>Righe<input class="field" id="p-r" value="${esc(v0.r)}"></label><label>Passo Y (mm)<input class="field" id="p-py" value="${esc(v0.py)}"></label></div></div>
+      <div id="p-giro"><p class="hint">Quanti in tutto, originale compreso, su quanti gradi (360 = giro intero, tutti alla stessa distanza). L’angolo tra le copie diventa una misura (ang): lo cambi dopo e la serie gira.</p>
+      <div class="form"><label>Quanti in tutto<input class="field" id="p-n" value="${esc(v0.n)}"></label><label>Angolo totale (°)<input class="field" id="p-ang" value="${esc(v0.ang)}"></label>
+      <label>Centro X (mm)<input class="field" id="p-cx" value="${esc(virgola(Math.round(c0.xy[0] * 1000) / 1000))}"></label><label>Centro Y (mm)<input class="field" id="p-cy" value="${esc(virgola(Math.round(c0.xy[1] * 1000) / 1000))}"></label></div>
+      <p class="hint" id="p-centro">${esc(c0.nome)}</p></div>
       <p class="fo-frase" id="p-frase"></p>
       <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Crea serie</button></div>`, close => {
       $('#modal').classList.add('laterale');
-      const leggi = () => ({ c: $('#p-c').value.trim(), px: $('#p-px').value.trim(), r: $('#p-r').value.trim(), py: $('#p-py').value.trim() });
+      let come = v0.come;
+      const leggi = () => ({ come, c: $('#p-c').value.trim(), px: $('#p-px').value.trim(), r: $('#p-r').value.trim(), py: $('#p-py').value.trim(),
+        n: $('#p-n').value.trim(), ang: $('#p-ang').value.trim(), cx: $('#p-cx').value.trim(), cy: $('#p-cy').value.trim() });
       const nn = x => parseFloat(String(x).replace(',', '.'));
       const prova = () => {
-        const v = leggi(), c = Math.round(nn(v.c)), r = Math.round(nn(v.r)), px = nn(v.px), py = nn(v.py);
-        const va = c >= 1 && r >= 1 && c * r >= 2 && (c === 1 || px) && (r === 1 || py) && c * r <= 400;
-        SK.serieProva = va ? { ids, c, r, px: px || 0, py: py || 0 } : null;
-        $('#p-frase').textContent = va ? `${c * r} in tutto (${c} × ${r}), originale compreso` : 'Scrivi colonne, righe e passi con i numeri.';
+        const v = leggi();
+        $('#p-griglia').hidden = come !== 'griglia'; $('#p-giro').hidden = come !== 'giro';
+        document.querySelectorAll('#p-come button').forEach(b => b.classList.toggle('on', b.dataset.k === come));
+        SK.serieCentro = come === 'giro' ? sceltaCentro : null;
+        let va;
+        if (come === 'giro') {
+          const n = Math.round(nn(v.n)), ang = nn(v.ang), cx = nn(v.cx), cy = nn(v.cy);
+          va = n >= 2 && n <= 400 && Math.abs(ang) > 0 && Math.abs(ang) <= 360 && Number.isFinite(cx) && Number.isFinite(cy);
+          const passo = va ? (Math.abs(Math.abs(ang) - 360) < 1e-9 ? ang / n : ang / (n - 1)) : 0;
+          // la crocetta sul centro: grande come un dodicesimo del giro delle copie
+          const lontano = Math.max(1, ...SK.v.circles.filter(x => ids.includes(x.id)).map(x => Math.hypot(x.xc[0] - cx, x.xc[1] - cy) + x.r),
+            ...SK.v.lines.filter(x => ids.includes(x.id)).flatMap(x => [x.xa, x.xb]).map(q => Math.hypot(q[0] - cx, q[1] - cy)));
+          SK.serieProva = va ? { ids, giro: true, n, passo, centro: [cx, cy], croce: lontano / 12 } : null;
+          $('#p-frase').textContent = va ? `${n} in tutto, uno ogni ${num(passo, 2)}°, originale compreso` : 'Scrivi quanti, l’angolo (fino a 360) e il centro con i numeri.';
+        } else {
+          const c = Math.round(nn(v.c)), r = Math.round(nn(v.r)), px = nn(v.px), py = nn(v.py);
+          va = c >= 1 && r >= 1 && c * r >= 2 && (c === 1 || px) && (r === 1 || py) && c * r <= 400;
+          SK.serieProva = va ? { ids, c, r, px: px || 0, py: py || 0 } : null;
+          $('#p-frase').textContent = va ? `${c * r} in tutto (${c} × ${r}), originale compreso` : 'Scrivi colonne, righe e passi con i numeri.';
+        }
         $('#m-ok').disabled = !va;
         drawRubber();
         if (va) scostaDallaFinestra(serieMondo(SK.serieProva));
       };
-      const chiudi = () => { if (SK) { SK.serieProva = null; drawRubber(); } close(); };
-      $('#modal-box .form').addEventListener('input', prova);     // sul contenuto: la cornice della finestra resta per le altre
+      // clic sul disegno con la finestra aperta: il centro (un punto, il centro di un cerchio, un incrocio)
+      const sceltaCentro = ev => {
+        const c = SK.cursor || skCursor(ev);
+        if (!c) return;
+        centro = c.id || c.ref || null;
+        $('#p-cx').value = virgola(Math.round(c.xy[0] * 1000) / 1000); $('#p-cy').value = virgola(Math.round(c.xy[1] * 1000) / 1000);
+        $('#p-centro').textContent = centro ? 'Centro: il punto cliccato (resta attaccato). Clic su un altro punto per cambiarlo.' : 'Centro: il punto cliccato. Clic su un altro punto per cambiarlo.';
+        prova();
+      };
+      const chiudi = () => { if (SK) { SK.serieProva = null; SK.serieCentro = null; SK.cursor = null; drawSnap(null); drawRubber(); } close(); };
+      document.querySelectorAll('#p-come button').forEach(b => { b.onclick = () => { come = b.dataset.k; prova(); (come === 'giro' ? $('#p-n') : $('#p-c')).select(); }; });
+      const scritto = ev => {
+        if (ev.target.id === 'p-cx' || ev.target.id === 'p-cy') { centro = null; $('#p-centro').textContent = 'Centro: le coordinate scritte (dall’origine). Clic su un punto del disegno per prenderlo da lì.'; }
+        prova();
+      };
+      $('#p-griglia').addEventListener('input', scritto);     // sul contenuto: la cornice della finestra resta per le altre
+      $('#p-giro').addEventListener('input', scritto);
       $('#m-no').onclick = chiudi;
-      $('#m-ok').onclick = () => { const v = leggi(); SK.lastSerie = v; chiudi();
-        inCoda(async () => { await apply(await call('sketch_pattern', sid, ids, v.c, v.px, v.r, v.py)); }); };
+      $('#m-ok').onclick = () => {
+        const v = leggi(); SK.lastSerie = v; const cc = centro || [nn(v.cx), nn(v.cy)]; chiudi();
+        if (v.come === 'giro') inCoda(async () => { await apply(await call('sketch_pattern_circular', sid, ids, cc, v.n, v.ang)); });
+        else inCoda(async () => { await apply(await call('sketch_pattern', sid, ids, v.c, v.px, v.r, v.py)); });
+      };
       $('#modal-box').onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) $('#m-ok').click(); if (ev.key === 'Escape') chiudi(); };
       prova();
-      $('#p-c').select();
+      (come === 'giro' ? $('#p-n') : $('#p-c')).select();
     });
     return;
   }
 }
+// il centro proposto per la serie attorno: il cerchio più grande che non è nella selezione (la flangia), se no l'origine
+function centroSerie(ids) {
+  const dentro = new Set(ids);
+  const tondi = [...SK.v.circles, ...(SK.v.arcs || [])].filter(c => !dentro.has(c.id) && c.center_id)
+    .filter(c => !SK.v.circles.some(x => dentro.has(x.id) && Math.hypot(x.xc[0] - c.xc[0], x.xc[1] - c.xc[1]) < 1e-6))
+    .sort((a, b) => b.r - a.r);
+  const g = tondi[0];
+  if (g) return { ref: g.center_id, xy: g.xc, nome: `Centro: il centro del cerchio Ø${virgola(Math.round(g.r * 200) / 100)}. Clic su un punto del disegno per cambiarlo.` };
+  return { ref: 'O', xy: [0, 0], nome: 'Centro: l’origine. Clic su un punto del disegno (il centro di un cerchio) per cambiarlo.' };
+}
+// le copie girate attorno al centro C di «gradi» (coordinate dello sketch), per l'anteprima
+function anteprimaGiro(ids, C, gradi, add) {
+  const t = gradi * Math.PI / 180, ca = Math.cos(t), sa = Math.sin(t);
+  const ru = q => [C[0] + (q[0] - C[0]) * ca - (q[1] - C[1]) * sa, C[1] + (q[0] - C[0]) * sa + (q[1] - C[1]) * ca];
+  const dentro = new Set(ids);
+  for (const l of SK.v.lines) if (dentro.has(l.id)) add([ru(l.xa), ru(l.xb)], SK_ANTEPRIMA);
+  for (const c of SK.v.circles) if (dentro.has(c.id)) {
+    const o = ru(c.xc), p = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; p.push([o[0] + c.r * Math.cos(a), o[1] + c.r * Math.sin(a)]); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const a of SK.v.arcs || []) if (dentro.has(a.id)) {
+    const p = []; for (let i = 0; i <= 48; i++) { const u = a.a0 + (a.a1 - a.a0) * i / 48; p.push(ru([a.xc[0] + a.r * Math.cos(u), a.xc[1] + a.r * Math.sin(u)])); }
+    add(p, SK_ANTEPRIMA);
+  }
+  for (const tx of SK.v.texts || []) if (dentro.has(tx.id)) for (const st of tx.strokes) add(st.map(q => ru(skToLocal(v3(q)))), SK_ANTEPRIMA);
+}
 // i punti (nel 3D) delle copie della serie in prova: per tenerle fuori da sotto la finestra
 function serieMondo(P) {
   const out = [];
+  if (P.giro) {
+    for (let k = 1; k < P.n; k++) anteprimaGiro(P.ids, P.centro, k * P.passo, pts => { for (const q of pts) out.push(skToWorld(q)); });
+    return out;
+  }
   for (const c of SK.v.circles) if (P.ids.includes(c.id)) for (let j = 0; j < P.r; j++) for (let i = 0; i < P.c; i++) {
     out.push(skToWorld([c.xc[0] + i * P.px + c.r, c.xc[1] + j * P.py]), skToWorld([c.xc[0] + i * P.px - c.r, c.xc[1] + j * P.py]));
   }

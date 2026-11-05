@@ -28,7 +28,7 @@ from cad_engine.sketch.profile import PLANES  # noqa: E402
 from cad_engine.structures import cut_list  # noqa: E402
 from cad_engine.structures.frame import JOINT_LABELS, SEP_PEZZO  # noqa: E402
 from cad_engine.sheetmetal import METODI, POSIZIONI, TIP_CORNERS, VERSI  # noqa: E402
-from app import sketch_edit, sketch_more, sketch_ops, sketch_scala, sketch_trim  # noqa: E402
+from app import sketch_edit, sketch_forme, sketch_more, sketch_ops, sketch_scala, sketch_trim  # noqa: E402
 from app.assembly_service import AssemblyMixin  # noqa: E402
 from app.drawings_service import DrawingsMixin  # noqa: E402
 from app.import_service import ImportMixin  # noqa: E402
@@ -222,10 +222,10 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         if k in nomi:
             return nomi[k]
         # i parametri che nascono dai comandi: la fila di fori (px1, py1), l'offset (off1)
-        m = re.fullmatch(r'(px|py|off)(\d+)', k)
+        m = re.fullmatch(r'(px|py|off|ang)(\d+)', k)
         if m:
             return {'px': 'Distanza tra i fori della fila', 'py': 'Distanza tra le file',
-                    'off': 'Distanza dal contorno'}[m.group(1)]
+                    'off': 'Distanza dal contorno', 'ang': 'Angolo tra le copie (°)'}[m.group(1)]
         return None
 
     def _parameters(self):
@@ -235,7 +235,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             risolti = {}
         nomi = self._etichette_parametri()
         return [{'name': k, 'value': v, 'resolved': risolti.get(k), 'label': self._nome_parametro(k, nomi),
-                 'auto': bool(re.fullmatch(r'(px|py|off)\d+', k))}
+                 'auto': bool(re.fullmatch(r'(px|py|off|ang)\d+', k))}
                 for k, v in self.doc.parameters.items()]
 
     # le sigle dei parametri in parole, per il pannello: prima quelle dei campi del modello, poi le solite
@@ -1956,6 +1956,62 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         return self._sketch_change('Rettangolo' + (' di costruzione' if construction else ''),
                                    lambda: sketch_ops.add_rectangle(self.doc, sid, p0, p1, construction))
 
+    # 05/11: gli altri modi di fare rettangoli e cerchi (dentro gli strumenti Rettangolo e Cerchio)
+    def sketch_add_rectangle_center(self, sid: str, center, corner, construction: bool = False) -> dict:
+        try:
+            center, corner = _punto(center, 'il centro'), _punto(corner, 'l’angolo')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change('Rettangolo dal centro', lambda: sketch_forme.add_rectangle_center(
+            self.doc, sid, center, corner, construction))
+
+    def sketch_add_rectangle_3p(self, sid: str, p1, p2, p3, construction: bool = False) -> dict:
+        try:
+            p1, p2, p3 = _punto(p1), _punto(p2), _punto(p3)
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change('Rettangolo a 3 punti', lambda: sketch_forme.add_rectangle_3p(
+            self.doc, sid, p1, p2, p3, construction))
+
+    def sketch_add_rectangle_rounded(self, sid: str, p0, p1, r, construction: bool = False) -> dict:
+        try:
+            p0, p1, r = _punto(p0, 'l’angolo'), _punto(p1, 'l’angolo'), _numero(r, 'il raggio')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Rettangolo raccordato R{fmt_mm(float(r))}', lambda: sketch_forme.add_rectangle_rounded(
+            self.doc, sid, p0, p1, r, construction))
+
+    def sketch_add_circle_3p(self, sid: str, p1, p2, p3, construction: bool = False) -> dict:
+        try:
+            p1, p2, p3 = _punto(p1), _punto(p2), _punto(p3)
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change('Cerchio per 3 punti', lambda: sketch_forme.add_circle_3p(
+            self.doc, sid, p1, p2, p3, construction))
+
+    def sketch_add_circle_tangent(self, sid: str, linee: list, r=None, vicino=None, clic=None,
+                                  construction: bool = False) -> dict:
+        """Cerchio tangente a 2 linee (r = raggio scritto, vicino = il mouse: in quale angolo) o a 3 linee (clic = i
+        punti cliccati sulle linee: il cerchio che le tocca lì vicino)."""
+        try:
+            if not isinstance(linee, (list, tuple)) or len(linee) not in (2, 3):
+                raise SteelCADError('Clicca 2 o 3 linee.', code='tangente')
+            r = _numero(r, 'il raggio') if len(linee) == 2 and r not in (None, '') else None
+            vicino = _punto(vicino) if vicino is not None else None
+            clic = [_punto(q) for q in clic] if clic else None
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Cerchio tangente a {len(linee)} linee', lambda: sketch_forme.add_circle_tangent(
+            self.doc, sid, list(linee), r, vicino, clic, construction))
+
+    def sketch_circle_tangent_preview(self, sid: str, linee: list, r=None, vicino=None, clic=None) -> dict:
+        """Il cerchio tangente come verrebbe, per l'anteprima: non cambia niente."""
+        try:
+            (cx, cy), rr = sketch_forme.tangent_circle_geometry(self.doc, sid, list(linee), r, vicino, clic)
+        except Exception as ex:  # noqa: BLE001
+            return _err(ex)
+        return _ok(center=[cx, cy], r=rr)
+
     def sketch_add_circle(self, sid: str, center, r, construction: bool = False) -> dict:
         try:
             center, r = _punto(center, 'il centro'), _numero(r, 'il raggio')
@@ -3096,6 +3152,19 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
     def sketch_pattern(self, sid: str, eids: list, cols, px, rows, py) -> dict:
         return self._sketch_change(f'Serie {cols} × {rows}', lambda: sketch_edit.pattern(
             self.doc, sid, eids, int(_number(cols)), _number(px), int(_number(rows)), _number(py)))
+
+    def sketch_pattern_circular(self, sid: str, eids: list, center, n, angolo=360) -> dict:
+        """Serie attorno a un centro (05/11): n elementi in tutto, originale compreso, su un angolo totale (360 = giro
+        intero). L'angolo tra le copie diventa la misura ang1: la cambi dopo e la serie gira."""
+        try:
+            center = _punto(center, 'il centro')
+            n, angolo = _numero(n, 'quanti'), _numero(angolo, 'l’angolo')
+            if n != int(n):
+                raise SteelCADError('Quanti elementi: scrivi un numero intero.', code='serie')
+        except SteelCADError as ex:
+            return _err(ex)
+        return self._sketch_change(f'Serie di {int(n)} attorno a un centro', lambda: sketch_edit.pattern_circular(
+            self.doc, sid, eids, center, int(n), float(angolo)))
 
     def sketch_dimension(self, sid: str, kind: str, refs: list) -> dict:
         try:

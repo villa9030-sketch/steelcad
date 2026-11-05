@@ -431,6 +431,94 @@ def pattern(doc, sid, eids, cols, px, rows=1, py=0):
     return nuove
 
 
+def _passo_angolo(n: int, totale: float) -> float:
+    """L'angolo tra una copia e la successiva: sul giro intero sono equidistanti (360/n), su un arco la prima e
+    l'ultima stanno agli estremi (totale/(n-1))."""
+    giro = abs(abs(totale) - 360) < 1e-9
+    return totale / n if giro else totale / (n - 1)
+
+
+def _angoli_serie(n: int, totale: float) -> list[float]:
+    passo = _passo_angolo(n, totale)
+    return [passo * k for k in range(1, n)]
+
+
+def _ruota(c, gradi):
+    a = math.radians(gradi)
+    ca, sa = math.cos(a), math.sin(a)
+    return lambda p: (c[0] + (p[0] - c[0]) * ca - (p[1] - c[1]) * sa, c[1] + (p[0] - c[0]) * sa + (p[1] - c[1]) * ca)
+
+
+def pattern_circular(doc, sid, eids, center, n, total=360):
+    """Serie attorno a un centro (05/11, idea da SolidCraft): n elementi in tutto, originale compreso, su un angolo
+    totale (360 = giro intero, equidistanti; meno di 360 = la prima e l'ultima agli estremi). Esempio: 8 fori su
+    una flangia tonda.
+
+    Come lo specchio, le copie non sono morte: ogni punto della copia è il punto dell'originale girato attorno al
+    centro (vincolo «girato attorno al centro»), i cerchi hanno lo stesso diametro dell'originale. L'angolo tra una
+    copia e l'altra diventa un parametro (ang1): lo cambi dopo e le copie girano. Il centro è un punto cliccato (il
+    centro di un cerchio, un punto del disegno), un aggancio, oppure le coordinate [x, y]."""
+    from .sketch_ops import _point_ref, _position
+    sk = doc.sketch(sid)
+    _check(sk, eids)
+    n, total = int(n), float(total)
+    if n < 2:
+        raise SketchError('Per una serie servono almeno 2 elementi (originale compreso).')
+    if n > 400:
+        raise SketchError('Al massimo 400 elementi in una serie.')
+    if abs(total) < 1e-9 or abs(total) > 360 + 1e-9:
+        raise SketchError('L’angolo della serie va da 1 a 360 gradi (360 = giro intero).')
+    if any(sk.entities[e].get('kind') == 'point' for e in eids):
+        eids = [e for e in eids if sk.entities[e]['kind'] != 'point']
+        _check(sk, eids)
+    _sync(doc, sk)
+    pid, cxy, nuovo = _point_ref(sk, center)
+    if nuovo and not isinstance(center, dict):
+        _position(sk, pid, cxy)              # un centro scritto con le coordinate: quotato dall'origine
+    cxy = _xy(sk, pid)
+    punti = _points_of(sk, eids)
+    if ORIGIN in punti and pid != ORIGIN:
+        raise SketchError('Non si gira l’origine: seleziona linee o cerchi che non ci passano.')
+    if all(math.dist(_xy(sk, p), cxy) < 1e-6 for p in punti):
+        raise SketchError('Quello scelto sta tutto sul centro: girandolo resta lì. Scegli un altro centro.')
+    # il parametro è l'angolo tra una copia e l'altra (come il passo della serie a griglia): cambiato dopo, le copie
+    # girano tutte insieme e restano equidistanti
+    par = _new_param(doc, 'ang', _r(_passo_angolo(n, total)))
+    nuove = []
+    for k, g in enumerate(_angoli_serie(n, total), start=1):
+        rot = _ruota(cxy, g)
+        expr = f'{k}*{par}'
+        mappa = {}
+        for p in punti:
+            if p == pid or math.dist(_xy(sk, p), cxy) < 1e-6:
+                mappa[p] = p                 # sta sul centro: resta lui
+                continue
+            mappa[p] = sk.point(*rot(_xy(sk, p)))
+            vid = sk.constrain('rotated', p, mappa[p], pid)
+            sk.constraints[vid]['value'] = expr
+        for e in eids:
+            ent = sk.entities[e]
+            guida = bool(ent.get('construction')) and not ent.get('ref') and not ent.get('xray')
+            if ent['kind'] == 'line':
+                l = sk.line(mappa[ent['a']], mappa[ent['b']], construction=guida)
+                sk.entities[l]['label'] = f'lato {l}'
+                nuove.append(l)
+            elif ent['kind'] == 'circle':
+                c = sk.circle(mappa[ent['center']], ent['r'], construction=guida)
+                sk.constrain('equal', c, e)
+                if ent.get('hole'):
+                    sk.entities[c]['hole'] = dict(ent['hole'])
+                nuove.append(c)
+            elif ent['kind'] == 'arc':
+                nuove.append(sk.arc(mappa[ent['center']], mappa[ent['start']], mappa[ent['end']], construction=guida))
+            elif ent['kind'] == 'text':
+                t = sk.text(mappa[ent['center']], ent['text'], ent['h'], (ent.get('angle') or 0) + g, ent.get('stencil'))
+                if ent.get('centrato'):
+                    sk.entities[t]['centrato'] = True
+                nuove.append(t)
+    return nuove
+
+
 def move(doc, sid, eids, dx, dy):
     """Sposta: si spostano i punti e si aggiornano le quote di posizione che li legano al resto."""
     sk = doc.sketch(sid)
@@ -668,3 +756,4 @@ offset = guarded(offset)
 mirror = guarded(mirror)
 copy = guarded(copy)
 pattern = guarded(pattern)
+pattern_circular = guarded(pattern_circular)

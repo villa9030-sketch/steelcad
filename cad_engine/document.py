@@ -419,7 +419,7 @@ class Document:
         nomi: set[str] = set()
         if isinstance(f, Sketch):
             for c in f.constraints.values():
-                if c['type'] in DIMENSIONS:
+                if c['type'] in DIMENSIONS or c['type'] == 'rotated':
                     nomi |= names_in(c.get('value'))
         elif f['type'] == 'structure':
             for v in (f.get('points') or {}).values():

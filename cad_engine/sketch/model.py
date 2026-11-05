@@ -24,6 +24,7 @@ CONSTRAINTS = {
     'parallel': 'parallelo', 'perpendicular': 'perpendicolare', 'tangent': 'tangente',
     'equal': 'uguale', 'concentric': 'concentrico', 'symmetric': 'simmetrico', 'fix': 'fisso',
     'on_line': 'sulla linea',
+    'rotated': 'girato attorno al centro',    # [punto, copia, centro], 'value' = angolo in gradi (serie attorno a un centro)
 }
 DIMENSIONS = {
     'distance': 'distanza', 'length': 'lunghezza', 'hdistance': 'distanza orizzontale',
