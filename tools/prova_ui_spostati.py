@@ -15,7 +15,7 @@ ok = []
 def chk(c, e): ok.append(bool(e)); print(('OK  ' if e else 'NO  ') + c, flush=True)
 try:
     with sync_playwright() as p:
-        b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = p.chromium.launch(executable_path=__import__('os').environ.get('RADIUS_CHROME'), args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
         pg = b.new_page(viewport={'width': 1400, 'height': 850}); err = []; pg.on('pageerror', lambda e: err.append(str(e)))
         pg.add_init_script("try { localStorage.setItem('steelcad.tema', 'scuro'); } catch {}")
         pg.goto('http://127.0.0.1:5186/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)

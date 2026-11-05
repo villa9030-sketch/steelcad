@@ -19,7 +19,7 @@ esiti = []
 def ok(t, c): esiti.append(bool(c)); print(('OK   ' if c else 'NO   ') + t, flush=True)
 try:
     with sync_playwright() as p:
-        b = p.chromium.launch(channel='chrome', args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = p.chromium.launch(executable_path=__import__('os').environ.get('RADIUS_CHROME'), channel='chrome', args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
         pg = b.new_page(viewport={'width': 1440, 'height': 900})
         err = []; pg.on('pageerror', lambda e: err.append(str(e)))
         pg.goto(f'http://127.0.0.1:{PORTA}/?dev'); pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=30000)

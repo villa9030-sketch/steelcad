@@ -74,6 +74,20 @@ class Sketch:
         nomi = {'point': 'punto', 'line': 'linea', 'circle': 'cerchio', 'arc': 'arco', 'text': 'testo'}
         if eid == ORIGIN:
             return "l'origine"
+        # 05/11: niente nomi interni («punto P6»): dove sta o quanto è lungo, come lo vede l'officina
+        try:
+            k = e.get('kind')
+            if k == 'point':
+                return f"punto in {fmt_mm(e['x'])}; {fmt_mm(e['y'])}"
+            if k == 'line':
+                a, b = self.entities[e['a']], self.entities[e['b']]
+                return f"linea lunga {fmt_mm(math.hypot(b['x'] - a['x'], b['y'] - a['y']))}"
+            if k == 'circle':
+                return f"cerchio Ø{fmt_mm(2 * e['r'])}"
+            if k == 'arc' and isinstance(e.get('r'), (int, float)):
+                return f"arco R{fmt_mm(e['r'])}"
+        except (KeyError, TypeError):
+            pass
         return f"{nomi.get(e.get('kind'), 'elemento')} {eid}"
 
     # ---------------------------------------------------------- geometria

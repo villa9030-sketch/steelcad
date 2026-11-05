@@ -35,7 +35,7 @@ while not srv.stdout.readline().startswith(b'http'):
 API = "async ([n, a]) => { const r = await (await fetch('/api/' + n, {method: 'POST', body: JSON.stringify(a)})).json(); return r; }"
 try:
     with sync_playwright() as p:
-        b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = p.chromium.launch(executable_path=__import__('os').environ.get('RADIUS_CHROME'), args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
         pg = b.new_page(viewport={'width': 1440, 'height': 900})
         errori = []
         pg.on('pageerror', lambda e: errori.append(str(e)))

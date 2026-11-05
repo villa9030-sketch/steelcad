@@ -35,7 +35,7 @@ def ok(t, c):
 
 try:
     with sync_playwright() as p:
-        b = p.chromium.launch(channel='chrome', args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+        b = p.chromium.launch(executable_path=__import__('os').environ.get('RADIUS_CHROME'), channel='chrome', args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
         pg = b.new_page(viewport={'width': 1440, 'height': 900})
         err = []
         pg.on('pageerror', lambda e: err.append(str(e)))

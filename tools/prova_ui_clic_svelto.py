@@ -30,7 +30,7 @@ def main():
     buono = False
     try:
         with sync_playwright() as p:
-            b = p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+            b = p.chromium.launch(executable_path=__import__('os').environ.get('RADIUS_CHROME'), args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
             pg = b.new_page(viewport={'width': 1500, 'height': 900})
             pg.goto(f'http://127.0.0.1:{PORTA}/?dev')
             pg.wait_for_function('window.__steelcad && window.__steelcad.ready', timeout=60000)
