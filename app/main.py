@@ -670,6 +670,9 @@ class Api:
     def asm_interferences(self):
         return self._call(self._svc.asm_interferences)
 
+    def asm_gioco(self, a, b):
+        return self._call(self._svc.asm_gioco, a, b)
+
     def asm_tabs(self, iid, face, n, w, gioco, sporgenza=0):
         return self._call(self._svc.asm_tabs, iid, face, n, w, gioco, sporgenza)
 

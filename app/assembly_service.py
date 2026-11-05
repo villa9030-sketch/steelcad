@@ -977,6 +977,39 @@ class AssemblyMixin:
         return self._asm_change(f'Togli {mid}', fn)
 
     @_in_assieme
+    def asm_gioco(self, a: dict, b: dict) -> dict:
+        """Il gioco tra due pezzi (05/11, da SolidCraft inspect.clearance): clic su una faccia di un pezzo e su una
+        dell'altro → la distanza tra le due facce e quella più corta tra i due pezzi interi, coi punti per la linea
+        nel 3D. Se si toccano o uno entra nell'altro lo dice (il pezzo in comune come nelle interferenze)."""
+        from cad_engine.mesh import tessellate
+        try:
+            g = A.gioco(self.asm, self.asm_parts, a, b)
+        except SteelCADError as ex:
+            return {'ok': False, 'message': ex.message, 'code': ex.code}
+        nomi = {i['id']: i['name'] for i in self.asm.instances}
+        na, nb = nomi.get(a['inst'], a['inst']), nomi.get(b['inst'], b['inst'])
+        mm = lambda v: fmt_mm(round(v, 2))  # noqa: E731
+        pz = g['pezzi']
+        forma = pz.pop('forma', None)
+        if pz['stato'] == 'dentro':
+            frase = f'«{na}» e «{nb}» entrano uno nell’altro: {fmt_mm(round(pz["volume"], 1))} mm³ in comune, in rosso.'
+            try:
+                m = tessellate(forma.wrapped if hasattr(forma, 'wrapped') else forma)
+                bb = forma.bounding_box()
+                pz['mesh'] = {'positions': m['positions'], 'indices': m['indices']}
+                pz['centro'] = [(bb.min.X + bb.max.X) / 2, (bb.min.Y + bb.max.Y) / 2, (bb.min.Z + bb.max.Z) / 2]
+            except Exception:  # noqa: BLE001 - senza la forma resta la frase
+                pass
+        elif pz['stato'] == 'tocca':
+            frase = f'«{na}» e «{nb}» si toccano (gioco zero).'
+        else:
+            frase = f'Tra «{na}» e «{nb}», nel punto più vicino: {mm(pz["mm"])} mm.'
+        if 'facce' in g:
+            fc = g['facce']
+            frase = (f'Tra le due facce: {mm(fc["mm"])} mm.' if fc['mm'] > 1e-3 else 'Le due facce si toccano.') + ' ' + frase
+        return _ok(gioco=g, nomi=[na, nb], message=frase)
+
+    @_in_assieme
     def asm_interferences(self) -> dict:
         """Le interferenze, ognuna col pezzo in comune (03/11: si vede in rosso sul 3D, col nome dei due pezzi)."""
         from cad_engine.mesh import tessellate

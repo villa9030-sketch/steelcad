@@ -1220,6 +1220,7 @@ body.dark .dim.ing { color: #FFC266; border-color: #8A6A1F; }
 #mis-snap.mis-centro, #mis-snap.mis-cerchio { border-radius: 50%; }
 #mis-snap.mis-meta { transform: rotate(45deg); }
 #mis-snap.mis-punto { width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; }
+#mis-snap.mis-mezzo { border-radius: 50%; background: radial-gradient(circle, #FFB000 0 2px, transparent 2.5px); }
 /* nuovo assieme: pezzi e quantità */
 .na-testa { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .na-lista { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 6px; }
@@ -1935,6 +1936,9 @@ body.trascina-quota, body.trascina-quota * { cursor: ew-resize !important; user-
 .dim.ing, body.dark .dim.ing { color: var(--c-testo-2); border-color: var(--c-linea); }
 #interf-box .dim.interf { border-color: var(--c-err); color: var(--c-err-testo); }
 #mis-box .dim.mis { border-color: var(--c-sel); color: var(--c-testo); background: var(--c-sel-tenue); }
+#mis-box .dim.mis.rosso { border-color: var(--c-err); color: var(--c-err-testo); }
+#gioco-pan .gc-mm { margin: 2px 0 0; font-size: 15px; }
+#gioco-pan .gc-rosso { color: var(--c-err-testo); }
 .node-dot, body.dark .node-dot { border-color: var(--c-testo-2); background: var(--c-pannello); }
 .node-dot:hover { border-color: var(--c-blu); background: var(--c-blu); }
 .node-dot.sel { border-color: #8A5A00; background: var(--c-sel); }

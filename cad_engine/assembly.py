@@ -895,7 +895,6 @@ def placed_shape(part: Part, R, T):
 def interferences(asm: Assembly, parts: dict, tol: float = 1e-3, forme: bool = False) -> list:
     """Le coppie di istanze che si compenetrano, con il volume in comune (mm³); con forme anche il pezzo in comune
     ('forma', nel mondo: per farlo vedere in rosso)."""
-    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
     forme = []
     for i in asm.instances:
         part = parts.get(i['file'])
@@ -908,12 +907,79 @@ def interferences(asm: Assembly, parts: dict, tol: float = 1e-3, forme: bool = F
             if (ba.max.X < bb.min.X or bb.max.X < ba.min.X or ba.max.Y < bb.min.Y or bb.max.Y < ba.min.Y
                     or ba.max.Z < bb.min.Z or bb.max.Z < ba.min.Z):
                 continue
-            try:
-                op = BRepAlgoAPI_Common()
-                c = sa._bool_op((sa,), (sb,), op)
-                v = c.volume
-            except Exception:  # noqa: BLE001
-                continue
-            if v > tol:
+            c, v = _in_comune(sa, sb)
+            if c is not None and v > tol:
                 out.append({'a': ia, 'b': ib, 'volume': v, **({'forma': c} if forme else {})})
+    return out
+
+
+def _in_comune(sa, sb):
+    """Il pezzo in comune tra due forme (quello che entra), col volume in mm³; (None, 0) se il conto non riesce."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    try:
+        c = sa._bool_op((sa,), (sb,), BRepAlgoAPI_Common())
+        return c, c.volume
+    except Exception:  # noqa: BLE001
+        return None, 0.0
+
+
+def _forma_scelta(asm: Assembly, parts: dict, scelta: dict):
+    """Il pezzo (o la sua faccia, se c'è 'face') di un'istanza, al suo posto nell'assieme."""
+    import build123d as bd
+    from .topology.naming import _faces_of
+    i = asm.instance(scelta['inst'])
+    part = parts.get(i['file'])
+    if part is None:
+        raise AssemblyError(f'Il pezzo di {i["id"]} non si legge.')
+    s = placed_shape(part, i['R'] if i.get('R') else np.eye(3).tolist(), i.get('T') or [0, 0, 0])
+    if scelta.get('face') is None:
+        return s, None
+    facce = _faces_of(s.wrapped)                    # stesso ordine del pezzo: lo spostamento non cambia le facce
+    k = int(scelta['face'])
+    if not 0 <= k < len(facce):
+        raise AssemblyError('Clicca una faccia del pezzo.')
+    return s, bd.Face(facce[k])
+
+
+def gioco(asm: Assembly, parts: dict, a: dict, b: dict, tol: float = 1e-3) -> dict:
+    """Il gioco tra due pezzi dell'assieme (idea da SolidCraft, inspect.clearance): la distanza più corta e i due
+    punti dove si misura, tra i pezzi interi e, se si sono cliccate, tra le due facce. Se i pezzi si toccano o uno
+    entra nell'altro lo dice (col pezzo in comune, lo stesso conto delle interferenze).
+    'pezzi': {'mm', 'p', 'q', 'stato': 'gioco' | 'tocca' | 'dentro', 'volume', 'forma'}; 'facce': {'mm', 'p', 'q'}."""
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    if a['inst'] == b['inst']:
+        raise AssemblyError('Scegli due pezzi diversi.')
+    sa, fa = _forma_scelta(asm, parts, a)
+    sb, fb = _forma_scelta(asm, parts, b)
+
+    def dist(x, y):
+        d = BRepExtrema_DistShapeShape(x.wrapped, y.wrapped)
+        if not d.IsDone() or d.NbSolution() < 1:
+            raise AssemblyError('Non riesco a misurare la distanza tra questi due pezzi.')
+        p, q = d.PointOnShape1(1), d.PointOnShape2(1)
+        return {'mm': d.Value(), 'p': [p.X(), p.Y(), p.Z()], 'q': [q.X(), q.Y(), q.Z()]}
+
+    pezzi = dist(sa, sb)
+    pezzi['stato'] = 'gioco' if pezzi['mm'] > tol else 'tocca'
+    if pezzi['stato'] == 'tocca':
+        c, v = _in_comune(sa, sb)
+        if c is not None and v > tol:
+            pezzi.update(stato='dentro', volume=v, forma=c)
+    out = {'pezzi': pezzi}
+    if fa is not None and fb is not None:
+        fc = dist(fa, fb)
+        # due facce parallele hanno il gioco uguale dappertutto: la linea dove si è cliccato, non in un angolo
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.gp import gp_Pnt
+        for pt, altra, giro in ((a.get('pt'), fb, False), (b.get('pt'), fa, True)):
+            if pt is None:
+                continue
+            v = BRepBuilderAPI_MakeVertex(gp_Pnt(*map(float, pt))).Vertex()
+            d = BRepExtrema_DistShapeShape(v, altra.wrapped)
+            if d.IsDone() and d.NbSolution() and abs(d.Value() - fc['mm']) < 1e-4:
+                q = d.PointOnShape2(1)
+                p, q = [float(x) for x in pt], [q.X(), q.Y(), q.Z()]
+                fc.update(p=q if giro else p, q=p if giro else q)
+                break
+        out['facce'] = fc
     return out
