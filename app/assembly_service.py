@@ -113,6 +113,7 @@ class AssemblyMixin:
         validi = A.Assembly(self.asm.name, [i for i in self.asm.instances if i['file'] in parti],
                             [m for m in self.asm.mates if m['a']['inst'] in self._asm_ids(parti) and m['b']['inst'] in self._asm_ids(parti)],
                             self.asm.path)
+        validi.gruppi = self.asm.gruppi
         A.solve(validi, parti)
         self.asm.warnings = getattr(validi, 'warnings', [])
         self.asm_ms = (time.perf_counter() - t0) * 1000
@@ -390,6 +391,7 @@ class AssemblyMixin:
             self.asm.instance(iid)
             self.asm.instances = [i for i in self.asm.instances if i['id'] != iid]
             self.asm.mates = [m for m in self.asm.mates if iid not in (m['a']['inst'], m['b']['inst'])]
+            self._togli_dai_gruppi(iid)
         return self._asm_change(f'Togli {iid}', fn)
 
     @_in_assieme
@@ -397,9 +399,11 @@ class AssemblyMixin:
         from app.service import _numero
 
         def fn():
-            i = self.asm.instance(iid)
+            self.asm.instance(iid)
             d = [_numero(v or 0, 'lo spostamento') for v in (dx, dy, dz)]
-            i['T'] = (np.array(i.get('T') or [0, 0, 0]) + d).tolist()
+            for x in A.compagni(self.asm, iid):         # i pezzi bloccati insieme si spostano tutti
+                i = self.asm.instance(x)
+                i['T'] = (np.array(i.get('T') or [0, 0, 0]) + d).tolist()
         return self._asm_change(f'Sposta {iid}', fn)
 
     @_in_assieme
@@ -418,6 +422,11 @@ class AssemblyMixin:
             c = R @ np.array([(bb.min.X + bb.max.X) / 2, (bb.min.Y + bb.max.Y) / 2, (bb.min.Z + bb.max.Z) / 2]) + T
             d = {'x': [1, 0, 0], 'y': [0, 1, 0], 'z': [0, 0, 1]}[axis.lower()]
             Q = A._rot_axis(np.array(d, dtype=float), np.radians(gradi))
+            insieme = A.compagni(self.asm, iid)
+            if len(insieme) > 1:                        # bloccati insieme: girano tutti attorno al centro del gruppo
+                c = self._centro_gruppo(insieme)
+                self._sposta_compagni(iid, Q, c - Q @ c, anche_lui=True)
+                return
             i['R'] = (Q @ R).tolist()
             i['T'] = (Q @ (T - c) + c).tolist()
         return self._asm_change(f'Ruota {iid}', fn)
@@ -630,6 +639,9 @@ class AssemblyMixin:
         def fn():
             if a['inst'] == b['inst']:
                 raise A.AssemblyError('Le due facce sono dello stesso pezzo: scegline una su un altro pezzo.')
+            if self._stesso_gruppo(a['inst'], b['inst']):
+                raise A.AssemblyError('I due pezzi sono bloccati insieme: tra loro non si muove niente. Scegli un pezzo '
+                                      'fuori dal gruppo (o sciogli il gruppo).')
             serve_a, serve_b, msg = self._SERVE[kind]
             refs = {'a': self._foro_da_clic(a), 'b': self._foro_da_clic(b)} if kind == 'asse' else {'a': a, 'b': b}
             if kind == 'centra':
@@ -697,7 +709,10 @@ class AssemblyMixin:
         from cad_engine.assembly_appoggia import appoggia_senza_entrare
         if not mobile or not fermo or mobile.get('inst') == fermo.get('inst'):
             raise A.AssemblyError('Appoggia: clic su una faccia del pezzo da mettere, poi su una faccia di un altro pezzo.')
-        if mobile['inst'] == self._terra() and fermo['inst'] != self._terra():
+        if self._stesso_gruppo(mobile['inst'], fermo['inst']):
+            raise A.AssemblyError('I due pezzi sono bloccati insieme: scegli un pezzo fuori dal gruppo.')
+        terra = set(A.compagni(self.asm, self._terra()))
+        if mobile['inst'] in terra and fermo['inst'] not in terra:
             mobile, fermo = fermo, mobile                # il pezzo fermo resta fermo: si muove l'altro
         ia, ib = self.asm.instance(fermo['inst']), self.asm.instance(mobile['inst'])
         pa, pb = self.asm_parts.get(ia['file']), self.asm_parts.get(ib['file'])
@@ -737,9 +752,7 @@ class AssemblyMixin:
                 ia, ib, ka, r = self._appoggia_conti(mobile, fermo, opz)
             except SteelCADError as ex:
                 return {'ok': False, 'message': ex.message}
-            R, T = r['R'], r['T']
-            posa = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
-            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, **self._appoggia_info(ia, ib, r)}
+            return {'ok': True, 'pose': self._pose_insieme(ib['id'], r['R'], r['T']), **self._appoggia_info(ia, ib, r)}
         esito = {}
 
         def fn():
@@ -749,9 +762,9 @@ class AssemblyMixin:
                 raise A.AssemblyError(f'Così «{ib["name"]}» entra in «{ia["name"]}» e non trovo dove posarlo: scegli '
                                       'un’altra faccia o spostalo dal bordo.')
             esito.update(self._appoggia_info(ia, ib, r))
+            self._sposta_compagni(ib['id'], *self._movimento(ib['id'], r['R'], r['T']))   # i bloccati con lui
             ib['R'], ib['T'] = r['R'].tolist(), r['T'].tolist()
-            coppia = {ia['id'], ib['id']}
-            self.asm.mates = [m for m in self.asm.mates if {m['a']['inst'], m['b']['inst']} != coppia]
+            self.asm.mates = self._senza_accoppiamenti_tra(ia['id'], ib['id'])   # anche dei pezzi bloccati con loro
             usati = {m['id'] for m in self.asm.mates}
 
             def nuovo(tipo, lato=None, **refs):
@@ -815,7 +828,10 @@ class AssemblyMixin:
         from cad_engine.assembly_vano import metti_senza_entrare
         if not mobile or not fermo or mobile.get('inst') == fermo.get('inst'):
             raise A.AssemblyError('Metti nel vano: clic sul pannello da mettere, poi sul telaio.')
-        if mobile['inst'] == self._terra() and fermo['inst'] != self._terra():
+        if self._stesso_gruppo(mobile['inst'], fermo['inst']):
+            raise A.AssemblyError('I due pezzi sono bloccati insieme: scegli un pezzo fuori dal gruppo.')
+        terra = set(A.compagni(self.asm, self._terra()))
+        if mobile['inst'] in terra and fermo['inst'] not in terra:
             mobile, fermo = fermo, mobile                # il pezzo fermo resta fermo: si muove l'altro
         ia, ib = self.asm.instance(fermo['inst']), self.asm.instance(mobile['inst'])
         pa, pb = self.asm_parts.get(ia['file']), self.asm_parts.get(ib['file'])
@@ -851,9 +867,7 @@ class AssemblyMixin:
                 ia, ib, r = self._vano_conti(mobile, fermo, opz)
             except SteelCADError as ex:
                 return {'ok': False, 'message': ex.message}
-            R, T = r['R'], r['T']
-            posa = [R[0][0], R[0][1], R[0][2], T[0], R[1][0], R[1][1], R[1][2], T[1], R[2][0], R[2][1], R[2][2], T[2], 0, 0, 0, 1]
-            return {'ok': True, 'pose': {ib['id']: [float(x) for x in posa]}, **self._vano_info(ia, ib, r)}
+            return {'ok': True, 'pose': self._pose_insieme(ib['id'], r['R'], r['T']), **self._vano_info(ia, ib, r)}
         esito = {}
 
         def fn():
@@ -864,9 +878,9 @@ class AssemblyMixin:
                 raise A.AssemblyError(f'Così «{ib["name"]}» tocca dentro «{ia["name"]}» (qualcosa nel vano lo ferma): '
                                       'prova «Capovolgi» o l’altra profondità.')
             esito.update(self._vano_info(ia, ib, r))
+            self._sposta_compagni(ib['id'], *self._movimento(ib['id'], r['R'], r['T']))   # i bloccati con lui
             ib['R'], ib['T'] = r['R'].tolist(), r['T'].tolist()
-            coppia = {ia['id'], ib['id']}
-            self.asm.mates = [m for m in self.asm.mates if {m['a']['inst'], m['b']['inst']} != coppia]
+            self.asm.mates = self._senza_accoppiamenti_tra(ia['id'], ib['id'])   # anche dei pezzi bloccati con loro
             usati = {m['id'] for m in self.asm.mates}
             fa = lambda k: self._asm_face(ia['id'], k)          # noqa: E731
             fb = lambda k: self._asm_face(ib['id'], k)          # noqa: E731
@@ -2062,6 +2076,7 @@ class AssemblyMixin:
                 {'label': n, 'kind': 'sottopezzo', 'ref': i['id'], 'children': [], 'status': None} for _, _, _, _, n in part.figli]
             figli.append({'label': i['name'], 'kind': 'instance', 'ref': i['id'], 'children': dentro, 'status': st,
                           **({'sotto': True, 'chiuso': True} if dentro else {})})
+        figli = self._albero_gruppi(figli)
         acc = [{'label': _frase_mate(m, nomi),
                 'kind': 'mate', 'ref': m['id'], 'tipo': m['type'], 'children': [], 'status': None} for m in asm.mates]
         if acc:
@@ -2269,8 +2284,9 @@ class AssemblyMixin:
             return None
         out = {'min': [round(float(v), 2) for v in b[0]], 'max': [round(float(v), 2) for v in b[1]], 'sotto': None}
         migliore = None
+        insieme = set(A.compagni(self.asm, iid))
         for j in self.asm.instances:
-            if j['id'] == iid:
+            if j['id'] in insieme:
                 continue
             c = self._ingombro_mondo(j)
             if c is None or abs(c[1][2] - b[0][2]) > 0.5:
@@ -2323,6 +2339,12 @@ class AssemblyMixin:
                'movimenti': self._movimenti(obj_id), 'dove': self._dove_sta(obj_id)}
         # lo tengono gli accoppiamenti (spostarlo a mano non serve: il risolutore lo rimette lì); il pezzo fermo no
         sel['tenuto'] = bool(sel['mates']) and obj_id != self._terra()
+        insieme = A.compagni(self.asm, obj_id)
+        if len(insieme) > 1:                         # bloccato insieme ad altri: lo tengono anche i loro accoppiamenti
+            sel['gruppo'] = self._info_gruppo(obj_id)
+            sel['tenuto'] = self._terra() not in insieme and any(
+                m['a']['inst'] in insieme or m['b']['inst'] in insieme for m in self.asm.mates
+                if not (m['a']['inst'] in insieme and m['b']['inst'] in insieme))
         if face_index is not None and part is not None:
             try:
                 f = self._asm_face(obj_id, face_index)

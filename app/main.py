@@ -774,6 +774,12 @@ class Api:
     def asm_open_part(self, iid):
         return self._call(self._svc.asm_open_part, iid)
 
+    def asm_blocca_insieme(self, ids, nome=''):
+        return self._call(self._svc.asm_blocca_insieme, ids, nome)
+
+    def asm_sciogli_gruppo(self, gid):
+        return self._call(self._svc.asm_sciogli_gruppo, gid)
+
     def libreria_catalogo(self):
         return self._call(self._svc.libreria_catalogo)
 

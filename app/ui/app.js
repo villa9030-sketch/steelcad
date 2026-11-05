@@ -2247,6 +2247,7 @@ function renderTree() {
       : n.kind === 'flange' ? ['flange=' + n.ref] : n.kind === 'sheet_edge_flange' ? ['pb=' + n.ref] : n.kind === 'sheet_miter' ? ['tt=' + n.ref]
       : n.kind === 'sketch' ? ['sketch=' + n.ref]
       : n.kind === 'instance' || n.kind === 'sottopezzo' ? [n.ref] : n.kind === 'mate' ? ['mate=' + n.ref] : n.kind === 'assembly' ? ['assieme']
+      : n.kind === 'rigido' ? n.children.map(c => c.ref)
       : ['part', 'extrude', 'hole', 'fillet', 'chamfer', 'sheet'].includes(n.kind) ? ['body'] : null;
     const cls = ['node', n.kind === 'project' ? 'root' : '', n.kind === 'group' ? 'group' : '', n.status === 'disattivata' ? 'spenta' : '',
       ids && ids.length ? 'clickable' : '', n.status === 'errore' ? 'err' : '',
@@ -2255,7 +2256,7 @@ function renderTree() {
     // 04/11 notte (occhio): solo il lucchetto, piccolo a destra; «fisso» scritto passando col mouse (il nome resta su una riga)
     const st = n.status === 'fisso' ? `<span class="st fisso" title="Fisso: il pezzo fermo, gli altri si appoggiano a lui" aria-label="fisso"><img src="icons/c_fix.svg" alt="fisso"></span>`
       : n.status && n.status !== 'errore' ? `<span class="st">${esc(n.status)}</span>` : '';
-    const conta = S.mode === 'assembly' && n.kind === 'group' && n.children.length ? `<span class="n-conta">${n.children.length}</span>` : '';
+    const conta = S.mode === 'assembly' && (n.kind === 'group' || n.kind === 'rigido') && n.children.length ? `<span class="n-conta">${n.children.length}</span>` : '';
     const data = (ids && ids.length ? ` data-ids="${esc(ids.join(','))}"` : '') + (n.ref && typeof n.ref === 'string' ? ` data-kind="${esc(n.kind)}" data-ref="${esc(n.ref)}"` : '');
     let figli = n.children.length ? `<ul>${n.children.map(nodo).join('')}</ul>` : '';
     let freccia = '';
@@ -2415,6 +2416,20 @@ $('#tree').addEventListener('contextmenu', ev => {
   if (!n || S?.mode !== 'assembly') return;
   ev.preventDefault(); ev.stopImmediatePropagation();
   menuPezzoAssieme(n.dataset.ref, ev.clientX, ev.clientY);
+}, true);
+$('#tree').addEventListener('contextmenu', ev => {     // 05/11: il gruppo dei pezzi bloccati insieme
+  const n = ev.target.closest('.node[data-kind="rigido"]');
+  if (!n || S?.mode !== 'assembly') return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  chiudiMenuAlbero();
+  const box = document.createElement('div');
+  box.id = 'menu-albero'; box.className = 'menu-albero';
+  box.innerHTML = `<div class="ma-tit">${esc(n.title)}</div><button data-v="sciogli">Sciogli il gruppo</button>`;
+  document.body.appendChild(box);
+  const r = box.getBoundingClientRect();
+  box.style.left = Math.min(ev.clientX, innerWidth - r.width - 8) + 'px';
+  box.style.top = Math.min(ev.clientY, innerHeight - r.height - 8) + 'px';
+  box.onclick = e => { if (e.target.closest('button')) { chiudiMenuAlbero(); sciogliGruppo(n.dataset.ref); } };
 }, true);
 $('#tree').addEventListener('click', ev => {
   const f = ev.target.closest('[data-apri]');
@@ -3200,6 +3215,8 @@ function azioniPezzo(s) {
     { ic: 'vano', t: 'Metti nel vano di un telaio', fai: () => vanoDa(id) },
     ...(s.scassi ? [{ ic: 'cut', t: `Scassi: ${s.scassi.frase.replace(/ \(.*$/, '')} (in rosso)`, fai: () => tutteLeOpzioni() }] : []),
     { ic: 'pattern_rect', t: 'In fila', fai: () => ripetiApri(id) },
+    s.gruppo ? { ic: 'giunto', t: 'Sciogli il gruppo (ognuno torna libero)', fai: () => sciogliGruppo(s.gruppo.id) }
+      : { ic: 'giunto', t: 'Blocca insieme ad altri pezzi', fai: () => asmTool('gruppo') },
     ...(foro ? [] : [{ ic: 'fastener', t: 'Viteria', fai: () => runCmd('asm_viteria') }]),
     { ic: 'eye', t: 'Nascondi', fai: () => { VIS.nascosti.add(id); clearSelection(); applicaVisibilita(); renderTree(); } },
     { ic: 'select', t: 'Solo questo', fai: () => { VIS.solo = new Set([id]); applicaVisibilita(); renderTree(); } },
@@ -4937,6 +4954,7 @@ const MATE_UI = {
   gioco: { nome: 'Gioco', clic: ['una faccia del primo pezzo', 'la faccia dell’altro pezzo, di fronte'], val: 0 },
 };
 function asmHelp() {
+  if (ASM.tool === 'gruppo') { gruppoHelp(); return; }
   const u = MATE_UI[ASM.tool], k = ASM.clic.length;
   const su = t => t.replace(/^la /, 'sulla ').replace(/^il /, 'sul ').replace(/^lo /, 'sullo ').replace(/^l’/, 'sull’').replace(/^(?!sul)/, 'su ');
   // 04/11 (regola 4): una riga sola; sotto, piccolo, quale pezzo hai già scelto (dopo un giro della vista non si vedeva più)
@@ -4944,8 +4962,11 @@ function asmHelp() {
   setHelp(`${u.nome} (${k + 1} di ${u.clic.length}): ${k ? 'ora ' : ''}clic ${su(u.clic[k])}${scelti.length ? ` · Scelto «${scelti.join('» e «')}»` : ''} · Esc annulla`);
 }
 function asmTool(t) {
+  // Blocca insieme: i pezzi già scelti (anche più d'uno, dall'albero) sono i primi del gruppo
+  const gia = t === 'gruppo' && sel ? (sel.ids || [sel.id]).filter(id => objs.get(id)?.data.kind === 'instance') : [];
   if (t && !ASM.tool && sel) clearSelection();     // la barretta del pezzo scelto copriva proprio le facce da cliccare
   ASM.tool = t; ASM.clic = [];
+  if (t === 'gruppo') { ASM.clic = gia; gruppoApri(); } else gruppoChiudi();
   if (t !== 'gioco') giocoChiudi();
   document.querySelectorAll('[data-asm-tool]').forEach(b => b.classList.toggle('on', b.dataset.asmTool === t));
   if (t) asmHelp(); else setHelp('');
@@ -5072,6 +5093,58 @@ async function viteriaDialog() {
   }
 }
 const VIT = { el: null, ok: null };
+// 05/11 (da SolidCraft): Blocca insieme. Clic sui pezzi (si accendono; di nuovo per toglierlo), poi «Blocca insieme»:
+// da lì si spostano, girano, si appoggiano e si accoppiano come uno solo. Non è un sottoassieme: la distinta è uguale
+const GRP = { el: null };
+function gruppoHelp() {
+  const n = ASM.clic.length;
+  setHelp(`Blocca insieme: clic sui pezzi da tenere insieme${n ? ` · Scelti ${n}` : ''}${n >= 2 ? ' · Invio blocca' : ''} · Esc annulla`);
+}
+function gruppoChiudi() { GRP.el?.remove(); GRP.el = null; }
+function gruppoAggiorna() {
+  if (!GRP.el) return;
+  const nomi = ASM.clic.map(id => objs.get(id)?.data.name || id);
+  GRP.el.querySelector('#gr-lista').innerHTML = nomi.length ? nomi.map(n => `<li>${esc(n)}</li>`).join('')
+    : '<li class="hint">Nessuno: clicca i pezzi nella vista.</li>';
+  const ok = GRP.el.querySelector('#gr-ok');
+  ok.disabled = ASM.clic.length < 2;
+  sel = ASM.clic.length ? { id: ASM.clic[0], ids: [...ASM.clic] } : null; paint();
+}
+function gruppoApri() {
+  gruppoChiudi();
+  const el = document.createElement('div');
+  el.id = 'gruppo-pan'; el.className = 'pannello-cmd';
+  el.innerHTML = `<div class="pc-testa"><h3>Blocca insieme</h3><p>I pezzi scelti si muovono come uno solo: spostali, girali, appoggiali. Non diventano un sottoassieme: la distinta resta uguale</p></div>
+    <div class="pc-corpo"><section class="sezione"><h4>Pezzi scelti</h4><ul class="gr-lista" id="gr-lista"></ul>
+      <p class="hint">Clic su un pezzo per sceglierlo, di nuovo per toglierlo.</p></section>
+    <section class="sezione"><h4>Nome</h4><input class="field" id="gr-nome" placeholder="Gruppo" aria-label="Nome del gruppo"></section></div>
+    <div class="pc-fondo"><button class="btn" id="gr-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="gr-ok">Blocca insieme</button></div>`;
+  document.body.appendChild(el);
+  GRP.el = el;
+  el.querySelector('#gr-no').onclick = () => { asmTool(null); sel = null; paint(); };
+  el.querySelector('#gr-ok').onclick = gruppoFai;
+  gruppoAggiorna();
+}
+function gruppoClick(ev) {
+  const h = pick(ev);
+  if (!h || objs.get(h.id)?.data.kind !== 'instance') { toast('Clicca un pezzo dell’assieme.', 'err'); return; }
+  const k = ASM.clic.indexOf(h.id);
+  if (k >= 0) ASM.clic.splice(k, 1); else ASM.clic.push(h.id);
+  gruppoAggiorna(); gruppoHelp();
+}
+function gruppoFai() {
+  if (ASM.clic.length < 2) { toast('Scegli almeno due pezzi.', 'err'); return; }
+  const ids = [...ASM.clic], nome = GRP.el?.querySelector('#gr-nome')?.value.trim() || '';
+  asmTool(null);
+  inCoda(async () => { const r = await call('asm_blocca_insieme', ids, nome); if (await apply(r, r.message) && r.select) await select(r.select); });
+}
+function sciogliGruppo(gid) {
+  inCoda(async () => { const r = await call('asm_sciogli_gruppo', gid); if (await apply(r, r.message)) await refreshSel(); });
+}
+window.addEventListener('keydown', e => {
+  if (!GRP.el || e.key !== 'Enter' || e.target.closest?.('textarea')) return;
+  e.preventDefault(); e.stopImmediatePropagation(); gruppoFai();
+}, true);
 function viteriaChiudi() { VIT.el?.remove(); VIT.el = null; VIT.ok = null; }
 window.addEventListener('keydown', e => {
   if (!VIT.el || e.target.closest?.('input:not([type=checkbox]), textarea')) return;
@@ -5102,6 +5175,7 @@ function pickInstEdge(ev) {                          // lo spigolo di una copia 
   return best;
 }
 function asmClick(ev) {
+  if (ASM.tool === 'gruppo') { gruppoClick(ev); return; }
   if (ASM.tool === 'appoggia') { appoggiaClick(ev); return; }
   if (ASM.tool === 'vano') { vanoClick(ev); return; }
   if (ASM.tool === 'gioco') { giocoClick(ev); return; }
@@ -5647,6 +5721,7 @@ function frasiMate() {                              // M1 → «Staffa su Piastr
 const senzaNome = (frase, nome) => frase.startsWith(nome + ' ') ? frase.slice(nome.length + 1) : frase;
 function cosEPezzo(s) {
   const n = (s.mates || []).length;
+  if (s.gruppo) return `Bloccato insieme ${s.gruppo.altri.length === 1 ? `a «${s.gruppo.altri[0]}»` : `ad altri ${s.gruppo.altri.length} pezzi`}: si muovono come uno solo`;
   if (s.sottoassieme) return `Sottoassieme: un blocco che si muove tutto insieme${s.fixed ? ', fermo' : n ? `, tenuto da ${n === 1 ? 'un accoppiamento' : n + ' accoppiamenti'}` : ''}`;
   if (s.fixed) return 'Pezzo dell’assieme, fermo: gli altri si appoggiano a lui';
   if (s.acquisto) return 'Da acquistare: va in distinta, niente DXF';
@@ -5691,7 +5766,8 @@ function instancePanel(s) {
       <label${s.finitura?.tipo === 'verniciato' ? '' : ' hidden'} id="a-ral-w">RAL<input class="field" id="a-ral" list="ral-lista" value="${esc(s.finitura?.ral || '')}" placeholder="es. 7035"></label></div>
       <datalist id="ral-lista">${['1003', '1013', '1023', '2004', '3000', '3002', '3020', '5010', '5012', '5015', '6005', '6018', '7016', '7021', '7035', '7037', '7040', '9005', '9006', '9010', '9016'].map(x => `<option value="${x}">`).join('')}</datalist>`;
   return `<div class="asm-pan"><div class="fhead"><div><h3>${esc(s.title)}</h3><div class="fsub">${esc(cosEPezzo(s))}</div></div></div>
-    ${cosa}${incastri}${scassi}${tiene}
+    ${cosa}${incastri}${scassi}${s.gruppo ? `<section class="sezione"><h4>Bloccato insieme</h4>
+      <p class="hint">«${esc(s.gruppo.name)}»: si muove insieme a ${s.gruppo.altri.map(x => `«${esc(x)}»`).join(', ')}. Per liberarlo: «Sciogli il gruppo» qui sopra.</p></section>` : ''}${tiene}
     <section class="sezione"><h4>Dove sta</h4>${dovePanel(s)}
       <div class="asm-sposta"${s.tenuto ? ' hidden' : ''}><div class="sub">Sposta di (mm)</div>
       <div class="xyz"><label>X<input class="field" id="a-dx" value="0"></label><label>Y<input class="field" id="a-dy" value="0"></label><label>Z<input class="field" id="a-dz" value="0"></label></div>
@@ -9106,9 +9182,10 @@ function toggleXray() {
   if (!SK || !SK.v.on_face || SK.v.on_tube) return;
   const on = !SK.v.xray, sid = SK.sid;
   inCoda(async () => {
-    if (!(await apply(await call('sketch_xray', sid, on)))) return;
+    const r = await call('sketch_xray', sid, on);
+    if (!(await apply(r))) return;
     if (SK && SK.sid === sid) { SK.ghost = on; applyLook(); }
-    toast(on ? 'Vedi attraverso: bordi e fori delle parti dietro e davanti, in azzurro tratteggiato. Ci si aggancia.' : 'Vedi attraverso spento.');
+    if (!r.message) toast(on ? 'Vedi attraverso: bordi e fori delle parti dietro e davanti, in azzurro tratteggiato. Ci si aggancia.' : 'Vedi attraverso spento.');   // con i pezzi attorno lo dice apply
   });
 }
 async function refreshSketch() {
@@ -11948,7 +12025,7 @@ function ribbonForProject() {
   schedaPrima = t; showRibbon(t);
 }
 // ---------------------------------------------------------------- storia delle operazioni (timeline)
-const ICONA_TIPO = { instance: 'box', mate: 'joint', assembly: 'assieme', sketch: 'sketch', sheet: 'lamiera', flange: 'flange', sheet_cut: 'cut', sheet_miter: 'testa', extrude: 'extrude', revolve: 'rivoluzione', hole: 'hole', fillet: 'fillet',
+const ICONA_TIPO = { rigido: 'giunto', instance: 'box', mate: 'joint', assembly: 'assieme', sketch: 'sketch', sheet: 'lamiera', flange: 'flange', sheet_cut: 'cut', sheet_miter: 'testa', extrude: 'extrude', revolve: 'rivoluzione', hole: 'hole', fillet: 'fillet',
   chamfer: 'chamfer', structure: 'struttura', members: 'tubo', part: 'box', group: 'list', project: 'box' };
 const iconImg = k => `<img src="icons/${ICONA_TIPO[k] || 'box'}.svg" alt="">`;
 // (la barra "Storia" in basso è stata tolta: ripeteva l'albero, senza tornare indietro a un passo)

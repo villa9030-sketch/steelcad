@@ -35,6 +35,7 @@ from app.import_service import ImportMixin  # noqa: E402
 from app.tubi_service import TubiMixin  # noqa: E402
 from app.strutture_service import StruttureMixin  # noqa: E402
 from app.forata_service import ForataMixin  # noqa: E402
+from app.gruppi_service import GruppiMixin  # noqa: E402
 from cad_engine.topology import describe  # noqa: E402
 from cad_engine.tree import project_tree  # noqa: E402
 from cad_engine.units import fmt_kg, fmt_mm  # noqa: E402
@@ -104,7 +105,7 @@ def _err(ex: Exception):
 _MAGLIE_TUBI: dict = {}          # id(solido del tubo) -> (solido, maglia): vedi scene()
 
 
-class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, ForataMixin):
+class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMixin, ForataMixin, GruppiMixin):
     def __init__(self):
         self.path: Path | None = None
         self._set(Document('Nuovo progetto'))
@@ -546,8 +547,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         cache = self.__dict__.setdefault('_ctx_parti', {})
         out = []
         for k, (file, R, T) in enumerate(ctx['altri']):
-            if file == str(self.path):
-                continue                                 # il pezzo stesso (nuovo, ancora nell'elenco)
+            if file == str(self.path) and np.allclose(R, Rp) and np.allclose(T, Tp):
+                continue                                 # il pezzo stesso (05/11: le altre copie dello stesso pezzo sì)
             try:
                 chiave = (file, Path(file).stat().st_mtime)
                 if chiave not in cache:
@@ -3422,8 +3423,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         cache = self.__dict__.setdefault('_ctx_forme', {})
         out = []
         for file, R, T in ctx['altri']:
-            if file == str(self.path):
-                continue
+            if file == str(self.path) and np.allclose(R, Rp) and np.allclose(T, Tp):
+                continue                                 # il pezzo stesso; le altre sue copie sì
             try:
                 chiave = (file, Path(file).stat().st_mtime)
                 if chiave not in cache:
@@ -4109,11 +4110,21 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 if any(e.get('xray') for e in sk.entities.values()):
                     return
                 data = getattr(body, 'sheet', None)
-                sketch_border.project_edges(sk, body, bd.Face(body.face(nome)[0]), plane_of(body, nome, sk), xray=True,
+                piano = plane_of(body, nome, sk)
+                sketch_border.project_edges(sk, body, bd.Face(body.face(nome)[0]), piano, xray=True,
                                             salta='/'.join(nome.split('/')[:-1]), spessore=data.thickness if data else 0.0)
+                # 05/11: aperto dall'assieme, anche i bordi dei pezzi attorno (per allungare una staffa fino al telaio)
+                from types import SimpleNamespace
+                for altro in self._forme_contesto():
+                    vicini[0] += sketch_border.project_edges(sk, SimpleNamespace(shape=altro.wrapped), None, piano, xray=True)
             else:
                 sketch_border.remove_xray(sk)
-        return self._change('Vedi attraverso' if on else 'Vedi attraverso: spento', fn, keep_broken=True)
+        vicini = [0]
+        r = self._change('Vedi attraverso' if on else 'Vedi attraverso: spento', fn, keep_broken=True)
+        if r.get('ok') and vicini[0]:
+            r['message'] = (f'Vedi attraverso: bordi e fori delle parti dietro e davanti, e {vicini[0]} bordi dei pezzi '
+                            'attorno nell’assieme, in azzurro tratteggiato. Ci si aggancia.')
+        return r
 
     def _oltre(self) -> float | None:
         """Quanto oltre un bordo di piega chiudere uno scasso aperto: più di tutto lo sviluppo, così passa la piega
