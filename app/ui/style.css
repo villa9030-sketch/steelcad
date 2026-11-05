@@ -2986,3 +2986,10 @@ body.dark #home .home-nuovo.m-file .pic :is(img, .ico) { filter: invert(1); }
 .tech .sel-regola { min-width: 0; }
 .rinomina-regola { display: flex; gap: var(--s-1, 4px); align-items: center; }
 .rinomina-regola input { flex: 1; min-width: 0; }
+/* lamiera forata (05/11): la stessa finestra di lato del Foro */
+#lf-corpo .seg { flex-wrap: wrap; }
+#lf-corpo .ft-riga { grid-template-columns: 118px minmax(0, 1fr); }
+#lf-corpo .lf-file { margin: -4px 0 0 128px; }
+#lf-corpo .lf-due .field { min-width: 0; flex: 1; }
+.lf-avvisi { color: var(--c-err-testo, var(--err)); margin: 4px 0 0; }
+.lf-avvisi:empty { display: none; }

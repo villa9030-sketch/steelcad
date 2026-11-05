@@ -137,6 +137,10 @@ ICONE = {
     'testa': s('M3 7.5h9.5L8 16.5H3z') + af('M15.5 7.5H21v9h-10z'),
     'extrude': af('M3.5 16l8.5 4.2 8.5-4.2-8.5-4.2z') + s('M12 9V3M9.3 5.6L12 2.9l2.7 2.7'),
     'perforate': s(rett(3, 4, 18, 16, 2) + 'M6.5 10h11M6.5 16h11') + a('M6.5 10a5.5 3.2 0 0 1 11 0zM6.5 16a5.5 3.2 0 0 1 11 0z'),
+    # 05/11: lamiera forata, la lastra con i fori sfalsati a 60°
+    'forata': s(rett(3, 4, 18, 16, 2)) + a(''.join(cerchio(x, y, 1.35) for x, y in
+                                                ((7.5, 8.5), (12, 8.5), (16.5, 8.5), (9.75, 12), (14.25, 12),
+                                                 (7.5, 15.5), (12, 15.5), (16.5, 15.5)))),
     'chiudi_angoli': s(rett(7.5, 3, 13.5, 3.5) + rett(3, 7.5, 3.5, 13.5)) + tr('M6.5 21H21V6.5') + a(rett(3, 3, 3.5, 3.5, .6)),
     'incastri': s('M3 10h11v4H3zM15 3h3.5v7H15zM15 14h3.5v7H15z') + af(rett(14, 10, 7, 4, 1)),
     'convert_sheet': cubo(8.5, 13, 5.5, False) + s('M14 12.5h3') + a('M21 12.5l-4.2-3.1v6.2z'),
@@ -190,7 +194,7 @@ NOMI = {
     'faccia_su_faccia': 'Faccia su faccia', 'foro_su_foro': 'Foro su foro', 'saldatura': 'Saldatura', 'fastener': 'Viteria',
     'interferenze': 'Interferenze', 'project': 'Su una faccia', 'assieme': 'Assieme', 'lamiera': 'Crea lamiera', 'box': 'Pezzo', 'flange': 'Piega',
     'fold': 'Profilo piegato', 'hem': 'Orlo', 'flat': 'Spiega', 'refold': 'Sullo sviluppo', 'hole': 'Foro', 'cut': 'Taglio',
-    'testa': 'Taglio a 45° / testa a testa', 'extrude': 'Linguetta / estrudi', 'perforate': 'Persiane, bugne',
+    'testa': 'Taglio a 45° / testa a testa', 'extrude': 'Linguetta / estrudi', 'perforate': 'Persiane, bugne', 'forata': 'Lamiera forata',
     'chiudi_angoli': 'Chiudi angoli', 'incastri': 'Incastri', 'convert_sheet': 'Converti in lamiera', 'bendtable': 'Tabella pieghe',
     'library': 'Regole piega', 'params': 'Misure', 'section': 'Sezione', 'rivoluzione': 'Rivoluzione', 'measure': 'Righello',
     'tubo': 'Tubo', 'traverso': 'Traverso', 'struttura': 'Struttura', 'piedi': 'Piedi', 'tappi': 'Tappi', 'giunto': 'Angoli dei tubi',

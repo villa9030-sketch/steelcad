@@ -42,7 +42,7 @@ class Context:
 
 
 def label(fdef: dict) -> str:
-    nomi = {'extrude': 'estrusione', 'revolve': 'rivoluzione', 'hole': 'foro', 'fillet': 'raccordo', 'chamfer': 'smusso', 'sheet': 'lamiera', 'sheet_shape': 'forma di lamiera', 'sheet_cut': 'taglio di lamiera'}
+    nomi = {'extrude': 'estrusione', 'revolve': 'rivoluzione', 'hole': 'foro', 'fillet': 'raccordo', 'chamfer': 'smusso', 'sheet': 'lamiera', 'sheet_shape': 'forma di lamiera', 'sheet_cut': 'taglio di lamiera', 'sheet_perforate': 'lamiera forata'}
     base = nomi.get(fdef.get('type'), fdef.get('type', 'feature'))
     return f'{base} "{fdef["name"]}"' if fdef.get('name') else f'{base} {fdef["id"]}'
 

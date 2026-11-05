@@ -187,6 +187,8 @@ class SheetData:
     fold_pos: dict = field(default_factory=dict)
     # le pieghe che non sono flange (sul fianco di una parete, su un bordo libero): in tabella con le altre (22/10)
     extra_bends: list = field(default_factory=list)
+    # lamiere forate (05/11): per ogni feature quanti fori sono venuti, di che forma (per l'albero e il pannello)
+    forate: dict = field(default_factory=dict)
 
     def in_ordine(self) -> list:
         """Le flange nell'ordine delle loro linee di piega sullo sviluppo, da un capo all'altro (21/10: una catena di

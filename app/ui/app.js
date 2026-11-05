@@ -925,6 +925,7 @@ canvas.addEventListener('pointerup', ev => {
   if (SK && SK.scalaProva && !$('#modal').hidden) { scalaPrendiMisura(ev); return; }          // 05/11: «quella linea deve essere 1000»
   if (SK) { if ($('#modal').hidden || !$('#modal').classList.contains('laterale')) skClick(ev); else if (SK.serieCentro) SK.serieCentro(ev); return; }   // con l'anteprima aperta il clic non disegna (si gira il 3D); con la serie attorno sceglie il centro
   if (FORO && !$('#modal').hidden && $('#fo-corpo')) { foroClic(ev); return; }   // finestra del foro: clic = dove va, o un'altra faccia
+  if (FORATA && !$('#modal').hidden && $('#lf-corpo')) { forataClic(ev); return; }   // lamiera forata: clic = un'altra faccia
   if (PIEGA && !$('#modal').hidden && $('#pg-corpo')) { piegaClic(ev); return; }
   if (ANGOLI && !$('#modal').hidden && $('#ag-corpo')) return;                      // «Angoli tondi»: si cliccano i cerchi   // «Piega i bordi»: clic = un bordo in più o in meno
   if (MIS) { misClick(ev); return; }
@@ -2695,6 +2696,7 @@ function azione(id) {
     case 'angoli_tondi': inCoda(() => angoliSviluppo()); return;
     case 'incastri': inCoda(() => incastriDialog()); return;
     case 'asola': inCoda(() => foroDialog('asola')); return;
+    case 'forata': inCoda(() => forataDialog()); return;
     case 'taglia': inCoda(() => disegnaSopra('Disegna la parte da togliere partendo da un bordo, poi «Togli materiale».')); return;
     case 'forme': inCoda(() => disegnaSopra('Una linea per ogni persiana, un cerchio per ogni bugna; poi «Pieghe e forme ▾» → Persiane o Imbutiture.')); return;
     case 'contorno': inCoda(() => disegnaSopra()); return;
@@ -3606,6 +3608,9 @@ async function renderProps(s) {
   } else if (s.kind === 'endmiter') {
     pannelloTesta(s);
     return;
+  } else if (s.kind === 'forata') {
+    pannelloForata(s);
+    return;
   } else if (s.kind === 'sidebend' || s.kind === 'edgeflange') {
     pannelloPiegaBordo(null, s);                    // con le azioni della sua faccia (ci si disegna sopra)
     return;
@@ -3802,6 +3807,7 @@ const azioneLam = (icona, nome, data, cls = '', titolo = '') =>
 function azioniFaccia(s) {
   if (!s.face?.planar || !s.face.name) return [];
   return [azioneLam('hole', 'Foro', 'data-azione="foro"'), azioneLam('slot', 'Asola', 'data-azione="asola"'),
+    azioneLam('forata', 'Lamiera forata', 'data-azione="forata"', '', 'Un campo di fori su questa faccia: tondi, asole o quadri, in fila o sfalsati'),
     azioneLam('project', 'Disegna su questa faccia', `data-face-sketch="${esc(s.face.name)}"`),
     azioneLam('cut', 'Taglio', 'data-azione="taglia"'), azioneLam('dimension', 'Misura', 'data-cmd="misura"')];
 }
@@ -4163,6 +4169,214 @@ function cambiaFori(fid) {
     clearSelection();
     await foroDialog(r.spec.tipo, r.face, r);
   });
+}
+// ------------------------------------------------------------- «Lamiera forata» (05/11, idea da SolidCraft)
+// Clic su una faccia piana → «Lamiera forata» (barra in alto o azioni della faccia): forma dei fori, passo, in fila o
+// sfalsati a 60°, margine dai bordi e dalle pieghe; oppure solo dentro un contorno disegnato sulla faccia. La serie si
+// centra da sola (margini uguali), si fanno solo i fori interi. L'anteprima è leggera: il motore manda solo i centri e
+// qui si disegnano i contorni (anche 2000 fori si vedono subito); «Fai» fa un taglio solo, pezzo e sviluppo.
+let FORATA = null;
+let ultimaForata = { forma: 'tondo', d: '5', lung: '20', larg: '5', lato: '5', verticale: false, px: '8', py: '8', disposizione: 'sfalsata', margine: '10', sketch: '' };
+const FOR_MAT = new THREE.LineBasicMaterial({ color: 0xE8833A });
+function contornoForo(r, n = 20) {
+  if (r.forma === 'quadro') { const h = r.a / 2; return [[-h, -h], [h, -h], [h, h], [-h, h]]; }
+  if (r.forma === 'tondo') return Array.from({ length: n }, (_, k) => [r.a / 2 * Math.cos(2 * Math.PI * k / n), r.a / 2 * Math.sin(2 * Math.PI * k / n)]);
+  const rr = r.b / 2, h = (r.a - r.b) / 2, m = 8, meta = [];
+  for (let k = 0; k <= m; k++) { const t = -Math.PI / 2 + Math.PI * k / m; meta.push([h + rr * Math.cos(t), rr * Math.sin(t)]); }
+  const giro = meta.concat(meta.map(([u, v]) => [-u, -v]));
+  return r.verticale ? giro.map(([u, v]) => [-v, u]) : giro;
+}
+function mostraForata(r) {
+  if (antGruppo) { scene.remove(antGruppo); antGruppo.traverse(o => o.geometry?.dispose()); antGruppo = null; }
+  if (!r?.ok || !r.centri?.length) { paint(); return; }
+  const forma = contornoForo(r), x = v3(r.x), y = v3(r.y), n = v3(r.n_dir).multiplyScalar(0.25);
+  const k = forma.length, tot = r.centri.length / 3;
+  const pos = new Float32Array(tot * k * 6);
+  let i = 0;
+  const off = forma.map(([u, v]) => x.clone().multiplyScalar(u).add(y.clone().multiplyScalar(v)).add(n));
+  for (let c = 0; c < tot; c++) {
+    const cx = r.centri[3 * c], cy = r.centri[3 * c + 1], cz = r.centri[3 * c + 2];
+    for (let j = 0; j < k; j++) {
+      const a = off[j], b = off[(j + 1) % k];
+      pos[i++] = cx + a.x; pos[i++] = cy + a.y; pos[i++] = cz + a.z;
+      pos[i++] = cx + b.x; pos[i++] = cy + b.y; pos[i++] = cz + b.z;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const l = new THREE.LineSegments(g, FOR_MAT);
+  l.raycast = () => {}; l.renderOrder = 6;
+  antGruppo = new THREE.Group(); antGruppo.add(l); antGruppo.name = 'anteprima-forata';
+  scene.add(antGruppo);
+  paint();
+}
+async function forataDialog(face = null, modifica = null, sketch = null) {
+  if (SK) { toast('Stai disegnando: prima «Esci» (o «Altro ▾ → Lamiera forata qui dentro» per i fori dentro il contorno).', 'err'); return; }
+  if (!S?.sheet?.data) { toast('La lamiera forata si fa su una lamiera: prima crea la lamiera.', 'err'); return; }
+  if (flatView) toggleFlat(false);
+  const info = modifica ? modifica.info : await call('forata_info', face || facciaPerForo());
+  if (!info.ok) { toast(info.message || 'Clicca una faccia piana della lamiera.', 'err'); return; }
+  nascondiMini();
+  clearSelection();                                 // la faccia scelta non resta colorata: sopra si vedono i fori arancio
+  const testo = x => (x == null ? '' : typeof x === 'number' ? virgola(x) : typeof x === 'boolean' ? x : String(x));
+  const v = modifica ? { ...ultimaForata, ...Object.fromEntries(Object.entries(modifica.spec).map(([k, x]) => [k, testo(x)])) }
+    : { ...ultimaForata, sketch: sketch || '' };
+  if (v.sketch && !(info.schizzi || []).some(x => x.id === v.sketch)) v.sketch = '';
+  FORATA = { face: info.face, info, v, modifica: modifica?.feature || null, n: 0, inVolo: false, dopo: null, timer: null };
+  const nomeFaccia = s => (s || '').replace(/ di "[^"]*"$/, '');
+  const num = x => String(x ?? '').trim();
+  const seg = (k, o) => `<div class="seg" data-lf-seg="${k}">${o.map(([id, l]) => `<button type="button" data-v="${id}" class="${String(v[k]) === id ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const riga = (l, id, val, unita = 'mm', extra = '') => `<label class="ft-riga"><span>${l}</span><span class="ft-mm"><input class="field" id="lf-${id}" value="${esc(virgola(val))}" autocomplete="off"><i>${unita}</i>${extra}</span></label>`;
+  // due misure sulla stessa riga (lunga × larga, passo orizzontale × verticale): la finestra resta corta
+  const due = (l, a, b) => `<div class="ft-riga lf-due"><span>${l}</span><span class="ft-mm"><input class="field" id="lf-${a}" value="${esc(virgola(v[a]))}" autocomplete="off"><i>×</i><input class="field" id="lf-${b}" value="${esc(virgola(v[b]))}" autocomplete="off"><i>mm</i></span></div>`;
+  const misure = () => (v.forma === 'asola'
+    ? due('Lunga × larga', 'lung', 'larg')
+      + `<div class="ft-riga"><span>Messa</span>${seg('verticale', [['false', '↔ coricata'], ['true', '↕ in piedi']])}</div>`
+    : v.forma === 'quadro' ? riga('Lato', 'lato', v.lato) : riga('Diametro', 'd', v.d));
+  const passo = () => {
+    if (v.disposizione === 'sfalsata') {
+      const p = parseFloat(String(v.px).replace(',', '.'));
+      return riga('Passo (tra i centri)', 'px', v.px) + (p > 0 ? `<p class="hint lf-file">Le file vanno a ${virgola(Math.round(p * Math.sqrt(3) / 2 * 100) / 100)} mm, una sì e una no spostata di mezzo passo.</p>` : '');
+    }
+    return due('Passo orizz. × vert.', 'px', 'py');
+  };
+  const zona = () => {
+    const sk = FORATA.info.schizzi || [];
+    if (!sk.length) return '<p class="hint">Solo una parte? Disegna il contorno sulla faccia, poi «Altro ▾ → Lamiera forata qui dentro».</p>';
+    return `<div class="ft-riga"><span>Dove</span>${seg('sketch', [['', 'Tutta la faccia'], ...sk.map(x => [x.id, `Dentro ${esc(x.nome)}`])])}</div>`;
+  };
+  const corpo = () => `<div class="ft-form">
+      <div class="ft-riga"><span>Fori</span>${seg('forma', [['tondo', 'Tondi'], ['asola', 'Asole'], ['quadro', 'Quadri']])}</div>
+      ${misure()}
+      <div class="ft-riga"><span>Disposti</span>${seg('disposizione', [['sfalsata', 'Sfalsati a 60°'], ['fila', 'In fila']])}</div>
+      ${passo()}
+      ${zona()}
+      ${riga(v.sketch ? 'Margine dal bordo della faccia' : 'Margine dai bordi e dalle pieghe', 'margine', v.margine)}</div>`;
+  const spec = () => {
+    const s = { forma: v.forma, disposizione: v.disposizione, px: num(v.px), margine: num(v.margine), sketch: v.sketch || '' };
+    if (v.forma === 'asola') { s.lung = num(v.lung); s.larg = num(v.larg); s.verticale = String(v.verticale) === 'true'; }
+    else if (v.forma === 'quadro') s.lato = num(v.lato); else s.d = num(v.d);
+    if (v.disposizione === 'fila') s.py = num(v.py);
+    return s;
+  };
+  modal(`<div id="lf-tutto"><h3 id="lf-tit"></h3>
+    <p class="hint" id="lf-sotto"></p>
+    <div id="lf-corpo">${corpo()}</div>
+    <p class="fo-frase" id="lf-frase"></p>
+    <p class="hint lf-avvisi" id="lf-avvisi"></p>
+    <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-ok">Fai</button></div></div>`, close => {
+    const cornice = $('#modal-box'), box = $('#lf-tutto');
+    const st = document.createElement('div'); st.className = 'ant-stato'; box.querySelector('.acts').before(st);
+    const titolo = () => {
+      $('#lf-tit').textContent = `${FORATA.modifica ? 'Cambia la lamiera forata' : 'Lamiera forata'} su: ${nomeFaccia(FORATA.info.label)}`;
+      $('#lf-sotto').textContent = `Si centra da sola sulla faccia (${virgola(Math.round(FORATA.info.outer[0] * 10) / 10)} × ${virgola(Math.round(FORATA.info.outer[1] * 10) / 10)}), stesso margine di qua e di là; solo fori interi.`
+        + (FORATA.modifica ? '' : ' Clic su un’altra faccia per cambiarla.');
+    };
+    const esito = r => {
+      $('#lf-frase').textContent = r.ok ? r.frase : '';
+      $('#lf-avvisi').textContent = (r.avvisi || []).join(' ');
+      st.className = 'ant-stato ' + (r.ok ? 'ok' : 'no');
+      st.textContent = r.ok ? 'In arancio i fori sulla faccia.' : (r.message || 'Così non si può fare.');
+      const b = $('#m-ok');
+      b.disabled = !r.ok;
+      b.textContent = r.ok ? `${FORATA.modifica ? 'Cambia' : 'Fai'}: ${r.n} ${v.forma === 'asola' ? (r.n === 1 ? 'asola' : 'asole') : r.n === 1 ? 'foro' : 'fori'}` : (FORATA.modifica ? 'Cambia' : 'Fai');
+      mostraForata(r);
+    };
+    // come le altre anteprime: parte dopo un attimo, una sola alla volta, vale l'ultima chiesta
+    const vai = () => {
+      clearTimeout(FORATA.timer);
+      const n = ++FORATA.n;
+      st.classList.add('calcolo');
+      FORATA.timer = setTimeout(async function giro() {
+        if (!FORATA || n !== FORATA.n) return;
+        if (FORATA.inVolo) { FORATA.dopo = giro; return; }
+        FORATA.inVolo = true;
+        let r;
+        try { r = await chiamaMuto('forata_anteprima', FORATA.face, spec(), FORATA.modifica); } catch (e) { r = { ok: false, message: String(e) }; }
+        if (!FORATA) return;
+        FORATA.inVolo = false;
+        const dopo = FORATA.dopo; FORATA.dopo = null;
+        if (dopo) dopo();
+        if (n !== FORATA.n) return;
+        esito(r);
+      }, 120);
+    };
+    const ridisegna = fuoco => {
+      $('#lf-corpo').innerHTML = corpo();
+      unitaDentro($('#lf-corpo'));
+      titolo();
+      const i = fuoco && box.querySelector(fuoco);
+      if (i) { i.focus(); i.select?.(); } else if (!box.contains(document.activeElement)) { cornice.tabIndex = -1; cornice.focus(); }
+      vai();
+    };
+    FORATA.ridisegna = ridisegna;
+    titolo();
+    box.addEventListener('input', ev => {
+      const t = ev.target;
+      if (t.id?.startsWith('lf-')) {
+        v[t.id.slice(3)] = t.value;
+        if (t.id === 'lf-px' && v.disposizione === 'sfalsata') {      // la riga delle file si aggiorna senza perdere il fuoco
+          const p = parseFloat(String(v.px).replace(',', '.')), h = box.querySelector('.lf-file');
+          if (h && p > 0) h.textContent = `Le file vanno a ${virgola(Math.round(p * Math.sqrt(3) / 2 * 100) / 100)} mm, una sì e una no spostata di mezzo passo.`;
+        }
+      }
+      vai();
+    });
+    box.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-lf-seg] button');
+      if (!b) return;
+      const k = b.closest('[data-lf-seg]').dataset.lfSeg;
+      v[k] = b.dataset.v;
+      ridisegna({ forma: { tondo: '#lf-d', asola: '#lf-lung', quadro: '#lf-lato' }[v.forma], disposizione: '#lf-px' }[k]);
+    });
+    const chiudi = () => { if (FORATA) clearTimeout(FORATA.timer); FORATA = null; close(); };
+    $('#m-no').onclick = chiudi;
+    $('#m-ok').onclick = () => {
+      const s = spec(), face = FORATA.face, cambia = FORATA.modifica;
+      ultimaForata = { ...v, sketch: '' };
+      chiudi();
+      inCoda(async () => {
+        const r = cambia ? await call('forata_modifica', cambia, s) : await call('forata', face, s);
+        if (await apply(r, r.message) && r.select) await select(r.select);
+      });
+    };
+    cornice.onkeydown = ev => { if (ev.key === 'Enter' && !$('#m-ok').disabled) { ev.preventDefault(); $('#m-ok').click(); } if (ev.key === 'Escape') chiudi(); };
+    $('#modal').classList.add('laterale');
+    anteprimaSpazio();
+    const primo = box.querySelector({ tondo: '#lf-d', asola: '#lf-lung', quadro: '#lf-lato' }[v.forma]);
+    primo?.focus(); primo?.select();
+    vai();
+  });
+}
+// con la finestra aperta, un clic su un'altra faccia piana la sceglie
+async function forataClic(ev) {
+  if (FORATA.modifica) return;
+  const vis = model.visible;
+  model.visible = true;
+  const h = pick(ev);
+  model.visible = vis;
+  if (!h || h.id !== 'body' || h.face == null) return;
+  const f = objs.get('body').data.faces.find(x => x.index === h.face);
+  if (!f?.name || f.name === FORATA.face) return;
+  const info = await call('forata_info', f.name);
+  if (!info.ok) { toast('Qui non si fa: scegli una faccia piana della lamiera (sopra, sotto o di una piega).', 'err'); return; }
+  FORATA.face = info.face; FORATA.info = info; FORATA.v.sketch = '';
+  FORATA.ridisegna();
+}
+// clic su un foro della lamiera forata (o sulla voce dell'albero): il suo pannello
+function pannelloForata(s) {
+  $('#props').innerHTML = pannelloLam({ titolo: esc(s.title), cose: s.n ? esc(`${s.n} ${s.foro?.startsWith('asole') ? s.foro : 'fori ' + (s.foro || '')}`) : 'campo di fori sulla faccia',
+    azioni: [azioneLam('forata', 'Cambia i fori', 'id="lf-cambia"', '', 'Forma, passo, disposizione e margine: si riapre la finestra con com’è adesso'),
+      azioneLam('delete', 'Togli la lamiera forata', 'id="lf-del"', 'danger', 'Toglie tutti i fori di questa lamiera forata')],
+    dettagli: righeIt(s.rows), fine: '<button class="btn primary big" id="lf-cambia2">Cambia i fori</button>' });
+  const cambia = () => inCoda(async () => {
+    const r = await call('forata_da_modificare', s.feature);
+    if (!r.ok) { toast(r.message, 'err'); return; }
+    clearSelection();
+    await forataDialog(r.face, r);
+  });
+  $('#lf-cambia').onclick = cambia; $('#lf-cambia2').onclick = cambia;
+  $('#lf-del').onclick = () => confermaElimina('sheet_perforate', s.feature, s.title);
 }
 // ------------------------------------------------------------- «Piega» su più bordi in un colpo (03/11)
 // La vaschetta: «Piega» nella barra, clic sui 4 bordi (o «Tutti i bordi»), altezza 30, Fatto. Negli angoli tra due
@@ -9186,6 +9400,7 @@ function statoSketch(v) {
   $('#sk-face [data-make="cut"]').classList.toggle('primary', !v.on_flat);
   $('#sk-fold').disabled = !v.drawn;
   $('#sk-contour').hidden = !(v.on_sheet && v.on_face);
+  $('#sk-forata').hidden = !(v.on_sheet && v.on_face);
   $('#sk-tab').hidden = !((v.tab_ok && v.on_face) || v.on_flat);
   $('#sk-tab').disabled = !v.drawn;
   $('#sk-mark').hidden = !!v.on_tube; $('#sk-boss').hidden = $('#sk-boss').hidden || !!v.on_tube;   // sul tubo: si buca e basta
@@ -11189,6 +11404,12 @@ function makeDialog(kind) {
   if (kind === 'structure') { structureDialog(); return; }
   if (kind === 'tubi') { faiTubiDialog(); return; }
   if (kind === 'cut' && SK.v.on_tube) { lavorazioneTuboDialog(); return; }
+  if (kind === 'forata') {                          // 05/11: i fori della lamiera forata solo dentro il contorno disegnato
+    const sid = SK.sid, face = SK.v.on_face;
+    exitSketch();
+    inCoda(() => forataDialog(face, null, sid));
+    return;
+  }
   if (kind === 'tab') {
     const sid = SK.sid;
     subitoOProva({ metodo: 'sheet_tab', argomenti: () => [sid], frase: r => r?.frase || 'Aggiunge materiale nel piano della faccia',
@@ -11811,6 +12032,7 @@ async function start() {
   introFine();
   window.__steelcad = { ready: true, runCmd: id => runCmd(id), nuovo: k => newDialog(k), get state() { return S; }, get sceneVersion() { return sceneVersion; }, get nodes() { return nodes; }, get sketch() { return SK; },
     objs, select, camera, controls, skScreen: xy => skScreen(xy), get mis() { return MIS; }, lineeSpesse: on => { lineeSpesse = on; if (SK) drawSketch(); }, toScreen: p => { const q = v3(p).project(camera); return [(q.x + 1) / 2 * canvas.clientWidth, (1 - q.y) / 2 * canvas.clientHeight]; }, enterSketch, exitSketch, apply, toast, hideHome, foto: p => fotoAnteprima(p), THREE, get bendEdges() { return bendEdges; },
+    get forata() { return antGruppo?.name === 'anteprima-forata' ? antGruppo.children[0].geometry.attributes.position.count / 2 : 0; },   // segmenti dell'anteprima della lamiera forata
     get look() { return { model: model.visible, flat: flatGroup.visible, work: workGroup.visible && workGroup.children.length > 0 }; } };
   window.__prova = { call, MAN, MINI, renderProps, apriPezzoAssieme, tornaAllAssieme, stepDialog, showTab, applyTheme,
     modello: k => modelloDialog(MODELLI.find(m => m.k === k)) };            // per le prove automatiche dell'interfaccia

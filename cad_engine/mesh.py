@@ -19,10 +19,39 @@ from OCP.collections import IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as T
 from .topology.naming import _edges_of, _faces_of
 
 
+FORI_TANTI = 40          # da quanti fori in una faccia conviene l'altro algoritmo dei triangoli
+
+
+def _triangola(shape, linear: float, angular: float) -> None:
+    """05/11 (lamiera forata): una faccia piana con centinaia di fori, col triangolatore di sempre, va a minuti (530 fori
+    6 secondi, 2000 fori più di un minuto). Con l'algoritmo Delabella la stessa faccia è un secondo. Solo per i pezzi
+    con una faccia con tanti fori: gli altri restano triangolati come sempre."""
+    from OCP.TopAbs import TopAbs_WIRE
+    bucata = False
+    for f in _faces_of(shape):
+        n, ex = 0, TopExp_Explorer(f, TopAbs_WIRE)
+        while ex.More() and n <= FORI_TANTI:
+            n += 1
+            ex.Next()
+        if n > FORI_TANTI:
+            bucata = True
+            break
+    if not bucata:
+        BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
+        return
+    from OCP.IMeshTools import IMeshTools_MeshAlgoType_Delabella, IMeshTools_Parameters
+    p = IMeshTools_Parameters()
+    # e i fori piccoli a 16 lati (con 0,4 il kernel ne fa 32): sono 2000, a 32 lati erano 400 mila punti da mandare
+    # al 3D. I fori grandi li decide comunque la freccia (0,15 mm)
+    p.Deflection, p.Angle, p.InParallel = linear, max(angular, 0.8), True
+    p.MeshAlgo = IMeshTools_MeshAlgoType_Delabella
+    BRepMesh_IncrementalMesh(shape, p)
+
+
 def tessellate(shape, names: dict | None = None, *, linear: float = 0.15, angular: float = 0.4) -> dict:
     # angolo 0,4 rad (21/10): i fori piccoli a 16 lati invece di 25; quelli grandi li decide la freccia (0,15 mm).
     # Con 400 fori il 3D si preparava in quasi 2 secondi
-    BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
+    _triangola(shape, linear, angular)
     pos: list[float] = []
     idx: list[int] = []
     faces = []
