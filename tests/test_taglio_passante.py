@@ -94,3 +94,20 @@ def test_angolo_del_carrello_il_tubo_passa(tmp_path):
         esiti[passante] = volume(BRepAlgoAPI_Common(s.result.body.shape, tubo).Shape())
         assert len(s.result.body.sheet.flat.outer_wire().edges()) > 4
     assert esiti[1] < 1e-3 and esiti[0] > 1000, esiti
+
+
+def test_quadrati_sulla_linea_di_piega_tolgono_la_piega(tmp_path):
+    """18/11, il ripiano rifatto da Stefano: quattro quadrati 41×41 che partono a 4 mm, proprio sulla linea dove
+    finisce il raggio. Il taglio tocca la piega senza entrarci: restava il raggio di 1 mm appeso alle pareti (sotto e
+    sopra), contro il tubo. Ora la piega si toglie intera anche così: tubo 40×40 libero nei quattro angoli."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.gp import gp_Pnt
+    copia = tmp_path / 'ripiano.steelcad'
+    copia.write_bytes((Path(__file__).parent / 'data' / 'carrello' / 'ripiano_quattro_angoli.steelcad').read_bytes())
+    s = Service()
+    assert s.open(str(copia))['ok']
+    assert s.state()['errors'] == []
+    for x0, y0 in ((3, 3), (757, 3), (3, 557), (757, 557)):
+        tubo = BRepPrimAPI_MakeBox(gp_Pnt(x0, y0, -10), 40, 40, 70).Shape()
+        assert volume(BRepAlgoAPI_Common(s.result.body.shape, tubo).Shape()) < 1e-3, (x0, y0)

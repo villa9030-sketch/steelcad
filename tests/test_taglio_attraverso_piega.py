@@ -50,17 +50,19 @@ def test_scasso_su_flangia_e_orlo_porta_via_anche_la_piega_in_mezzo(faccia, y0, 
     r = s.create_from_sketch(sid, 'cut', {})
     assert r['ok'], r
     assert s.state()['errors'] == []
-    assert prima - area(s) == pytest.approx(30 * (10 + (BA if piega else 0)), abs=0.5)
+    # 18/11: la piega in mezzo se ne va già col primo taglio (arriva sulla linea di piega: tagli nuovi, «piega intera»)
+    assert prima - area(s) == pytest.approx(30 * 10, abs=0.5)
 
 
-def test_scasso_sull_orlo_con_la_flangia_intera_lascia_la_piega():
-    """Dall'altra parte la flangia c'è: si accorcia l'orlo fino alla piega, la piega resta."""
+def test_scasso_sull_orlo_fino_alla_piega_toglie_la_piega():
+    """18/11 (Stefano, carrello): un taglio che arriva sulla linea di piega la toglie intera, come al laser; prima
+    (21/10) la piega restava appesa alla flangia. Vale per i tagli nuovi."""
     s = cassone()
     prima = area(s)
     sid = s.sketch_on_face('SM1/FL2/esterno')['sketch']
     assert s.sketch_add_rectangle(sid, [85, 0], [115, 10])['ok']
     assert s.create_from_sketch(sid, 'cut', {})['ok']
-    assert prima - area(s) == pytest.approx(30 * 10, abs=0.2)
+    assert prima - area(s) == pytest.approx(30 * (10 + BA), abs=0.2)
 
 
 def test_taglio_lontano_dalla_piega_resta_com_e():

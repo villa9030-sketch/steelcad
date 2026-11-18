@@ -48,7 +48,10 @@ def test_togli_materiale_con_linee_arrotondate_al_decimo():
         assert s.sketch_add_polyline(sid, [[x, 0], [x, 249.7]], False)['ok']
     r = s.create_from_sketch(sid, 'cut', {})
     assert r['ok'], r.get('message')
-    assert abs((v0 - volume(s.result.body.shape)) - 2 * 30 * 249.7045 * 2) < 5
+    # 18/11: il taglio arriva sulla prima piega a colpi: come in officina se ne va anche lei, intera, su quei 30 mm
+    tolto = v0 - volume(s.result.body.shape)
+    assert 0 < tolto - 2 * 30 * 249.7045 * 2 < 60, tolto
+    assert not s.state()['errors']
 
 
 def test_svasatura_che_rompe_il_pezzo_si_rifiuta():

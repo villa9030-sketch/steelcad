@@ -98,7 +98,8 @@ def test_le_guide_si_fermano_dove_la_lamiera_e_tagliata():
     sid = s.sketch_on_flat('SM1')['sketch']
     g = guide(s.sketch_view(sid)['sketch'])
     centri = sorted(round(abs(a[0] - b[0]), 3) for tipo, a, b, _ in g if tipo == 'centro')
-    assert centri == [170, 200]
+    # 18/11: il taglio sulla flangia parte dalla piega con la base: anche quella se ne va su quei 30 (piega intera)
+    assert centri == [170, 170]
 
 
 def test_spezzata_aperta_dal_bordo_agganciata_alle_guide_si_chiude_lungo_il_bordo():

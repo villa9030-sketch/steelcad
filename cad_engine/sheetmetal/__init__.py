@@ -2168,19 +2168,24 @@ def _scatole_lontane(b1, b2) -> bool:
 def _piega_intera(f, data) -> list:
     """Regola d'officina (18/11, carrello): un contorno che entra nella striscia di una piega la toglie per tutta la
     larghezza, in quel tratto. Il laser taglia in piano: lì la piega non c'è più, la parete resta dritta col bordo
-    libero (la piega tolta fa da scarico), niente raggio appeso. → le facce del contorno allargato."""
+    libero (la piega tolta fa da scarico), niente raggio appeso. Vale anche per un contorno che arriva proprio sulla
+    linea di piega senza entrarci (il quadrato 41×41 da 4 mm, sul carrello: restava il raggio di 1 mm appeso alla
+    parete, 18/11). → le facce del contorno allargato."""
     bf = f.bounding_box()
     aggiunte = []
+    m = 0.005                                          # il bordo della striscia: toccarlo per un tratto conta
     for g in data.flanges:
         if g.bend.ba < TOL:
             continue
-        rett = _bend_rect(g)
+        rett = _rett_flat(g, g.u0, g.u1, g.off - m, g.off + g.bend.ba + m)
         if _scatole_lontane(bf, rett.bounding_box()):
             continue
         for x in _facce(f & rett):
-            u = _u_di(x, g, g.F0, g.fx) if x.area > 1e-3 else None
+            u = _u_di(x, g, g.F0, g.fx) if x.area > m * 0.5 else None
             if u:
-                aggiunte.append(_rett_flat(g, u[0], u[1], g.off, g.off + g.bend.ba))
+                # da dove arriva il contorno (anche un pelo prima della linea: niente striscetta di millesimi)
+                ss = [(p - g.F0).dot(g.fn) for e in x.edges() for p in e.positions([0, 0.5, 1])]
+                aggiunte.append(_rett_flat(g, u[0], u[1], min(g.off, min(ss)), max(g.off + g.bend.ba, max(ss))))
     if not aggiunte:
         return [f]
     try:
