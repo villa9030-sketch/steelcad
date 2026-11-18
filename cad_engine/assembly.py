@@ -66,6 +66,26 @@ class Part:
     sotto: object = None                # sottoassieme: il suo Assembly (None per un pezzo)
     figli: list = field(default_factory=list)   # sottoassieme: (Part, R, T, id dell'istanza, nome), nelle sue coordinate
     gruppi: list = field(default_factory=list)  # sottoassieme: (prima faccia, quante, Part) per l'aspetto di ogni pezzo
+    distinta: dict | None = None        # 18/11: spessore e sviluppo della lamiera, dal disco (senza ricostruire)
+
+
+class _RisultatoPigro:
+    """18/11: il risultato della ricostruzione di un pezzo letto dal disco (assembly_cache): si fa la prima volta che
+    qualcuno lo chiede (tavole, sviluppo, lamiera), non all'apertura dell'assieme."""
+
+    def __init__(self, doc):
+        self._doc = doc
+        self._res = None
+
+    def _vero(self):
+        if self._res is None:
+            self._res = self._doc.rebuild()
+        return self._res
+
+    def __getattr__(self, nome):
+        if nome.startswith('__'):
+            raise AttributeError(nome)
+        return getattr(self._vero(), nome)
 
 
 class _DocAssieme:
@@ -218,7 +238,39 @@ def load_part(path, pila=()) -> Part:
         return vecchio
     doc = project_io.load(p)
     doc.meta['name'] = nome_visibile(doc, p)          # solo in memoria: distinta e tavole col nome giusto
-    res = doc.rebuild()
+    from . import assembly_cache as AC
+    k = AC.chiave(p)
+    dal_disco = AC.leggi(k) if k else None
+    if dal_disco is not None:                         # 18/11: già costruito un'altra volta, uguale: niente da rifare
+        forma, nomi, extra = dal_disco
+        part = Part(p, mt, doc, _RisultatoPigro(doc), forma, nomi, props=extra.get('props'),
+                    errors=list(extra.get('errors') or []), distinta=extra.get('distinta'))
+        _PEZZI[str(p)] = part
+        return part
+    return _da_risultato(p, mt, doc, doc.rebuild(), k)
+
+
+def ricorda_pezzo(path, res) -> None:
+    """18/11: il pezzo appena modificato e salvato nell'editor (res: la sua ricostruzione) entra così com'è tra i pezzi
+    dell'assieme: tornando all'assieme non si ricostruisce una seconda volta (il ripiano del carrello: 8 s)."""
+    from . import assembly_cache as AC
+    from . import project_io
+    p = Path(path).resolve()
+    if not p.exists() or p.name.endswith(EXT) or res is None or getattr(res, 'errors', None):
+        return
+    vecchio = _PEZZI.get(str(p))
+    if vecchio is not None and vecchio.mtime == p.stat().st_mtime:
+        return                                        # non è cambiato: quello che c'è va già bene
+    try:
+        doc = project_io.load(p)
+        doc.meta['name'] = nome_visibile(doc, p)
+        _da_risultato(p, p.stat().st_mtime, doc, res, AC.chiave(p))
+    except Exception:  # noqa: BLE001 - se non va, l'assieme lo ricostruisce come sempre
+        _PEZZI.pop(str(p), None)
+
+
+def _da_risultato(p: Path, mt: float, doc, res, k) -> Part:
+    from . import assembly_cache as AC
     solidi = []
     nomi = {}
     if res.body is not None:
@@ -232,7 +284,22 @@ def load_part(path, pila=()) -> Part:
     forma = solidi[0] if len(solidi) == 1 else _compound(solidi)
     part = Part(p, mt, doc, res, forma, nomi, errors=[e.message for e in res.errors])
     _PEZZI[str(p)] = part
+    if k and not res.errors:
+        sheet = getattr(res.body, 'sheet', None) if res.body is not None else None
+        AC.scrivi(k, forma, nomi, {'props': part_props(part), 'errors': part.errors,
+                                   'distinta': {'thickness': sheet.thickness if sheet else None,
+                                                'flat': list(sheet.flat_size) if sheet else None,
+                                                'segni': segni_laser(part)}})
     return part
+
+
+def segni_laser(part: Part) -> list:
+    """Le marcature laser del pezzo (tratti nelle sue coordinate), dal disco se il pezzo viene da lì."""
+    if part.distinta is not None and 'segni' in part.distinta:
+        return part.distinta['segni']
+    res = part.result
+    dati = getattr(res.body, 'sheet', None) if res is not None and getattr(res, 'body', None) is not None else None
+    return [[float(c) for q in sg['pezzo'] for c in q] for sg in (getattr(dati, 'marks', None) or []) if sg.get('pezzo')]
 
 
 def _gruppi_di(part: Part, off: int = 0) -> list:
@@ -367,8 +434,39 @@ def _T(i) -> np.ndarray:
     return np.array(i.get('T') or [0, 0, 0], dtype=float)
 
 
+def _indice(part: Part, quale: str, voci) -> dict:
+    """18/11 (tavole lente): hash della faccia → [(faccia, valore)], fatto una volta per pezzo. hash() di OCP va
+    d'accordo con IsSame (stesso pezzo di forma e posizione, verso a parte): si cerca lì invece che in tutte."""
+    cache = part.__dict__.setdefault('_indici', {})
+    k = (quale, id(part.names), id(part.shape))
+    if k not in cache:
+        m: dict = {}
+        for f, v in voci():
+            m.setdefault(hash(f), []).append((f, v))
+        cache[k] = m
+    return cache[k]
+
+
+def _nome_di(part: Part, face):
+    idx = _indice(part, 'nomi', lambda: ((f, n) for n, fs in part.names.items() for f in fs))
+    # il primo nome (nell'ordine dei nomi, come prima): l'indice tiene quell'ordine
+    return next((n for f, n in idx.get(hash(face), ()) if f.IsSame(face)), None)
+
+
 def face_info(part: Part, face) -> dict:
-    """Cosa serve per un accoppiamento: piana (punto, normale) o cilindrica (punto sull'asse, direzione)."""
+    """Cosa serve per un accoppiamento: piana (punto, normale) o cilindrica (punto sull'asse, direzione).
+    18/11: la stessa faccia dello stesso pezzo si calcola una volta (le viti dell'esploso: 6000 volte)."""
+    cache = part.__dict__.setdefault('_info_facce', {})
+    k = (id(part.shape), hash(face), int(face.Orientation()))
+    for f, info in cache.get(k, ()):
+        if f.IsSame(face):
+            return copy.deepcopy(info)
+    info = _face_info(part, face)
+    cache.setdefault(k, []).append((face, info))
+    return copy.deepcopy(info)
+
+
+def _face_info(part: Part, face) -> dict:
     import build123d as bd
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
@@ -376,7 +474,7 @@ def face_info(part: Part, face) -> dict:
     ad = BRepAdaptor_Surface(face)
     bf = bd.Face(face)
     c = bf.center()
-    nome = next((n for n, fs in part.names.items() if any(f.IsSame(face) for f in fs)), None)
+    nome = _nome_di(part, face)
     if ad.GetType() == GeomAbs_Plane:
         n = bf.normal_at(c)
         return {'kind': 'piana', 'name': nome, 'p': [c.X, c.Y, c.Z], 'n': [n.X, n.Y, n.Z]}
@@ -494,7 +592,8 @@ def resolve_ref(part: Part, ref: dict) -> dict:
     tutte = list(_faces_of(part.shape))
     # le facce col nome, ma prese dal solido: quella salvata col nome può avere il verso rovesciato (la normale
     # verso l'interno) e il pezzo si girava sottosopra pur rispettando l'accoppiamento (21/10)
-    facce = [next((g for g in tutte if g.IsSame(f)), f)
+    idx = _indice(part, 'facce', lambda: ((g, g) for g in tutte))
+    facce = [next((g for g, _ in idx.get(hash(f), ()) if g.IsSame(f)), f)
              for fs in ([part.names.get(nome)] if nome and part.names.get(nome) else []) for f in fs] or tutte
     p0 = np.array(ref['p'], dtype=float)
     for f in facce:
@@ -929,11 +1028,15 @@ def foglie(asm: Assembly, parts: dict):
 
 def _riga(part: Part) -> dict:
     pr = part_props(part)
-    sheet = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
+    if part.distinta is not None:                     # dal disco: senza ricostruire il pezzo
+        spessore, sviluppo = part.distinta.get('thickness'), part.distinta.get('flat')
+    else:
+        sheet = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
+        spessore, sviluppo = (sheet.thickness, list(sheet.flat_size)) if sheet else (None, None)
     return {'file': str(part.path), 'name': part.doc.meta.get('name') or part.path.stem, 'qty': 0,
             'material': part.doc.material, 'mass_kg': pr['mass_kg'],
-            'thickness': sheet.thickness if sheet else None,
-            'flat': list(sheet.flat_size) if sheet else None,
+            'thickness': spessore,
+            'flat': sviluppo,
             'acquisto': part.doc.meta.get('acquisto') or None,
             'finitura': part.doc.meta.get('finitura') or None}
 

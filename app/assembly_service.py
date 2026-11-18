@@ -2068,6 +2068,8 @@ class AssemblyMixin(MotoMixin):
             return {'ok': False, 'code': 'non_salvato', 'message': 'Salva il pezzo prima di tornare all’assieme (l’assieme '
                     'legge il file salvato).'}
         ha_corpo = self.result.body is not None or bool(self.result.structures)
+        if self.path is not None and ha_corpo:
+            A.ricorda_pezzo(self.path, self.result)     # 18/11: l'assieme prende il pezzo già costruito qui
         self.asm, self.path, self.asm_undo, self.asm_redo, self.asm_dirty = rit
         self._asm_ritorno = None
         self._contesto = None
@@ -2282,8 +2284,7 @@ class AssemblyMixin(MotoMixin):
             facce = [{**f, 'label': f'{i["name"]}: ' + (re.sub(r' di "[^"]*"$', '', part.doc.describe_face(f['name'])) if f['name'] else 'faccia')}
                      for f in m['faces']]
             # le marcature laser del pezzo: tratti come gli spigoli, si muovono con lui
-            dati = getattr(part.result.body, 'sheet', None) if part.result.body is not None else None
-            segni = [[c for q in sg['pezzo'] for c in q] for sg in (getattr(dati, 'marks', None) or []) if sg.get('pezzo')]
+            segni = A.segni_laser(part)
             from cad_engine import finiture
             objs.append({'id': i['id'], 'kind': 'instance', 'name': i['name'], 'matrix': mat,
                          'positions': m['positions'], 'indices': m['indices'], 'faces': facce, 'edges': m['edges'],

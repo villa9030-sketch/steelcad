@@ -239,7 +239,9 @@ def _proietta(shape, vista: str, veloce: bool = False) -> dict:
         pl, _ = poly(e)
         if pl is not None:
             res['tangenti'].append(pl)
-    for comp in (h.HCompound(), h.OutLineHCompound()):
+    # 18/11 (carrello, tavole lente): le viste degli assiemi (veloce) le nascoste non le disegnano: non si convertono
+    # (erano decine di migliaia di segmentini dietro ai fori delle gambe e alle viti)
+    for comp in (() if veloce else (h.HCompound(), h.OutLineHCompound())):
         for e in spigoli(comp):
             pl, _ = poly(e)
             if pl is not None:

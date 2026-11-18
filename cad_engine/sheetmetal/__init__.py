@@ -2247,13 +2247,21 @@ def _pareti_passanti(body, data, faces, piani, fid) -> list:
             continue                                   # la parete dove si è disegnato: la fa il taglio normale
         pareti.append((a, pc, '/'.join(parti[1:]), dritti[g.fid] if g is not None else None))
     L = bd.Shape.cast(body.shape).bounding_box().diagonal * 2 + 10
+    # 18/11 (ripiano lento): il solido di ogni piega si fa una volta per taglio, non per ogni contorno; e prima di
+    # intersecare si guarda se gli ingombri si toccano (quasi sempre no: il contorno sta in un angolo)
+    pieghe = [(g, _bend_tool(g, _bend_rect(g), t)) for g in data.flanges if g.bend.ba >= TOL]
+    pieghe = [(g, s, s.bounding_box()) for g, s in pieghe]
+    dritti_bb = {k: v.bounding_box() for k, v in dritti.items()}
     out = []
     for f in faces:
         prisma = bd.extrude(f, amount=L, dir=tuple(n), both=True)
+        bb_prisma = prisma.bounding_box()
         # le pareti parallele: il contorno portato sulla loro faccia, solo nel loro tratto dritto
         for a, (src, dst, dentro, g), nome, dritto in pareti:
             x = _orienta(f.moved(bd.Location(n * a)).moved(dst.location * src.location.inverse()), data.plane)
             if dritto is not None:
+                if not _bb_toccano(x.bounding_box(), dritti_bb[g.fid]):
+                    continue
                 pezzi = _facce(x & dritto)
             else:                                      # la base: fuori dalle pieghe e dalle pareti piegate
                 pezzi = [x]
@@ -2264,10 +2272,9 @@ def _pareti_passanti(body, data, faces, piani, fid) -> list:
                 if y.area > 1e-3:
                     out.append((_orienta(y, data.plane), (src.location * dst.location.inverse(), dentro, g), nome))
         # le pieghe che incontra: tutta la larghezza, nel tratto dove le attraversa
-        for g in data.flanges:
-            if g.bend.ba < TOL:
+        for g, piega, bb_piega in pieghe:
+            if not _bb_toccano(bb_prisma, bb_piega):
                 continue
-            piega = _bend_tool(g, _bend_rect(g), t)
             op = BRepAlgoAPI_Common(piega.wrapped, prisma.wrapped)
             if not op.IsDone():
                 continue
@@ -2281,6 +2288,12 @@ def _pareti_passanti(body, data, faces, piani, fid) -> list:
             out.append((_orienta(_rett_flat(g, u[0], u[1], g.off, g.off + g.bend.ba), data.plane),
                         (src.location * dst.location.inverse(), g.frame()[1], g), None))
     return out
+
+
+def _bb_toccano(a, b, tol: float = 0.01) -> bool:
+    """Gli ingombri (bounding box) si toccano? Se no, l'intersezione è vuota di sicuro."""
+    return (a.min.X <= b.max.X + tol and b.min.X <= a.max.X + tol and a.min.Y <= b.max.Y + tol
+            and b.min.Y <= a.max.Y + tol and a.min.Z <= b.max.Z + tol and b.min.Z <= a.max.Z + tol)
 
 
 def pareti_attraversate(body, faccia: str, faces) -> dict:

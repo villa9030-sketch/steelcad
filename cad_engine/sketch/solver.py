@@ -76,14 +76,20 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
     (una modifica nell'interfaccia risolveva lo stesso sketch 3 volte: prima, dopo, nella ricostruzione)."""
     import dataclasses
     import json
+    import time
     params = params or {}
     try:
-        chiave = json.dumps([sk.plane, sk.entities, sk.constraints, params], sort_keys=True, default=str)
+        corpo = json.dumps([sk.plane, sk.entities, sk.constraints], sort_keys=True, default=str)
+        # 18/11 (ripiano del carrello): nella chiave solo i parametri che lo sketch usa. Prima c'erano tutti: cambiando
+        # una quota qualsiasi del pezzo si risolvevano da capo anche gli sketch che non la usano (3,6 s uno solo)
+        parole = _parole(corpo)
+        usati = {k: v for k, v in params.items() if k in parole}
+        chiave = json.dumps([corpo, usati], sort_keys=True, default=str)
     except (TypeError, ValueError):
         chiave = None
     if chiave is not None and chiave in _MEMORIA:
         return dataclasses.replace(_MEMORIA[chiave], sketch=sk)
-    grande = chiave is not None and len(sk.constraints) > 400
+    grande = chiave is not None and len(sk.constraints) > 30
     if grande:                                  # uno sketch grande già risolto un'altra volta (24/10: aprire il file)
         dal_disco = _dal_disco(chiave)
         if dal_disco is not None:
@@ -103,16 +109,23 @@ def solve(sk: Sketch, params: dict | None = None) -> SolvedSketch:
         if chiave is not None:
             _MEMORIA[chiave] = out
         return out
+    t0 = time.perf_counter()
     out = _solve_a_blocchi(sk, params) if len(sk.constraints) > _SOGLIA_BLOCCHI else None
     if out is None:
         out = _solve(sk, params)
     if chiave is not None:
-        if len(_MEMORIA) > 64:
+        if len(_MEMORIA) > 256:
             _MEMORIA.pop(next(iter(_MEMORIA)))
         _MEMORIA[chiave] = out
-        if grande:
+        if grande and time.perf_counter() - t0 > 0.2:    # 18/11: su disco quelli lenti, non solo oltre 400 vincoli
             _sul_disco(chiave, out)
     return out
+
+
+def _parole(testo: str) -> set:
+    """I nomi che compaiono nel testo (per sapere quali parametri usa uno sketch)."""
+    import re
+    return set(re.findall(r'[A-Za-z_À-ÿ][A-Za-z0-9_À-ÿ]*', testo))
 
 
 # ============================================================================ sul disco
