@@ -1355,19 +1355,19 @@ class AssemblyMixin(MotoMixin):
         return {'ok': True, 'catalogo': libreria.CATALOGO}
 
     @_in_assieme
-    def asm_insert_libreria(self, tipo: str, misura: str, lunghezza=None, foro: dict | None = None) -> dict:
+    def asm_insert_libreria(self, tipo: str, misura: str, lunghezza=None, foro: dict | None = None, inox: bool = False) -> dict:
         """Un pezzo della libreria (viti, dadi, rondelle, rivetti) nell'assieme. Se foro è un foro cliccato, ci va
         dentro (foro su foro: l'asse; la posizione lungo il foro si sistema con «Faccia su faccia»)."""
         from app import libreria
         try:
-            f = libreria.crea(tipo, misura, lunghezza or None)
+            f = libreria.crea(tipo, misura, lunghezza or None, inox=bool(inox))
         except ValueError as ex:
             return {'ok': False, 'message': str(ex)}
         r = self.asm_insert(str(f))
         if not r.get('ok'):
             return r
         nuovo = self.asm.instances[-1]['id']
-        msg = f'{libreria.descrizione(tipo, misura, lunghezza or None)}: inserita'
+        msg = f'{libreria.descrizione(tipo, misura, lunghezza or None, bool(inox))}: inserita'
         if foro and foro.get('inst') and foro.get('face') is not None:
             try:
                 fr = self._asm_face(foro['inst'], foro['face'])
@@ -1554,7 +1554,8 @@ class AssemblyMixin(MotoMixin):
         return None
 
     def asm_insert_viteria(self, tipo: str, misura: str, lunghezza=None, foro: dict | None = None, opz: dict | None = None) -> dict:
-        """opz: {'tutti': in tutti i fori uguali, 'quante': senza foro quante, 'appoggia': sotto la testa, 'verso': [x,y,z]}."""
+        """opz: {'tutti': in tutti i fori uguali, 'quante': senza foro quante, 'appoggia': sotto la testa, 'verso': [x,y,z],
+        'inox': inox A2 invece che zincato}."""
         from app import libreria
         opz = opz or {}
         n0 = len(self.asm_undo)
@@ -1577,18 +1578,18 @@ class AssemblyMixin(MotoMixin):
         messi, appoggiate = [], 0
         for k in range(len(fori) or quante):
             fo = fori[k] if fori else None
-            r = self.asm_insert_libreria(tipo, misura, lunghezza, fo)
+            r = self.asm_insert_libreria(tipo, misura, lunghezza, fo, bool(opz.get('inox')))
             if not r.get('ok'):
                 return indietro(r)
             messi.append(r['select'])
-            if fo and opz.get('appoggia', True) and tipo in ('vite_tcei', 'vite_te', 'rivetto', 'inserto') \
+            if fo and opz.get('appoggia', True) and tipo in ('vite_tcei', 'vite_tbei', 'vite_te', 'rivetto', 'inserto') \
                     and 'nel foro' in (r.get('message') or ''):
                 try:
                     appoggiate += self._appoggia_testa(fo, r['select'], opz.get('verso'))
                 except Exception:  # noqa: BLE001 - se non si appoggia resta nel foro: si sistema a mano
                     pass
         # tutto quello che è stato fatto: un solo passo di Annulla
-        nome = libreria.descrizione(tipo, misura, lunghezza or None)
+        nome = libreria.descrizione(tipo, misura, lunghezza or None, bool(opz.get('inox')))
         del self.asm_undo[n0:]
         self.asm_undo.append((f'{len(messi)} × {nome}', prima))
         self.asm_redo.clear()
@@ -1708,7 +1709,8 @@ class AssemblyMixin(MotoMixin):
     def asm_bullone(self, foro_a: dict, foro_b: dict, opz: dict | None = None, prova: bool = False) -> dict:
         """La vite nei due fori cliccati (di due pezzi): con prova solo la proposta (dal diametro del foro e dallo
         spessore del pacco); se no allinea i fori se serve, mette la vite appoggiata sotto la testa dal lato che si
-        guarda (opz['verso']) e il dado dall'altra parte. opz: tipo, misura, L, dado (per cambiare la proposta)."""
+        guarda (opz['verso']) e il dado dall'altra parte. opz: tipo, misura, L, dado (per cambiare la proposta);
+        18/11: 'inox' (tutto inox A2), 'rondella' (la rondella sotto il dado)."""
         from app import libreria
         opz = opz or {}
         try:
@@ -1749,25 +1751,28 @@ class AssemblyMixin(MotoMixin):
         tipo = opz.get('tipo') or prop['tipo']
         M = opz.get('misura') or prop['misura']
         L = opz.get('L') or prop['L']
-        r = self.asm_insert_viteria(tipo, M, L, foro_a, {'appoggia': True, 'verso': v.tolist()})
+        inox = bool(opz.get('inox'))
+        r = self.asm_insert_viteria(tipo, M, L, foro_a, {'appoggia': True, 'verso': v.tolist(), 'inox': inox})
         if not r.get('ok'):
             return indietro(r)
         vite = r['select']
-        if dado:
+        sotto_dado = ['rondella', 'dado'] if dado and opz.get('rondella') else (['dado'] if dado else [])
+        for cosa in sotto_dado:                      # la rondella (se c'è) e poi il dado, uno sull'altro sotto il pacco
             fondo = self._cima_del_pacco(foro_a, -v)
-            r = self.asm_insert_libreria('dado', M, None, foro_a)
+            r = self.asm_insert_libreria(cosa, M, None, foro_a, inox)
             if not r.get('ok'):
                 return indietro(r)
             if fondo:
                 from cad_engine.topology.naming import _faces_of
                 idd = self.asm.instance(r['select'])
                 dp = self.asm_parts[idd['file']]
-                # la faccia del dado che guarda già verso il pezzo (girato com'è nel foro): niente capovolte
+                # la faccia che guarda già verso il pezzo (girato com'è nel foro): niente capovolte
                 facce = [k for k, f in enumerate(_faces_of(dp.shape)) if A.face_info(dp, f)['kind'] == 'piana'
                          and float(np.dot(np.array(idd['R']) @ np.array(A.face_info(dp, f)['n']), fondo[2])) < -0.999]
                 if facce:
                     self.asm_add_mate('faccia', {'inst': fondo[0][0], 'face': fondo[0][1]}, {'inst': r['select'], 'face': facce[0]}, 0)
-        nome = libreria.descrizione(tipo, M, L).split(' cl.')[0] + (f' + dado {M}' if dado else '')
+        nome = (libreria.descrizione(tipo, M, L, inox).split(' cl.')[0] + (' + rondella' if 'rondella' in sotto_dado else '')
+                + (f' + dado {M}' if dado else ''))
         del self.asm_undo[n0:]
         self.asm_undo.append((nome, prima))
         self.asm_redo.clear()

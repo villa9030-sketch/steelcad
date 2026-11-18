@@ -7,6 +7,7 @@ Misure (mm), dai cataloghi delle norme:
 - vite TE ISO 4017: esagono s, testa alta k;
 - vite TSPEI ISO 10642 (testa svasata piana a 90°, esagono incassato): testa Ø dk, alta k, esagono s; la lunghezza
   nominale comprende la testa;
+- vite TBEI ISO 7380-1 (testa bombata, esagono incassato): testa Ø dk, alta k, esagono s (18/11, carrello inox);
 - dado esagonale ISO 4032: chiave s, alto m;
 - rondella piana ISO 7089: foro d1, esterno d2, spessore h;
 - rivetto a strappo (testa tonda): Ø, testa D × spessore;
@@ -21,6 +22,8 @@ TCEI = {'M3': (5.5, 3, 2.5), 'M4': (7, 4, 3), 'M5': (8.5, 5, 4), 'M6': (10, 6, 5
         'M12': (18, 12, 10)}
 TSPEI = {'M3': (6.72, 1.86, 2), 'M4': (8.96, 2.48, 2.5), 'M5': (11.2, 3.1, 3), 'M6': (13.44, 3.72, 4),
          'M8': (17.92, 4.96, 5), 'M10': (22.4, 6.2, 6), 'M12': (26.88, 7.44, 8)}
+TBEI = {'M3': (5.7, 1.65, 2), 'M4': (7.6, 2.2, 2.5), 'M5': (9.5, 2.75, 3), 'M6': (10.5, 3.3, 4), 'M8': (14, 4.4, 5),
+        'M10': (17.5, 5.5, 6), 'M12': (21, 6.6, 8)}
 TE = {'M5': (8, 3.5), 'M6': (10, 4), 'M8': (13, 5.3), 'M10': (16, 6.4), 'M12': (18, 7.5), 'M16': (24, 10)}
 DADO = {'M3': (5.5, 2.4), 'M4': (7, 3.2), 'M5': (8, 4.7), 'M6': (10, 5.2), 'M8': (13, 6.8), 'M10': (16, 8.4),
         'M12': (18, 10.8), 'M16': (24, 14.8)}
@@ -33,6 +36,8 @@ CATALOGO = {
     'vite_tcei': {'nome': 'Vite TCEI ISO 4762', 'misure': list(TCEI), 'lunghezze': [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 50, 60]},
     'vite_tspei': {'nome': 'Vite a testa svasata TSPEI ISO 10642', 'misure': list(TSPEI),
                    'lunghezze': [8, 10, 12, 16, 20, 25, 30, 35, 40, 50, 60]},
+    'vite_tbei': {'nome': 'Vite a testa bombata TBEI ISO 7380', 'misure': list(TBEI),
+                  'lunghezze': [6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 50]},
     'vite_te': {'nome': 'Vite TE ISO 4017', 'misure': list(TE), 'lunghezze': [10, 12, 16, 20, 25, 30, 35, 40, 50, 60, 80]},
     'dado': {'nome': 'Dado esagonale ISO 4032', 'misure': list(DADO), 'lunghezze': []},
     'rondella': {'nome': 'Rondella piana ISO 7089', 'misure': list(RONDELLA), 'lunghezze': []},
@@ -41,15 +46,29 @@ CATALOGO = {
 }
 
 
-def nome_file(tipo: str, misura: str, L=None) -> str:
-    base = {'vite_tcei': f'TCEI {misura}x{L}', 'vite_tspei': f'TSPEI {misura}x{L}', 'vite_te': f'TE {misura}x{L}', 'dado': f'Dado {misura}',
-            'rondella': f'Rondella {misura}', 'rivetto': f'Rivetto {misura}x{L}', 'inserto': f'Rivetto filettato {misura}'}
-    return base[tipo]
+# 18/11: ogni pezzo zincato o inox A2 (carrello di Stefano in inox); il file inox ha « inox» in fondo al nome
 
 
-def descrizione(tipo: str, misura: str, L=None) -> str:
+def nome_file(tipo: str, misura: str, L=None, inox: bool = False) -> str:
+    base = {'vite_tcei': f'TCEI {misura}x{L}', 'vite_tspei': f'TSPEI {misura}x{L}', 'vite_tbei': f'TBEI {misura}x{L}',
+            'vite_te': f'TE {misura}x{L}', 'dado': f'Dado {misura}', 'rondella': f'Rondella {misura}',
+            'rivetto': f'Rivetto {misura}x{L}', 'inserto': f'Rivetto filettato {misura}'}
+    return base[tipo] + (' inox' if inox else '')
+
+
+def descrizione(tipo: str, misura: str, L=None, inox: bool = False) -> str:
+    if inox:
+        return {'vite_tcei': f'Vite TCEI ISO 4762 {misura}x{L} inox A2-70',
+                'vite_tspei': f'Vite TSPEI ISO 10642 {misura}x{L} inox A2-70',
+                'vite_tbei': f'Vite TBEI ISO 7380 {misura}x{L} inox A2-70',
+                'vite_te': f'Vite TE ISO 4017 {misura}x{L} inox A2-70',
+                'dado': f'Dado esagonale ISO 4032 {misura} inox A2-70',
+                'rondella': f'Rondella piana ISO 7089 {misura} inox A2',
+                'rivetto': f'Rivetto a strappo testa tonda Ø{misura}x{L} inox A2',
+                'inserto': f'Rivetto filettato (inserto) testa piana {misura} inox A2'}[tipo]
     return {'vite_tcei': f'Vite TCEI ISO 4762 {misura}x{L} cl. 8.8 zincata',
             'vite_tspei': f'Vite TSPEI ISO 10642 {misura}x{L} cl. 10.9 zincata',
+            'vite_tbei': f'Vite TBEI ISO 7380 {misura}x{L} cl. 10.9 zincata',
             'vite_te': f'Vite TE ISO 4017 {misura}x{L} cl. 8.8 zincata',
             'dado': f'Dado esagonale ISO 4032 {misura} cl. 8 zincato',
             'rondella': f'Rondella piana ISO 7089 {misura} zincata',
@@ -106,7 +125,7 @@ def _esagono(s, faccia, centro_y, s_chiave, op, profondita):
     _ok(s.create_from_sketch(sid, op, {'distance': profondita}), 'esagono')
 
 
-def crea(tipo: str, misura: str, L=None, cartella=None) -> Path:
+def crea(tipo: str, misura: str, L=None, cartella=None, inox: bool = False) -> Path:
     """Il file del pezzo (lo fa se non c'è)."""
     from app.service import Service
     if tipo not in CATALOGO:
@@ -117,13 +136,13 @@ def crea(tipo: str, misura: str, L=None, cartella=None) -> Path:
         raise ValueError('Scegli la lunghezza.')
     cartella = Path(cartella) if cartella else Path.home() / 'Documents' / 'SteelCAD' / 'Libreria'
     cartella.mkdir(parents=True, exist_ok=True)
-    nome = nome_file(tipo, misura, L)
+    nome = nome_file(tipo, misura, L, inox)
     f = cartella / f'{nome}.steelcad'
     if f.exists():
         return f
     L0 = L
     s = Service()
-    _ok(s.new_project('zero', {'name': nome, 'material': 'S235'}), nome)
+    _ok(s.new_project('zero', {'name': nome, 'material': 'AISI304' if inox else 'S235'}), nome)
     d = float(misura[1:]) if misura.startswith('M') else float(misura.replace(',', '.'))
     r = d / 2
     if tipo == 'vite_tcei':
@@ -138,6 +157,16 @@ def crea(tipo: str, misura: str, L=None, cartella=None) -> Path:
         L = float(L)
         _gira(s, [(0, -L), (r * 0.8, -L), (r, -L + r * 0.2), (r, -k), (dk / 2, 0), (0, 0)])
         _esagono(s, _faccia(s, (0, 1, 0)), 0, sc, 'cut', k * 0.7)
+    elif tipo == 'vite_tbei':
+        # la testa bombata: sotto piana a y = 0, la calotta fino a k, in cima un piano piccolo per l'esagono
+        dk, k, sc = TBEI[misura]
+        L = float(L)
+        rp = sc / 2 / math.cos(math.radians(30)) * 1.1           # il piano in cima: ci sta l'esagono
+        # la calotta: un arco che passa per (dk/2, k*0.15) e per (rp, k), fatto a tratti
+        cal = [(dk / 2 - (dk / 2 - rp) * (1 - math.cos(a)), k * 0.15 + (k * 0.85) * math.sin(a))
+               for a in [math.radians(x) for x in (0, 20, 40, 60, 80, 90)]]
+        _gira(s, [(0, -L), (r * 0.8, -L), (r, -L + r * 0.2), (r, 0), (dk / 2, 0)] + cal + [(0, k)])
+        _esagono(s, _faccia(s, (0, 1, 0)), k, sc, 'cut', k * 0.6)
     elif tipo == 'vite_te':
         sc, k = TE[misura]
         L = float(L)
@@ -164,7 +193,7 @@ def crea(tipo: str, misura: str, L=None, cartella=None) -> Path:
         dfo, D, h, dint = INSERTO[misura]
         L = 2.5 * d
         _gira(s, [(dint / 2, -L), (dfo / 2, -L), (dfo / 2, 0), (D / 2, 0), (D / 2, h), (dint / 2, h)])
-    s.doc.meta['acquisto'] = {'descrizione': descrizione(tipo, misura, L0),
+    s.doc.meta['acquisto'] = {'descrizione': descrizione(tipo, misura, L0, inox),
                               'codice': '', 'fornitore': ''}
     _ok(s.save(str(f)), 'salva')
     return f

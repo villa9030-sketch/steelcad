@@ -5122,7 +5122,7 @@ async function viteriaDialog() {
   if (foro) {                                          // (03/11) la misura giusta per il foro cliccato e il pacco
     const vv = camera.position.clone().sub(controls.target).normalize();
     const pr = await call('asm_vite_proposta', foro, [vv.x, vv.y, vv.z]);
-    if (pr?.ok) ultimo = { ...ultimo, tipo: ultimo.tipo === 'vite_tspei' ? 'vite_tspei' : pr.proposta.tipo, misura: pr.proposta.misura, L: pr.proposta.L };
+    if (pr?.ok) ultimo = { ...ultimo, tipo: ['vite_tspei', 'vite_tbei'].includes(ultimo.tipo) ? ultimo.tipo : pr.proposta.tipo, misura: pr.proposta.misura, L: pr.proposta.L };
   }
   // 04/11 (regola 2): la viteria nel pannello a destra, come Vite nei fori (prima una finestra in mezzo, sopra il pezzo)
   viteriaChiudi();
@@ -5131,7 +5131,8 @@ async function viteriaDialog() {
   el.innerHTML = `<div class="pc-testa"><h3>Viteria</h3><p>Viti, dadi, rondelle e rivetti dalle norme ISO: il pezzo si fa la prima volta e poi si riusa. In distinta va tra gli acquisti</p></div>
     <div class="pc-corpo">
     <section class="sezione"><h4>Cosa</h4><select class="field" id="vt-t" aria-label="Cosa">${Object.entries(cat).map(([k, c]) => `<option value="${k}"${k === ultimo.tipo ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select>
-      <div class="ff"><label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div></section>
+      <div class="ff"><label>Misura<select class="field" id="vt-m"></select></label><label id="vt-lw">Lunghezza<select class="field" id="vt-l"></select></label></div>
+      <label class="interruttore"><input type="checkbox" id="vt-x"${ultimo.inox ? ' checked' : ''}><i></i>Inox A2 (se no zincato)</label></section>
     <section class="sezione"><h4>Dove</h4>
     ${foro ? `<label class="interruttore"><input type="checkbox" id="vt-f" checked><i></i>Nel foro che hai cliccato</label>
       <label class="interruttore" id="vt-tutti-w" hidden><input type="checkbox" id="vt-tutti" checked><i></i><span id="vt-tutti-t">Anche negli altri fori uguali del pezzo</span></label>
@@ -5161,11 +5162,12 @@ async function viteriaDialog() {
     VIT.ok = $('#vt-ok').onclick = () => {
       const tipo = $('#vt-t').value, misura = $('#vt-m').value, L = cat[tipo].lunghezze.length ? +$('#vt-l').value : null;
       const n = $('#vt-n') ? $('#vt-n').value.trim() : 1;
-      viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L, n };
+      const inox = $('#vt-x').checked;
+      viteriaDialog.ultimo = { tipo, misura, L: L || ultimo.L, n, inox };
       const dove = $('#vt-f')?.checked ? foro : null;
       const verso = camera.position.clone().sub(controls.target).normalize();
       const opz = { tutti: !!dove && !$('#vt-tutti-w')?.hidden && $('#vt-tutti')?.checked, quante: dove ? 1 : n,
-        appoggia: !!$('#vt-app')?.checked, verso: [verso.x, verso.y, verso.z] };
+        appoggia: !!$('#vt-app')?.checked, verso: [verso.x, verso.y, verso.z], inox };
       close();
       inCoda(async () => { const r2 = await call('asm_insert_viteria', tipo, misura, L, dove, opz); if (await apply(r2, r2.message) && r2.select) await select(r2.select); });
     };
@@ -5748,20 +5750,36 @@ async function viteFori(a, b) {
     return;
   }
   const p = r.proposta, nomi = [a, b].map(f => objs.get(f.inst)?.data.name || f.inst);
+  const cat = (await call('libreria_catalogo'))?.catalogo || {};
+  // 18/11 (carrello inox): la testa (anche bombata), inox e rondella; le ultime scelte restano per i fori dopo
+  const U = viteFori.ultimo || {}, TESTE = [['vite_tcei', 'TCEI (cilindrica)'], ['vite_tbei', 'TBEI (bombata)'], ['vite_te', 'TE (esagonale)']];
+  const tipo0 = U.tipo && cat[U.tipo]?.misure.includes(p.misura) ? U.tipo : p.tipo;
+  const L0 = U.tipo === tipo0 && U.L && cat[tipo0]?.lunghezze.includes(U.L) && U.misura === p.misura ? U.L : p.L;
   const el = document.createElement('div');
   el.id = 'vitefori'; el.className = 'pannello-cmd';
-  const sel = (id, lst, v) => `<select class="field" id="${id}">${lst.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${esc(String(x))}</option>`).join('')}</select>`;
   el.innerHTML = `<div class="pc-testa"><h3>Vite nei fori</h3><p>«${esc(nomi[0])}» e «${esc(nomi[1])}»: la vite giusta per il foro, lunga quanto il pacco</p></div>
     <div class="pc-corpo">
     <section class="sezione"><h4>Cosa puoi fare</h4><button class="btn" id="vf-solo" title="Solo foro su foro, senza vite"><img src="icons/hole.svg" alt="">Solo allinea i fori, senza vite</button></section>
-    <section class="sezione"><h4>${esc(p.tipo === 'vite_te' ? 'Vite TE' : 'Vite TCEI')}</h4>
-      <div class="ap-riga vf-misura">${sel('vf-m', r.misure, p.misura)}<span>×</span>${sel('vf-l', r.lunghezze, p.L)}<span class="testo-2">mm</span></div>
-      ${p.dado ? '<label class="interruttore"><input type="checkbox" id="vf-d" checked><i></i>Con dado</label>' : ''}
+    <section class="sezione"><h4>Vite</h4>
+      <select class="field" id="vf-t" aria-label="Testa">${TESTE.filter(([k]) => cat[k]).map(([k, l]) => `<option value="${k}"${k === tipo0 ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <div class="ap-riga vf-misura"><select class="field" id="vf-m"></select><span>×</span><select class="field" id="vf-l"></select><span class="testo-2">mm</span></div>
+      <label class="interruttore"><input type="checkbox" id="vf-x"${U.inox ? ' checked' : ''}><i></i>Inox A2</label>
+      ${p.dado ? `<label class="interruttore"><input type="checkbox" id="vf-d" checked><i></i>Con dado</label>
+      <label class="interruttore"><input type="checkbox" id="vf-r"${U.rondella ? ' checked' : ''}><i></i>Rondella sotto il dado</label>` : ''}
       <p class="ap-dist">Foro Ø${mmTesto(p.foro)}, quindi ${esc(p.misura)}; pacco ${mmTesto(p.pacco)} mm.${r.allineati ? '' : ' I pezzi si mettono uno contro l’altro, coi fori allineati.'}</p>
       ${p.corta ? '<p class="msg warn ap-err">Anche la più lunga del catalogo è corta per questo pacco.</p>' : ''}</section></div>
     <div class="pc-fondo"><button class="btn" id="vf-no">Annulla <kbd>Esc</kbd></button><button class="btn primary big" id="vf-ok">Metti la vite <kbd>Invio</kbd></button></div>`;
   document.body.appendChild(el);
   VF.el = el; VF.a = a; VF.b = b; VF.p = p; VF.v = v;
+  const opt = (lst, x) => lst.map(y => `<option${String(y) === String(x) ? ' selected' : ''}>${esc(String(y))}</option>`).join('');
+  const rifai = () => {
+    const c = cat[$('#vf-t').value] || { misure: r.misure, lunghezze: r.lunghezze };
+    const m = $('#vf-m').value || p.misura, l = +$('#vf-l').value || L0;
+    $('#vf-m').innerHTML = opt(c.misure, c.misure.includes(m) ? m : c.misure[0]);
+    $('#vf-l').innerHTML = opt(c.lunghezze, c.lunghezze.includes(l) ? l : (c.lunghezze.find(x => x >= l) || c.lunghezze.at(-1)));
+  };
+  rifai(); $('#vf-t').onchange = rifai;
+  if ($('#vf-d')) $('#vf-d').onchange = () => { $('#vf-r').disabled = !$('#vf-d').checked; };
   $('#vf-no').onclick = viteForiChiudi;
   $('#vf-solo').onclick = () => { viteForiChiudi(); inCoda(async () => {
     const x = await call('asm_add_mate', 'asse', a, b, 0, false, null, null, true);
@@ -5770,7 +5788,9 @@ async function viteFori(a, b) {
 }
 function viteForiFatto() {
   if (!VF.el) return;
-  const opz = { misura: $('#vf-m').value, L: +$('#vf-l').value, dado: $('#vf-d') ? $('#vf-d').checked : false, verso: VF.v };
+  const opz = { tipo: $('#vf-t').value, misura: $('#vf-m').value, L: +$('#vf-l').value, dado: $('#vf-d') ? $('#vf-d').checked : false,
+    inox: $('#vf-x').checked, rondella: !!$('#vf-r')?.checked, verso: VF.v };
+  viteFori.ultimo = { tipo: opz.tipo, misura: opz.misura, L: opz.L, inox: opz.inox, rondella: opz.rondella };
   const a = VF.a, b = VF.b;
   viteForiChiudi();
   inCoda(async () => { const r = await call('asm_bullone', a, b, opz, false); if (await apply(r, r.message) && r.select) await select(r.select); });

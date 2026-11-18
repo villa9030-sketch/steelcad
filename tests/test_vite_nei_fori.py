@@ -141,3 +141,28 @@ def test_clic_vicino_al_foro_vale_come_clic_nel_foro(assieme):
     assert s.asm.mates[0]['a']['kind'] == 'cilindrica'
     lontano = {'inst': 'I1', 'face': sopra, 'pt': [150, 100, 8]}
     assert not s.asm_bullone(lontano, _foro(s, 'I2', (370, 30)), None, True)['ok']
+
+
+def test_bombata_inox_con_rondella_sotto_il_dado(assieme):
+    """18/11 (carrello di Stefano): TBEI ISO 7380 M8x16 inox, rondella e dado inox sotto il pacco, uno sull'altro."""
+    s = assieme
+    a, b = _foro(s, 'I1', (25, 25)), _foro(s, 'I2', (370, 30))
+    n0 = len(s.asm.instances)
+    r = s.asm_bullone(a, b, {'verso': [0, 0, 1], 'tipo': 'vite_tbei', 'misura': 'M12', 'L': 30, 'inox': True, 'rondella': True})
+    assert r['ok'], r.get('message')
+    assert not s.asm.warnings
+    vite, rond, dado = s.asm.instances[n0:]
+    assert [x['name'] for x in (vite, rond, dado)] == ['TBEI M12x30 inox', 'Rondella M12 inox', 'Dado M12 inox']
+    assert 'TBEI' in r['message'] and 'inox A2' in r['message'] and 'rondella' in r['message']
+    z = {x['name']: np.array(x['T'])[2] for x in (vite, rond, dado)}
+    assert abs(np.array(vite['R'])[2, 1] - 1) < 1e-6                     # testa in su
+    assert z['TBEI M12x30 inox'] > z['Rondella M12 inox'] > z['Dado M12 inox']   # rondella, poi il dado più giù
+    assert not A.interferences(s.asm, s.asm_parts)
+
+
+def test_libreria_inox_descrizione_e_file():
+    from app import libreria
+    assert libreria.descrizione('vite_tbei', 'M8', 16, True) == 'Vite TBEI ISO 7380 M8x16 inox A2-70'
+    assert libreria.descrizione('dado', 'M8') == 'Dado esagonale ISO 4032 M8 cl. 8 zincato'
+    assert libreria.nome_file('rondella', 'M8', None, True) == 'Rondella M8 inox'
+    assert 'vite_tbei' in libreria.CATALOGO and libreria.CATALOGO['vite_tbei']['misure'] == list(libreria.TBEI)
