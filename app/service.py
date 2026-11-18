@@ -6,6 +6,7 @@ grafico e niente di OpenCascade esposto all'esterno.
 from __future__ import annotations
 
 import copy
+import json
 
 import math
 import re
@@ -160,6 +161,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
         try:
             prima = {f.id for f in self.result.errors}
             n = len(self.history.done)
+            dove_prima = self._zeri_dei_tagli()
             with self.history.change(label):
                 fn()
             if len(self.history.done) == n:
@@ -172,7 +174,8 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 self._rebuild()
                 return {'ok': False, 'code': 'rompe', 'message': f'Non applicato: {nuovi[0].message}',
                         **_soluzioni(nuovi[0].message, getattr(nuovi[0], 'id', None))}
-            return _ok(state=self.state())
+            avviso = self._tagli_spostati(dove_prima)
+            return _ok(state=self.state(), **({'avviso': avviso} if avviso else {}))
         except Exception as ex:  # noqa: BLE001
             return _err(ex)
 
@@ -3593,8 +3596,54 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             r['sketch'] = nuovo['id']
         return r
 
+    def _zeri_dei_tagli(self) -> dict:
+        """Dove sta lo zero degli sketch su faccia usati da un taglio: {sketch: (impronta, origine)} (18/11)."""
+        out = {}
+        try:
+            risolti = getattr(self.doc, '_sketch_results', None) or {}
+            usati = {f.get('sketch'): f for f in self.doc.features
+                     if not isinstance(f, Sketch) and f.get('sketch') and (f.get('type') in ('sheet_cut', 'hole')
+                                                                           or f.get('operation') == 'cut')}
+            for sid, f in usati.items():
+                if sid not in risolti:
+                    continue
+                sk = self.doc.sketch(sid)
+                if not isinstance(sk.plane, dict) or not sk.plane.get('face'):
+                    continue
+                o = risolti[sid][1].plane.origin
+                out[sid] = (json.dumps(sk.to_dict(), sort_keys=True, default=str), (o.X, o.Y, o.Z), f)
+        except Exception:  # noqa: BLE001 - è solo un avviso: non deve mai fermare una modifica
+            return {}
+        return out
+
+    def _tagli_spostati(self, prima: dict) -> str:
+        """18/11 (carrello): una modifica (gli angoli sopra/sotto, un taglio sull'angolo) sposta l'angolo di una faccia e
+        con lui i fori disegnati lì sopra, senza che nessuno l'abbia chiesto: lo si dice."""
+        if not prima:
+            return ''
+        dopo = self._zeri_dei_tagli()
+        frasi = []
+        for sid, (imp, o, f) in prima.items():
+            if sid not in dopo or dopo[sid][0] != imp:
+                continue                                 # lo sketch è stato cambiato apposta (o tolto)
+            o2 = dopo[sid][1]
+            d = sum((a - b) ** 2 for a, b in zip(o, o2)) ** 0.5
+            if d > 0.01:
+                dove = self.doc.describe_face(self.doc.sketch(sid).plane['face'])
+                frasi.append(f'«{f.get("name") or f["id"]}» ({dove}) di {fmt_mm(round(d, 2))} mm')
+        if not frasi:
+            return ''
+        return ('Attenzione: con questa modifica si sono spostati i fori di ' + '; '.join(frasi[:4])
+                + (' e altri' if len(frasi) > 4 else '') + '. Sono misurati dall’angolo della faccia, che si è '
+                'spostato: controlla le quote (gli sketch nuovi sulla lamiera partono dal bordo del pezzo e non si spostano).')
+
     def _crea_sketch_faccia(self, face_name: str, nome: str | None = None):
-        sk = self.doc.add_sketch({'face': face_name}, nome or 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
+        piano_sk = {'face': face_name}
+        dati = getattr(self.result.body, 'sheet', None)
+        if dati is not None and face_name.split('/')[0] == dati.feature and getattr(dati, 'flanges', None) \
+                and face_name not in (getattr(dati, 'pannelli', None) or {}):
+            piano_sk['zero'] = 'bordo'          # 18/11: quote dal bordo esterno del pezzo, non dall'angolo della faccia
+        sk = self.doc.add_sketch(piano_sk, nome or 'Sketch: ' + self.doc.describe_face(face_name).replace('"', ''))
         import build123d as bd
         from cad_engine.sketch.face_plane import plane_of
         faccia = bd.Face(self.result.body.face(face_name)[0])

@@ -701,9 +701,10 @@ def test_rifila_la_parete_sulla_sagoma_del_profilo():
     sk = s.doc.sketch(sid)
     sagoma = {(round(sk.entities[e[k]]['x'], 3), round(sk.entities[e[k]]['y'], 3))
               for e in sk.entities.values() if e['kind'] == 'line' and e.get('proj') for k in ('a', 'b')}
-    assert (16.0, 28.0) in sagoma and (15.0, 27.0) in sagoma          # FL3 e FL2 del profilo
+    # 18/11: sulla faccia di una piega la X parte dallo spigolo del lato (qui la faccia interna comincia a 2)
+    assert (18.0, 28.0) in sagoma and (17.0, 27.0) in sagoma          # FL3 e FL2 del profilo
     v0 = bd.Solid(s.result.body.shape).volume
-    assert s.sketch_add_polyline(sid, [[0, 27], [16, 27], [16, 44.5]], False)['ok']
+    assert s.sketch_add_polyline(sid, [[2, 27], [18, 27], [18, 44.5]], False)['ok']
     r = s.create_from_sketch(sid, 'cut', {})
     assert r['ok'], r.get('message')
     assert v0 - bd.Solid(s.result.body.shape).volume == pytest.approx(16 * 17.5 * 2, rel=1e-6)

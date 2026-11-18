@@ -2099,6 +2099,7 @@ async function apply(res, okMsg) {
     if (SK) await refreshSketch();
   }
   if (okMsg || res.message) toast(okMsg || res.message);
+  if (res.avviso) toast(res.avviso, 'warn', null, 12000);     // 18/11: fori spostati da una modifica
   return true;
 }
 
@@ -8231,7 +8232,7 @@ document.querySelector('.tabs').addEventListener('click', ev => {
 
 // ===================================================================== comandi
 // le notifiche (23/10, polish): un'icona per tipo (errore, fatto, informazione), e se serve un pulsante (Annulla)
-const ICONE_TOAST = { err: '!', ok: '✓', '': 'i' };
+const ICONE_TOAST = { err: '!', ok: '✓', warn: '!', '': 'i' };
 function toast(msg, kind = '', azione = null, durata = 0) {
   const t = document.createElement('div');
   // un lavoro riuscito è verde (brief: verde = fatto), anche «Fatti 4 fori.», «Traverso aggiunto.», «4 tubi aggiunti…» (04/11)
