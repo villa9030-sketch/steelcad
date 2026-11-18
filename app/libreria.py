@@ -158,14 +158,33 @@ def crea(tipo: str, misura: str, L=None, cartella=None, inox: bool = False) -> P
         _gira(s, [(0, -L), (r * 0.8, -L), (r, -L + r * 0.2), (r, -k), (dk / 2, 0), (0, 0)])
         _esagono(s, _faccia(s, (0, 1, 0)), 0, sc, 'cut', k * 0.7)
     elif tipo == 'vite_tbei':
-        # la testa bombata: sotto piana a y = 0, la calotta fino a k, in cima un piano piccolo per l'esagono
+        # la testa bombata: sotto piana a y = 0, una calotta sferica vera (un arco, centro sull'asse: liscia, senza
+        # anelli) fino a k, in cima un piano piccolo per l'esagono
         dk, k, sc = TBEI[misura]
         L = float(L)
         rp = sc / 2 / math.cos(math.radians(30)) * 1.1           # il piano in cima: ci sta l'esagono
-        # la calotta: un arco che passa per (dk/2, k*0.15) e per (rp, k), fatto a tratti
-        cal = [(dk / 2 - (dk / 2 - rp) * (1 - math.cos(a)), k * 0.15 + (k * 0.85) * math.sin(a))
-               for a in [math.radians(x) for x in (0, 20, 40, 60, 80, 90)]]
-        _gira(s, [(0, -L), (r * 0.8, -L), (r, -L + r * 0.2), (r, 0), (dk / 2, 0)] + cal + [(0, k)])
+        ya = k * 0.15                                            # il bordo dritto della testa, poi la calotta
+        yc = (rp ** 2 + k ** 2 - (dk / 2) ** 2 - ya ** 2) / (2 * (k - ya))   # il centro della sfera, sull'asse
+        rs = math.hypot(dk / 2, ya - yc)
+        a0, a1 = math.atan2(ya - yc, dk / 2), math.atan2(k - yc, rp)
+        am = (a0 + a1) / 2
+        sid = _sketch(s)
+        q = lambda x, y: [round(x, 4), round(y, 4)]  # noqa: E731
+        def sezione():
+            from app import sketch_more
+            sk = s.doc.sketch(sid)
+            ids = [sk.point(*xy) for xy in (q(rp, k), q(0, k), q(0, -L), q(r * 0.8, -L), q(r, -L + r * 0.2), q(r, 0),
+                                            q(dk / 2, 0), q(dk / 2, ya))]
+            linee = [sk.line(ids[i], ids[i + 1]) for i in range(len(ids) - 1)]
+            # la quota del raggio dell'arco (arrotondata) sposta di un niente i punti: in cima e sotto la testa
+            # restano piane (l'esagono si fa sulla faccia in cima), il gambo dritto
+            for n, v in ((0, 'horizontal'), (1, 'vertical'), (4, 'vertical'), (5, 'horizontal'), (6, 'vertical')):
+                sk.constrain(v, linee[n], auto=True)
+            # la calotta dall'ultimo punto della sezione al primo: gli stessi punti, il contorno si chiude
+            sketch_more.add_arc3(s.doc, sid, ids[-1], q(rs * math.cos(am), yc + rs * math.sin(am)), ids[0])
+        _ok(s._sketch_change('Sezione', sezione), 'sezione')
+        _ok(s.sketch_add_polyline(sid, [[0, -1e3], [0, 1e3]], False, True), 'asse')
+        _ok(s.create_from_sketch(sid, 'revolve', {'angle': 360}), 'rivoluzione')
         _esagono(s, _faccia(s, (0, 1, 0)), k, sc, 'cut', k * 0.6)
     elif tipo == 'vite_te':
         sc, k = TE[misura]

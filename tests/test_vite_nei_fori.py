@@ -191,3 +191,20 @@ def test_fori_uguali_anche_sul_lato_opposto(tmp_path, monkeypatch):
     k = next(k for k, ff in enumerate(_faces_of(part.shape)) if A.face_info(part, ff)['kind'] == 'cilindrica'
              and abs(A.face_info(part, ff)['r'] - 4.5) < 1e-6)            # un foro, non una piega
     assert len(a._fori_uguali('I1', k)) == 4                           # 2 davanti + 2 dietro, sulle stesse linee
+
+
+def test_testa_bombata_liscia(tmp_path):
+    """18/11: la calotta della TBEI era fatta a tratti dritti (anelli a vista): ora un arco vero, una sola superficie
+    curva, e in cima la faccia piana con l'esagono incassato."""
+    import build123d as bd
+
+    from app import libreria
+    f = libreria.crea('vite_tbei', 'M8', 16, tmp_path, inox=True)
+    s = Service()
+    assert s.open(str(f))['ok'] and not s.state()['errors']
+    sh = bd.Compound(s.result.body.shape)
+    curve = [x for x in sh.faces() if x.geom_type not in (bd.GeomType.PLANE, bd.GeomType.CYLINDER, bd.GeomType.CONE)]
+    assert len(curve) == 1                                               # la calotta, tutta d'un pezzo
+    b = sh.bounding_box()
+    assert abs(b.max.Y - 4.4) < 1e-3 and abs(b.max.X - b.min.X - 14) < 1e-3   # alta k = 4,4, Ø dk = 14
+    assert len([x for x in sh.faces() if x.geom_type == bd.GeomType.PLANE]) >= 8  # 6 pareti dell'esagono + fondo + sotto
