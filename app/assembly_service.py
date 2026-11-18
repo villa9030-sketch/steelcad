@@ -1401,17 +1401,29 @@ class AssemblyMixin(MotoMixin):
         f0 = A.face_info(part, facce[int(face)])
         if f0['kind'] != 'cilindrica':
             return [{'inst': inst, 'face': int(face)}]
+        from cad_engine.assembly_appoggia import _pezzo
+        pz = _pezzo(part)
         d0 = np.array(f0['n'])
         perp = lambda p: np.array(p) - d0 * np.dot(np.array(p), d0)  # noqa: E731 - il punto dell'asse, tolto lo spessore
-        assi, out = [perp(f0['p'])], [{'inst': inst, 'face': int(face)}]
+
+        def tratto(k, inf):
+            # 18/11 (carrello): dove sta il foro lungo l'asse. Due facce sullo stesso asse sono lo stesso foro solo se
+            # si toccano lì: i fori uguali sul lato opposto di una scatola stanno sulla stessa linea, ma più in là
+            pts = pz.per_faccia.get(k)
+            if pts is None or not len(pts):
+                q = float(np.dot(inf['p'], d0))
+                return q, q
+            q = pts @ d0
+            return float(q.min()), float(q.max())
+        visti, out = [(perp(f0['p']), tratto(int(face), f0))], [{'inst': inst, 'face': int(face)}]
         for k, f in enumerate(facce):
             inf = A.face_info(part, f)
             if inf['kind'] != 'cilindrica' or abs(inf['r'] - f0['r']) > 1e-4 or abs(abs(float(np.dot(inf['n'], d0))) - 1) > 1e-6:
                 continue
-            q = perp(inf['p'])
-            if any(np.linalg.norm(q - a) < 1e-3 for a in assi):
+            q, tr = perp(inf['p']), tratto(k, inf)
+            if any(np.linalg.norm(q - a) < 1e-3 and tr[0] <= b[1] + 1e-3 and b[0] <= tr[1] + 1e-3 for a, b in visti):
                 continue
-            assi.append(q)
+            visti.append((q, tr))
             out.append({'inst': inst, 'face': k})
         return out
 

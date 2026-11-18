@@ -166,3 +166,28 @@ def test_libreria_inox_descrizione_e_file():
     assert libreria.descrizione('dado', 'M8') == 'Dado esagonale ISO 4032 M8 cl. 8 zincato'
     assert libreria.nome_file('rondella', 'M8', None, True) == 'Rondella M8 inox'
     assert 'vite_tbei' in libreria.CATALOGO and libreria.CATALOGO['vite_tbei']['misure'] == list(libreria.TBEI)
+
+
+def test_fori_uguali_anche_sul_lato_opposto(tmp_path, monkeypatch):
+    """18/11 (carrello): «in tutti i fori uguali» teneva un foro per asse e saltava quelli sul lato opposto della
+    vaschetta, sulla stessa linea (4 invece di 8 sul ripiano)."""
+    monkeypatch.setenv('USERPROFILE', str(tmp_path))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    s = Service()
+    assert s.new_project('lamiera', {'name': 'Vasca', 'larghezza': 300, 'profondita': 200, 'spessore': 3,
+                                     'raggio': 1, 'k': 0.21})['ok']
+    for lato in ('L1', 'L3'):
+        assert s.add_flange('SM1', lato, {'length': 40})['ok']
+    for fid in [f['id'] for f in s.doc.feature('SM1')['flanges']]:
+        sid = s.sketch_on_face(f'SM1/{fid}/esterno')['sketch']
+        for x in (30, 150):
+            assert s.sketch_add_circle(sid, [x, 20], 4.5)['ok']
+        assert s.create_from_sketch(sid, 'cut', {})['ok']
+    f = tmp_path / 'Vasca.steelcad'
+    assert s.save(str(f))['ok']
+    a = Service()
+    assert a.new_assembly('Prova')['ok'] and a.asm_insert(str(f))['ok']
+    part = a.asm_parts[a.asm.instance('I1')['file']]
+    k = next(k for k, ff in enumerate(_faces_of(part.shape)) if A.face_info(part, ff)['kind'] == 'cilindrica'
+             and abs(A.face_info(part, ff)['r'] - 4.5) < 1e-6)            # un foro, non una piega
+    assert len(a._fori_uguali('I1', k)) == 4                           # 2 davanti + 2 dietro, sulle stesse linee
