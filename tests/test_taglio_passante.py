@@ -2,6 +2,7 @@
 anche la piega dietro). Il contorno va dritto, perpendicolare alla faccia: ogni parete piana parallela che incontra
 (la piega di fronte, un ritorno, la base) si taglia, anche nello sviluppo. In una piega curva o di traverso no."""
 import math
+from pathlib import Path
 
 from app.service import Service
 from cad_engine.features.base import volume
@@ -61,10 +62,35 @@ def test_dalla_base_anche_il_ritorno_sopra():
     assert len(p['pareti']) == 1 and 'Piega su piega' in p['pareti'][0], p
 
 
-def test_di_traverso_in_una_parete_non_si_fa():
+def test_nelle_pieghe_si_toglie_tutta_la_piega():
+    """18/11: come al laser, la piega toccata si toglie per tutta la larghezza; i ritorni presi di taglio restano
+    (e la domanda lo dice: il laser non toglie mezzo spessore)."""
     s, fl = _vaschetta()
-    sk = _fori(s, f'SM1/{fl["L1"]}/esterno', [(400, 47.5)])               # all'altezza dei ritorni di fianco
+    sk = _fori(s, f'SM1/{fl["L1"]}/esterno', [(400, 40)])                 # arriva nelle pieghe parete-ritorno
     p = s.taglio_pareti_passanti(sk)
-    assert p['pareti'] == [] and 'piega' in p['errore']
+    assert p['pareti'] == ['Piega dietro 50 su'] and p['pieghe'] == 2 and p['resta'] == 1.5, p
     r = s.create_from_sketch(sk, 'cut', {'passante': 1})
-    assert not r['ok'] and 'attraverso il pezzo' in r['message']
+    assert r['ok'], r.get('message')
+
+
+def test_angolo_del_carrello_il_tubo_passa(tmp_path):
+    """Il ripiano di Stefano: finestra 41×41 nell'angolo, sulla base. Passante: via base, raggi e ritorni; un tubo
+    40×40 nell'angolo (dentro le pareti, da 3 a 43) non tocca più niente. Solo la base: il ritorno resta."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.gp import gp_Pnt
+    dati = Path(__file__).parent / 'data' / 'carrello' / 'ripiano_angolo.steelcad'
+    esiti = {}
+    for passante in (0, 1):
+        copia = tmp_path / f'ripiano{passante}.steelcad'
+        copia.write_bytes(dati.read_bytes())
+        s = Service()
+        assert s.open(str(copia))['ok']
+        p = s.taglio_pareti_passanti('S4')
+        assert len(p['pareti']) == 2 and p['pieghe'] == 4 and p['resta'] == 0.25, p
+        r = s.create_from_sketch('S4', 'cut', {'passante': 1} if passante else {})
+        assert r['ok'], r.get('message')
+        tubo = BRepPrimAPI_MakeBox(gp_Pnt(3, 3, -10), 40, 40, 70).Shape()
+        esiti[passante] = volume(BRepAlgoAPI_Common(s.result.body.shape, tubo).Shape())
+        assert len(s.result.body.sheet.flat.outer_wire().edges()) > 4
+    assert esiti[1] < 1e-3 and esiti[0] > 1000, esiti

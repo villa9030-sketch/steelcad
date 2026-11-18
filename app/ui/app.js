@@ -12674,10 +12674,19 @@ function makeDialog(kind) {
     // se tagliare solo questa parete o attraverso tutto il pezzo
     inCoda(async () => {
       const p = await call('taglio_pareti_passanti', sid);
+      if (p?.ok && !p.pareti?.length && p.errore) {          // mai in silenzio: perché attraverso tutto non si può
+        modal(`<h3>Togli materiale</h3><p class="hint">Attraverso tutto il pezzo non si può: ${esc(p.errore)}</p>
+          <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn primary" id="m-una">Solo questa parete</button></div>`, close => {
+          $('#m-no').onclick = close;
+          $('#m-una').onclick = () => { close(); taglia({}, 'Tagliato.'); };
+        });
+        return;
+      }
       if (!p?.ok || !p.pareti?.length) { taglia({}, 'Tagliato.'); return; }
       const q = p.pareti.map(x => `«${x}»`), elenco = q.length === 1 ? q[0] : q.slice(0, -1).join(', ') + ' e ' + q[q.length - 1];
       modal(`<h3>Togli materiale</h3>
-        <p class="hint">Andando dritto, il disegno incontra anche ${esc(elenco)}.</p>
+        <p class="hint">Andando dritto, il disegno incontra anche ${esc(elenco)}${p.pieghe ? ': attraverso tutto il pezzo si tolgono anche le pieghe che incontra, per tutta la larghezza (la parete resta dritta)' : ''}.</p>
+        ${p.resta ? `<p class="hint">Nelle pareti prese di taglio resta una striscia di ${String(p.resta).replace('.', ',')} mm dentro il disegno: il laser non toglie mezzo spessore. Se dà fastidio, fai partire il disegno dalla faccia interna della parete.</p>` : ''}
         <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn" id="m-una">Solo questa parete</button><button class="btn primary" id="m-tutto">Attraverso tutto il pezzo</button></div>`, close => {
         $('#m-no').onclick = close;
         $('#m-una').onclick = () => { close(); taglia({}, 'Tagliato.'); };

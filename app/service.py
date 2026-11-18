@@ -3499,12 +3499,13 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             body = self.result.body if self.result else None
             prof = (getattr(self.doc, '_sketch_results', {}).get(sid) or (None, None))[1]
             if not faccia or body is None or prof is None or not prof.faces:
-                return {'ok': True, 'pareti': [], 'errore': ''}
+                return {'ok': True, 'pareti': [], 'errore': '', 'resta': 0}
             from cad_engine.sheetmetal import pareti_attraversate
             try:
-                pareti = pareti_attraversate(body, faccia, prof.faces)
+                esito = pareti_attraversate(body, faccia, prof.faces)
             except SteelCADError as ex:
-                return {'ok': True, 'pareti': [], 'errore': ex.message}
+                return {'ok': True, 'pareti': [], 'errore': ex.message, 'resta': 0}
+            pareti = esito['pareti']
             nomi = {}
             pila = [project_tree(self.doc, self.result)]
             while pila:
@@ -3516,7 +3517,7 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
             out = []
             for p in pareti:
                 out.append('Base' if p == 'sotto' else (nomi.get(f'{sm}/{p.split("/")[0]}') or 'una piega'))
-            return {'ok': True, 'pareti': out, 'errore': ''}
+            return {'ok': True, 'pareti': out, 'errore': '', 'resta': esito['resta'], 'pieghe': esito['pieghe']}
         except SteelCADError as ex:
             return _err(ex)
 
@@ -4965,9 +4966,14 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 self.doc.add_feature('sheet_cut', 'Fori del pezzo', sketch=sid, fori_esistenti=True)
             elif kind == 'cut' and su is not None and v.get('passante'):
                 # 18/11: attraverso tutto il pezzo (anche la piega di fronte, i ritorni che incontra)
-                self.doc.add_feature('sheet_cut', 'Taglio passante', sketch=sid, passante=True)
+                self.doc.add_feature('sheet_cut', 'Taglio passante', sketch=sid, passante=True, pieghe_intere=True)
             elif kind == 'cut' and su is not None:
-                self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid)
+                # 18/11: disegnato su una faccia, una piega toccata dal taglio si toglie per tutta la larghezza, come
+                # al laser (tagli nuovi). Sullo sviluppo no: lì si disegna già il contorno esatto del laser
+                if sk.plane.get('flat'):
+                    self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid)
+                else:
+                    self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid, pieghe_intere=True)
             elif kind == 'cut' and v.get('distance'):           # tasca di quella profondità (non passante)
                 self.doc.add_feature('extrude', 'Tasca', sketch=sid, operation='cut', distance=v['distance'], reverse=True)
             elif kind == 'cut':

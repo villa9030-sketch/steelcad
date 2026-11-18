@@ -94,6 +94,30 @@ try:
             time.sleep(0.5)
         chk('foro in mezzo alla base: nessuna domanda, tagliato', str(st['tree']).count("'sheet_cut'") == 2
             and pg.locator('#m-tutto').count() == 0)
+        # l'angolo del ripiano del carrello: finestra 41×41 sulla base, passante → via anche raggi e ritorni
+        copia = cart / 'RIPIANO.steelcad'
+        copia.write_bytes((ROOT / 'tests' / 'data' / 'carrello' / 'ripiano_angolo.steelcad').read_bytes())
+        r = pg.evaluate("async (a) => { const r = await (await fetch('/api/open_path', {method: 'POST', body: JSON.stringify(a)})).json();"
+                        " await window.__steelcad.apply(r); window.__steelcad.hideHome(); return r.ok || r.message; }", [str(copia)])
+        time.sleep(1.5)
+        pg.evaluate("(s) => window.__steelcad.enterSketch(s)", 'S4')
+        pg.wait_for_function('window.__steelcad.sketch')
+        time.sleep(1.2)
+        pg.click('#sk-face [data-make="cut"]')
+        pg.wait_for_selector('#m-tutto', timeout=30000)
+        time.sleep(0.8)
+        testo = pg.inner_text('#modal')
+        chk(f'angolo: dice pieghe tolte e striscia di 0,25 ({testo[:160]!r})', 'pieghe' in testo and '0,25' in testo)
+        pg.screenshot(path=str(OUT / 'tp3_angolo_domanda.png'))
+        pg.click('#m-tutto')
+        for _ in range(60):
+            st = api('state')
+            if 'Taglio passante' in str(st['tree']):
+                break
+            time.sleep(0.5)
+        chk('angolo: «Taglio passante» fatto', 'Taglio passante' in str(st['tree']))
+        time.sleep(1.5)
+        pg.screenshot(path=str(OUT / 'tp4_angolo_fatto.png'))
         chk('nessun errore ' + str(err), not err)
         b.close()
 finally:
