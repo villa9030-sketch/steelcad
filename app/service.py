@@ -3489,6 +3489,37 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                 visti[chiave] = k
         return [[primo] + altri for primo, altri in gruppi.items()]
 
+    def taglio_pareti_passanti(self, sid: str) -> dict:
+        """Prima di «Togli materiale» su una faccia di lamiera (18/11): andando dritto, il disegno incontra altre pareti
+        del pezzo (la piega di fronte, un ritorno)? Se sì l'interfaccia chiede «solo questa parete o attraverso tutto».
+        → {'ok', 'pareti': [nomi come nell'albero], 'errore': perché attraverso tutto non si può}"""
+        try:
+            sk = self.doc.sketch(sid)
+            faccia = sk.plane.get('face', '') if isinstance(sk.plane, dict) else ''
+            body = self.result.body if self.result else None
+            prof = (getattr(self.doc, '_sketch_results', {}).get(sid) or (None, None))[1]
+            if not faccia or body is None or prof is None or not prof.faces:
+                return {'ok': True, 'pareti': [], 'errore': ''}
+            from cad_engine.sheetmetal import pareti_attraversate
+            try:
+                pareti = pareti_attraversate(body, faccia, prof.faces)
+            except SteelCADError as ex:
+                return {'ok': True, 'pareti': [], 'errore': ex.message}
+            nomi = {}
+            pila = [project_tree(self.doc, self.result)]
+            while pila:
+                n = pila.pop()
+                pila += n.get('children') or []
+                if n.get('kind') == 'flange' and n.get('ref'):
+                    nomi[n['ref']] = n.get('label') or ''
+            sm = faccia.split('/')[0]
+            out = []
+            for p in pareti:
+                out.append('Base' if p == 'sotto' else (nomi.get(f'{sm}/{p.split("/")[0]}') or 'una piega'))
+            return {'ok': True, 'pareti': out, 'errore': ''}
+        except SteelCADError as ex:
+            return _err(ex)
+
     def sketch_sovrapposti(self, sid: str) -> dict:
         """«Due contorni si sovrappongono»: quali (le linee, nelle coordinate dello sketch, da mostrare in rosso) e se
         sono cose disegnate due volte, che si sistemano con «Tienine una» (03/11)."""
@@ -4932,6 +4963,9 @@ class Service(AssemblyMixin, DrawingsMixin, ImportMixin, TubiMixin, StruttureMix
                     sk.entities[lid]['label'] = f'lato {lid}'
             if kind == 'cut' and su is not None and v.get('fori_esistenti'):
                 self.doc.add_feature('sheet_cut', 'Fori del pezzo', sketch=sid, fori_esistenti=True)
+            elif kind == 'cut' and su is not None and v.get('passante'):
+                # 18/11: attraverso tutto il pezzo (anche la piega di fronte, i ritorni che incontra)
+                self.doc.add_feature('sheet_cut', 'Taglio passante', sketch=sid, passante=True)
             elif kind == 'cut' and su is not None:
                 self.doc.add_feature('sheet_cut', 'Taglio', sketch=sid)
             elif kind == 'cut' and v.get('distance'):           # tasca di quella profondità (non passante)

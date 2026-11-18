@@ -1702,6 +1702,12 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
     ss, prof = ctx.sketch(fdef)
     if fdef.get('mode') == 'mark':
         return _marca(fdef, body, data, ss, prof, fid)
+    if fdef.get('passante'):
+        piano_ = ss.sketch.plane
+        nome_ = piano_.get('face', '') if isinstance(piano_, dict) else ''
+        if not nome_ or nome_ in (getattr(data, 'pannelli', None) or {}) or fdef.get('mode') == 'add':
+            raise FeatureError('Il taglio attraverso tutto il pezzo si disegna sulla faccia di una lamiera piegata '
+                               '(la base o una piega), non sullo sviluppo né su una forma a facce.', feature=fid)
     if not prof.faces:
         raise FeatureError(f'Lo sketch "{ss.sketch.label()}" non ha contorni chiusi da tagliare.', feature=fid)
     piano = ss.sketch.plane
@@ -1754,8 +1760,14 @@ def build_cut(fdef: dict, ctx) -> NamedShape:
                 sul_piano.append(_attraverso_la_piega(_orienta(f.moved(dst.location * src.location.inverse()), data.plane),
                                                       data))
                 ritorni.append((src.location * dst.location.inverse(), dentro, g))
+            n_disegnati = len(ritorni)
+            if fdef.get('passante'):
+                # 18/11 (carrello): attraverso tutto il pezzo, anche le pareti di fronte (la piega dietro, i ritorni)
+                for fl, rit, _parete in _pareti_passanti(body, data, prof.faces, piani, fid):
+                    sul_piano.append(fl)
+                    ritorni.append(rit)
             nuovo = _cut_from_flat(fdef, body, data, sul_piano, t, ritorni)
-            return _countersinks(nuovo, ss, prof, ritorni, t, fid)
+            return _countersinks(nuovo, ss, prof, ritorni[:n_disegnati], t, fid)
         lavori = []                                                    # (sul pezzo, verso, nello sviluppo)
         ritorni = []                                                   # dallo sviluppo al pezzo
         for f in prof.faces:
@@ -2131,6 +2143,100 @@ def _pick_flange(f, piani, parti, data):
             nrm = h.frame()[1]
             return s_h, d_h, (nrm if parti[2] == 'esterno' else -nrm), h
     return piani
+
+
+def _pareti_passanti(body, data, faces, piani, fid) -> list:
+    """Taglio attraverso tutto il pezzo (18/11, carrello: i fori Ø9 sulla piega davanti devono passare anche la piega
+    dietro). Il contorno disegnato va dritto, perpendicolare alla faccia, attraverso tutto il pezzo: ogni pezzo di
+    lamiera che incontra deve stare in una parete piana parallela (la base, una piega, un ritorno), e lì diventa un
+    contorno dello sviluppo. Se va in una piega curva o taglia di traverso una parete, si dice e non si fa: il laser
+    non lo potrebbe tagliare in piano.
+    → [(contorno nello sviluppo, ritorno sviluppo → pezzo, nome della parete)], senza la parete disegnata."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+
+    from ..features.base import volume
+    t = data.thickness
+    src0, _dst0, dentro0, _g0 = piani
+    n = bd.Vector(dentro0).normalized()
+    O = src0.origin
+
+    def off(p):
+        return (bd.Vector(p) - O).dot(n)
+    pareti = []                                        # (da, a lungo n, faccia esterna, piani, nome)
+    for parti in [[data.feature, 'sotto']] + [[data.feature, g.fid, 'esterno'] for g in data.flanges]:
+        try:
+            pc = _face_planes(parti, data, fid)
+        except FeatureError:
+            continue
+        src, _dst, dentro, _g = pc
+        if abs(abs(src.z_dir.dot(n)) - 1) > 1e-6:
+            continue
+        a = off(src.origin)
+        b = a + bd.Vector(dentro).dot(n) * t
+        pareti.append((min(a, b), max(a, b), a, pc, '/'.join(parti[1:])))
+    bb = bd.Shape.cast(body.shape).bounding_box()
+    L = bb.diagonal * 2 + 10
+    out = []
+    for f in faces:
+        prisma = bd.extrude(f, amount=L, dir=tuple(n), both=True)
+        op = BRepAlgoAPI_Common(body.shape, prisma.wrapped)
+        if not op.IsDone():
+            raise FeatureError('Il kernel non è riuscito a seguire il taglio attraverso il pezzo.', feature=fid)
+        for pz in bd.Shape.cast(op.Shape()).solids():
+            v_pz = volume(pz.wrapped)
+            if v_pz < 1e-4:
+                continue
+            ofs = [off(v) for v in pz.vertices()]
+            lo, hi = min(ofs), max(ofs)
+            if abs(lo) < 0.01 and abs(hi - t) < 0.01:
+                continue                               # la parete dove si è disegnato: la fa il taglio normale
+            trovato = None
+            for p_lo, p_hi, a, pc, nome in pareti:
+                if abs(lo - p_lo) > 0.01 or abs(hi - p_hi) > 0.01:
+                    continue
+                src, dst, dentro, g = pc
+                sul = [x for x in pz.faces() if x.geom_type == bd.GeomType.PLANE
+                       and abs(abs(x.normal_at(x.center()).dot(n)) - 1) < 1e-6 and abs(off(x.center()) - a) < 0.01]
+                if not sul or abs(sum(x.area for x in sul) * t - v_pz) > 1e-3 * max(v_pz, 1):
+                    continue
+                if g is not None and not _sulla_parete(sul, src, g, t):
+                    continue
+                trovato = (sul, pc, nome)
+                break
+            if trovato is None:
+                raise FeatureError('Andando dritto attraverso il pezzo il taglio passa in una piega o taglia di traverso '
+                                   'una parete: il laser non lo può fare in piano. Sposta il disegno, oppure fai il '
+                                   'taglio solo su questa parete.', feature=fid)
+            sul, (src, dst, dentro, g), nome = trovato
+            for x in sul:
+                fl = _orienta(x.moved(dst.location * src.location.inverse()), data.plane)
+                out.append((fl, (src.location * dst.location.inverse(), dentro, g), nome))
+    return out
+
+
+def _sulla_parete(facce, src, g, t) -> bool:
+    """Le facce stanno nel tratto dritto della flangia g (non nella sua piega né oltre la punta)?"""
+    for f in facce:
+        for e in f.edges():
+            for p in e.positions([i / 8 for i in range(9)]):
+                q = src.to_local_coords(p)
+                in_u = g.u0 - TOL <= q.X <= g.u1 + TOL or any(a - TOL <= q.X <= b + TOL for a, b in g.tab_ranges)
+                if not (in_u and g.bend.ossb - TOL <= q.Y <= g.length - g.tip_cut + TOL):
+                    return False
+    return True
+
+
+def pareti_attraversate(body, faccia: str, faces) -> list:
+    """Per la domanda «solo questa parete o attraverso tutto?»: i nomi delle altre pareti che il contorno disegnato
+    sulla faccia incontrerebbe andando dritto. Solleva FeatureError se andrebbe in una piega."""
+    data = getattr(body, 'sheet', None) if body is not None else None
+    if data is None or not faccia or faccia in (getattr(data, 'pannelli', None) or {}):
+        return []
+    parti = faccia.split('/')
+    if parti[0] != data.feature:
+        return []
+    piani = _face_planes(parti, data, '')
+    return sorted({nome for _fl, _r, nome in _pareti_passanti(body, data, faces, piani, '')})
 
 
 def _check_on_face(faces, src, g, data, fid):

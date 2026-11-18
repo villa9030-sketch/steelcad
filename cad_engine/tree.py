@@ -162,7 +162,9 @@ def _feature_label(doc, f, fr) -> str:
                 return f'{nome if nome not in ("", "Marcatura") else "Scritta"} ' + (', '.join(f'«{t}»' for t in testi[:3]) or 'laser') + (' …' if len(testi) > 3 else '')
             try:
                 sk_t = doc.sketch(f['sketch'])
-                return _cosa_taglia(sk_t, nome, _punti(doc, sk_t))
+                cosa_ = _cosa_taglia(sk_t, nome, _punti(doc, sk_t))
+                # 18/11: si vede subito che passa tutto il pezzo
+                return cosa_ + (' (passante su tutto)' if f.get('passante') and 'passante' not in cosa_ else '')
             except (SteelCADError, KeyError):
                 return f'{nome or "Taglio"} attraverso la lamiera'
 

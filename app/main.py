@@ -597,6 +597,9 @@ class Api:
     def sketch_sovrapposti(self, sid):
         return self._call(self._svc.sketch_sovrapposti, sid)
 
+    def taglio_pareti_passanti(self, sid):
+        return self._call(self._svc.taglio_pareti_passanti, sid)
+
     def sketch_togli_doppioni(self, sid):
         return self._call(self._svc.sketch_togli_doppioni, sid)
 

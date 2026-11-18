@@ -12666,10 +12666,24 @@ function makeDialog(kind) {
   }
   if (kind === 'cut') {
     const sid = SK.sid;
-    subitoOProva({ metodo: 'create_from_sketch', argomenti: () => [sid, 'cut', {}], togli: true, conferma: 'Togli materiale', frase: r => r?.frase || 'Toglie dal pezzo quello che hai disegnato',
+    const taglia = (v, okMsg) => subitoOProva({ metodo: 'create_from_sketch', argomenti: () => [sid, 'cut', v], togli: true, conferma: 'Togli materiale', frase: r => r?.frase || 'Toglie dal pezzo quello che hai disegnato',
       sotto: () => 'In arancio quello che va via · nello sviluppo è il contorno che taglia il laser',
-      fai: () => inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'cut', {}), 'Tagliato.')) exitSketch(); }) },
-      () => call('create_from_sketch', sid, 'cut', {}), 'Tagliato.');
+      fai: () => inCoda(async () => { if (await apply(await call('create_from_sketch', sid, 'cut', v), okMsg)) exitSketch(); }) },
+      () => call('create_from_sketch', sid, 'cut', v), okMsg);
+    // 18/11 (carrello): se andando dritto il disegno incontra altre pareti (la piega di fronte, un ritorno), si chiede
+    // se tagliare solo questa parete o attraverso tutto il pezzo
+    inCoda(async () => {
+      const p = await call('taglio_pareti_passanti', sid);
+      if (!p?.ok || !p.pareti?.length) { taglia({}, 'Tagliato.'); return; }
+      const q = p.pareti.map(x => `«${x}»`), elenco = q.length === 1 ? q[0] : q.slice(0, -1).join(', ') + ' e ' + q[q.length - 1];
+      modal(`<h3>Togli materiale</h3>
+        <p class="hint">Andando dritto, il disegno incontra anche ${esc(elenco)}.</p>
+        <div class="acts"><button class="btn" id="m-no">Annulla</button><button class="btn" id="m-una">Solo questa parete</button><button class="btn primary" id="m-tutto">Attraverso tutto il pezzo</button></div>`, close => {
+        $('#m-no').onclick = close;
+        $('#m-una').onclick = () => { close(); taglia({}, 'Tagliato.'); };
+        $('#m-tutto').onclick = () => { close(); taglia({ passante: 1 }, `Tagliato attraverso tutto il pezzo (anche ${elenco}).`); };
+      });
+    });
     return;
   }
   if (kind === 'fold' || kind === 'fold_finestra') {
